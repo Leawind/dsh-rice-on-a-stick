@@ -22,7 +22,7 @@ const DEFAULT_CONNS = () => [
 ]
 const state = {
   name: 'dsh-carrot-on-a-stick',
-  version: '0.1.0',
+  version: '0.1.0-rc.1',
   listening: true,
   httpEnabled: true,
   endpoint: `http://127.0.0.1:8090/mcp`,

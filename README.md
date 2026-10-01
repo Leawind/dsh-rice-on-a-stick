@@ -45,9 +45,7 @@ Claude Code / Cursor / Cline / your agent
 
 | Plugin version | DSH version | Status |
 | --- | --- | --- |
-| `0.3.0-rc.1` | `0.2.1-rc.2` | Current; adds the approval control plane; async + approval surfaces covered by smoke and real-host e2e |
-| `0.2.0-rc.1` | `0.2.1-rc.2` | Async control plane (submit/poll/result) |
-| `0.1.0-rc.1` | `0.2.1-rc.2` | Previous synchronous session surface; verified end to end |
+| `0.1.0-rc.1` | `0.2.1-rc.2` | Current; synchronous session surface, async control plane (submit/poll/result), approval control plane; covered by smoke and real-host e2e |
 
 ## Install
 

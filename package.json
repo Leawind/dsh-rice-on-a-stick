@@ -1,6 +1,6 @@
 {
   "name": "dsh-carrot-on-a-stick",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "description": "Operate DeepSeek Harness (dsh) over MCP or from its own sessions: expose dsh sessions, task execution, and workspace management as MCP tools and native dsh tools.",
   "icon": "./icon.svg",
   "type": "module",

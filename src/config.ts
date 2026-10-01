@@ -22,7 +22,7 @@ export function authTokenHint(token: string): string {
 }
 
 /** 插件版本(MCP server 握手时上报; 与 package.json 的 version 同步) */
-export const PLUGIN_VERSION = '0.1.0'
+export const PLUGIN_VERSION = '0.1.0-rc.1'
 
 /**
  * 插件配置(文件形态的普通值)。
