@@ -26,6 +26,10 @@ jobs:
           node -e "const v=require('./package.json').version; const t=process.env.GITHUB_REF_NAME.slice(1); if(v!==t){console.error('tag v'+t+' != package.json '+v);process.exit(1)}; console.log('publishing', v)"
       - run: npm ci
       - run: npm test
-      - run: npm publish --provenance --access public
+      # 预发布版本(x.y.z-后缀)不允许占 latest, npm 强制显式 dist-tag: 有后缀发 rc, 正式版发 latest
+      - name: Publish
+        run: |
+          TAG=$(node -p "require('./package.json').version.includes('-') ? 'rc' : 'latest'")
+          npm publish --provenance --access public --tag "$TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
