@@ -10,7 +10,7 @@
 src/
 ├── index.ts      装配层: 插件导出(name/inject/apply)、配置构建、队列持久化接线、
 │                 Streamable HTTP 传输层(认证/Host/Origin/体上限/会话路由)、GUI 控制面
-├── config.ts     Config 接口(公开 API)+ DEFAULTS + 运行时配置类型
+├── config.ts     Config 接口(公开 API)+ Schemastery schema(装载期校验/宿主配置视图)+ DEFAULTS
 ├── types.ts      跨模块纯数据类型(ModelSelection/TaskResult/TaskItem/PooledAgent…)
 ├── state.ts      进程内可变状态单例(config/会话池/锁/队列/hooks)+ TTL 清扫
 ├── paths.ts      cwd realpath 规范化、跨平台 isWithin、workspaceRoots 白名单(安全边界)

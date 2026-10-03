@@ -80,6 +80,8 @@
 
 ## 配置（cordis.yml）
 
+全部配置项均声明在 Schemastery schema（入口导出的 `Config`）上：装载时做类型/枚举校验并填默认值，dsh 设置界面的插件配置视图会按同一 schema 渲染可编辑表单（改完即热重载生效）。cordis.yml 是适合无人值守部署的静态写法，两者等价。
+
 ```yaml
 - insert:
       - id: dsh-carrot-on-a-stick

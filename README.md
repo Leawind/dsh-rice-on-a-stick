@@ -80,6 +80,8 @@ Resource-capable clients can read the same data without spending tokens, and sub
 
 ## Configuration (cordis.yml)
 
+Every option is declared on a Schemastery schema (the entry-exported `Config`): validated for type/enum at load time with defaults filled in, and the dsh settings UI renders an editable form from the same schema in its plugin config view (edits hot-reload). cordis.yml is the static form suited to unattended deployment; both are equivalent.
+
 ```yaml
 - insert:
       - id: dsh-carrot-on-a-stick

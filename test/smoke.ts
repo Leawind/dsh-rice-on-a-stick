@@ -39,10 +39,12 @@ import { getEventListeners } from 'node:events'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { apply } from '../lib/index.js'
+import * as entryExports from '../lib/index.js'
 import { basicStatusSnapshot } from '../lib/tools.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
 import { state as pluginState } from '../lib/state.js'
+import { Config as ConfigSchema, DEFAULTS } from '../lib/config.js'
 import {
   attachedIds,
   BASE,
@@ -1541,6 +1543,39 @@ try {
       const s = parseSummary('没有任何 JSON 的普通回答')
       return s.changes === '' && s.verification === '' && s.leftovers === ''
     })()
+  }
+
+  // ── Phase Q: Config schema(装载期校验/默认值填充; cordis 读入口的 Config 值, 宿主配置视图按它渲染表单) ──
+  {
+    // schemastery 校验恒为同步; standard-schema 的 Result<unknown> 联合在此断言为实际的结果形状
+    const validateSync = (value: unknown): { value?: Record<string, unknown>; issues?: { path?: PropertyKey[]; message: string }[] } => {
+      const r = ConfigSchema['~standard'].validate(value) as { value?: Record<string, unknown>; issues?: { path?: PropertyKey[]; message: string }[] } | Promise<never>
+      if (r instanceof Promise) throw new TypeError('unexpected async config validation')
+      return r
+    }
+    // null 输入 → 全字段填默认(含 DEFAULTS 之外的 http/port/host/reattachOrphans 内联默认)
+    const full = ConfigSchema(null)
+    checks['Config schema: null → 全字段填默认'] =
+      full.http === true && full.port === 8090 && full.host === '127.0.0.1'
+      && full.maxQueue === DEFAULTS.maxQueue && full.taskTtlMs === DEFAULTS.taskTtlMs
+      && full.defaultDetail === 'summary' && full.resourceFirst === DEFAULTS.resourceFirst
+      && Array.isArray(full.workspaceRoots) && full.workspaceRoots.length === 0
+      && full.reattachOrphans === false && full.authToken === ''
+    // 部分覆盖 → 覆盖生效, 未覆盖字段保持默认(默认值不串台)
+    const part = ConfigSchema({ authToken: 'tok', maxQueue: 7, defaultDetail: 'full' })
+    checks['Config schema: 部分覆盖生效且其余保持默认'] =
+      part.authToken === 'tok' && part.maxQueue === 7 && part.defaultDetail === 'full'
+      && part.preset === DEFAULTS.preset && part.maxAgents === DEFAULTS.maxAgents
+    // 类型错误/非法枚举 → 校验失败(cordis 装载期 ValidationError 拒载)
+    const badType = validateSync({ port: 'abc' })
+    const badEnum = validateSync({ defaultDetail: 'detailed' })
+    checks['Config schema: 类型错误被拒且带路径'] = !!badType.issues && badType.issues.some((i) => i.path?.join('.') === 'port')
+    checks['Config schema: defaultDetail 非法枚举被拒'] = !!badEnum.issues && badEnum.issues.some((i) => i.path?.join('.') === 'defaultDetail')
+    // 合法配置 → validate 返回规范化值(带默认填充)
+    const ok = validateSync({ port: 8091 })
+    checks['Config schema: ~standard.validate 合法配置通过并填默认'] = !ok.issues && ok.value?.port === 8091 && ok.value?.preset === DEFAULTS.preset
+    // 入口导出的 Config 与 config.ts 的 schema 同一实例(cordis 读的正是它)
+    checks['Config schema: 入口导出同一 schema 实例'] = entryExports.Config === ConfigSchema
   }
 
   const total = Object.keys(checks).length

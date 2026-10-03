@@ -67,7 +67,8 @@ export const name = PLUGIN_NAME
 export const inject = ['tools', 'llm', 'agents', 'agentPresets', 'workspaceRegistry', 'sessionPersistence', 'sessions']
 
 /** 插件配置类型(从 config.ts 再导出, 供消费方 import type { Config } from 'dsh-carrot-on-a-stick') */
-export type { Config } from './config.js'
+// Config 以 value+type 同名导出: value(schema)供 cordis 装载期校验与宿主配置视图渲染, type 供 apply 签名
+export { Config } from './config.js'
 
 // ── GUI 控制面(webServer 路由) ──
 
