@@ -1,5 +1,5 @@
 // Dev-only UI smoke harness: 最小宿主桩, 把 client/client.js 注入的面板真实渲染到浏览器。
-// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/stop/start), 状态形状与
+// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/stop/start/config-update), 状态形状与
 // src/index.ts 的 statusSnapshot() 逐字段对齐。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
@@ -29,13 +29,15 @@ const state = {
   startedAt,
   config: {
     provider: '(跟随宿主默认)', model: '(跟随宿主默认)', reasoningEffort: '(适配器默认)',
-    allowModelOverride: true, preset: 'standard', defaultDetail: 'summary',
+    allowModelOverride: true, allowPresetOverride: true, preset: 'standard', defaultDetail: 'summary',
     maxAgents: 8, maxQueue: 100, taskTimeoutMs: 0, sessionTtlMs: 86400000,
-    queuePersist: false, queuePersistEncrypted: false, authEnabled: false, workspaceRoots: undefined,
+    queuePersist: false, queuePersistPath: '', queuePersistEncrypted: false, authEnabled: false, workspaceRoots: undefined,
   },
   connections: DEFAULT_CONNS(),
 }
-const rpcCounts = { status: 0, stop: 0, start: 0 }
+const initialConfig = JSON.parse(JSON.stringify(state.config))
+const rpcCounts = { status: 0, stop: 0, start: 0, 'config-update': 0 }
+const configCalls = []
 const boot = { errors: [] }
 const mode = { statusError: false, actionDelayMs: 0 }
 
@@ -132,11 +134,31 @@ const server = createServer(async (req, res) => {
       return res.end(raw)
     }
     if (req.method === 'POST' && url.pathname.startsWith('/_dsh/dsh-carrot-on-a-stick/')) {
+      // 消费请求体: config-update 携带 JSON 载荷; 不消费会因未读流导致 keep-alive 连接异常
+      let rawBody = ''
+      for await (const chunk of req) rawBody += chunk
       const method = url.pathname.slice('/_dsh/dsh-carrot-on-a-stick/'.length)
       if (method === 'status') {
         rpcCounts.status++
         if (mode.statusError) return json(res, 500, { error: '模拟故障(statusError)' })
         return json(res, 200, snapshot())
+      }
+      if (method === 'config-update') {
+        rpcCounts['config-update']++
+        let payload
+        try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
+        configCalls.push(payload)
+        if (payload.reset === true) {
+          state.config = JSON.parse(JSON.stringify(initialConfig))
+        } else if (payload.values && typeof payload.values === 'object') {
+          Object.assign(state.config, payload.values)
+          // 与后端 statusSnapshot 的派生字段保持一致
+          state.config.queuePersist = Boolean(payload.values.queuePersistPath)
+          state.config.authEnabled = Boolean(payload.values.authToken)
+        } else {
+          return json(res, 400, { error: 'values 必须是对象' })
+        }
+        return json(res, 200, { updated: true })
       }
       if (method === 'stop' || method === 'start') {
         rpcCounts[method]++
@@ -154,7 +176,7 @@ const server = createServer(async (req, res) => {
       return json(res, 404, { error: 'unknown method ' + method })
     }
     if (url.pathname === '/__test/state') {
-      return json(res, 200, { state: snapshot(), rpcCounts, boot })
+      return json(res, 200, { state: snapshot(), rpcCounts, configCalls, boot })
     }
     if (req.method === 'POST' && url.pathname === '/__test/mode') {
       const body = await readBody(req)
