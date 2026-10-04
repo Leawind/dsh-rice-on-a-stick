@@ -448,6 +448,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         model: state.config.model || '(跟随宿主默认)',
         reasoningEffort: state.config.reasoningEffort || '(适配器默认)',
         allowModelOverride: state.config.allowModelOverride,
+        allowPresetOverride: state.config.allowPresetOverride,
         preset: state.config.preset,
         defaultDetail: state.config.defaultDetail,
         maxAgents: state.config.maxAgents,
