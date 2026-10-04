@@ -1430,7 +1430,8 @@ try {
     const gui = ctxJ.__webHandlers
     await apply(ctxJ, { port: 8088, host: '127.0.0.1' })
     const handler = gui.get('gui')
-    const callGui = (route, { httpMethod = 'GET', headers = {} } = {}) => {
+    const callGui = (route: string, opts: { httpMethod?: string; headers?: Record<string, string>; body?: string } = {}) => {
+      const { httpMethod = 'GET', headers = {}, body } = opts
       const req = new EventEmitter()
       Object.assign(req, { method: httpMethod, url: `/_dsh/dsh-carrot-on-a-stick/${route}`, headers })
       const res = {
@@ -1439,7 +1440,10 @@ try {
         end(b) { this.body = String(b ?? '') },
       }
       const done = handler(req, res)
-      setImmediate(() => req.emit('end')) // 消费 POST body 流(GET 无监听者, no-op)
+      setImmediate(() => {
+        if (body !== undefined) req.emit('data', Buffer.from(String(body)))
+        req.emit('end') // 消费 POST body 流(GET 无监听者, no-op)
+      })
       return done.then(() => res)
     }
     const st = await callGui('status')
@@ -1458,6 +1462,36 @@ try {
     checks['GUI 路由: 同源 start 重新监听'] = startOk.status === 200 && JSON.parse(startOk.body).started === true
     const st3 = await callGui('status')
     checks['GUI 路由: start 后 listening=true'] = JSON.parse(st3.body).listening === true
+    // config-update(配置编辑写路由): 同源门禁 / 无 configEditor 环境 409 / 白名单与类型前置校验 / 非法 JSON
+    const cfgCross = await callGui('config-update', {
+      httpMethod: 'POST', body: JSON.stringify({ values: { preset: 'reviewer' } }),
+    })
+    checks['GUI 路由: 无同源标识的 config-update 被 403'] = cfgCross.status === 403
+    const cfgNoEditor = await callGui('config-update', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { preset: 'reviewer' } }),
+    })
+    checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
+      && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
+    const cfgBadField = await callGui('config-update', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { port: 8099 } }),
+    })
+    checks['GUI 路由: config-update 白名单外字段 400'] = cfgBadField.status === 400
+    const cfgBadType = await callGui('config-update', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { maxQueue: 'abc' } }),
+    })
+    checks['GUI 路由: config-update 数字字段类型非法 400'] = cfgBadType.status === 400
+    const cfgBadDetail = await callGui('config-update', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { defaultDetail: 'verbose' } }),
+    })
+    checks['GUI 路由: config-update 枚举字段非法 400'] = cfgBadDetail.status === 400
+    const cfgBadJson = await callGui('config-update', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' }, body: '{oops',
+    })
+    checks['GUI 路由: config-update 非法 JSON 请求体 400'] = cfgBadJson.status === 400
     // 闭环: 重启后的服务必须能真实完成一次 MCP 握手(而不只是标志位翻真)
     const afterStart = await fetch('http://127.0.0.1:8088/mcp', {
       method: 'POST',

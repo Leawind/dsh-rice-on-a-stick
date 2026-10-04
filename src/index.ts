@@ -53,7 +53,7 @@ import { registerResources } from './resources.js'
 import { resUri } from './data.js'
 import { createNotifyHub } from './notify.js'
 import { serverInstructions } from './onboarding.js'
-import { reattachOrphanSessions } from './host.js'
+import { reattachOrphanSessions, serviceOf } from './host.js'
 import type { TaskItem } from './types.js'
 
 /** Cordis 插件名 */
@@ -79,6 +79,23 @@ interface WebServerView {
     path: string
     handler: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   }): () => void
+}
+
+/** 配置编辑通道视图(@deepseek-ai/dsh-config-editor 提供; 可选依赖, 仅类型声明合并零运行时副本):
+ * edit 把 change 的返回值写为 profile patch 本条目的 config 行(原子写 + 文件锁 + hmr 串行),
+ * 写前经条目 Config schema 校验, "等于继承层"的写入自动删除覆盖行。 */
+interface ConfigEditorView {
+  edit(
+    entry: unknown,
+    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>
+}
+
+/** 带 HTTP 状态码的错误(GUI 路由的 catch 按 status 决定是否回传 message) */
+function httpError(status: number, message: string): Error & { status: number } {
+  const err = new Error(message) as Error & { status: number }
+  err.status = status
+  return err
 }
 
 /** 一条 MCP 客户端连接(transport 会话)的观测记录: 面板与 status RPC 的数据源 */
@@ -139,6 +156,48 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
     req.on('end', () => resolvePromise(Buffer.concat(chunks).toString('utf8')))
     req.on('error', rejectPromise)
   })
+}
+
+// ── GUI 配置编辑(config-update 路由)的字段面 ──
+
+/** 字符串字段(空串语义与配置文件一致: provider/model/reasoningEffort 空即"跟随默认", authToken/queuePersistPath 空即关闭) */
+const GUI_STRING_FIELDS = new Set(['provider', 'model', 'reasoningEffort', 'preset', 'queuePersistPath', 'authToken'])
+/** 布尔字段 */
+const GUI_BOOL_FIELDS = new Set(['allowModelOverride', 'allowPresetOverride'])
+/** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
+const GUI_NUMBER_MIN: Record<string, number> = { maxQueue: 1, maxAgents: 1, taskTimeoutMs: 0, sessionTtlMs: 0 }
+/** defaultDetail 合法枚举(与 config.ts schema 一致) */
+const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
+
+/** 校验并整形 GUI 提交的配置值: 只放行白名单字段, 类型/枚举/下限不对一律 400(逐字段报因)。 */
+function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw httpError(400, 'values 必须是对象')
+  }
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (GUI_STRING_FIELDS.has(key)) {
+      if (typeof value !== 'string') throw httpError(400, `${key} 必须是字符串`)
+      out[key] = value
+    } else if (GUI_BOOL_FIELDS.has(key)) {
+      if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
+      out[key] = value
+    } else if (key in GUI_NUMBER_MIN) {
+      const n = typeof value === 'number' ? value : Number(value)
+      const min = GUI_NUMBER_MIN[key]
+      if (!Number.isFinite(n) || n < min) throw httpError(400, `${key} 必须是不小于 ${min} 的数字`)
+      out[key] = n
+    } else if (key === 'defaultDetail') {
+      if (typeof value !== 'string' || !GUI_DETAIL_VALUES.has(value)) {
+        throw httpError(400, 'defaultDetail 必须是 summary/normal/full 之一')
+      }
+      out[key] = value
+    } else {
+      throw httpError(400, `字段 ${key} 不支持在界面编辑, 请编辑 cordis.patch.yml`)
+    }
+  }
+  if (Object.keys(out).length === 0) throw httpError(400, 'values 不能为空')
+  return out
 }
 
 // ── HTTP 层(认证 / Host 校验 / 路由) ──
@@ -504,12 +563,38 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
 
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-carrot-on-a-stick/<method>(设置页面板的数据/操作后端) ──
-  const WEB_ROUTES: Record<string, () => unknown> = {
+
+  /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
+   * 字段保持非 volatile——写入经 Loader 正常重载本插件(apply 重跑, state.config 重建), 与手改配置文件同语义;
+   * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
+  async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean }> {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw httpError(400, '请求体必须是 { values, reset? } 对象')
+    }
+    const { values, reset } = body as { values?: unknown; reset?: unknown }
+    const nextValues = reset === true ? undefined : parseGuiConfigValues(values)
+    const editor = serviceOf<ConfigEditorView>(ctx, 'configEditor')
+    const entry = (ctx as { fiber?: { entry?: unknown } }).fiber?.entry
+    if (editor === undefined || entry === undefined || typeof editor.edit !== 'function') {
+      throw httpError(409, '配置编辑通道不可用(宿主未提供 configEditor), 请直接编辑 cordis.patch.yml')
+    }
+    try {
+      await editor.edit(entry, (_current, inherited) =>
+        // reset: 写回继承层值 → configEditor 对"等于继承层"的写入自动删除覆盖行, 即恢复默认
+        nextValues === undefined ? { ...inherited } : { ..._current, ...nextValues })
+    } catch (e) {
+      throw httpError(400, `配置写入被拒绝: ${(e as Error)?.message ?? String(e)}`)
+    }
+    return { updated: true }
+  }
+
+  const WEB_ROUTES: Record<string, (body: unknown) => unknown> = {
     status: () => statusSnapshot(),
     stop: () => stopMcpServer(),
     start: () => startMcpServer(),
+    'config-update': (body) => guiConfigUpdate(body),
   }
-  const WEB_MUTATING = new Set(['stop', 'start'])
+  const WEB_MUTATING = new Set(['stop', 'start', 'config-update'])
   ctx.inject(['webServer'], (webCtx) => {
     const webServer = (webCtx as unknown as { webServer: WebServerView }).webServer
     webCtx.effect(() => {
@@ -529,14 +614,24 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
               webRespond(res, 404, { error: `unknown method: ${method}` })
               return
             }
-            // 变更类方法要求同源(GUI 按钮发起; 防 CSRF 式启停)
+            // 变更类方法要求同源(GUI 按钮发起; 防 CSRF 式启停/改配置)
             if (WEB_MUTATING.has(method) && !sameOrigin(req)) {
               webRespond(res, 403, { error: 'cross-origin request rejected' })
               return
             }
-            // 读 body(仅为了消费流, 方法本身无参; 限 64k 防滥用)
-            if (req.method === 'POST' || req.method === 'PUT') await webReadBody(req, 64 * 1024)
-            webRespond(res, 200, await fn())
+            // 读 body(限 64k 防滥用): config-update 需要 JSON 载荷, 其余方法仅消费流
+            let body: unknown
+            if (req.method === 'POST' || req.method === 'PUT') {
+              const raw = await webReadBody(req, 64 * 1024)
+              if (raw !== '') {
+                try {
+                  body = JSON.parse(raw)
+                } catch {
+                  throw httpError(400, '请求体不是合法 JSON')
+                }
+              }
+            }
+            webRespond(res, 200, await fn(body))
           } catch (e) {
             const status = (e as { status?: number })?.status ?? 500
             webRespond(res, status, { error: status === 500 ? 'internal error' : String((e as Error)?.message ?? e) })
