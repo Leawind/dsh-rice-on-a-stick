@@ -32,5 +32,5 @@
 
 实现中踩过并确认的坑，供后续任务避让；条目应写清现象与结论，不罗列排查过程。
 
--   Web 设置面板做 GUI 冒烟测试用 `npm run smoke:ui`（test/ui-harness.mjs，stub 宿主 + mock RPC），配合 ZCode 内置浏览器驱动。已确认的自动化环境怪癖（均非面板缺陷）：IAB 的 fullPage/clip 截图会把视口平铺成多份，判断布局用普通视口截图；点击偶发与面板 10 秒轮询重渲染竞态而超时，重新观察后重试即可；客体页可能降级（点击不再派发、截图报 guest 失败），关页开新标签恢复。
+-   Web 设置面板做 GUI 冒烟测试用 `npm run smoke:ui`（test/ui-harness.mjs，stub 宿主 + mock RPC），配合 ZCode 内置浏览器驱动。已确认的自动化环境怪癖（均非面板缺陷）：IAB 的 fullPage/clip 截图会把视口平铺成多份，判断布局用普通视口截图；点击偶发与面板 10 秒轮询重渲染竞态而超时，重新观察后重试即可；客体页可能降级（点击不再派发、截图报 guest 失败），关页开新标签恢复。降级还有**网络形态**：页面 JS 存活（快照/evaluate 正常、JS 点击可派发）但页面内 fetch 全部挂起（curl 同 URL 秒回），重开标签后连重型 SPA 都加载不完（goto 不落定）——此时别耗在浏览器上，改走 API 级验证（对真机 GUI 路由 curl 时带 `sec-fetch-site: same-origin` 头即可过同源守卫）。harness 页上 Playwright/dom_cua 外部点击常不派发，页面内 JS click（evaluate 里 `el.click()`）是可靠路径；React 受控输入用原生 value setter + `input` 事件注入。
 -   真机调试面板改 `client/client.js` 即时生效（web profile 已 link 安装 + client-hmr 监听，存盘即推送浏览器，无需刷新/重启），但重建会**重置已打开的设置对话框**——面板"消失"是重载语义，重开设置即可；后端 src 改动经 `npm run dev` 落 lib/ 由 hmr 服务热替换。本机链路细节见 AGENTS-LOCAL.md。

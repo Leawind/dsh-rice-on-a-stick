@@ -80,7 +80,7 @@ Resource-capable clients can read the same data without spending tokens, and sub
 
 ## Configuration (cordis.yml)
 
-Every option is declared on a Schemastery schema (the entry-exported `Config`): validated for type/enum at load time with defaults filled in, and the dsh settings UI renders an editable form from the same schema in its plugin config view (edits hot-reload). cordis.yml is the static form suited to unattended deployment; both are equivalent.
+Every option is declared on a Schemastery schema (the entry-exported `Config`): validated for type/enum at load time with defaults filled in. The dsh settings UI's built-in plugin view is read-only for this plugin — the host only renders editable forms for entries with `volatile` (hot-updated) fields; graphical editing of common fields lives in this plugin's own **Web settings panel** (below), everything else is edited in cordis.yml. Both are equivalent.
 
 ```yaml
 - insert:
@@ -138,6 +138,8 @@ Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP 
 ## Web settings panel
 
 The bundle adds a **Settings → MCP Service** section to the dsh web UI: live status badge, the MCP endpoint (click or use the copy button), overview tiles (uptime / pooled agents / client connections / active queue / resource subscriptions), a config summary in three groups (model & execution, security, capacity & reclamation — unhardened security items highlighted in amber), start/stop buttons (stop asks for confirmation), and the connected client list (cross-day connections show the date).
+
+**Config editing** — "Edit config" expands a form for the common fields: provider / model / reasoning effort / preset, the two override toggles, default detail, queue capacity / agent pool cap / task timeout / idle reclamation (milliseconds, `0` semantics matching the config file), the queue persistence path, and a write-only auth token (left empty means unchanged; explicit clearing supported). Saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running tasks are interrupted, MCP clients disconnect (reconnect to recover), the queue is restored per its persistence setting, with a confirmation prompt beforehand; "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks too. Writes are pre-checked against a field allowlist plus type/lower-bound validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port, the queue encryption key) remain file-only in cordis.yml.
 
 ## Known limitations
 
