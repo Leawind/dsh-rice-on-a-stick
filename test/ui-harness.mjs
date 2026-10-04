@@ -29,8 +29,7 @@ const state = {
   startedAt,
   config: {
     allowedModels: [], allowPresetOverride: true, preset: 'standard', defaultDetail: 'summary',
-    maxAgents: 8, maxQueue: 100, taskTimeoutMs: 0, sessionTtlMs: 86400000,
-    queuePersist: false, queuePersistPath: '', queuePersistEncrypted: false, authEnabled: false, workspaceRoots: undefined,
+    authEnabled: false, workspaceRoots: undefined,
   },
   connections: DEFAULT_CONNS(),
 }

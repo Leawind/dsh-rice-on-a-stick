@@ -144,11 +144,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       allowPresetOverride: c.allowPresetOverride !== false,
       preset: typeof c.preset === 'string' ? c.preset : '',
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
-      maxQueue: numText(c.maxQueue),
-      maxAgents: numText(c.maxAgents),
-      taskTimeoutMs: numText(c.taskTimeoutMs),
-      sessionTtlMs: numText(c.sessionTtlMs),
-      queuePersistPath: typeof c.queuePersistPath === 'string' ? c.queuePersistPath : '',
       authToken: '',        // 只写字段: 恒不回填, 空 = 不改动
       authTokenClear: false, // true = 保存时显式清空已配置的 Token
     };
@@ -156,13 +151,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
   // 草稿 → config-update 载荷; 非法值抛 Error(中文报因, 只展示不动后端)
   function collectValues(d) {
-    const num = function (key, label, min) {
-      const raw = String(d[key] ?? '').trim();
-      if (raw === '') throw new Error(label + ': 请输入数字');
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n < min) throw new Error(label + ': 必须是不小于 ' + min + ' 的数字');
-      return n;
-    };
     if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
       throw new Error('模型限制: 已开启但未勾选任何模型, 请至少勾选一个, 或关闭限制');
     }
@@ -171,11 +159,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       allowPresetOverride: Boolean(d.allowPresetOverride),
       preset: String(d.preset ?? ''),
       defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
-      maxQueue: num('maxQueue', '队列容量', 1),
-      maxAgents: num('maxAgents', '会话池上限', 1),
-      taskTimeoutMs: num('taskTimeoutMs', '任务超时', 0),
-      sessionTtlMs: num('sessionTtlMs', '空闲回收', 0),
-      queuePersistPath: String(d.queuePersistPath ?? ''),
     };
     if (d.authToken) values.authToken = String(d.authToken);
     else if (d.authTokenClear) values.authToken = '';
@@ -457,7 +440,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       try { values = collectValues(edit.draft); } catch (e) { setCfgError(String((e && e.message) || e)); return; }
       submitConfig(
         { values: values },
-        '保存会写入 profile 配置文件并热重载本插件: 运行中的任务会被中断, 已连接的 MCP 客户端会断开(重连即恢复), 队列按持久化设置恢复。确认保存?',
+        '保存会写入 profile 配置文件并热重载本插件: 运行中的 turn 会被中断, 已连接的 MCP 客户端会断开(重连即恢复)。确认保存?',
       );
     }
     function resetConfig() {
@@ -476,7 +459,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const now = Date.now();
     const cfg = state.config || {};
     const stats = state.stats || {};
-    const queue = stats.queue || {};
     const subs = stats.subscriptions || {};
     const conns = state.connections || [];
     const roots = Array.isArray(cfg.workspaceRoots) ? cfg.workspaceRoots : [];
@@ -484,9 +466,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // 模型限制摘要: 面板不展示"默认模型"(模型由调用方每次显式指定, 没有部署默认)
     const allowedModels = Array.isArray(cfg.allowedModels) ? cfg.allowedModels : [];
 
-    const persistText = !cfg.queuePersist
-      ? { v: '未启用（重启丢队列）', warn: true }
-      : cfg.queuePersistEncrypted ? { v: '已启用（密文）' } : { v: '已启用（明文，建议配 queuePersistKey）', warn: true };
 
     return React.createElement('div', { style: Object.assign({}, S.box, dcsPalette()) },
       // 表单/按钮样式(hover/focus/过渡态内联样式表达不了) + 主题色板(CSS 变量), 随面板注入
@@ -515,12 +494,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       // 概览瓦片
       React.createElement('div', { style: S.tiles },
         React.createElement(Tile, { label: '运行时长', value: fmtDur(state.uptimeMs) }),
-        React.createElement(Tile, { label: '常驻 Agent', value: String(stats.liveAgents ?? 0) }),
         React.createElement(Tile, { label: 'MCP 客户端', value: String(conns.length) }),
-        React.createElement(Tile, { label: '队列活跃', value: String(queue.active || 0), title: '排队 + 执行中; 容量上限 ' + (cfg.maxQueue ?? '?') }),
         React.createElement(Tile, { label: '资源订阅', value: String(subs.subscriptions || 0), title: 'resources/subscribe 订阅数, 跨 ' + (subs.connections ?? 0) + ' 个连接' }),
       ),
-      // 配置摘要: 模型与执行 / 安全 / 容量与回收
+      // 配置摘要: 模型与执行 / 安全
       React.createElement('div', null,
         React.createElement('h4', { style: S.groupTitle }, '模型与执行'),
         React.createElement('div', { style: S.fields },
@@ -545,19 +522,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             value: roots.length ? roots.length + ' 个目录' : '未配置（无目录边界）',
             title: roots.length ? roots.join('\n') : undefined,
           }),
-          React.createElement(Field, { label: '队列持久化', tone: persistText.warn ? 'warn' : undefined, value: persistText.v }),
-        ),
-      ),
-      React.createElement('div', null,
-        React.createElement('h4', { style: S.groupTitle }, '容量与回收'),
-        React.createElement('div', { style: S.fields },
-          React.createElement(Field, {
-            label: '队列累计', value: (queue.done || 0) + ' 完成 · ' + (queue.error || 0) + ' 失败 · ' + (queue.cancelled || 0) + ' 取消',
-            title: '本次进程内结束的任务计数',
-          }),
-          React.createElement(Field, { label: '会话池上限', value: String(cfg.maxAgents ?? '?') }),
-          React.createElement(Field, { label: '任务超时', value: cfg.taskTimeoutMs ? fmtDur(cfg.taskTimeoutMs) : '关闭' }),
-          React.createElement(Field, { label: '空闲会话回收', value: cfg.sessionTtlMs === 0 ? '不淘汰' : (cfg.sessionTtlMs ? fmtDur(cfg.sessionTtlMs) : '?') }),
         ),
       ),
       // 配置编辑: 默认折叠, "修改配置"展开草稿表单; 写入走 config-update 路由(宿主 configEditor 落盘 + 热重载)
@@ -630,11 +594,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
               options: [{ v: 'summary', t: '简要（summary）' }, { v: 'normal', t: '标准（normal）' }, { v: 'full', t: '完整（full）' }],
               onChange: function (v) { setDraft({ defaultDetail: v }); },
             }),
-            React.createElement(CfgText, { label: '队列容量', value: d.maxQueue, numeric: true, hint: '排队 + 执行中任务的容量上限', disabled: disable, onChange: function (v) { setDraft({ maxQueue: v }); } }),
-            React.createElement(CfgText, { label: '会话池上限', value: d.maxAgents, numeric: true, hint: '常驻 agent 池上限', disabled: disable, onChange: function (v) { setDraft({ maxAgents: v }); } }),
-            React.createElement(CfgText, { label: '任务超时 (毫秒)', value: d.taskTimeoutMs, numeric: true, hint: '0 = 不限时', disabled: disable, onChange: function (v) { setDraft({ taskTimeoutMs: v }); } }),
-            React.createElement(CfgText, { label: '空闲回收 (毫秒)', value: d.sessionTtlMs, numeric: true, hint: '空闲会话回收时长, 0 = 不淘汰', disabled: disable, onChange: function (v) { setDraft({ sessionTtlMs: v }); } }),
-            React.createElement(CfgText, { label: '队列持久化路径', value: d.queuePersistPath, hint: '留空 = 关闭队列持久化; 相对路径以进程 cwd 为基准', disabled: disable, onChange: function (v) { setDraft({ queuePersistPath: v }); } }),
             React.createElement(CfgToken, {
               value: d.authToken, clearing: d.authTokenClear, canClear: !!cfg.authEnabled,
               placeholder: cfg.authEnabled ? '已配置（输入新值替换）' : '未配置',
