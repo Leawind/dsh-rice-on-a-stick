@@ -72,7 +72,7 @@
 **模型与 preset**
 
 -   优先级：**单次调用参数 > 插件 config > 宿主默认**。只配一边会用低优先级来源补全；补不齐会明确报错。
--   三条改模型的路径：按调用传 `provider`+`model` · 会话中途 `select_model` · config 配死并设 `allowModelOverride: false`。preset（`preset` 参数，对新建会话生效）同理，受 `allowPresetOverride` 门禁。
+-   三条改模型的路径：按调用传 `provider`+`model` · 会话中途 `select_model` · `allowedModels` 允许清单约束调用方能选的范围（空 = 不限制）。preset（`preset` 参数，对新建会话生效）同理，受 `allowPresetOverride` 门禁。
 -   会话池按 `cwd + 模型 + preset` 分组：同一目录、不同模型/preset → 不同的会话。接管已有会话沿用其模型与 preset。
 -   按 `sessionId` 续接时在会话自己的目录执行；显式传入的 `cwd` 必须与之一致。
 
@@ -97,7 +97,7 @@
             # model: ''                        # 与 provider 成对; 空 = 跟随宿主默认
             # provider: ''
             # reasoningEffort: ''              # 空 = 适配器默认
-            # allowModelOverride: true         # false = 锁死模型
+            # allowedModels: ['deepseek-account/deepseek-chat']  # 模型允许清单(空 = 不限制)
             # allowPresetOverride: true        # false = 锁死 preset
             # queuePersistPath: '.dsh/queue.json'
             # queuePersistKey: 'passphrase'    # 持久化文件加密口令
@@ -112,7 +112,7 @@
 | `allowedHosts`                         | —                     | Host 头白名单追加项（绑定地址与 loopback 始终放行）                                  |
 | `provider` / `model`                   | 跟随宿主设置          | spawn agent 的默认模型；需成对配置                                                   |
 | `reasoningEffort`                      | 适配器默认            | 默认推理强度（取值见 `model_list`）                                                  |
-| `allowModelOverride`                   | `true`                | 是否允许调用方按调用覆盖模型                                                         |
+| `allowedModels`                        | `[]`（不限制）        | 允许调用方选择的模型清单（`provider/model`）。非空时：按调用指定或默认解析出的模型不在清单内，请求被明确拒绝 |
 | `allowPresetOverride`                  | `true`                | 是否允许调用方为新建会话选 preset                                                    |
 | `preset`                               | `standard`            | 挂载的 agent preset（按调用 `preset` 只对新建会话生效）                              |
 | `defaultDetail`                        | `summary`             | `agent_run` / `task_result` 的默认详略级别                                           |
@@ -139,7 +139,7 @@
 
 bundle 会向 dsh Web UI 注入 **设置 → MCP 服务** 区：实时状态徽章、MCP 端点（点击或按"复制"按钮）、概览瓦片（运行时长 / 常驻 Agent / 客户端连接 / 队列活跃 / 资源订阅）、配置摘要（模型与执行、安全、容量与回收三组，安全项未加固时以琥珀色提示）、停止 / 启动按钮（停止需确认）、已连接客户端列表（跨天连接显示日期）。
 
-**配置编辑**——"修改配置"展开常用字段的表单：provider / 模型 / 推理强度 / preset、两个覆盖开关、默认详略、队列容量 / 会话池上限 / 任务超时 / 空闲回收（毫秒直填，`0` 语义与配置文件一致）、队列持久化路径与只写的 authToken（留空不改动，可显式清除）。保存经宿主 configEditor 写入 profile 配置文件的本插件条目并热重载生效——与手改文件同语义：运行中任务中断、MCP 客户端断开（重连即恢复）、队列按持久化设置恢复，保存前有确认提示；"恢复默认"删除本插件的覆盖行（含手动编辑的非表单字段），同样需确认。写前做字段白名单与类型/下限校验，宿主侧写路径再过一遍 Config schema。目录白名单、http 端口、队列加密口令等结构性/安全边界字段仍请编辑 cordis.yml。
+**配置编辑**——"修改配置"展开常用字段的表单：provider / 模型（从宿主模型目录下拉选择，不必手抄 id）、推理强度 / preset、模型限制（开关 + 勾选清单，空 = 调用方任意指定）、preset 覆盖开关、默认详略、队列容量 / 会话池上限 / 任务超时 / 空闲回收（毫秒直填，`0` 语义与配置文件一致）、队列持久化路径与只写的 authToken（留空不改动，可显式清除）。保存经宿主 configEditor 写入 profile 配置文件的本插件条目并热重载生效——与手改文件同语义：运行中任务中断、MCP 客户端断开（重连即恢复）、队列按持久化设置恢复，保存前有确认提示；"恢复默认"删除本插件的覆盖行（含手动编辑的非表单字段），同样需确认。写前做字段白名单与类型/下限校验，宿主侧写路径再过一遍 Config schema。目录白名单、http 端口、队列加密口令等结构性/安全边界字段仍请编辑 cordis.yml。
 
 ## 已知限制
 

@@ -72,7 +72,7 @@ Resource-capable clients can read the same data without spending tokens, and sub
 **Models & presets**
 
 -   Priority: **per-call arguments > plugin config > host default**. A half-set pair completes from the lower source; unresolvable calls fail loudly.
--   Three ways to change models: per-call `provider`+`model` · `select_model` mid-conversation · pin via config with `allowModelOverride: false`. Presets (`preset` argument, for new sessions) work the same way under `allowPresetOverride`.
+-   Three ways to change models: per-call `provider`+`model` · `select_model` mid-conversation · an `allowedModels` allowlist bounding what callers may pick (empty = unrestricted). Presets (`preset` argument, for new sessions) work the same way under `allowPresetOverride`.
 -   Sessions are pooled per `cwd + model + preset`: same directory, different model/preset → a separate session. Taking over a session keeps its model and preset.
 -   Continuing by `sessionId` runs in the session's own directory; an explicitly passed `cwd` must match it.
 
@@ -97,7 +97,7 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
             # model: ''                        # pair with provider; empty = follow host default
             # provider: ''
             # reasoningEffort: ''              # empty = adapter default
-            # allowModelOverride: true         # false = pin the model
+            # allowedModels: ['deepseek-account/deepseek-chat']  # model allowlist (empty = unrestricted)
             # allowPresetOverride: true        # false = pin the preset
             # queuePersistPath: '.dsh/queue.json'
             # queuePersistKey: 'passphrase'    # encrypt the persistence file
@@ -112,7 +112,7 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
 | `allowedHosts`                         | —                       | extra allowed Host-header values (bind host and loopback always allowed)                                                 |
 | `provider` / `model`                   | follow host settings    | default model for spawned agents; configure as a pair                                                                    |
 | `reasoningEffort`                      | adapter default         | default reasoning effort (ids in `model_list`)                                                                           |
-| `allowModelOverride`                   | `true`                  | whether callers may override the model per call                                                                          |
+| `allowedModels`                        | `[]` (unrestricted)     | allowlist of models callers may pick (`provider/model`). When non-empty, a per-call model — or the default-resolved one — outside the list is rejected cleanly |
 | `allowPresetOverride`                  | `true`                  | whether callers may pick a preset for new sessions                                                                       |
 | `preset`                               | `standard`              | agent preset to mount (per-call `preset` applies to new sessions only)                                                   |
 | `defaultDetail`                        | `summary`               | default `detail` level for `agent_run` / `task_result`                                                                   |
@@ -139,7 +139,7 @@ Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP 
 
 The bundle adds a **Settings → MCP Service** section to the dsh web UI: live status badge, the MCP endpoint (click or use the copy button), overview tiles (uptime / pooled agents / client connections / active queue / resource subscriptions), a config summary in three groups (model & execution, security, capacity & reclamation — unhardened security items highlighted in amber), start/stop buttons (stop asks for confirmation), and the connected client list (cross-day connections show the date).
 
-**Config editing** — "Edit config" expands a form for the common fields: provider / model / reasoning effort / preset, the two override toggles, default detail, queue capacity / agent pool cap / task timeout / idle reclamation (milliseconds, `0` semantics matching the config file), the queue persistence path, and a write-only auth token (left empty means unchanged; explicit clearing supported). Saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running tasks are interrupted, MCP clients disconnect (reconnect to recover), the queue is restored per its persistence setting, with a confirmation prompt beforehand; "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks too. Writes are pre-checked against a field allowlist plus type/lower-bound validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port, the queue encryption key) remain file-only in cordis.yml.
+**Config editing** — "Edit config" expands a form for the common fields: provider / model (dropdowns fed by the host's model catalog — no hand-copying ids), reasoning effort / preset, model restrictions (a switch plus a checkbox allowlist; empty = callers may pick anything), the preset-override toggle, default detail, queue capacity / agent pool cap / task timeout / idle reclamation (milliseconds, `0` semantics matching the config file), the queue persistence path, and a write-only auth token (left empty means unchanged; explicit clearing supported). Saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running tasks are interrupted, MCP clients disconnect (reconnect to recover), the queue is restored per its persistence setting, with a confirmation prompt beforehand; "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks too. Writes are pre-checked against a field allowlist plus type/lower-bound validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port, the queue encryption key) remain file-only in cordis.yml.
 
 ## Known limitations
 
