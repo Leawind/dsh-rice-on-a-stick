@@ -50,7 +50,7 @@ import { decryptQueuePayload, encryptQueuePayload, PERSIST_MAGIC } from './persi
 import { executeTask, selectionOverrideOf } from './engine.js'
 import { registerTools } from './tools.js'
 import { registerResources } from './resources.js'
-import { resUri } from './data.js'
+import { resUri, collectModelCatalog } from './data.js'
 import { createNotifyHub } from './notify.js'
 import { serverInstructions } from './onboarding.js'
 import { reattachOrphanSessions, serviceOf } from './host.js'
@@ -599,6 +599,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   const WEB_ROUTES: Record<string, (body: unknown) => unknown> = {
     status: () => statusSnapshot(),
+    // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
+    models: () => collectModelCatalog(ctx),
     stop: () => stopMcpServer(),
     start: () => startMcpServer(),
     'config-update': (body) => guiConfigUpdate(body),

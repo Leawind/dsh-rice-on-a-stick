@@ -29,7 +29,7 @@ const state = {
   startedAt,
   config: {
     provider: '(跟随宿主默认)', model: '(跟随宿主默认)', reasoningEffort: '(适配器默认)',
-    allowModelOverride: true, allowPresetOverride: true, preset: 'standard', defaultDetail: 'summary',
+    allowedModels: [], allowPresetOverride: true, preset: 'standard', defaultDetail: 'summary',
     maxAgents: 8, maxQueue: 100, taskTimeoutMs: 0, sessionTtlMs: 86400000,
     queuePersist: false, queuePersistPath: '', queuePersistEncrypted: false, authEnabled: false, workspaceRoots: undefined,
   },
@@ -142,6 +142,19 @@ const server = createServer(async (req, res) => {
         rpcCounts.status++
         if (mode.statusError) return json(res, 500, { error: '模拟故障(statusError)' })
         return json(res, 200, snapshot())
+      }
+      if (method === 'models') {
+        // 模型目录(选择器数据源), 与 collectModelCatalog 输出同形
+        return json(res, 200, {
+          source: 'mock',
+          default: { provider: 'fake-prov', model: 'm1' },
+          routableProviders: ['fake-prov'],
+          providers: [{
+            id: 'fake-prov',
+            name: 'Fake Provider',
+            models: [{ id: 'm1', name: 'Model One' }, { id: 'm2', name: 'Model Two' }],
+          }],
+        })
       }
       if (method === 'config-update') {
         rpcCounts['config-update']++

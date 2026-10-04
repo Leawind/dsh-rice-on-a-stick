@@ -138,12 +138,14 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const c = (st && st.config) || {};
     const unph = function (v, ph) { return typeof v === 'string' && v !== ph ? v : ''; };
     const numText = function (v) { return typeof v === 'number' && Number.isFinite(v) ? String(v) : ''; };
+    const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
     return {
       provider: unph(c.provider, '(跟随宿主默认)'),
       model: unph(c.model, '(跟随宿主默认)'),
       reasoningEffort: unph(c.reasoningEffort, '(适配器默认)'),
       preset: typeof c.preset === 'string' ? c.preset : '',
-      allowModelOverride: c.allowModelOverride !== false,
+      limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没勾"的中间态, 保存时校验
+      allowedModels: allowed,
       allowPresetOverride: c.allowPresetOverride !== false,
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
       maxQueue: numText(c.maxQueue),
@@ -165,12 +167,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       if (!Number.isFinite(n) || n < min) throw new Error(label + ': 必须是不小于 ' + min + ' 的数字');
       return n;
     };
+    if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
+      throw new Error('模型限制: 已开启但未勾选任何模型, 请至少勾选一个, 或关闭限制');
+    }
     const values = {
       provider: String(d.provider ?? ''),
       model: String(d.model ?? ''),
       reasoningEffort: String(d.reasoningEffort ?? ''),
       preset: String(d.preset ?? ''),
-      allowModelOverride: Boolean(d.allowModelOverride),
+      allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
       allowPresetOverride: Boolean(d.allowPresetOverride),
       defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
       maxQueue: num('maxQueue', '队列容量', 1),
@@ -215,6 +220,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-link:hover:enabled{opacity:.8;}',
     '.dcs-link:disabled{opacity:.45;cursor:default;}',
     '.dcs-err{font-size:12px;color:var(--dcs-danger,#c0392b);line-height:18px;}',
+    '.dcs-modelist{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;padding:8px 12px;border:1px solid var(--dcs-line,rgba(128,128,128,.2));border-radius:8px;}',
+    '.dcs-check{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;padding:3px 0;}',
+    '.dcs-check input{accent-color:#2da44e;cursor:pointer;margin:0;flex:none;}',
+    '.dcs-checkname{opacity:.6;font-size:11.5px;}',
   ].join('');
 
   // 依宿主 body 背景亮度判定深浅主题, 给出官方同型的单色开关/填充控件色板(官方 dark: 开=近白轨+暗滑块)
@@ -360,6 +369,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // 配置编辑态: null = 折叠; 否则 { draft, base }, 脏检查逐字段对比(authToken 只写字段: 非空/勾选清除即算改动)
     const [edit, setEdit] = React.useState(null);
     const [cfgError, setCfgError] = React.useState('');
+    // 模型目录(选择器数据源): null = 未加载, false = 加载失败; 展开表单时拉一次
+    const [cat, setCat] = React.useState(null);
 
     const refresh = React.useCallback(function () {
       return rpc('status')
@@ -402,15 +413,27 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
     // ── 配置编辑 ──
     const editing = edit !== null;
+    const sameVal = function (a, b) {
+      if (a === b) return true;
+      if (Array.isArray(a) && Array.isArray(b)) {
+        return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
+      }
+      return false;
+    };
     const dirtyKeys = editing ? Object.keys(edit.draft).filter(function (k) {
       if (k === 'authToken' || k === 'authTokenClear') return Boolean(edit.draft[k]);
-      return edit.draft[k] !== edit.base[k];
+      return !sameVal(edit.draft[k], edit.base[k]);
     }) : [];
 
     function startEdit() {
       const d = draftFromStatus(state);
       setEdit({ draft: d, base: d });
       setCfgError('');
+      if (cat === null) {
+        rpc('models')
+          .then(function (m) { setCat(m && Array.isArray(m.providers) ? m : false); })
+          .catch(function () { setCat(false); });
+      }
     }
     function setDraft(patch) {
       setEdit(function (prev) {
@@ -464,6 +487,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const subs = stats.subscriptions || {};
     const conns = state.connections || [];
     const roots = Array.isArray(cfg.workspaceRoots) ? cfg.workspaceRoots : [];
+    const allowedModels = Array.isArray(cfg.allowedModels) ? cfg.allowedModels : [];
 
     // 模型: provider 与 model 同为占位符时只显示一次, 避免"(跟随宿主默认) / (跟随宿主默认)"
     const provider = cfg.provider || '(跟随宿主默认)';
@@ -514,7 +538,11 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           React.createElement(Field, { label: '推理强度', value: cfg.reasoningEffort || '(适配器默认)' }),
           React.createElement(Field, { label: 'Preset', value: cfg.preset || '—' }),
           React.createElement(Field, { label: '默认详略', value: cfg.defaultDetail || '—' }),
-          React.createElement(Field, { label: '模型覆盖', value: cfg.allowModelOverride ? '允许（按调用）' : '禁止（锁死）' }),
+          React.createElement(Field, {
+            label: '模型限制',
+            value: allowedModels.length ? allowedModels.length + ' 个可选' : '不限制（调用方可指定）',
+            title: allowedModels.length ? allowedModels.join('\n') : '调用方可按请求指定任意模型',
+          }),
         ),
       ),
       React.createElement('div', null,
@@ -558,6 +586,36 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         }
         const d = edit.draft;
         const disable = busy;
+        // 模型目录: 有数据时 provider/model 用下拉(防手滑写错 id), 没有则退回文本框
+        const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
+        const providerOpts = [{ v: '', t: '(跟随宿主默认)' }].concat(catProviders.map(function (p) {
+          return { v: p.id, t: p.name && p.name !== p.id ? p.name + '（' + p.id + '）' : p.id };
+        }));
+        if (d.provider && !providerOpts.some(function (o) { return o.v === d.provider; })) {
+          providerOpts.push({ v: d.provider, t: d.provider + '（当前配置）' });
+        }
+        const provEntry = catProviders.find(function (p) { return p.id === d.provider; });
+        const modelOpts = ((provEntry && provEntry.models) || []).map(function (m) {
+          return { v: m.id, t: m.name && m.name !== m.id ? m.name + '（' + m.id + '）' : m.id };
+        });
+        if (d.model && !modelOpts.some(function (o) { return o.v === d.model; })) {
+          modelOpts.push({ v: d.model, t: d.model + '（当前配置）' });
+        }
+        // 限制清单勾选项: 目录全量 + 草稿里已勾但目录没有的条目(防静默丢失)
+        const catalogPairs = [];
+        catProviders.forEach(function (p) {
+          (p.models || []).forEach(function (m) {
+            catalogPairs.push({ pair: p.id + '/' + m.id, name: m.name && m.name !== m.id ? m.name : '' });
+          });
+        });
+        const listEntries = catalogPairs.concat(
+          d.allowedModels
+            .filter(function (pair) { return !catalogPairs.some(function (e) { return e.pair === pair; }); })
+            .map(function (pair) { return { pair: pair, name: '' }; }),
+        );
+        const toggleModel = function (pair, on) {
+          setDraft({ allowedModels: on ? d.allowedModels.concat([pair]) : d.allowedModels.filter(function (x) { return x !== pair; }) });
+        };
         return React.createElement('div', null,
           React.createElement('div', { style: S.cfgHead },
             React.createElement('h4', { style: S.cfgTitle }, '配置'),
@@ -566,11 +624,53 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             React.createElement('button', { className: 'dcs-btn', onClick: discardEdit, disabled: disable }, '收起'),
           ),
           React.createElement('div', { style: S.cfgWrap },
-            React.createElement(CfgText, { label: 'Provider', value: d.provider, placeholder: '(跟随宿主默认)', disabled: disable, onChange: function (v) { setDraft({ provider: v }); } }),
-            React.createElement(CfgText, { label: '模型', value: d.model, placeholder: '(跟随宿主默认)', disabled: disable, onChange: function (v) { setDraft({ model: v }); } }),
+            (catProviders.length > 0
+              ? React.createElement(CfgSelect, {
+                label: 'Provider', value: d.provider, hint: '留空 = 跟随宿主默认', disabled: disable,
+                options: providerOpts,
+                onChange: function (v) {
+                  // 模型与 provider 必须成对: 切换后已选模型不属于新 provider 就清掉
+                  const nextProv = catProviders.find(function (p) { return p.id === v; });
+                  const keep = nextProv && (nextProv.models || []).some(function (m) { return m.id === d.model; });
+                  setDraft(keep ? { provider: v } : { provider: v, model: '' });
+                },
+              })
+              : React.createElement(CfgText, { label: 'Provider', value: d.provider, placeholder: '(跟随宿主默认)', hint: cat === false ? '模型目录不可用, 暂为文本输入(需与模型成对, 见 model_list)' : undefined, disabled: disable, onChange: function (v) { setDraft({ provider: v }); } })),
+            (catProviders.length > 0
+              ? React.createElement(CfgSelect, {
+                label: '模型', value: d.model,
+                hint: d.provider ? undefined : '先选 Provider; 留空 = 跟随宿主默认模型',
+                options: d.provider ? modelOpts : [{ v: '', t: '(跟随宿主默认)' }].concat(modelOpts),
+                disabled: disable || !d.provider,
+                onChange: function (v) { setDraft({ model: v }); },
+              })
+              : React.createElement(CfgText, { label: '模型', value: d.model, placeholder: '(跟随宿主默认)', disabled: disable, onChange: function (v) { setDraft({ model: v }); } })),
             React.createElement(CfgText, { label: '推理强度', value: d.reasoningEffort, placeholder: '(适配器默认)', hint: '留空 = 适配器默认; 合法值由提供方适配器定义(如 low/medium/high)', disabled: disable, onChange: function (v) { setDraft({ reasoningEffort: v }); } }),
             React.createElement(CfgText, { label: 'Preset', value: d.preset, hint: '新建会话应用的人格 preset id', disabled: disable, onChange: function (v) { setDraft({ preset: v }); } }),
-            React.createElement(CfgSwitch, { label: '模型覆盖', checked: d.allowModelOverride, onText: '允许（按调用）', offText: '禁止（锁死）', hint: 'MCP 调用方可否按请求指定 provider/model', disabled: disable, onChange: function (v) { setDraft({ allowModelOverride: v }); } }),
+            React.createElement(CfgSwitch, {
+              label: '模型限制', checked: d.limitModels,
+              onText: '限制清单（' + d.allowedModels.length + ' 个）', offText: '不限制（调用方可指定）',
+              hint: '开启后调用方只能使用勾选的模型, 清单外的请求会被明确拒绝',
+              disabled: disable,
+              onChange: function (v) { setDraft({ limitModels: v }); },
+            }),
+            d.limitModels
+              ? React.createElement('div', { style: { margin: '0 2px 6px' } },
+                  cat === null
+                    ? React.createElement('div', { className: 'dcs-sub', style: { padding: '4px 2px' } }, '模型目录加载中…')
+                    : listEntries.length === 0
+                      ? React.createElement('div', { className: 'dcs-sub', style: { padding: '4px 2px' } }, '模型目录为空或不可用, 无法勾选——请稍后重开表单或编辑配置文件。')
+                      : React.createElement('div', { className: 'dcs-modelist' },
+                          listEntries.map(function (e) {
+                            const checked = d.allowedModels.indexOf(e.pair) !== -1;
+                            return React.createElement('label', { key: e.pair, className: 'dcs-check' },
+                              React.createElement('input', { type: 'checkbox', checked: checked, disabled: disable, onChange: function (ev) { toggleModel(e.pair, ev.target.checked); } }),
+                              e.pair,
+                              e.name ? React.createElement('span', { className: 'dcs-checkname' }, e.name) : null,
+                            );
+                          })),
+                )
+              : null,
             React.createElement(CfgSwitch, { label: 'Preset 覆盖', checked: d.allowPresetOverride, onText: '允许（按调用）', offText: '禁止（锁死）', hint: 'MCP 调用方可否按请求指定 preset', disabled: disable, onChange: function (v) { setDraft({ allowPresetOverride: v }); } }),
             React.createElement(CfgSelect, {
               label: '默认详略', value: d.defaultDetail, hint: '任务结果投影的详略档位', disabled: disable,
