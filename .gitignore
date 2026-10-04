@@ -143,3 +143,6 @@ AGENTS.override.md
 # .kiro/settings/mcp.json      # workspace MCP servers; use ${VAR} refs or keep local
 # .kilo/tui.json               # personal terminal-UI preferences
 # .kilo/tui.jsonc
+
+# ---- 本地指南(AGENTS.md 约定的 AGENTS-LOCAL.md, 与上方 AGENTS.local.md 拼写不同) ----
+AGENTS-LOCAL.md
