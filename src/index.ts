@@ -160,8 +160,8 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 // ── GUI 配置编辑(config-update 路由)的字段面 ──
 
-/** 字符串字段(空串语义与配置文件一致: provider/model/reasoningEffort 空即"跟随默认", authToken/queuePersistPath 空即关闭) */
-const GUI_STRING_FIELDS = new Set(['provider', 'model', 'reasoningEffort', 'preset', 'queuePersistPath', 'authToken'])
+/** 字符串字段(空串语义与配置文件一致: preset 空由部署默认兜底, authToken/queuePersistPath 空即关闭) */
+const GUI_STRING_FIELDS = new Set(['preset', 'queuePersistPath', 'authToken'])
 /** 布尔字段 */
 const GUI_BOOL_FIELDS = new Set(['allowPresetOverride'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
@@ -244,9 +244,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // 数值做边界钳制: 时长类负数一律按 0(关闭)处理, 容量类下限 1。
   const nonNeg = (n: number | undefined, d: number) => Math.max(0, n ?? d)
   state.config = {
-    provider: config.provider ?? DEFAULTS.provider,
-    model: config.model ?? DEFAULTS.model,
-    reasoningEffort: config.reasoningEffort ?? DEFAULTS.reasoningEffort,
     allowedModels: (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean),
     allowPresetOverride: config.allowPresetOverride ?? DEFAULTS.allowPresetOverride,
     preset: config.preset ?? DEFAULTS.preset,
@@ -511,9 +508,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       startedAt,
       uptimeMs: Date.now() - startedAt,
       config: {
-        provider: state.config.provider || '(跟随宿主默认)',
-        model: state.config.model || '(跟随宿主默认)',
-        reasoningEffort: state.config.reasoningEffort || '(适配器默认)',
         allowedModels: state.config.allowedModels,
         allowPresetOverride: state.config.allowPresetOverride,
         preset: state.config.preset,

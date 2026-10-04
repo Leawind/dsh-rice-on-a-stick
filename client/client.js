@@ -136,17 +136,13 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // ── 配置编辑: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──  // status 生效值 → 草稿初值; 占位串("(跟随宿主默认)"等)只是显示形态, 映射回空串 = 跟随默认
   function draftFromStatus(st) {
     const c = (st && st.config) || {};
-    const unph = function (v, ph) { return typeof v === 'string' && v !== ph ? v : ''; };
     const numText = function (v) { return typeof v === 'number' && Number.isFinite(v) ? String(v) : ''; };
     const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
     return {
-      provider: unph(c.provider, '(跟随宿主默认)'),
-      model: unph(c.model, '(跟随宿主默认)'),
-      reasoningEffort: unph(c.reasoningEffort, '(适配器默认)'),
-      preset: typeof c.preset === 'string' ? c.preset : '',
       limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没勾"的中间态, 保存时校验
       allowedModels: allowed,
       allowPresetOverride: c.allowPresetOverride !== false,
+      preset: typeof c.preset === 'string' ? c.preset : '',
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
       maxQueue: numText(c.maxQueue),
       maxAgents: numText(c.maxAgents),
@@ -171,12 +167,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       throw new Error('模型限制: 已开启但未勾选任何模型, 请至少勾选一个, 或关闭限制');
     }
     const values = {
-      provider: String(d.provider ?? ''),
-      model: String(d.model ?? ''),
-      reasoningEffort: String(d.reasoningEffort ?? ''),
-      preset: String(d.preset ?? ''),
       allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
       allowPresetOverride: Boolean(d.allowPresetOverride),
+      preset: String(d.preset ?? ''),
       defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
       maxQueue: num('maxQueue', '队列容量', 1),
       maxAgents: num('maxAgents', '会话池上限', 1),
@@ -487,12 +480,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const subs = stats.subscriptions || {};
     const conns = state.connections || [];
     const roots = Array.isArray(cfg.workspaceRoots) ? cfg.workspaceRoots : [];
-    const allowedModels = Array.isArray(cfg.allowedModels) ? cfg.allowedModels : [];
 
-    // 模型: provider 与 model 同为占位符时只显示一次, 避免"(跟随宿主默认) / (跟随宿主默认)"
-    const provider = cfg.provider || '(跟随宿主默认)';
-    const model = cfg.model || '(跟随宿主默认)';
-    const modelText = provider === model ? provider : provider + ' / ' + model;
+    // 模型限制摘要: 面板不展示"默认模型"(模型由调用方每次显式指定, 没有部署默认)
+    const allowedModels = Array.isArray(cfg.allowedModels) ? cfg.allowedModels : [];
 
     const persistText = !cfg.queuePersist
       ? { v: '未启用（重启丢队列）', warn: true }
@@ -534,15 +524,13 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       React.createElement('div', null,
         React.createElement('h4', { style: S.groupTitle }, '模型与执行'),
         React.createElement('div', { style: S.fields },
-          React.createElement(Field, { label: '模型', value: modelText, title: provider + ' / ' + model }),
-          React.createElement(Field, { label: '推理强度', value: cfg.reasoningEffort || '(适配器默认)' }),
-          React.createElement(Field, { label: 'Preset', value: cfg.preset || '—' }),
-          React.createElement(Field, { label: '默认详略', value: cfg.defaultDetail || '—' }),
           React.createElement(Field, {
             label: '模型限制',
-            value: allowedModels.length ? allowedModels.length + ' 个可选' : '不限制（调用方可指定）',
-            title: allowedModels.length ? allowedModels.join('\n') : '调用方可按请求指定任意模型',
+            value: allowedModels.length ? allowedModels.length + ' 个可选' : '不限制（调用方每次显式指定）',
+            title: allowedModels.length ? allowedModels.join('\n') : '调用方新建会话时必须成对指定 provider+model',
           }),
+          React.createElement(Field, { label: 'Preset', value: cfg.preset || '—' }),
+          React.createElement(Field, { label: '默认详略', value: cfg.defaultDetail || '—' }),
         ),
       ),
       React.createElement('div', null,
@@ -586,21 +574,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         }
         const d = edit.draft;
         const disable = busy;
-        // 模型目录: 有数据时 provider/model 用下拉(防手滑写错 id), 没有则退回文本框
+        // 模型目录: 供"模型限制"勾选清单(模型本身由调用方每次显式指定, 面板不配置默认模型)
         const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
-        const providerOpts = [{ v: '', t: '(跟随宿主默认)' }].concat(catProviders.map(function (p) {
-          return { v: p.id, t: p.name && p.name !== p.id ? p.name + '（' + p.id + '）' : p.id };
-        }));
-        if (d.provider && !providerOpts.some(function (o) { return o.v === d.provider; })) {
-          providerOpts.push({ v: d.provider, t: d.provider + '（当前配置）' });
-        }
-        const provEntry = catProviders.find(function (p) { return p.id === d.provider; });
-        const modelOpts = ((provEntry && provEntry.models) || []).map(function (m) {
-          return { v: m.id, t: m.name && m.name !== m.id ? m.name + '（' + m.id + '）' : m.id };
-        });
-        if (d.model && !modelOpts.some(function (o) { return o.v === d.model; })) {
-          modelOpts.push({ v: d.model, t: d.model + '（当前配置）' });
-        }
         // 限制清单勾选项: 目录全量 + 草稿里已勾但目录没有的条目(防静默丢失)
         const catalogPairs = [];
         catProviders.forEach(function (p) {
@@ -624,32 +599,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             React.createElement('button', { className: 'dcs-btn', onClick: discardEdit, disabled: disable }, '收起'),
           ),
           React.createElement('div', { style: S.cfgWrap },
-            (catProviders.length > 0
-              ? React.createElement(CfgSelect, {
-                label: 'Provider', value: d.provider, hint: '留空 = 跟随宿主默认', disabled: disable,
-                options: providerOpts,
-                onChange: function (v) {
-                  // 模型与 provider 必须成对: 切换后已选模型不属于新 provider 就清掉
-                  const nextProv = catProviders.find(function (p) { return p.id === v; });
-                  const keep = nextProv && (nextProv.models || []).some(function (m) { return m.id === d.model; });
-                  setDraft(keep ? { provider: v } : { provider: v, model: '' });
-                },
-              })
-              : React.createElement(CfgText, { label: 'Provider', value: d.provider, placeholder: '(跟随宿主默认)', hint: cat === false ? '模型目录不可用, 暂为文本输入(需与模型成对, 见 model_list)' : undefined, disabled: disable, onChange: function (v) { setDraft({ provider: v }); } })),
-            (catProviders.length > 0
-              ? React.createElement(CfgSelect, {
-                label: '模型', value: d.model,
-                hint: d.provider ? undefined : '先选 Provider; 留空 = 跟随宿主默认模型',
-                options: d.provider ? modelOpts : [{ v: '', t: '(跟随宿主默认)' }].concat(modelOpts),
-                disabled: disable || !d.provider,
-                onChange: function (v) { setDraft({ model: v }); },
-              })
-              : React.createElement(CfgText, { label: '模型', value: d.model, placeholder: '(跟随宿主默认)', disabled: disable, onChange: function (v) { setDraft({ model: v }); } })),
-            React.createElement(CfgText, { label: '推理强度', value: d.reasoningEffort, placeholder: '(适配器默认)', hint: '留空 = 适配器默认; 合法值由提供方适配器定义(如 low/medium/high)', disabled: disable, onChange: function (v) { setDraft({ reasoningEffort: v }); } }),
-            React.createElement(CfgText, { label: 'Preset', value: d.preset, hint: '新建会话应用的人格 preset id', disabled: disable, onChange: function (v) { setDraft({ preset: v }); } }),
             React.createElement(CfgSwitch, {
               label: '模型限制', checked: d.limitModels,
-              onText: '限制清单（' + d.allowedModels.length + ' 个）', offText: '不限制（调用方可指定）',
+              onText: '限制清单（' + d.allowedModels.length + ' 个）', offText: '不限制（调用方每次显式指定模型）',
               hint: '开启后调用方只能使用勾选的模型, 清单外的请求会被明确拒绝',
               disabled: disable,
               onChange: function (v) { setDraft({ limitModels: v }); },
@@ -671,6 +623,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                           })),
                 )
               : null,
+            React.createElement(CfgText, { label: 'Preset', value: d.preset, hint: '新建会话应用的人格 preset id', disabled: disable, onChange: function (v) { setDraft({ preset: v }); } }),
             React.createElement(CfgSwitch, { label: 'Preset 覆盖', checked: d.allowPresetOverride, onText: '允许（按调用）', offText: '禁止（锁死）', hint: 'MCP 调用方可否按请求指定 preset', disabled: disable, onChange: function (v) { setDraft({ allowPresetOverride: v }); } }),
             React.createElement(CfgSelect, {
               label: '默认详略', value: d.defaultDetail, hint: '任务结果投影的详略档位', disabled: disable,

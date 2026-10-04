@@ -99,7 +99,8 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
   an existing session keeps its original preset. Pool keys include it, so a "worker" and a
   "reviewer" can coexist in one directory.
 - **provider / model / reasoningEffort** — the model selection. Valid values come from
-  \`model_list\`; provider and model are a pair (a half is completed from the host default).
+  \`model_list\`; provider and model are a required pair for new sessions
+  (resuming a sessionId keeps that session's model; reasoningEffort is optional).
   The resident pool keys by the model triple: task on model A and task on model B in the
   same directory are two separate sessions.
 - **turn vs step** — a *turn* is one full agent run ending in a structured result.
@@ -146,6 +147,7 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 | steering an idle session refused | \`agent_run\` to send a new task |
 | history / steer of a persisted-only session | \`agent_run\` with that \`sessionId\` (resumes it) |
 | \`select_model\` says sessionController unavailable | \`agent_run\` / \`task_inbox\` with \`provider\`+\`model\` |
+| "provider + model are required" | call \`model_list\` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
 | model override refused | the model is not in the deployment's \`allowedModels\` allowlist — pick one from \`model_list\` that appears there |
 | preset override refused | the deployment pinned it (\`allowPresetOverride: false\`); drop the preset argument |
 | cwd outside workspaceRoots | pick a directory under the configured roots (see \`dsh_status\`) |
@@ -167,8 +169,9 @@ polling. Tool-level failures return \`isError: true\` with the reason in the pay
 - \`allowedModels\`: the allowlist of models you may pick per call (absent/empty = any model).
 - \`allowPresetOverride\`: whether you may pick a preset per call.
 - \`maxQueue\` / \`maxAgents\`: queue capacity and session-pool LRU limit.
-- Plugin config and per-call arguments beat the host default; the result tells you which
-  model/preset actually answered (\`model\` / \`preset\` fields).
+- The model is explicit per call: new sessions require \`provider\`+\`model\` (from
+  \`model_list\`); resuming a sessionId keeps that session's model. The result tells you
+  which model/preset actually answered (\`model\` / \`preset\` fields).
 `,
 }
 

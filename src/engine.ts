@@ -79,40 +79,25 @@ export function selectionOverrideOf(args: { provider?: string; model?: string; r
 }
 
 /**
- * 解析生成 agent 的模型选择, 优先级: 单次调用覆盖 > 插件 config > 宿主默认选择。
- * provider+model 必须成对解析出来: 只给一边时用低优先级来源补另一边, 补齐不了直接抛错。
- * allowedModels 非空时是一份允许清单: 无论模型来自调用覆盖还是默认链, 解析结果不在清单内
- * 都明确拒绝(部署方借此约束调用方能用的模型范围; 清单为空 = 不限制)。
- * reasoningEffort 与模型同源(见下), 显式钉住模型时不继承宿主默认档位。
- *
- * 背景(E2E 实测): agent-loop 把 {{model}} 提示词变量直接读 agent.options.model, 不做任何默认解析——
- * 默认模型的解析发生在 Web 应用层。插件直连 ctx.agents.create 时必须自带完整选择,
- * 否则 persona 组装期 "{{model}} has no value" 让整个 turn 失败。
+ * 解析生成 agent 的模型选择。契约: 调用必须显式指定, 不做任何默认回填——
+ * 宿主对插件直连的 agents.create/resume 不做默认解析({{model}} 变量在组装期就要值),
+ * 而隐式默认会让"哪次任务跑在哪个模型上"变得不可预测。
+ * provider+model 必须成对; reasoningEffort 可选(缺省 = 适配器默认)。
+ * allowedModels 非空时是允许清单: 指定的模型不在清单内明确拒绝(部署方借此约束调用方可用的模型范围)。
  */
-function resolveAgentOptions(ctx: Context, override?: ModelSelectionOverride): ModelSelection {
-  const cfg = { provider: state.config.provider, model: state.config.model }
-  const host = hostDefaultSelection(ctx)
-  const provider = override?.provider || cfg.provider || host?.provider
-  const model = override?.model || cfg.model || host?.model
-  // 推理强度与模型同源: 调用覆盖 > 插件 config > 宿主默认(仅当模型不是被显式钉住时继承)。
-  // 若调用方/插件 profile 已显式钉住 provider+model, 就不继承宿主那个"为别的模型选的"档位——
-  // 宿主对不支持的显式 effort 是直接拒绝(不做 clamp/别名), 继承反而会把能跑的部署弄挂。
-  const pinnedModel = Boolean((override?.provider && override?.model) || (cfg.provider && cfg.model))
-  const reasoningEffort = override?.reasoningEffort
-    ?? (state.config.reasoningEffort || (pinnedModel ? undefined : host?.reasoningEffort))
+function resolveAgentOptions(override?: ModelSelectionOverride): ModelSelection {
+  const provider = override?.provider
+  const model = override?.model
   if (!provider || !model) {
-    throw new Error(
-      `cannot determine model for spawned agent: call override has {provider: ${JSON.stringify(override?.provider ?? null)}, model: ${JSON.stringify(override?.model ?? null)}}, `
-      + `plugin config has {provider: ${JSON.stringify(cfg.provider || null)}, model: ${JSON.stringify(cfg.model || null)}}, `
-      + `host default selection has {provider: ${JSON.stringify(host?.provider ?? null)}, model: ${JSON.stringify(host?.model ?? null)}}. `
-      + '请在调用里成对传 provider+model(先用 model_list 查可用值), 或在插件 config 成对配置, 或先在 dsh 设置里选择默认模型.',
-    )
+    throw new Error('provider + model are required (must be explicit per call); '
+      + 'call model_list first and pass the pair, or pass sessionId to continue an existing session (live sessions keep their own model)')
   }
   const allowed = state.config.allowedModels
   if (allowed.length > 0 && !allowed.includes(`${provider}/${model}`)) {
     throw new Error(`model "${provider}/${model}" is not in allowedModels [${allowed.join(', ')}]; `
       + `调用方请改选清单内的模型(见 model_list), 或由部署方调整插件的 allowedModels 配置`)
   }
+  const reasoningEffort = override?.reasoningEffort
   return reasoningEffort ? { provider, model, reasoningEffort } : { provider, model }
 }
 
@@ -199,7 +184,7 @@ async function getAgent(ctx: Context, cwd: string, sessionId?: string, title?: s
   }
   // 无 sessionId: 按 cwd + 模型三元组 + preset 命中/新建常驻会话(不同模型/人格 = 不同会话, 上下文不串联)
   const presetName = preset ?? state.config.preset
-  const selection = resolveAgentOptions(ctx, override)
+  const selection = resolveAgentOptions(override)
   const key = poolKey(cwd, selection, presetName)
   const existing = state.liveAgents.get(key)
   if (existing) {
@@ -230,7 +215,7 @@ async function getAgent(ctx: Context, cwd: string, sessionId?: string, title?: s
     sessionId: newSessionId,
     // 声明 preset(per-call 覆盖 > 部署默认): 当前版本主要靠 setup 里 mount, meta.agentPreset 供未来 Harness 版本直接消费。
     meta: { cwd: canonical, agentPreset: presetName },
-    // 模型选择: 调用覆盖 / 插件 config / 宿主默认补全后的完整选择(agent.options.model 是 {{model}} 变量的来源)
+    // 模型选择: 调用显式指定(强制; 见 resolveAgentOptions 的契约说明)——agent.options.model 是 {{model}} 变量的来源
     agentOptions: agentOptionsOf(selection),
     setup: async (agentCtx) => {
       await mountPreset(ctx, agentCtx, presetName)
@@ -341,7 +326,7 @@ async function takeoverSession(ctx: Context, sessionId: string, override?: Model
     if (refusal) throw new Error(refusal)
   }
   // resume 会重建 agent, 所以这里必须现算一份完整模型选择(agent.options.model 是 {{model}} 变量的来源)
-  const selection = resolveAgentOptions(ctx, override)
+  const selection = resolveAgentOptions(override)
   // resume 沿用会话原 preset(header.agentPreset; 旧会话/未记录时回落部署默认)——重建不换人格,
   // 否则依赖特定人格/工具集的工作会话在续接时被静默换掉执行环境。
   // 原 preset 已不在花名册时回落部署默认并告警(结果里如实回报实际挂载的 preset)。

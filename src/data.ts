@@ -156,9 +156,6 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
     providers: filtered,
     ...(failures.length ? { failures } : {}),
     config: {
-      provider: state.config.provider || null,
-      model: state.config.model || null,
-      reasoningEffort: state.config.reasoningEffort || null,
       allowedModels: state.config.allowedModels,
     },
   }
@@ -477,8 +474,6 @@ export function basicStatusSnapshot(): Record<string, unknown> {
     name: 'dsh-carrot-on-a-stick',
     version: PLUGIN_VERSION,
     config: {
-      provider: state.config.provider || '(跟随宿主默认)',
-      model: state.config.model || '(跟随宿主默认)',
       preset: state.config.preset,
       allowedModels: state.config.allowedModels,
       allowPresetOverride: state.config.allowPresetOverride,

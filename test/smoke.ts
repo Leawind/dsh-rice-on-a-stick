@@ -125,14 +125,14 @@ try {
     && listToolsInner.tools.some((t) => t.name === 'bash' && t.description === 'run a shell command')
 
   // ── attach_session 工具(正面归组 / 幂等 / 持久化快照 / 旧版裸 header / 未知 四态) ──
-  const attachErr = await rpc(init.sid, { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'attach_session', arguments: { sessionId: 'sess-err' } } })
+  const attachErr = await rpc(init.sid, { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'attach_session', arguments: { sessionId: 'sess-err', provider: 'p1', model: 'm1' } } })
   checks['attach_session live 会话(sess-err 正面归组)'] = attachErr.status === 200 && innerOf(attachErr).attached === true
 
   const attachMissing = await rpc(init.sid, { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'attach_session', arguments: { sessionId: 'sess-nope' } } })
   checks['attach_session 未知会话报错'] = attachMissing.status === 200 && typeof innerOf(attachMissing).error === 'string'
 
   // 存量捞回在启动时已把 sess-persisted / sess-legacy / sess-live 挂到工作区, 重复挂应幂等返回
-  const attachPersisted = await rpc(init.sid, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'attach_session', arguments: { sessionId: 'sess-persisted' } } })
+  const attachPersisted = await rpc(init.sid, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'attach_session', arguments: { sessionId: 'sess-persisted', provider: 'p1', model: 'm1' } } })
   checks['attach_session 持久化会话(.header 快照)'] = attachPersisted.status === 200 && innerOf(attachPersisted).attached === false
     && String(innerOf(attachPersisted).note ?? '').includes('already attached')
 
@@ -156,18 +156,18 @@ try {
   checks['成功结果不带 isError'] = parsePayload(runLive.text).result?.isError === undefined
   checks['成功结果省略空 error/taskId 字段'] = runLiveInner.error === undefined && runLiveInner.taskId === undefined
 
-  const runPersisted = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', sessionId: 'sess-persisted', detail: 'full' } } })
+  const runPersisted = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', sessionId: 'sess-persisted', provider: 'p1', model: 'm1', detail: 'full' } } })
   const runPersistedInner = runPersisted.status === 200 ? innerOf(runPersisted) : { error: 'bad' }
   checks['agent_run 持久化会话 resume + flush + dispose'] = runPersistedInner.sessionId === 'sess-persisted'
     && resumed.some((r) => r.id === 'sess-persisted') && flushed.includes('sess-persisted') && disposed.includes('sess-persisted')
-  checks['resume 也带完整模型选择(agentDefaultModel 补全)'] = resumed.find((r) => r.id === 'sess-persisted')?.agentOptions?.provider === 'p1'
+  checks['resume 也带完整模型选择(调用显式指定)'] = resumed.find((r) => r.id === 'sess-persisted')?.agentOptions?.provider === 'p1'
     && resumed.find((r) => r.id === 'sess-persisted')?.agentOptions?.model === 'm1'
   // resume 恢复会话原 preset(header.agentPreset = reviewer), 而不是把部署默认(standard)盖上去
   checks['resume 恢复会话原 preset(非部署默认)'] = runPersistedInner.preset === 'reviewer' && mounted.includes('reviewer')
   // full 档保留原文(排查用)
   checks['detail=full 保留 toolCalls 原文'] = Array.isArray(runPersistedInner.toolCalls) && runPersistedInner.toolCalls[0]?.name === 'bash'
 
-  const runUnknown = await rpc(init.sid, { jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', sessionId: 'sess-unknown' } } })
+  const runUnknown = await rpc(init.sid, { jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', sessionId: 'sess-unknown', provider: 'p1', model: 'm1' } } })
   checks['agent_run 未知会话明确报错'] = runUnknown.status === 200 && String(innerOf(runUnknown).error ?? '').includes('session not found for resume')
 
   // 接管一致性: 显式 cwd 与会话实际目录不一致 → 拒(防"以为在 A 树、实际在 B 树执行"; 缺省 cwd 则沿用会话目录)
@@ -177,13 +177,13 @@ try {
     && String(innerOf(runMismatch).error ?? '').includes('sess-live')
 
   // 失败透出: turn/end error 进 result.error(E2E 发现的静默空结果缺陷), 且整个结果带 isError 标记
-  const runErr = await rpc(init.sid, { jsonrpc: '2.0', id: 14, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'boom', sessionId: 'sess-err' } } })
+  const runErr = await rpc(init.sid, { jsonrpc: '2.0', id: 14, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'boom', sessionId: 'sess-err', provider: 'p1', model: 'm1' } } })
   const runErrInner = runErr.status === 200 ? innerOf(runErr) : { error: 'bad' }
   checks['agent_run 失败透出(turn/end error)'] = String(runErrInner.error ?? '').includes('AUTH') && String(runErrInner.error ?? '').includes('invalid api key')
   checks['agent_run 失败结果带 isError 标记'] = parsePayload(runErr.text).result?.isError === true
 
   // ── 异步队列: status 轮询不注入 payload, 完成后默认 summary ──
-  const inbox = await rpc(init.sid, { jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'queued job' } } })
+  const inbox = await rpc(init.sid, { jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'queued job', provider: 'p1', model: 'm1' } } })
   const inboxInner = inbox.status === 200 ? innerOf(inbox) : { error: 'bad' }
   const queuedId = inboxInner.taskId
   checks['task_inbox 返回 taskId'] = typeof queuedId === 'string' && queuedId.length > 0
@@ -204,7 +204,7 @@ try {
 
   // 队列失败透出: turn 失败(result.error)的任务终态标 error(而非 done)——只轮询 status 的调用方也看得到失败
   // (error 态的状态轮询走 isError, innerOf 返回原始 JSON 文本, 断言按文本匹配)
-  const inboxErr = await rpc(init.sid, { jsonrpc: '2.0', id: 19, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'boom queued', sessionId: 'sess-err' } } })
+  const inboxErr = await rpc(init.sid, { jsonrpc: '2.0', id: 19, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'boom queued', sessionId: 'sess-err', provider: 'p1', model: 'm1' } } })
   const inboxErrId = innerOf(inboxErr).taskId
   let inboxErrStatus: any = {}
   for (let i = 0; i < 50 && !String(inboxErrStatus.error ?? '').includes('"status":"error"'); i++) {
@@ -219,8 +219,8 @@ try {
   // 探针用独立 cwd(独占池 key), "只新建一个会话"才能作为"只执行一次"的确定性证据
   const dedupeCwd = resolve(FAKE_CWD, 'nonexistent-dedupe')
   const createdBeforeDedupe = created.length
-  const dedupeA = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 195, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'dedupe probe', cwd: dedupeCwd, idempotencyKey: 'smoke-dedupe-1' } } }))
-  const dedupeB = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 196, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'dedupe probe retry', cwd: dedupeCwd, idempotencyKey: 'smoke-dedupe-1' } } }))
+  const dedupeA = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 195, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'dedupe probe', cwd: dedupeCwd, provider: 'p1', model: 'm1', idempotencyKey: 'smoke-dedupe-1' } } }))
+  const dedupeB = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 196, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'dedupe probe retry', cwd: dedupeCwd, provider: 'p1', model: 'm1', idempotencyKey: 'smoke-dedupe-1' } } }))
   checks['task_inbox 幂等键: 重复提交返回原任务'] = dedupeB.taskId === dedupeA.taskId && dedupeB.deduplicated === true
   let dedupeDone: any = {}
   for (let i = 0; i < 50 && dedupeDone.status !== 'done'; i++) {
@@ -228,7 +228,7 @@ try {
     dedupeDone = dd.status === 200 ? innerOf(dd) : {}
     if (dedupeDone.status !== 'done') await new Promise((r) => setTimeout(r, 100))
   }
-  const dedupeC = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 198, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'dedupe probe after done', cwd: dedupeCwd, idempotencyKey: 'smoke-dedupe-1' } } }))
+  const dedupeC = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 198, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'dedupe probe after done', cwd: dedupeCwd, provider: 'p1', model: 'm1', idempotencyKey: 'smoke-dedupe-1' } } }))
   checks['task_inbox 幂等键: 终态任务同样去重并回报状态'] = dedupeC.taskId === dedupeA.taskId && dedupeC.status === 'done' && dedupeC.deduplicated === true
   // 三次提交只执行一次: 仅 dedupeA 新建过一个会话
   checks['task_inbox 幂等键: 重复提交不重复执行(仅一个新会话)'] = created.length === createdBeforeDedupe + 1
@@ -236,8 +236,8 @@ try {
   // 执行次数以 followup 计数为证(不只看新建会话数)
   const concCwd = resolve(FAKE_CWD, 'nonexistent-conc-dedupe')
   const [conc1, conc2] = await Promise.all([
-    rpc(init.sid, { jsonrpc: '2.0', id: 250, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'conc A', cwd: concCwd, idempotencyKey: 'smoke-dedupe-conc' } } }),
-    rpc(init.sid, { jsonrpc: '2.0', id: 251, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'conc B', cwd: concCwd, idempotencyKey: 'smoke-dedupe-conc' } } }),
+    rpc(init.sid, { jsonrpc: '2.0', id: 250, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'conc A', cwd: concCwd, provider: 'p1', model: 'm1', idempotencyKey: 'smoke-dedupe-conc' } } }),
+    rpc(init.sid, { jsonrpc: '2.0', id: 251, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'conc B', cwd: concCwd, provider: 'p1', model: 'm1', idempotencyKey: 'smoke-dedupe-conc' } } }),
   ])
   const ci1 = innerOf(conc1)
   const ci2 = innerOf(conc2)
@@ -261,27 +261,27 @@ try {
     && runPersistedInner.changes === 'c1' && runPersistedInner.verification === 'v1' && runPersistedInner.leftovers === 'l1'
 
   // detail=normal: 截断的 toolCalls, 不注入 toolResults/assistantText 原文
-  const runNormal = await rpc(init.sid, { jsonrpc: '2.0', id: 78, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', sessionId: 'sess-persisted', detail: 'normal' } } })
+  const runNormal = await rpc(init.sid, { jsonrpc: '2.0', id: 78, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', sessionId: 'sess-persisted', provider: 'p1', model: 'm1', detail: 'normal' } } })
   const runNormalInner = runNormal.status === 200 ? innerOf(runNormal) : {}
   checks['detail=normal: 截断 toolCalls/toolResults 不注入原文'] = runNormalInner.detail === 'normal'
     && Array.isArray(runNormalInner.toolCalls) && runNormalInner.toolCalls[0]?.name === 'bash'
     && Array.isArray(runNormalInner.toolResults) && runNormalInner.assistantText === undefined
 
   // ── realpath 规范化 ──
-  const runNew = await rpc(init.sid, { jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: FAKE_CWD } } })
+  const runNew = await rpc(init.sid, { jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: FAKE_CWD, provider: 'p1', model: 'm1' } } })
   const runNewInner = runNew.status === 200 ? innerOf(runNew) : { error: 'bad' }
   checks['agent_run 池新建: meta.cwd 为 realpath 值'] = Boolean(created[0]) && created[0].cwd === FAKE_CWD && runNewInner.sessionId === created[0].id
-  checks['池新建带完整模型选择(agentDefaultModel 补全, {{model}} 变量来源)'] = created[0]?.agentOptions?.provider === 'p1' && created[0]?.agentOptions?.model === 'm1'
+  checks['池新建带完整模型选择(调用显式指定, {{model}} 变量来源)'] = created[0]?.agentOptions?.provider === 'p1' && created[0]?.agentOptions?.model === 'm1'
 
   const missingDir = resolve(FAKE_CWD, 'nonexistent-xyz')
-  const runMissingCwd = await rpc(init.sid, { jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: missingDir } } })
+  const runMissingCwd = await rpc(init.sid, { jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: missingDir, provider: 'p1', model: 'm1' } } })
   const runMissingInner = runMissingCwd.status === 200 ? innerOf(runMissingCwd) : { error: 'bad' }
   checks['目录不存在: realpath 回退 resolve 且不阻断'] = Boolean(runMissingInner.sessionId)
     && created.some((c) => c.cwd === missingDir)
 
   // title 命名: 新建池会话时传 title → 走 sessionTitle 服务 rename(此前零覆盖)
   const titledCwd = resolve(FAKE_CWD, 'nonexistent-titled')
-  const runTitled = await rpc(init.sid, { jsonrpc: '2.0', id: 395, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: titledCwd, title: 'smoke-titled' } } })
+  const runTitled = await rpc(init.sid, { jsonrpc: '2.0', id: 395, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: titledCwd, provider: 'p1', model: 'm1', title: 'smoke-titled' } } })
   const titledId = innerOf(runTitled).sessionId
   checks['agent_run title: 新会话经 sessionTitle.rename 命名'] = Boolean(titledId)
     && fakeSessionTitle.renamed.some((r) => r.id === titledId && r.title === 'smoke-titled')
@@ -309,7 +309,7 @@ try {
     && JSON.stringify(ml).includes('defaultReasoningEffort')
     && !JSON.stringify(ml).includes('LONG-DESCRIPTION-MUST-NOT-LEAK')
   checks['model_list 带 provider 失败信息与插件模型配置'] = ml.failures?.[0]?.id === 'p3'
-    && Array.isArray(ml.config?.allowedModels) && ml.config?.provider === null
+    && Array.isArray(ml.config?.allowedModels)
 
   const modelListP2 = await rpc(init.sid, { jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'model_list', arguments: { provider: 'p2' } } })
   const mlP2 = modelListP2.status === 200 ? innerOf(modelListP2) : { error: 'bad' }
@@ -322,8 +322,8 @@ try {
   const createdOverride = created.find((c) => c.agentOptions?.provider === 'p2')
   checks['agent_run 按调用覆盖模型(create 用覆盖值)'] = Boolean(createdOverride)
     && createdOverride.agentOptions.model === 'm9' && createdOverride.agentOptions.reasoningEffort === undefined
-  checks['显式钉住模型时不继承宿主默认推理档(与模型同源)'] = createdOverride?.agentOptions?.reasoningEffort === undefined
-    && created.find((c) => c.agentOptions?.provider === 'p1' && c.agentOptions?.model === 'm1')?.agentOptions?.reasoningEffort === 'host-effort'
+  checks['推理档只来自调用(无默认继承)'] = createdOverride?.agentOptions?.reasoningEffort === undefined
+    && created.find((c) => c.agentOptions?.provider === 'p1' && c.agentOptions?.model === 'm1')?.agentOptions?.reasoningEffort === undefined
   checks['结果自报本次用的模型'] = runOverrideInner.model?.provider === 'p2' && runOverrideInner.model?.model === 'm9'
   checks['不同模型各自一个常驻会话(池按模型分组)'] = Boolean(runOverrideInner.sessionId) && runOverrideInner.sessionId !== created[0]?.id
 
@@ -332,10 +332,12 @@ try {
   checks['同模型再调用命中池(不新建会话)'] = created.length === createdBefore
     && innerOf(runOverrideAgain).sessionId === runOverrideInner.sessionId
 
-  // 只给 provider: 用宿主默认选择补 model(与 0.3.1 的补全语义一致)
+  // 只给 provider 不给 model: 明确拒绝(模型必须显式成对指定, 不再从宿主默认补全)
   const partialCwd = resolve(FAKE_CWD, 'nonexistent-partial-model')
-  await rpc(init.sid, { jsonrpc: '2.0', id: 34, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: partialCwd, provider: 'p3' } } })
-  checks['只给 provider 时用宿主默认补 model'] = created.find((c) => c.agentOptions?.provider === 'p3')?.agentOptions?.model === 'm1'
+  const partialRun = await rpc(init.sid, { jsonrpc: '2.0', id: 34, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: partialCwd, provider: 'p3' } } })
+  checks['只给 provider 不给 model 被明确拒绝'] = partialRun.status === 200
+    && String(innerOf(partialRun).error ?? '').includes('provider + model are required')
+    && !created.some((c) => c.agentOptions?.provider === 'p3')
 
   // reasoningEffort 透传(选项在 create 的 agentOptions 里, 不是被丢掉)
   const effortCwd = resolve(FAKE_CWD, 'nonexistent-effort')
@@ -371,23 +373,23 @@ try {
 
   // ── per-call preset: 新建会话选人格(池按 preset 分组), 接管沿用原 preset ──
   const createdBeforePreset = created.length
-  const runPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'review please', cwd: FAKE_CWD, preset: 'reviewer' } } })
+  const runPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'review please', cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'reviewer' } } })
   const runPresetInner = runPreset.status === 200 ? innerOf(runPreset) : { error: 'bad' }
   checks['per-call preset: 新建会话挂载指定 preset(meta+mount+结果回报)'] = Boolean(runPresetInner.sessionId)
     && runPresetInner.preset === 'reviewer'
     && created.length === createdBeforePreset + 1 && created.at(-1)?.preset === 'reviewer'
     && mounted.includes('reviewer')
-  const runPresetAgain = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'review again', cwd: FAKE_CWD, preset: 'reviewer' } } }))
+  const runPresetAgain = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'review again', cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'reviewer' } } }))
   checks['per-call preset: 池按 preset 分组(同 preset 复用同一会话)'] = runPresetAgain.sessionId === runPresetInner.sessionId
     && created.length === createdBeforePreset + 1
-  const runPresetUnknown = await rpc(init.sid, { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'x', cwd: FAKE_CWD, preset: 'nope' } } })
+  const runPresetUnknown = await rpc(init.sid, { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'x', cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } } })
   checks['per-call preset: 未知 preset 报错并带可用清单'] = parsePayload(runPresetUnknown.text).result?.isError === true
     && String(innerOf(runPresetUnknown).error ?? '').includes('unknown preset "nope"')
     && String(innerOf(runPresetUnknown).error ?? '').includes('standard')
   const takeoverPreset = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 44, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'x', sessionId: 'sess-live', preset: 'reviewer' } } }))
   checks['per-call preset: 接管已有会话忽略 preset(沿用原 preset)'] = takeoverPreset.sessionId === 'sess-live' && !takeoverPreset.error
     && takeoverPreset.preset === undefined // live 接管无从得知原 preset → 省略字段
-  const inboxPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 45, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'queued with preset', cwd: FAKE_CWD, preset: 'reviewer' } } })
+  const inboxPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 45, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'queued with preset', cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'reviewer' } } })
   const inboxPresetId = innerOf(inboxPreset).taskId
   let inboxPresetInner: any = {}
   for (let i = 0; i < 50 && inboxPresetInner.preset !== 'reviewer'; i++) {
@@ -582,7 +584,7 @@ try {
       && await waitFor(() => updatedFor(historyUri) >= 1, 5000, 50)
     // 慢任务终态推送: 入队(触发 list_changed) → running → 订阅 activity+queue → cancel → 双推送
     const slowCwdR = resolve(FAKE_CWD, 'slow-cwd-resources')
-    const inboxSlow = await rpc(init.sid, { jsonrpc: '2.0', id: 402, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'slow push', cwd: slowCwdR } } })
+    const inboxSlow = await rpc(init.sid, { jsonrpc: '2.0', id: 402, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'slow push', cwd: slowCwdR, provider: 'p1', model: 'm1' } } })
     const slowId = innerOf(inboxSlow).taskId
     let slowSid = ''
     for (let i = 0; i < 50 && !slowSid; i++) {
@@ -663,9 +665,9 @@ try {
 
   // ── task_cancel / task_list: 排队(锁内)与执行中两条取消路 ──
   const slowCwd = resolve(FAKE_CWD, 'slow-cwd')
-  const inboxA = await rpc(init.sid, { jsonrpc: '2.0', id: 62, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'slow A', cwd: slowCwd } } })
+  const inboxA = await rpc(init.sid, { jsonrpc: '2.0', id: 62, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'slow A', cwd: slowCwd, provider: 'p1', model: 'm1' } } })
   const idA = innerOf(inboxA).taskId
-  const inboxB = await rpc(init.sid, { jsonrpc: '2.0', id: 63, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'slow B', cwd: slowCwd } } })
+  const inboxB = await rpc(init.sid, { jsonrpc: '2.0', id: 63, method: 'tools/call', params: { name: 'task_inbox', arguments: { task: 'slow B', cwd: slowCwd, provider: 'p1', model: 'm1' } } })
   const idB = innerOf(inboxB).taskId
   // 确定性等待: A 真正进入执行中(拿到 cwd 锁并触发官方 cancel 才有意义), 而非固定 sleep
   let aRunning = false
@@ -735,7 +737,7 @@ try {
   const slFiltered = await rpc(init.sid, { jsonrpc: '2.0', id: 91, method: 'tools/call', params: { name: 'session_list', arguments: { cwd: resolve(FAKE_CWD, 'no-such-dir') } } })
   const slF = slFiltered.status === 200 ? innerOf(slFiltered) : { sessions: [] }
   checks['session_list: cwd 过滤(total 为匹配计数, 无匹配为 0)'] = slF.total === 0 && Array.isArray(slF.sessions) && slF.sessions.length === 0
-  const slAll = await rpc(init.sid, { jsonrpc: '2.0', id: 92, method: 'tools/call', params: { name: 'session_list', arguments: { cwd: FAKE_CWD } } })
+  const slAll = await rpc(init.sid, { jsonrpc: '2.0', id: 92, method: 'tools/call', params: { name: 'session_list', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1' } } })
   checks['session_list: cwd 过滤(根目录全中)'] = slAll.status === 200 && innerOf(slAll).sessions.length === sl.total
 
   // ── session_history: live 会话纪要(从最新往回取, 时间正序返回) ──
@@ -767,7 +769,7 @@ try {
   const page2Inner = page2.status === 200 ? innerOf(page2) : { turns: [] }
   checks['session_history: beforeIndex 向更早翻页'] = Array.isArray(page2Inner.turns) && page2Inner.turns.length > 0
     && page2Inner.turns.every((t) => t.index < page1.turns[0].index)
-  const histPersisted = await rpc(init.sid, { jsonrpc: '2.0', id: 74, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted' } } })
+  const histPersisted = await rpc(init.sid, { jsonrpc: '2.0', id: 74, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', provider: 'p1', model: 'm1' } } })
   checks['session_history: 持久化-only 会话明确报不可读'] = parsePayload(histPersisted.text).result?.isError === true
     && String(innerOf(histPersisted).error ?? '').includes('not live')
 
@@ -897,7 +899,7 @@ try {
   await rpcA(sidA, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
   const insideDir = resolve(FAKE_CWD, 'sub', 'deeper')
-  const runInside = await rpcA(sidA, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: insideDir } } })
+  const runInside = await rpcA(sidA, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'agent_run', arguments: { task: 'say ok', cwd: insideDir, provider: 'p1', model: 'm1' } } })
   const runInsideInner = runInside.status === 200 ? innerOf(runInside) : { error: 'bad' }
   checks['workspaceRoots: 根下子目录放行(跨平台分隔符)'] = Boolean(runInsideInner.sessionId) && !runInsideInner.error
 
@@ -977,13 +979,13 @@ try {
   checks['allowedModels 清单内覆盖照常可用'] = Boolean(allowedRun.sessionId) && allowedRun.error === undefined
 
   const defaultRunD = innerOf(await phaseD.call('agent_run', { task: 'say ok', cwd: FAKE_CWD }))
-  checks['allowedModels 不影响清单内的默认解析(无覆盖调用)'] = Boolean(defaultRunD.sessionId) && defaultRunD.error === undefined
+  checks['无覆盖新建调用被拒(模型必须显式指定)'] = String(defaultRunD.error ?? '').includes('provider + model are required')
 
   // preset 门禁与模型门禁相互独立: 锁 preset 不锁模型, 反之亦然
   const presetGate = await phaseD.call('agent_run', { task: 'x', cwd: FAKE_CWD, preset: 'reviewer' })
   checks['allowPresetOverride:false 门禁(preset 覆盖被拒)'] = parsePayload(presetGate.text).result?.isError === true
     && String(innerOf(presetGate).error ?? '').includes('allowPresetOverride')
-  checks['allowPresetOverride:false 不带 preset 仍可用'] = !innerOf(await phaseD.call('agent_run', { task: 'x', cwd: FAKE_CWD })).error
+  checks['allowPresetOverride:false 不带 preset 仍可用'] = !innerOf(await phaseD.call('agent_run', { task: 'x', cwd: FAKE_CWD, provider: 'p1', model: 'm1' })).error
 
   // ── Phase E: 会话空闲 TTL GC —— 超时无活动的会话被服务端关闭, 旧 sid 得 404, 重新 initialize 即可恢复 ──
   const phaseE = await startPhase(8094, makeCtx({ llm: fakeLlm }), { sessionTtlMs: 400 })
@@ -1008,7 +1010,7 @@ try {
   checks['taskTimeoutMs: 以 hook 原因触发官方 agent.cancel'] = slowLiveAgent.cancelCalls.at(-1)?.kind === 'hook'
     && String(slowLiveAgent.cancelCalls.at(-1)?.reason ?? '').includes('task timeout')
   // 不带超时的正常 agent_run 不受影响(phaseF 默认任务走快 agent)
-  const normalRun = innerOf(await phaseF.call('agent_run', { task: 'quick job' }))
+  const normalRun = innerOf(await phaseF.call('agent_run', { task: 'quick job', provider: 'p1', model: 'm1' }))
   checks['taskTimeoutMs: 不影响正常完成的任务'] = Boolean(normalRun.sessionId) && !normalRun.error
 
   // ── Phase G: 队列持久化(queuePersistPath) —— 重启后 done 结果仍可取回 / running 标记被打断 / queued 重新执行 ──
@@ -1017,9 +1019,9 @@ try {
     try { unlinkSync(persistPath) } catch { /* 首次不存在 */ }
     const ctxG = makeCtx({ llm: fakeLlm })
     const phaseG = await startPhase(8092, ctxG, { queuePersistPath: persistPath })
-    const gA = innerOf(await phaseG.call('task_inbox', { task: 'slow A', cwd: slowCwd }))
-    const gB = innerOf(await phaseG.call('task_inbox', { task: 'slow B', cwd: slowCwd }))
-    const gC = innerOf(await phaseG.call('task_inbox', { task: 'quick', cwd: FAKE_CWD }))
+    const gA = innerOf(await phaseG.call('task_inbox', { task: 'slow A', cwd: slowCwd, provider: 'p1', model: 'm1' }))
+    const gB = innerOf(await phaseG.call('task_inbox', { task: 'slow B', cwd: slowCwd, provider: 'p1', model: 'm1' }))
+    const gC = innerOf(await phaseG.call('task_inbox', { task: 'quick', cwd: FAKE_CWD, provider: 'p1', model: 'm1' }))
     // 等持久化快照达到目标状态(A running / B queued / C done)——轮询而非固定 sleep;
     // 收敛与否本身也是断言(快照未收敛就重启, 后面的恢复断言会集体失真)
     const snapshotSettled = await waitFor(() => {
@@ -1126,10 +1128,10 @@ try {
     const ctxI = makeCtx({ llm: fakeLlm })
     const phaseI = await startPhase(8089, ctxI, {})
     const concCwds = [1, 2, 3, 4, 5, 6].map((n) => resolve(FAKE_CWD, `conc-${n}`))
-    const concRuns = await Promise.all(concCwds.map((c, i) => phaseI.call('agent_run', { task: `t${i}`, cwd: c })))
+    const concRuns = await Promise.all(concCwds.map((c, i) => phaseI.call('agent_run', { task: `t${i}`, cwd: c, provider: 'p1', model: 'm1' })))
     checks['并发: 6 个不同 cwd 的任务全部成功'] = concRuns.every((r) => Boolean(innerOf(r).sessionId))
     const sameCwd = resolve(FAKE_CWD, 'conc-same')
-    const sameRuns = await Promise.all([1, 2, 3].map((i) => phaseI.call('agent_run', { task: `s${i}`, cwd: sameCwd })))
+    const sameRuns = await Promise.all([1, 2, 3].map((i) => phaseI.call('agent_run', { task: `s${i}`, cwd: sameCwd, provider: 'p1', model: 'm1' })))
     const sameIds = new Set(sameRuns.map((r) => innerOf(r).sessionId))
     checks['并发: 同 cwd 三任务串行复用同一会话'] = sameIds.size === 1 && Boolean([...sameIds][0])
     const listDuring = await phaseI.call('task_list', {})
@@ -1222,13 +1224,13 @@ try {
       return p
     }
 
-    const runA = callNoWait(80, 'agent_run', { task: 'hold A', cwd: cwdA }, acA)
+    const runA = callNoWait(80, 'agent_run', { task: 'hold A', cwd: cwdA, provider: 'p1', model: 'm1' }, acA)
     // 确定性等待: A 的 slow agent 已收到 followup——此刻 A 必已带活跃标记, 淘汰一定跳过它
     await waitFor(() => {
       const a = slowAgents.find((x) => x.session.header.cwd === cwdA)
       return Boolean(a && a.session.snapshotEvents().length > 0)
     }, 5000)
-    const runB = callNoWait(81, 'agent_run', { task: 'hold B', cwd: cwdB }, acB) // 触发淘汰: A 忙 → 跳过, 池超限建 B
+    const runB = callNoWait(81, 'agent_run', { task: 'hold B', cwd: cwdB, provider: 'p1', model: 'm1' }, acB) // 触发淘汰: A 忙 → 跳过, 池超限建 B
     await waitFor(() => created.some((c) => c.cwd === cwdB), 5000)
     const idA = created.find((c) => c.cwd === cwdA)?.id
     const idB = created.find((c) => c.cwd === cwdB)?.id
@@ -1237,7 +1239,7 @@ try {
     // 取消 A → 收敛; C 到来时 A 空闲 → 被 LRU 正常淘汰 dispose
     await postK(sidK, { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 80 } })
     await waitFor(() => slowAgents.find((x) => x.session.header.cwd === cwdA)?.cancelCalls.length === 1, 5000)
-    const runC = callNoWait(82, 'agent_run', { task: 'quick C', cwd: resolve(FAKE_CWD, 'evict-C') }, acC)
+    const runC = callNoWait(82, 'agent_run', { task: 'quick C', cwd: resolve(FAKE_CWD, 'evict-C'), provider: 'p1', model: 'm1' }, acC)
     await waitFor(() => disposed.includes(idA), 5000)
     checks['LRU: 空闲会话被正常淘汰 dispose'] = disposed.includes(idA)
     acA.abort()
@@ -1319,7 +1321,7 @@ try {
     try { unlinkSync(encPath) } catch { /* 首次不存在 */ }
     const ctxX = makeCtx({ llm: fakeLlm })
     const phaseX = await startPhase(8082, ctxX, { queuePersistPath: encPath, queuePersistKey: 'smoke-secret' })
-    const xTask = innerOf(await phaseX.call('task_inbox', { task: 'secret payload', cwd: FAKE_CWD }))
+    const xTask = innerOf(await phaseX.call('task_inbox', { task: 'secret payload', cwd: FAKE_CWD, provider: 'p1', model: 'm1' }))
     // 等任务完成(密文不可读内容, 以 status 轮询为准), 再等落盘链静默
     for (let i = 0; i < 50; i++) {
       const st = innerOf(await phaseX.call('task_result', { taskId: xTask.taskId, detail: 'status' }))
@@ -1373,7 +1375,7 @@ try {
     ctxY.agents.create = async (args: any) => { await gate; return origCreate(args) }
     const phaseY = await startPhase(8081, ctxY, {})
     const gateCwd = resolve(FAKE_CWD, 'nonexistent-gate')
-    const yInbox = innerOf(await phaseY.call('task_inbox', { task: 'cancel during init', cwd: gateCwd }))
+    const yInbox = innerOf(await phaseY.call('task_inbox', { task: 'cancel during init', cwd: gateCwd, provider: 'p1', model: 'm1' }))
     // 等 running(onStart 与 getAgent 同处投递链: 观察到 running 即已进入 getAgent 窗口, 停在闸门上)
     let yRunning = false
     for (let i = 0; i < 50 && !yRunning; i++) {
@@ -1410,7 +1412,7 @@ try {
     checks['task_list: 收敛后 cancelRequested 标记消失'] = (yListF.tasks ?? []).every((t: any) => t.taskId !== yInbox.taskId || t.cancelRequested === undefined)
     // 监听清理(getAgent 抛错路径): 未知 sessionId 的任务初始化失败(无 abort 触发, once 自摘不适用),
     // executeTask 上抛前必须显式摘除监听, 否则残留在队列条目的 controller.signal 上
-    const leakInbox = innerOf(await phaseY.call('task_inbox', { task: 'leak probe', sessionId: 'sess-unknown' }))
+    const leakInbox = innerOf(await phaseY.call('task_inbox', { task: 'leak probe', sessionId: 'sess-unknown', provider: 'p1', model: 'm1' }))
     let leakStatus: any = {}
     for (let i = 0; i < 50 && !String(leakStatus.error ?? '').includes('"status":"error"'); i++) {
       const lr = await phaseY.call('task_result', { taskId: leakInbox.taskId, detail: 'status' })

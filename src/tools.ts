@@ -119,9 +119,6 @@ const modelCatalogOut = z.object({
   })),
   failures: z.array(z.object({ id: z.string(), name: z.string().optional(), message: z.string() })).optional(),
   config: z.object({
-    provider: z.string().nullable(),
-    model: z.string().nullable(),
-    reasoningEffort: z.string().nullable(),
     allowedModels: z.array(z.string()),
   }),
 })
@@ -250,7 +247,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
     'agent_run',
     {
       title: 'Run agent task (sync)',
-      description: '同步执行任务(改代码/分析/跑命令), 返回结构化结果。可传 sessionId 续接已有会话(长任务分多轮投喂)。可用 provider/model/reasoningEffort 指定本次模型(见 model_list / dsh://models; 同 cwd 下不同模型各自一个常驻会话)。可用 preset 为新建会话选人格(dsh://presets 花名册里的 id; 仅对新建会话生效, 接管已有会话沿用其原 preset)。默认返回 summary 级(省上下文; resourceFirst 部署默认 uri 级=只回引用), 需要 toolCalls 原文时传 detail=full。',
+      description: '同步执行任务(改代码/分析/跑命令), 返回结构化结果。可传 sessionId 续接已有会话(长任务分多轮投喂)。新建会话时必须成对指定 provider/model(先 model_list 查可用值; 同 cwd 下不同模型各自一个常驻会话), 续接已有会话沿用其原模型(想换用 select_model)。可用 preset 为新建会话选人格(dsh://presets 花名册里的 id; 仅对新建会话生效, 接管已有会话沿用其原 preset)。默认返回 summary 级(省上下文; resourceFirst 部署默认 uri 级=只回引用), 需要 toolCalls 原文时传 detail=full。',
       inputSchema: {
         task: z.string().describe('要 Harness 执行的自然语言任务'),
         context: z.string().optional().describe('调用方记忆/上下文, 注入给 agent 参考(续接同一 sessionId 时建议只发增量)'),
@@ -258,8 +255,8 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
         sessionId: z.string().optional().describe('续接已有会话的 sessionId(来自上次 agent_run 结果里的 sessionId 字段)'),
         title: z.string().optional().describe('新会话的标题(创建时命名, 便于会话列表归档)'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`结果详略: uri=只回引用(resource 指向会话纪要资源, 数据直读/订阅); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
-        provider: z.string().optional().describe('模型 provider route(见 model_list/dsh://models; 需与 model 成对; 缺省走插件配置/宿主默认)'),
-        model: z.string().optional().describe('模型 id(见 model_list/dsh://models; 需与 provider 成对; 缺省走插件配置/宿主默认)'),
+        provider: z.string().optional().describe('模型 provider route(见 model_list/dsh://models; 需与 model 成对; 新建会话时必填, 续接已有会话可省)'),
+        model: z.string().optional().describe('模型 id(见 model_list/dsh://models; 需与 provider 成对; 新建会话时必填, 续接已有会话可省)'),
         reasoningEffort: z.string().optional().describe('推理强度 id(见 model_list 的 reasoningEfforts; 缺省 = 适配器默认)'),
         preset: z.string().optional().describe('新建会话挂载的 agent preset id(见 dsh://presets; 仅对新建会话生效; 接管已有会话沿用其原 preset)'),
       },
@@ -366,15 +363,15 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
     'task_inbox',
     {
       title: 'Submit task (async)',
-      description: '把结构化任务(任务+上下文)推入 dsh 队列, 异步执行, 返回 taskId 与结果资源 URI(dsh://queue/{taskId}——订阅它即可在完成时收到 resources/updated, 无需轮询)。可用 provider/model/reasoningEffort 指定本次模型(见 model_list / dsh://models)。',
+      description: '把结构化任务(任务+上下文)推入 dsh 队列, 异步执行, 返回 taskId 与结果资源 URI(dsh://queue/{taskId}——订阅它即可在完成时收到 resources/updated, 无需轮询)。新建会话时必须成对指定 provider/model(先 model_list 查可用值); 续接已有会话沿用其原模型。',
       inputSchema: {
         task: z.string().describe('任务内容'),
         context: z.string().optional().describe('调用方记忆/上下文, 随任务注入给 agent'),
         cwd: z.string().optional().describe('工作目录(不传 sessionId 时缺省当前; 传 sessionId 时缺省沿用会话自身目录, 显式传入必须与会话目录一致)'),
         sessionId: z.string().optional().describe('续接已有会话的 sessionId(来自上次 agent_run 结果)'),
         title: z.string().optional().describe('新会话的标题(创建时命名)'),
-        provider: z.string().optional().describe('模型 provider route(见 model_list/dsh://models; 需与 model 成对)'),
-        model: z.string().optional().describe('模型 id(见 model_list/dsh://models; 需与 provider 成对)'),
+        provider: z.string().optional().describe('模型 provider route(见 model_list/dsh://models; 需与 model 成对; 新建会话时必填, 续接已有会话可省)'),
+        model: z.string().optional().describe('模型 id(见 model_list/dsh://models; 需与 provider 成对; 新建会话时必填, 续接已有会话可省)'),
         reasoningEffort: z.string().optional().describe('推理强度 id(见 model_list 的 reasoningEfforts; 缺省 = 适配器默认)'),
         preset: z.string().optional().describe('新建会话挂载的 agent preset id(见 dsh://presets; 仅对新建会话生效)'),
         idempotencyKey: z.string().optional().describe('幂等键(可选): 相同键的重复提交返回原任务而不重复执行(响应丢失后的安全重试); 要强制重跑请换一个新键'),

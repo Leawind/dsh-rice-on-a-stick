@@ -28,7 +28,6 @@ const state = {
   endpoint: `http://127.0.0.1:8090/mcp`,
   startedAt,
   config: {
-    provider: '(跟随宿主默认)', model: '(跟随宿主默认)', reasoningEffort: '(适配器默认)',
     allowedModels: [], allowPresetOverride: true, preset: 'standard', defaultDetail: 'summary',
     maxAgents: 8, maxQueue: 100, taskTimeoutMs: 0, sessionTtlMs: 86400000,
     queuePersist: false, queuePersistPath: '', queuePersistEncrypted: false, authEnabled: false, workspaceRoots: undefined,
