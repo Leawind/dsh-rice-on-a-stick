@@ -38,23 +38,18 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { readFile, rename, writeFile } from 'node:fs/promises'
 import http from 'node:http'
-import { resolve } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { DEFAULTS, PLUGIN_NAME, PLUGIN_VERSION, type Config } from './config.js'
 import { state } from './state.js'
 import { canonicalCwd } from './paths.js'
-import { decryptQueuePayload, encryptQueuePayload, PERSIST_MAGIC } from './persist.js'
-import { executeTask, selectionOverrideOf } from './engine.js'
 import { registerTools } from './tools.js'
 import { registerResources } from './resources.js'
 import { resUri, collectModelCatalog } from './data.js'
 import { createNotifyHub } from './notify.js'
 import { serverInstructions } from './onboarding.js'
-import { reattachOrphanSessions, serviceOf } from './host.js'
-import type { TaskItem } from './types.js'
+import { serviceOf } from './host.js'
 
 /** Cordis 插件名 */
 export const name = PLUGIN_NAME
@@ -240,152 +235,23 @@ function hostnameOf(hostHeader: string): string {
  * 插件入口: 启动 MCP server(StreamableHTTP, 跨网), 通过 ctx 桥接 dsh 能力。
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  // 每次应用都从 config 重建运行时配置(不跨次泄漏; workspaceRoots 预规范化)。
-  // 数值做边界钳制: 时长类负数一律按 0(关闭)处理, 容量类下限 1。
-  const nonNeg = (n: number | undefined, d: number) => Math.max(0, n ?? d)
   state.config = {
     allowedModels: (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean),
     allowPresetOverride: config.allowPresetOverride ?? DEFAULTS.allowPresetOverride,
     preset: config.preset ?? DEFAULTS.preset,
-    maxQueue: Math.max(1, config.maxQueue ?? DEFAULTS.maxQueue),
-    taskTimeoutMs: nonNeg(config.taskTimeoutMs, DEFAULTS.taskTimeoutMs),
-    progressIntervalMs: Math.max(250, config.progressIntervalMs ?? DEFAULTS.progressIntervalMs),
-    taskTtlMs: nonNeg(config.taskTtlMs, DEFAULTS.taskTtlMs),
-    maxAgents: Math.max(1, config.maxAgents ?? DEFAULTS.maxAgents),
-    sessionTtlMs: nonNeg(config.sessionTtlMs, DEFAULTS.sessionTtlMs),
+    defaultDetail: config.defaultDetail ?? DEFAULTS.defaultDetail,
+    sessionTtlMs: Math.max(0, config.sessionTtlMs ?? DEFAULTS.sessionTtlMs),
     authToken: config.authToken ?? DEFAULTS.authToken,
     // 白名单根同样 realpath 规范化: 与被校验目录(canonicalCwd)同一 canon, 根路径经符号链接时才不会漏判
     workspaceRoots: await Promise.all((config.workspaceRoots ?? []).map((r) => canonicalCwd(r))),
-    // 持久化路径按 cwd 归一化, 相对路径以进程 cwd 为基准, 语义可预期
-    queuePersistPath: config.queuePersistPath ? resolve(config.queuePersistPath) : DEFAULTS.queuePersistPath,
-    queuePersistKey: config.queuePersistKey ?? DEFAULTS.queuePersistKey,
-    defaultDetail: config.defaultDetail ?? DEFAULTS.defaultDetail,
     resourceFirst: config.resourceFirst ?? DEFAULTS.resourceFirst,
   }
 
   // ── 资源订阅枢纽: 每连接一个 McpServer 实例的架构让订阅按连接隔离; 变更点经 state.hooks 汇入 ──
-  const hub = createNotifyHub({ activityThrottleMs: Math.max(250, state.config.progressIntervalMs) })
-  state.hooks.notifyTaskChanged = (taskId) => hub.updated(resUri.queueTask(taskId))
+  const hub = createNotifyHub({ activityThrottleMs: 1000 })
   state.hooks.notifySessionActivity = (sessionId) => hub.updatedThrottled(resUri.sessionActivity(sessionId))
   state.hooks.notifySessionHistory = (sessionId) => hub.updated(resUri.sessionHistory(sessionId))
   state.hooks.notifyListChanged = () => hub.listChanged()
-
-  // ── 任务队列持久化(可选): 队列变化串行落盘(最后写入胜出), apply 时恢复 ──
-  const persistPath = state.config.queuePersistPath
-  let persistChain: Promise<unknown> = Promise.resolve()
-  const persistQueue = () => {
-    if (!persistPath) return
-    // 快照在调用瞬间取, 不在写入执行时: 落盘链有积压时, 卸载(dispose 清空队列)后的迟到写入
-    // 若执行时才序列化, 会把空队列写进文件, 重启恢复静默丢掉整个队列(冒烟压测抓到的真实竞态)。
-    // "调用语义 = 持久化此刻的队列", 后续调用以更新的快照覆盖, 末次写入必然是最新状态。
-    const payload = JSON.stringify([...state.taskQueue.values()])
-    const blob = state.config.queuePersistKey
-      ? encryptQueuePayload(payload, state.config.queuePersistKey)
-      : Buffer.from(payload, 'utf8')
-    persistChain = persistChain
-      .then(async () => {
-        // 原子写: 先落 .tmp 再 rename, persistPath 上的文件永远是完整文件(崩溃不留半截);
-        // 配置了 queuePersistKey 时写 AES-256-GCM 密文(magic 'DSHQ1'), 否则 legacy 明文 JSON
-        const tmp = `${persistPath}.tmp`
-        await writeFile(tmp, blob)
-        await rename(tmp, persistPath)
-      })
-      .catch((e) => console.warn('[dsh-carrot-on-a-stick] queue persist failed:', (e as Error)?.message ?? e))
-  }
-  state.hooks.persistQueue = persistQueue
-  state.hooks.runTaskItem = (item: TaskItem) => {
-    void (async () => {
-      try {
-        // 排队期间已被取消: 不再投递给 agent, 直接收敛(cancel 已由 task_cancel 完成)
-        if (item.controller?.signal.aborted) {
-          item.status = 'cancelled'
-          return
-        }
-        item.result = await executeTask({
-          ctx,
-          task: item.task,
-          context: item.context,
-          cwd: item.cwd,
-          resumeSessionId: item.sessionId,
-          title: item.title,
-          override: selectionOverrideOf(item),
-          preset: item.preset,
-          signal: item.controller?.signal,
-          // running 只在真正拿到 cwd/session 锁开始执行时才标记(排队含锁内等待, 持久化快照才不失真)
-          onStart: () => { item.status = 'running'; persistQueue(); state.hooks.notifyTaskChanged(item.id) },
-          // 拿到会话即回填(池新建的会话请求参数里没有): 运行中就能被 agent_steer 按 taskId 定位
-          onSession: (sid) => {
-            if (!item.sessionId) { item.sessionId = sid; persistQueue() }
-            state.hooks.notifyTaskChanged(item.id)
-          },
-        })
-        item.result.taskId = item.id
-        // 回填实际执行的会话(新建池会话时请求参数里没有), task_list/重启后续接都靠它
-        if (!item.sessionId && item.result.sessionId) item.sessionId = item.result.sessionId
-        // 终态判定: 取消优先于失败(abort 收场的 turn/end 是 canceled, 不是执行失败);
-        // turn 失败(result.error)的任务标 error 而非 done——只轮询状态(detail=status 只回 item.error)
-        // 的调用方也能看到失败, 结果本体仍保留在 item.result 可照常取回。
-        if (item.controller?.signal.aborted) {
-          item.status = 'cancelled'
-        } else if (item.result.error) {
-          item.status = 'error'
-          item.error = item.result.error
-        } else {
-          item.status = 'done'
-        }
-      } catch (e) {
-        item.error = String(e)
-        item.status = item.controller?.signal.aborted ? 'cancelled' : 'error'
-      } finally {
-        item.finishedAt = Date.now()
-        persistQueue()
-        // 终态迁移: 订阅 dsh://queue/{taskId} 的客户端在此收到完成/失败推送(免轮询的核心路径)
-        state.hooks.notifyTaskChanged(item.id)
-      }
-    })()
-  }
-
-  // 恢复上次进程的队列快照: done/error/cancelled 连结果一起回来, queued 重新执行,
-  // running 无法安全续跑半个 turn——如实标记为 interrupted by restart。
-  if (persistPath) {
-    if (!state.config.queuePersistKey) {
-      console.warn('[dsh-carrot-on-a-stick] queue persistence writes plaintext task payloads; set queuePersistKey to encrypt at rest')
-    }
-    try {
-      const raw = await readFile(persistPath)
-      // 加密文件(magic 'DSHQ1'): 解密后解析——口令不对/文件被改 → GCM auth 失败, 走下方损坏容忍(告警, 队列从空开始);
-      // legacy 明文文件: 直接解析——配置了 key 也能读, 下次落盘自然迁移为密文
-      let text: string
-      if (raw.subarray(0, PERSIST_MAGIC.length).toString('utf8') === PERSIST_MAGIC) {
-        if (!state.config.queuePersistKey) throw new Error('queue file is encrypted but queuePersistKey is not configured')
-        text = decryptQueuePayload(raw, state.config.queuePersistKey)
-      } else {
-        text = raw.toString('utf8')
-      }
-      const items = JSON.parse(text) as TaskItem[]
-      let restored = 0
-      for (const item of items) {
-        if (state.taskQueue.has(item.id)) continue
-        if (item.status === 'running') {
-          item.status = 'error'
-          item.error = 'interrupted by restart (turn state is not resumable; re-submit if needed)'
-          item.finishedAt = item.finishedAt ?? Date.now()
-        } else if (item.status === 'queued') {
-          item.controller = new AbortController()
-        }
-        state.taskQueue.set(item.id, item)
-        restored++
-      }
-      for (const item of [...state.taskQueue.values()]) {
-        if (item.status === 'queued') state.hooks.runTaskItem(item)
-      }
-      if (restored > 0) console.log(`[dsh-carrot-on-a-stick] queue restored from ${persistPath}: ${restored} items`)
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-        console.warn('[dsh-carrot-on-a-stick] queue restore failed:', (e as Error)?.message ?? e)
-      }
-    }
-  }
 
   const port = config.port ?? 8090
   // 安全默认: 仅监听本机。暴露公网/局域网前必须自行加认证+反代+TLS(见 README 警告)
@@ -411,26 +277,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     }
   }
 
-  // 存量捞回(默认关闭): 0.1.5 的 workspaceRegistry 已按 header.cwd 自动索引, 该操作只是给手动花名册
-  // 补条目——会对用户数据做批量持久化写入, 仅在明确需要时开启。
-  if (config.reattachOrphans === true) {
-    void (async () => {
-      try {
-        const r = await reattachOrphanSessions(ctx)
-        console.log(`[dsh-carrot-on-a-stick] 存量捞回完成: attached=${r.attached} failed=${r.failed}`)
-      } catch (e) {
-        console.warn('[dsh-carrot-on-a-stick] 存量捞回异常:', (e as Error)?.message ?? e)
-      }
-    })()
-  }
-
-  // 标准 cordis 生命周期: 用 ctx.effect 注册清理(卸载时关 server + 清空全部映射/会话/队列)
+  // 标准 cordis 生命周期: 用 ctx.effect 注册清理(卸载时清空会话记录与订阅枢纽; agent 生命周期归宿主 registry)
   ctx.effect(() => {
     return () => {
-      state.liveAgents.clear()
-      state.sessionToPoolKey.clear()
-      state.agentLocks.clear()
-      state.taskQueue.clear()
+      state.sessionRecords.clear()
       hub.dispose()
     }
   }, PLUGIN_NAME)
@@ -487,18 +337,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     s.listen(port, host)
   })
 
-  /** 状态快照: 版本/监听/配置摘要/运行指标/活跃连接(GUI 面板与 status RPC 同一数据源) */
+  /** 状态快照: 版本/监听/配置摘要/订阅观测/活跃连接(GUI 面板与 status RPC 同一数据源) */
   const statusSnapshot = () => {
-    let queueActive = 0
-    let queueDone = 0
-    let queueError = 0
-    let queueCancelled = 0
-    for (const t of state.taskQueue.values()) {
-      if (t.status === 'queued' || t.status === 'running') queueActive++
-      else if (t.status === 'done') queueDone++
-      else if (t.status === 'cancelled') queueCancelled++
-      else queueError++
-    }
     return {
       name,
       version: PLUGIN_VERSION,
@@ -512,19 +352,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         allowPresetOverride: state.config.allowPresetOverride,
         preset: state.config.preset,
         defaultDetail: state.config.defaultDetail,
-        maxAgents: state.config.maxAgents,
-        maxQueue: state.config.maxQueue,
-        taskTimeoutMs: state.config.taskTimeoutMs,
-        sessionTtlMs: state.config.sessionTtlMs,
-        queuePersist: persistPath !== '',
-        queuePersistPath: state.config.queuePersistPath || '',
-        queuePersistEncrypted: persistPath !== '' && state.config.queuePersistKey !== '',
-        authEnabled: state.config.authToken !== '',
         workspaceRoots: state.config.workspaceRoots,
+        authEnabled: state.config.authToken !== '',
       },
       stats: {
-        liveAgents: state.liveAgents.size,
-        queue: { active: queueActive, done: queueDone, error: queueError, cancelled: queueCancelled },
         connections: connections.size,
         // 资源订阅面观测: 绑定连接数 / 订阅总数(跨连接)
         subscriptions: hub.stats(),

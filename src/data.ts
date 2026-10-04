@@ -1,8 +1,6 @@
 /**
  * 数据层: 工具面(tools)与资源面(resources)共用的读实现——两个面同数据、同 workspaceRoots 白名单边界。
  * 从 tools.ts 抽出(消除"工具↔资源"潜在环), 并承载资源面新增的载荷:
- *   taskDetailPayload   单任务全量(dsh://queue/{taskId}; 完成含 renderResult('full') 投影)
- *   agentsPayload       常驻池明细(dsh://agents; 工具面没有的能力)
  *   presetsPayload      preset 花名册(dsh://presets; agent_run 的 preset 参数此前无从查证)
  *   workspacesPayload   工作区清单/单工作区(dsh://workspaces[/id])
  *   sessionMetaPayload  单会话元数据(dsh://sessions/{id}; persisted-only 也可读)
@@ -14,10 +12,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { PLUGIN_VERSION } from './config.js'
-import { state, sweepExpiredTasks } from './state.js'
+import { state } from './state.js'
 import type { ModelSelection, ModelSelectionOverride } from './types.js'
 import { canonicalCwd, isWithin, sessionCwdRefusal } from './paths.js'
-import { historyTurnsOf, projectModel, renderResult, type HistoryRole } from './projection.js'
+import { historyTurnsOf, projectModel, type HistoryRole } from './projection.js'
 import { eventsOf, headerOfSnapshot, serviceOf } from './host.js'
 import { hostDefaultSelection, knownSelectionOf } from './engine.js'
 import { resolve } from 'node:path'
@@ -43,9 +41,6 @@ export const resUri = {
   sessionHistory: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/history`,
   sessionEvents: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/events`,
   sessionActivity: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/activity`,
-  queue: 'dsh://queue',
-  queueTask: (taskId: string) => `dsh://queue/${encodeURIComponent(taskId)}`,
-  agents: 'dsh://agents',
 } as const
 
 // ── 模型目录(model_list / dsh://models) ──
@@ -59,6 +54,13 @@ export interface SessionControllerView {
   selectModel?: (
     request: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string },
   ) => Promise<{ selected?: ModelSelection } | undefined>
+  /** 按字面短语搜索会话内容(界面搜索框同源) */
+  search?: (request: { query: string }) => Promise<{
+    items?: readonly { sessionId?: unknown; snippet?: string; title?: string }[]
+    hasMore?: boolean
+  } | undefined>
+  /** 分叉会话(界面会话菜单"分叉"): 以源会话事件前缀为起点创建新会话 */
+  fork?: (request: { sessionId: SessionId; atSeq?: number }) => Promise<{ sessionId?: SessionId } | undefined>
 }
 
 /** 官方模型目录形状(只声明本插件读的字段; 未声明的一律不碰) */
@@ -171,58 +173,14 @@ export function cancelRequestedOf(item: { controller?: { signal?: { aborted: boo
   return item.controller?.signal?.aborted === true && (item.status === 'queued' || item.status === 'running')
 }
 
-/** task_list / dsh://queue 的共享实现: 队列快照(顺带 TTL 清理 + 落盘; 清掉的项经 notifyListChanged 广播) */
-export function listTasksPayload(status?: string): Record<string, unknown>[] {
-  const removed = sweepExpiredTasks() // 顺带清一次过期项, 防列表被撑大
-  if (removed.length > 0) state.hooks.notifyListChanged()
-  state.hooks.persistQueue()
-  return [...state.taskQueue.values()]
-    .filter((t) => !status || t.status === status)
-    .map((t) => ({
-      taskId: t.id,
-      status: t.status,
-      ...(t.sessionId ? { sessionId: t.sessionId } : {}),
-      createdAt: t.createdAt,
-      ...(t.finishedAt ? { finishedAt: t.finishedAt } : {}),
-      cwd: t.cwd,
-      // 取消已送达但 agent 尚未收敛的窗口期标记(调度方据此区分"正在取消"与"确认停止")
-      ...(cancelRequestedOf(t) ? { cancelRequested: true } : {}),
-      ...(t.error ? { error: String(t.error).slice(0, 200) } : {}),
-    }))
-}
-
-/** 单任务全量(dsh://queue/{taskId}): 元数据 + 完成时的 full 投影结果。不存在(含 TTL 已清) → 抛错 */
-export function taskDetailPayload(taskId: string): Record<string, unknown> {
-  sweepExpiredTasks()
-  const item = state.taskQueue.get(taskId)
-  if (!item) {
-    throw new Error(`task not found: ${taskId} (never existed or past taskTtlMs — subscribe to ${resUri.queueTask(taskId)} at submit time to be notified on completion)`)
-  }
-  if (state.config.workspaceRoots.length > 0 && !state.config.workspaceRoots.some((root) => isWithin(root, item.cwd))) {
-    throw new Error(`task cwd not allowed (outside workspaceRoots): ${item.cwd}`)
-  }
-  return {
-    taskId: item.id,
-    status: item.status,
-    ...(item.sessionId ? { sessionId: item.sessionId } : {}),
-    cwd: item.cwd,
-    createdAt: item.createdAt,
-    ...(item.finishedAt ? { finishedAt: item.finishedAt } : {}),
-    ...(cancelRequestedOf(item) ? { cancelRequested: true } : {}),
-    ...(item.error ? { error: String(item.error).slice(0, 400) } : {}),
-    // 结果本体: full 投影(资源是显式读取, 调用方要的就是全量; 队列内部另存无损 TaskResult)
-    ...(item.result ? { result: renderResult(item.result, 'full') } : {}),
-  }
-}
-
 // ── 会话(session_list / session_history / dsh://sessions[/…]) ──
 
 /**
  * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd 过滤
- * (total 为过滤后计数)。cwd 参数越界时抛错(与 agent_run 的 cwd 拒绝同风格)。
+ * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
  */
 export async function collectSessions(ctx: Context, cwd?: string): Promise<{ total: number; sessions: Record<string, unknown>[] }> {
-  // 与 reattachOrphanSessions 同款合并: live 优先, 持久化侧兼容快照/裸 header 两种形状
+  // live 优先合并: live 优先, 持久化侧兼容快照/裸 header 两种形状
   const headers = new Map<string, SessionHeader>()
   const liveTitles = new Map<string, string>()
   const sessions = ctx.get('sessions') as { list?: () => { header: SessionHeader; title?: unknown }[] } | undefined
@@ -316,9 +274,13 @@ export async function activityPayload(ctx: Context, sessionId: string): Promise<
   let lastTool = ''
   let lastEventTime: number | undefined
   let assistantTail: string | undefined
+  // 活跃判定: turn/start 多于 turn/end = 还有没收敛的 turn(与宿主 agent 的 busy 态一致)
+  let turnStarts = 0
+  let turnEnds = 0
   for (const e of events) {
     const ev = e as { type?: string; time?: unknown; data?: unknown }
-    if (ev.type === 'turn/start') turns++
+    if (ev.type === 'turn/start') { turns++; turnStarts++ }
+    else if (ev.type === 'turn/end') turnEnds++
     else if (ev.type === 'tool/call') lastTool = (ev.data as { name?: string })?.name ?? lastTool
     if (typeof ev.time === 'number') lastEventTime = ev.time
     if (ev.type === 'assistant/message') {
@@ -329,7 +291,7 @@ export async function activityPayload(ctx: Context, sessionId: string): Promise<
   }
   return {
     sessionId,
-    active: state.activeTurnSessions.has(sessionId),
+    active: turnStarts > turnEnds,
     turns,
     totalEvents: events.length,
     ...(lastTool ? { lastTool } : {}),
@@ -368,21 +330,6 @@ export async function sessionEventsPayload(ctx: Context, sessionId: string, afte
 }
 
 // ── 池 / preset / 工作区 / 宿主工具(纯新增数据能力) ──
-
-/** 常驻池明细(dsh://agents): 工具面没有的能力——谁在池里、用什么模型、是否正跑 turn */
-export function agentsPayload(): Record<string, unknown> {
-  const whitelistActive = state.config.workspaceRoots.length > 0
-  const agents = [...state.liveAgents.values()]
-    .filter((rec) => !whitelistActive || state.config.workspaceRoots.some((root) => isWithin(root, rec.cwd)))
-    .map((rec) => ({
-      sessionId: String(rec.sessionId),
-      ...(rec.cwd ? { cwd: rec.cwd } : {}),
-      preset: rec.preset,
-      model: projectModel(rec.selection),
-      activeTurn: state.activeTurnSessions.has(String(rec.sessionId)),
-    }))
-  return { total: agents.length, agents }
-}
 
 /** preset 花名册(dsh://presets): agent_run/task_inbox 的 preset 参数的合法取值来源 */
 export async function presetsPayload(ctx: Context): Promise<Record<string, unknown>> {
@@ -449,23 +396,8 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
 
 /** apply 级依赖注入(完整状态快照等 apply 闭包才有的能力经它传给两个面; 缺省退回 state 级基础快照) */
 export interface ToolDeps {
-  /** 完整状态快照(版本/监听/uptime/配置摘要/队列计数/连接; index.ts statusSnapshot 同源) */
+  /** 完整状态快照(版本/监听/uptime/配置摘要/连接; index.ts statusSnapshot 同源) */
   statusSnapshot?: () => Record<string, unknown>
-}
-
-/** 队列计数(状态快照里复用) */
-export function queueCounts(): { active: number; done: number; error: number; cancelled: number } {
-  let active = 0
-  let done = 0
-  let error = 0
-  let cancelled = 0
-  for (const t of state.taskQueue.values()) {
-    if (t.status === 'queued' || t.status === 'running') active++
-    else if (t.status === 'done') done++
-    else if (t.status === 'cancelled') cancelled++
-    else error++
-  }
-  return { active, done, error, cancelled }
 }
 
 /** state 级基础状态快照(deps.statusSnapshot 缺省时的退路; 不含监听/连接等 apply 级数据) */
@@ -474,14 +406,11 @@ export function basicStatusSnapshot(): Record<string, unknown> {
     name: 'dsh-carrot-on-a-stick',
     version: PLUGIN_VERSION,
     config: {
-      preset: state.config.preset,
       allowedModels: state.config.allowedModels,
       allowPresetOverride: state.config.allowPresetOverride,
+      preset: state.config.preset,
       defaultDetail: state.config.defaultDetail,
-      maxAgents: state.config.maxAgents,
-      maxQueue: state.config.maxQueue,
       workspaceRoots: state.config.workspaceRoots,
     },
-    stats: { liveAgents: state.liveAgents.size, queue: queueCounts() },
   }
 }

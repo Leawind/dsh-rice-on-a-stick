@@ -6,7 +6,7 @@
  *   normal       ≤ ~9k 字符: 上述 + 截断的工具调用参数与结果
  *   full         旧版行为(assistantText 8k / 50×2k / 20×2k), 仅排查时用
  */
-import type { DetailLevel, ModelSelectionOverride, TaskResult } from './types.js'
+import type { DetailLevel, ModelSelectionOverride, SessionTurnResult } from './types.js'
 
 /** 从 agent 最终回答里解析 changes/verification/leftovers(从后往前找候选, 更可靠) */
 export function parseSummary(assistantText: string): { changes: string; verification: string; leftovers: string } {
@@ -72,12 +72,11 @@ export function projectModel(selection: ModelSelectionOverride | undefined): Rec
   return o
 }
 
-/** 读时投影: 把全量 TaskResult 渲染成对应 detail 级别的返回载荷(空 error/taskId 直接省略字段) */
-export function renderResult(result: TaskResult, detail: DetailLevel): Record<string, unknown> {
+/** 读时投影: 把全量结果渲染成对应 detail 级别的返回载荷(空 error 直接省略字段) */
+export function renderResult(result: SessionTurnResult, detail: DetailLevel): Record<string, unknown> {
   const caps = DETAIL_CAPS[detail]
   const base = {
     detail,
-    ...(result.taskId ? { taskId: result.taskId } : {}),
     sessionId: result.sessionId,
     model: projectModel(result.model),
     ...(result.preset ? { preset: result.preset } : {}),

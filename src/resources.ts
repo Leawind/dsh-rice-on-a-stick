@@ -3,10 +3,10 @@
  *
  * URI 全景(构造器唯一出处 = data.ts resUri):
  *   静态: dsh://status[/config|/stats|/connections]  dsh://guide[/section]  dsh://tools
- *         dsh://models  dsh://presets  dsh://workspaces  dsh://sessions  dsh://queue  dsh://agents
+ *         dsh://models  dsh://presets  dsh://workspaces  dsh://sessions
  *   模板: dsh://models/{provider}  dsh://workspaces/{id}  dsh://sessions/{id}
  *         dsh://sessions/{id}/history[/before]  dsh://sessions/{id}/events[/after]
- *         dsh://sessions/{id}/activity  dsh://queue/{taskId}
+ *         dsh://sessions/{id}/activity
  * 规范要点落地:
  *   - capabilities.resources.{listChanged,subscribe:true} 由 index.ts 在构造器声明;
  *     list_changed(清单变化)由 state.hooks.notifyListChanged → hub 合并广播, updated(单资源)定向推送。
@@ -24,20 +24,16 @@ import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { McpError, ErrorCode, SubscribeRequestSchema, UnsubscribeRequestSchema, type ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { GET_STARTED_DOC, GET_STARTED_SECTIONS, type GuideSection } from './onboarding.js'
-import { state } from './state.js'
 import {
   activityPayload,
-  agentsPayload,
   collectModelCatalog,
   collectSessions,
   hostToolsPayload,
-  listTasksPayload,
   presetsPayload,
   resUri,
   sessionEventsPayload,
   sessionHistoryPayload,
   sessionMetaPayload,
-  taskDetailPayload,
   workspaceDetailPayload,
   workspacesPayload,
   type ToolDeps,
@@ -177,13 +173,11 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   const readWorkspace: ReadFn = (uri, vars) => workspaceDetailPayload(ctx, decodeVar(vars.id)).then((v) => json(uri, v))
   const readSessions: ReadFn = (uri) => collectSessions(ctx).then((v) => json(uri, v))
   const readSession: ReadFn = (uri, vars) => sessionMetaPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
+  const guarded = (fn: ReadFn): ReadFn => async (uri, vars) => { try { return await fn(uri, vars) } catch (e) { throw e instanceof McpError ? e : asMcpError(e) } }
   const readHistory: ReadFn = (uri, vars) =>
     sessionHistoryPayload(ctx, decodeVar(vars.sessionId), 10, parseIndex(vars.before)).then((v) => json(uri, v))
   const readEvents: ReadFn = (uri, vars) => sessionEventsPayload(ctx, decodeVar(vars.sessionId), parseIndex(vars.after)).then((v) => json(uri, v))
   const readActivity: ReadFn = (uri, vars) => activityPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
-  const readQueue: ReadFn = (uri) => json(uri, { tasks: listTasksPayload(undefined) })
-  const readTask: ReadFn = async (uri, vars) => json(uri, taskDetailPayload(decodeVar(vars.taskId)))
-  const readAgents: ReadFn = (uri) => json(uri, agentsPayload())
   const readTools: ReadFn = (uri) => json(uri, hostToolsPayload(ctx))
 
   // ── 静态资源 ──
@@ -192,11 +186,11 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readStatus(uri, {}))
   mcp.registerResource('status-config', resUri.statusConfig, {
-    title: 'Plugin config', description: '部署配置摘要(provider/model/白名单/容量/持久化; 低频变化, 适合缓存)',
+    title: 'Plugin config', description: '部署配置摘要(模型允许清单/白名单/结果形态; 低频变化, 适合缓存)',
     mimeType: 'application/json', annotations: ann.doc,
   }, (uri) => readStatusField('config')(uri, {}))
   mcp.registerResource('status-stats', resUri.statusStats, {
-    title: 'Plugin stats', description: '运行指标(监听/uptime/队列计数/池大小/订阅数; 高频变化, 可订阅)',
+    title: 'Plugin stats', description: '运行指标(监听/uptime/订阅数; 高频变化, 可订阅)',
     mimeType: 'application/json', annotations: ann.hot,
   }, (uri) => readStatusField('stats')(uri, {}))
   mcp.registerResource('status-connections', resUri.statusConnections, {
@@ -230,7 +224,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readModels(uri, {}))
   mcp.registerResource('presets', resUri.presets, {
-    title: 'Agent presets', description: 'preset 花名册(agent_run/task_inbox 的 preset 参数取值来源)',
+    title: 'Agent presets', description: 'preset 花名册(session_create 的 preset 参数取值来源)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readPresets(uri, {}))
   mcp.registerResource('workspaces', resUri.workspaces, {
@@ -241,14 +235,6 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     title: 'Sessions', description: '会话清单(live+持久化合并, 白名单裁剪; session_list 同数据)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readSessions(uri, {}))
-  mcp.registerResource('queue', resUri.queue, {
-    title: 'Task queue', description: '任务队列快照(task_list 同数据; 单任务明细见 queue/{taskId})',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readQueue(uri, {}))
-  mcp.registerResource('agents', resUri.agents, {
-    title: 'Resident agents', description: '常驻会话池明细(sessionId/cwd/preset/model/是否活跃 turn)',
-    mimeType: 'application/json', annotations: ann.hot,
-  }, (uri) => readAgents(uri, {}))
 
   // ── 模板资源 ──
   mcp.registerResource('model-provider', new ResourceTemplate(resUri.models + '/{provider}', {
@@ -320,7 +306,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   }), {
     title: 'Session history', description: `会话纪要(最新 ${HISTORY_PAGE} 轮, 从新到旧; 更早翻页读 {id}/history/{before}; session_history 工具同数据)`,
     mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readHistory(uri, vars))
+  }, guarded((uri, vars) => readHistory(uri, vars)))
   mcp.registerResource('session-history-page', new ResourceTemplate(resUri.sessions + '/{sessionId}/history/{before}', {
     // 翻页变体不进清单(默认模板已代表该资源族); 仅可读
     list: undefined,
@@ -328,7 +314,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   }), {
     title: 'Session history page', description: `会话纪要翻页: 只取 {before} 序号之前的事件, 返回其前 ${HISTORY_PAGE} 轮(传上次结果最早的 index)`,
     mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readHistory(uri, vars))
+  }, guarded((uri, vars) => readHistory(uri, vars)))
 
   mcp.registerResource('session-events', new ResourceTemplate(resUri.sessions + '/{sessionId}/events', {
     list: async () => ({ resources: await listLiveSessionUris(ctx, 'events') }),
@@ -353,24 +339,6 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.hot,
   }, (uri, vars) => readActivity(uri, vars))
 
-  mcp.registerResource('queue-task', new ResourceTemplate(resUri.queue + '/{taskId}', {
-    list: async () => ({
-      resources: listTasksPayload(undefined).map((t) => ({
-        uri: resUri.queueTask(String(t.taskId)),
-        name: `${String(t.status)}: ${String(t.taskId)}`,
-        description: t.cwd === undefined ? undefined : `cwd: ${String(t.cwd)}`,
-        mimeType: 'application/json',
-        ...(t.finishedAt !== undefined ? { annotations: { lastModified: new Date(Number(t.finishedAt)).toISOString() } } : {}),
-      })),
-    }),
-    complete: {
-      taskId: async (value) => [...state.taskQueue.keys()].filter((id) => id.startsWith(value)).slice(0, 30),
-    },
-  }), {
-    title: 'Task detail', description: '单任务明细(状态/结果全量; 提交后订阅本资源免轮询——每次状态迁移都推一次 updated, updated 只是重读信号, 终态以读取内容为准; 快任务可能在订阅落地前已完成, 直接读取即得终态)',
-    mimeType: 'application/json', annotations: ann.hot,
-  }, (uri, vars) => readTask(uri, vars))
-
   // ── 订阅面(hub 缺省 = 纯只读) ──
   const hub = deps?.hub
   if (hub) {
@@ -384,7 +352,6 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
       { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/events', { list: undefined }), read: readEvents },
       { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/events/{after}', { list: undefined }), read: readEvents },
       { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/activity', { list: undefined }), read: readActivity },
-      { template: new ResourceTemplate(resUri.queue + '/{taskId}', { list: undefined }), read: readTask },
     ]
     const staticReads: Record<string, ReadFn> = {
       [resUri.status]: readStatus,
@@ -400,8 +367,6 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
       [resUri.presets]: readPresets,
       [resUri.workspaces]: readWorkspaces,
       [resUri.sessions]: readSessions,
-      [resUri.queue]: readQueue,
-      [resUri.agents]: readAgents,
     }
 
     /** 订阅校验 = 试读: 静态走静态表, 其余逐模板匹配后执行读实现(可读才可订阅) */

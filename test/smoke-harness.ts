@@ -15,8 +15,12 @@ export const selectModelCalls = []
 export const disposers = []
 export const steered = []
 export const injected = []
-// 每次 followup 一条(按 agent id): 断言"任务实际执行了几次"(幂等去重/取消窗口的执行计数证据)
+// 每次 followup 一条(按 agent id): 断言"任务实际执行了几次"
 export const followups = []
+// 会话中心新增面的记录: 搜索/分叉/归档
+export const searched = []
+export const forked = []
+export const archived = []
 
 // 仓库根的 realpath(win32 反斜杠规范路径) —— 与 workspace.path / fs.realpath 结果同 canon
 export const FAKE_CWD = realpathSync(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
@@ -37,8 +41,22 @@ const wsRegistry = {
 
 function makeAgent(id, cwd, options) {
   const events = []
+  // inbox 桩(宿主 agent-loop 的排队消息面): nextTurn 常驻数组, remove/replace 真实生效
+  const inbox = {
+    nextTurn: [],
+    nextStep: [],
+    remove: (messageId) => {
+      const i = inbox.nextTurn.findIndex((m) => m.id === messageId)
+      if (i >= 0) inbox.nextTurn.splice(i, 1)
+    },
+    replace: (messageId, message) => {
+      const i = inbox.nextTurn.findIndex((m) => m.id === messageId)
+      if (i >= 0) inbox.nextTurn[i] = message
+    },
+  }
   return {
     options,
+    inbox,
     // 状态桩: 普通 agent 的 turn 立即收敛, 观测窗口里恒为 idle
     get status() { return 'idle' },
     steer: (message) => { steered.push({ id, message }) },
@@ -80,8 +98,21 @@ function makeSlowAgent(id, cwd, options) {
   const events = []
   let resolveIdle
   let settled = false
+  const inbox = {
+    nextTurn: [],
+    nextStep: [],
+    remove: (messageId) => {
+      const i = inbox.nextTurn.findIndex((m) => m.id === messageId)
+      if (i >= 0) inbox.nextTurn.splice(i, 1)
+    },
+    replace: (messageId, message) => {
+      const i = inbox.nextTurn.findIndex((m) => m.id === messageId)
+      if (i >= 0) inbox.nextTurn[i] = message
+    },
+  }
   const agent = {
     options,
+    inbox,
     cancelCalls: [],
     // 状态桩: whenIdle 挂起期间(= turn 进行中)为 running, cancel 收敛后为 idle
     get status() { return settled ? 'idle' : 'running' },
@@ -166,6 +197,34 @@ export const fakeSessionController = {
     if (request.model === 'boom') throw new Error('model boom is not routable')
     return { selected: { ...request, sessionId: undefined } }
   },
+  // 历史分页(界面打开旧会话同一条路): 冷恢复的模型选择从日志里的 model/selection 事件恢复。
+  // sess-persisted 的日志里有一份 p1/m1 的选择; 其它会话日志为空(恢复不了的路径)。
+  page: async ({ sessionId }) => ({
+    events: sessionId === 'sess-persisted'
+      ? [{ type: 'model/selection', data: { provider: 'p1', model: 'm1' } }]
+      : [],
+  }),
+  search: async ({ query }) => {
+    searched.push(query)
+    if (query === 'no-hit') return { items: [], hasMore: false }
+    return { items: [{ sessionId: 'sess-live', snippet: `hit for ${query}` }], hasMore: false }
+  },
+  fork: async ({ sessionId, atSeq }) => {
+    forked.push({ sessionId, atSeq })
+    return { sessionId: 'sess-forked' }
+  },
+}
+// 归档假服务(workspaceController.archiveSession): 活动会话(live 表里的)拒绝并报 session-active,
+// stopActivity: true 才放行——与界面"停止并归档"确认同语义
+export const fakeWorkspaceController = {
+  archiveSession: async ({ sessionId, stopActivity }) => {
+    const active = sessionId === 'sess-live' || sessionId === 'sess-slow'
+    if (active && stopActivity !== true) {
+      throw new Error('workspace/session-active: the session is running; archive with stopActivity to stop it first')
+    }
+    archived.push({ sessionId, stopActivity: stopActivity === true })
+    return undefined
+  },
 }
 export const fakeSessionTitle = {
   renamed: [],
@@ -194,10 +253,11 @@ export function makeCtx(opts: {
   llm?: any
   sessionTitle?: any
   tools?: any
+  workspaceController?: any
   extraSessions?: { id: string; cwd?: string }[]
   extraPersisted?: { id: string; cwd?: string }[]
 } = {}): any {
-  const { sessionController, llm = {}, sessionTitle, tools = fakeTools, extraSessions = [], extraPersisted = [] } = opts
+  const { sessionController, llm = {}, sessionTitle, tools = fakeTools, workspaceController = fakeWorkspaceController, extraSessions = [], extraPersisted = [] } = opts
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
   const fakeSessions = {
@@ -271,7 +331,8 @@ export function makeCtx(opts: {
 : name === 'tools' ? tools
             : name === 'agentDefaultModel' ? fakeAgentDefaultModel
               : name === 'sessionTitle' ? sessionTitle
-                : undefined),
+                : name === 'workspaceController' ? workspaceController
+                  : undefined),
   }
   return ctx
 }

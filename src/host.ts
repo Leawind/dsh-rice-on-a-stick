@@ -124,42 +124,6 @@ export async function findSessionHeader(ctx: Context, sessionId: SessionId): Pro
 }
 
 /**
- * 存量捞回: 启动时把现存未分组的会话补挂到已注册工作区。
- * 条件: header.cwd 的 realpath 等于某已注册 workspace.path, 且该 sessionId 不在其花名册里。
- * 只补挂到"已注册"工作区, 不新建(避免把无关目录刷成新工作区); 单会话失败不影响其余。
+ * 存量捞回已在会话中心重设计中移除(reattachOrphans 配置删除): workspaceRegistry 本身按
+ * header.cwd 自动索引, 未分组会话在被触达时由 attachSessionCwd 幂等补挂。
  */
-export async function reattachOrphanSessions(ctx: Context): Promise<{ attached: number; failed: number }> {
-  const registry = ctx.get('workspaceRegistry') as WorkspaceRegistryView | undefined
-  const byPath = new Map<string, WorkspaceView>()
-  for (const ws of registry?.list?.() ?? []) byPath.set(ws.path, ws)
-  if (byPath.size === 0) return { attached: 0, failed: 0 }
-
-  // live + 持久化 header 合并(live 优先), 按 id 去重(持久化侧兼容快照/裸 header 两种形状)
-  const headers = new Map<string, SessionHeader>()
-  const sessions = ctx.get('sessions') as { list?: () => { header: SessionHeader }[] } | undefined
-  for (const session of sessions?.list?.() ?? []) headers.set(session.header.id, session.header)
-  const persistence = ctx.get('sessionPersistence') as { list?: () => Promise<readonly unknown[]> } | undefined
-  for (const snap of (await persistence?.list?.()) ?? []) {
-    const header = headerOfSnapshot(snap)
-    if (header && !headers.has(header.id)) headers.set(header.id, header)
-  }
-
-  let attached = 0
-  let failed = 0
-  for (const header of headers.values()) {
-    if (header.cwd === undefined) continue
-    const canonical = await canonicalCwd(header.cwd)
-    const ws = byPath.get(canonical)
-    if (ws === undefined || !ws.attachSession) continue
-    if (ws.sessionIds.includes(header.id)) continue
-    try {
-      await ws.attachSession(header.id)
-      attached++
-      console.log(`[dsh-carrot-on-a-stick] 存量捞回: session ${header.id} -> workspace ${ws.path}`)
-    } catch (e) {
-      failed++
-      console.warn(`[dsh-carrot-on-a-stick] 存量捞回失败 session ${header.id}:`, (e as Error)?.message ?? e)
-    }
-  }
-  return { attached, failed }
-}

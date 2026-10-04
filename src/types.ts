@@ -11,32 +11,31 @@ export interface ModelSelection {
   reasoningEffort?: string
 }
 
-/** 调用方单次调用的模型覆盖(三项都可选; 只给一边时由插件 config / 宿主默认补另一边) */
+/** 不完整的选择(模型目录的缺省选择/调用参数等场景; 不做任何补全) */
 export type ModelSelectionOverride = Partial<ModelSelection>
 
-/** 池中常驻 agent 的记录: 记下 cwd/模型选择/preset, 供 sessionId 续接与"改模型后重新入池"复用 */
-export interface PooledAgent {
+/** 会话与其 agent 的绑定记录(创建/续接时登记, 常驻直至进程结束——与界面行为一致) */
+export interface SessionRecord {
   sessionId: SessionId
   handle: AgentHandle
-  /** realpath 规范化后的 cwd(池 key 的第一段) */
+  /** realpath 规范化后的 cwd */
   cwd: string
-  /** 建这个会话时用的模型选择(结果回报与 re-key 用) */
+  /** 会话的模型选择(创建时显式指定; 续接沿用) */
   selection: ModelSelection
-  /** 建这个会话时挂载的 preset(结果回报与池 key 用; 接管会话沿用创建时的 preset) */
+  /** 会话实际挂载的 preset */
   preset: string
 }
 
-/** 结构化任务结果 */
-export interface TaskResult {
-  taskId: string
+/** 一轮 prompt 的结构化结果 */
+export interface SessionTurnResult {
   sessionId: string
   /** 本次执行实际用的模型选择(接管会话读不到 options 时字段为空; 让调用方知道是谁答的) */
   model: ModelSelection
   /** 本次实际挂载的 preset(接管 live 会话无从得知时为空, 投影时省略) */
   preset: string
-  /** turn 执行墙钟时长 ms(followup 投递 → whenIdle 收敛; 调用方做成本判断用) */
+  /** turn 执行墙钟时长 ms(followup 投递 → whenIdle 收敛) */
   durationMs: number
-  /** token 用量(机会式聚合 assistant/message 事件里的 message.usage; 宿主未提供时省略) */
+  /** token 用量(机会式聚合 assistant/message 事件里的 usage; 宿主未提供时省略) */
   usage?: { inputTokens: number; outputTokens: number; totalTokens?: number }
   assistantText: string
   toolCalls: { name: string; args: string }[]
@@ -53,28 +52,3 @@ export interface TaskResult {
 
 /** 结果详略级别 */
 export type DetailLevel = 'summary' | 'normal' | 'full'
-
-/** 异步任务队列条目(进程内存; 取消用 task_cancel 或 abort controller) */
-export interface TaskItem {
-  id: string
-  task: string
-  context: string
-  cwd: string
-  sessionId?: string
-  title?: string
-  /** 单次调用的模型覆盖(入队后异步执行时才解析成完整选择) */
-  provider?: string
-  model?: string
-  reasoningEffort?: string
-  /** 单次调用的 preset 覆盖(仅对新建会话生效; 接管已有会话沿用其原 preset) */
-  preset?: string
-  /** 幂等键(调用方提供): 相同键的重复提交返回原任务不重复执行(响应丢失重试场景) */
-  idempotencyKey?: string
-  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
-  /** 取消句柄: task_cancel 触发 abort → executeTask 走官方 agent.cancel */
-  controller?: AbortController
-  result?: TaskResult
-  error?: string
-  createdAt: number
-  finishedAt?: number
-}
