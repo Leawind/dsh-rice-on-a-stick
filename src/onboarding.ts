@@ -146,7 +146,8 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 | steering an idle session refused | \`agent_run\` to send a new task |
 | history / steer of a persisted-only session | \`agent_run\` with that \`sessionId\` (resumes it) |
 | \`select_model\` says sessionController unavailable | \`agent_run\` / \`task_inbox\` with \`provider\`+\`model\` |
-| model / preset override refused | the deployment pinned it (\`allowModelOverride\`/\`allowPresetOverride: false\`); drop the override |
+| model override refused | the model is not in the deployment's \`allowedModels\` allowlist — pick one from \`model_list\` that appears there |
+| preset override refused | the deployment pinned it (\`allowPresetOverride: false\`); drop the preset argument |
 | cwd outside workspaceRoots | pick a directory under the configured roots (see \`dsh_status\`) |
 | task queue full | \`task_list\` + \`task_cancel\` stale items, then resubmit |
 `,
@@ -163,7 +164,8 @@ polling. Tool-level failures return \`isError: true\` with the reason in the pay
 
 - \`workspaceRoots\`: the cwd whitelist — execution, session takeover, and session reads all
   stop at this boundary.
-- \`allowModelOverride\` / \`allowPresetOverride\`: whether you may pick model / preset per call.
+- \`allowedModels\`: the allowlist of models you may pick per call (absent/empty = any model).
+- \`allowPresetOverride\`: whether you may pick a preset per call.
 - \`maxQueue\` / \`maxAgents\`: queue capacity and session-pool LRU limit.
 - Plugin config and per-call arguments beat the host default; the result tells you which
   model/preset actually answered (\`model\` / \`preset\` fields).

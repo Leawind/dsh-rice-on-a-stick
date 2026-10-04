@@ -122,7 +122,7 @@ const modelCatalogOut = z.object({
     provider: z.string().nullable(),
     model: z.string().nullable(),
     reasoningEffort: z.string().nullable(),
-    allowModelOverride: z.boolean(),
+    allowedModels: z.array(z.string()),
   }),
 })
 
@@ -597,8 +597,9 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ sessionId, provider, model, reasoningEffort }) => {
-      if (!state.config.allowModelOverride) {
-        return outError(JSON.stringify({ error: 'model override is disabled by plugin config (allowModelOverride: false)' }))
+      const allowed = state.config.allowedModels
+      if (allowed.length > 0 && !allowed.includes(`${provider}/${model}`)) {
+        return outError(JSON.stringify({ error: `model "${provider}/${model}" is not in allowedModels [${allowed.join(', ')}]` }))
       }
       const sc = serviceOf<SessionControllerView>(ctx, 'sessionController')
       if (typeof sc?.selectModel !== 'function') {

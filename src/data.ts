@@ -100,7 +100,7 @@ function projectCatalogModel(m: { id?: string; name?: string; reasoning?: { effo
  *      与 Web UI 模型选择器同一数据源;
  *   2. 回退: llm.listProviders() + 逐个 listModels() —— 只服务会话控制器缺席的部署(如 headless),
  *      逐个 provider 隔离失败, 且不含推理档元数据(那需要 resolveModelInfo, 这里不逐模型发请求)。
- * 同时回报插件自身的模型配置与 allowModelOverride, 让调用方知道"能不能自己选"。
+ * 同时回报插件自身的模型配置与 allowedModels, 让调用方知道"能用哪些模型"。
  */
 export async function collectModelCatalog(ctx: Context, only?: string): Promise<Record<string, unknown>> {
   const failures: { id: string; name?: string; message: string }[] = []
@@ -159,7 +159,7 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
       provider: state.config.provider || null,
       model: state.config.model || null,
       reasoningEffort: state.config.reasoningEffort || null,
-      allowModelOverride: state.config.allowModelOverride,
+      allowedModels: state.config.allowedModels,
     },
   }
 }
@@ -480,7 +480,7 @@ export function basicStatusSnapshot(): Record<string, unknown> {
       provider: state.config.provider || '(跟随宿主默认)',
       model: state.config.model || '(跟随宿主默认)',
       preset: state.config.preset,
-      allowModelOverride: state.config.allowModelOverride,
+      allowedModels: state.config.allowedModels,
       allowPresetOverride: state.config.allowPresetOverride,
       defaultDetail: state.config.defaultDetail,
       maxAgents: state.config.maxAgents,

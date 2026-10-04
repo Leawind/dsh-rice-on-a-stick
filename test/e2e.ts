@@ -194,7 +194,7 @@ try {
       modelCount > 0
         ? (ml.providers.flatMap((p) => (p.models ?? []).map((m) => `${p.id}/${m.id}`)).slice(0, 6).join(', '))
         : `failures=${JSON.stringify(ml.failures ?? []).slice(0, 160)}`)
-    report('model_list 报出插件模型配置与覆盖开关', typeof ml.config?.allowModelOverride === 'boolean',
+    report('model_list 报出插件模型配置与允许清单', Array.isArray(ml.config?.allowedModels),
       `config=${JSON.stringify(ml.config ?? null)}`)
   }
 

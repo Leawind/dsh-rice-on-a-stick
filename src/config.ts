@@ -24,10 +24,11 @@ export interface Config {
   /** 默认推理强度(适配器定义的 id; 空 = 跟随适配器/提供商默认) */
   reasoningEffort?: string
   /**
-   * 是否允许调用方在单次调用里覆盖模型(agent_run/task_inbox 的 provider/model/reasoningEffort,
-   * 以及 select_model; 默认 true)。设为 false = 由部署锁死模型, 覆盖请求会被明确拒绝。
+   * 允许调用方选择的模型清单(provider/model 形式; 默认空 = 不限制)。
+   * 非空时是一份允许清单: 按调用指定、或默认解析出的 provider/model 不在清单内, 请求会被明确拒绝。
+   * 清单只约束"能用哪些模型"; 调用方未指定时的默认值仍由 provider/model 配置兜底。
    */
-  allowModelOverride?: boolean
+  allowedModels?: string[]
   /**
    * 是否允许调用方为新建会话选择 agent preset(agent_run/task_inbox 的 preset 参数; 默认 true)。
    * 设为 false = 由部署锁死 preset(仍用 config.preset), 覆盖请求会被明确拒绝。
@@ -113,7 +114,7 @@ export const DEFAULTS = {
   provider: '',
   model: '',
   reasoningEffort: '',
-  allowModelOverride: true,
+  allowedModels: [] as string[],
   allowPresetOverride: true,
   preset: 'standard',
   maxQueue: 100,
@@ -146,7 +147,7 @@ export const Config = Schema.object({
   provider: Schema.string().default(DEFAULTS.provider).description('后端 provider(空 = 跟随宿主用户设置; 需与 model 成对配置才生效)'),
   model: Schema.string().default(DEFAULTS.model).description('执行任务的模型(空 = 跟随宿主用户设置; 需与 provider 成对配置才生效)'),
   reasoningEffort: Schema.string().default(DEFAULTS.reasoningEffort).description('默认推理强度(适配器定义的 id; 空 = 跟随适配器/提供商默认)'),
-  allowModelOverride: Schema.boolean().default(DEFAULTS.allowModelOverride).description('是否允许调用方在单次调用里覆盖模型/推理强度(false = 由部署锁死, 覆盖请求被明确拒绝)'),
+  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('允许调用方选择的模型清单(provider/model 形式; 空 = 不限制)。非空时: 按调用指定或默认解析出的模型不在清单内, 请求会被明确拒绝'),
   allowPresetOverride: Schema.boolean().default(DEFAULTS.allowPresetOverride).description('是否允许调用方为新建会话选择 agent preset(false = 由部署锁死; 接管已有会话沿用其创建时的 preset)'),
   preset: Schema.string().default(DEFAULTS.preset).description('挂载的 agent preset'),
   maxQueue: Schema.number().default(DEFAULTS.maxQueue).description('任务队列容量上限'),

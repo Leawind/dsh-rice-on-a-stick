@@ -163,7 +163,7 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 /** 字符串字段(空串语义与配置文件一致: provider/model/reasoningEffort 空即"跟随默认", authToken/queuePersistPath 空即关闭) */
 const GUI_STRING_FIELDS = new Set(['provider', 'model', 'reasoningEffort', 'preset', 'queuePersistPath', 'authToken'])
 /** 布尔字段 */
-const GUI_BOOL_FIELDS = new Set(['allowModelOverride', 'allowPresetOverride'])
+const GUI_BOOL_FIELDS = new Set(['allowPresetOverride'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
 const GUI_NUMBER_MIN: Record<string, number> = { maxQueue: 1, maxAgents: 1, taskTimeoutMs: 0, sessionTtlMs: 0 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
@@ -192,6 +192,14 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
         throw httpError(400, 'defaultDetail 必须是 summary/normal/full 之一')
       }
       out[key] = value
+    } else if (key === 'allowedModels') {
+      if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+        throw httpError(400, 'allowedModels 必须是字符串数组')
+      }
+      const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
+      const bad = entries.find((s) => !s.includes('/'))
+      if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
+      out[key] = [...new Set(entries)]
     } else {
       throw httpError(400, `字段 ${key} 不支持在界面编辑, 请编辑 cordis.patch.yml`)
     }
@@ -239,7 +247,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     provider: config.provider ?? DEFAULTS.provider,
     model: config.model ?? DEFAULTS.model,
     reasoningEffort: config.reasoningEffort ?? DEFAULTS.reasoningEffort,
-    allowModelOverride: config.allowModelOverride ?? DEFAULTS.allowModelOverride,
+    allowedModels: (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean),
     allowPresetOverride: config.allowPresetOverride ?? DEFAULTS.allowPresetOverride,
     preset: config.preset ?? DEFAULTS.preset,
     maxQueue: Math.max(1, config.maxQueue ?? DEFAULTS.maxQueue),
@@ -506,7 +514,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         provider: state.config.provider || '(跟随宿主默认)',
         model: state.config.model || '(跟随宿主默认)',
         reasoningEffort: state.config.reasoningEffort || '(适配器默认)',
-        allowModelOverride: state.config.allowModelOverride,
+        allowedModels: state.config.allowedModels,
         allowPresetOverride: state.config.allowPresetOverride,
         preset: state.config.preset,
         defaultDetail: state.config.defaultDetail,

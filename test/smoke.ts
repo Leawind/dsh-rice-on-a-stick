@@ -10,7 +10,7 @@
 //   7. 安全: Bearer 认证 401 / Host 白名单 403(防 DNS rebinding) / workspaceRoots 跨平台子目录匹配
 //   8. 模型选择: model_list(sessionController 官方目录 / llm 回退 / provider 过滤 / 投影省上下文)、
 //      agent_run+task_inbox 的 provider/model/reasoningEffort 覆盖、池按 cwd+模型分组、
-//      select_model 走官方 selectModel 并 re-key、allowModelOverride:false 门禁
+//      select_model 走官方 selectModel 并 re-key、allowedModels 允许清单门禁
 //   9. 协议严格性: 工具错误结果带 isError(MCP 规范 SHOULD)、成功结果省略空 error/taskId、
 //      工具带 title+annotations(2025-06-18 字段)、401 带 WWW-Authenticate、
 //      Origin 白名单(跨域/null 拒, 同源放行)、404 体不再挪用 -32601、会话空闲 TTL GC
@@ -309,7 +309,7 @@ try {
     && JSON.stringify(ml).includes('defaultReasoningEffort')
     && !JSON.stringify(ml).includes('LONG-DESCRIPTION-MUST-NOT-LEAK')
   checks['model_list 带 provider 失败信息与插件模型配置'] = ml.failures?.[0]?.id === 'p3'
-    && ml.config?.allowModelOverride === true && ml.config?.provider === null
+    && Array.isArray(ml.config?.allowedModels) && ml.config?.provider === null
 
   const modelListP2 = await rpc(init.sid, { jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'model_list', arguments: { provider: 'p2' } } })
   const mlP2 = modelListP2.status === 200 ? innerOf(modelListP2) : { error: 'bad' }
@@ -960,22 +960,24 @@ try {
   for (const d of disposers.splice(0)) if (typeof d === 'function') d()
   await new Promise((r) => setTimeout(r, 200))
 
-  // ── Phase D: allowModelOverride:false —— 部署锁死模型, 覆盖被明确拒绝, 不覆盖仍可用 ──
-  const phaseD = await startPhase(8095, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowModelOverride: false, allowPresetOverride: false })
+  // ── Phase D: allowedModels 允许清单 —— 清单外模型被明确拒绝, 清单内覆盖与默认解析不受影响 ──
+  const phaseD = await startPhase(8095, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'], allowPresetOverride: false })
   const mlD = innerOf(await phaseD.call('model_list', {}))
-  checks['allowModelOverride:false 在 model_list 里可见'] = mlD.config?.allowModelOverride === false
+  checks['allowedModels 在 model_list 里可见'] = JSON.stringify(mlD.config?.allowedModels) === '["p1/m1"]'
 
   const deniedRun = innerOf(await phaseD.call('agent_run', { task: 'say ok', cwd: FAKE_CWD, provider: 'p2', model: 'm9' }))
-  checks['allowModelOverride:false 时按调用选模型被拒'] = String(deniedRun.error ?? '').includes('allowModelOverride')
+  checks['allowedModels 清单外模型被拒'] = String(deniedRun.error ?? '').includes('allowedModels')
 
   const deniedSelResp = await phaseD.call('select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
   const deniedSel = innerOf(deniedSelResp)
-  checks['allowModelOverride:false 时 select_model 被拒'] = String(deniedSel.error ?? '').includes('allowModelOverride')
+  checks['allowedModels 清单外 select_model 被拒'] = String(deniedSel.error ?? '').includes('allowedModels')
   checks['被拒结果带 isError 标记(select_model)'] = parsePayload(deniedSelResp.text).result?.isError === true
 
-  const allowedRun = innerOf(await phaseD.call('agent_run', { task: 'say ok', cwd: FAKE_CWD }))
-  checks['allowModelOverride:false 不影响不带覆盖的调用'] = Boolean(allowedRun.sessionId) && !allowedRun.error
-    && allowedRun.error === undefined // 空 error 字段直接省略(不再是空串)
+  const allowedRun = innerOf(await phaseD.call('agent_run', { task: 'say ok', cwd: FAKE_CWD, provider: 'p1', model: 'm1' }))
+  checks['allowedModels 清单内覆盖照常可用'] = Boolean(allowedRun.sessionId) && allowedRun.error === undefined
+
+  const defaultRunD = innerOf(await phaseD.call('agent_run', { task: 'say ok', cwd: FAKE_CWD }))
+  checks['allowedModels 不影响清单内的默认解析(无覆盖调用)'] = Boolean(defaultRunD.sessionId) && defaultRunD.error === undefined
 
   // preset 门禁与模型门禁相互独立: 锁 preset 不锁模型, 反之亦然
   const presetGate = await phaseD.call('agent_run', { task: 'x', cwd: FAKE_CWD, preset: 'reviewer' })

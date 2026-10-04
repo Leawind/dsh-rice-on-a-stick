@@ -63,7 +63,7 @@ export function hostDefaultSelection(ctx: Context): ModelSelectionOverride | und
     ?.currentSelection?.()
 }
 
-/** 调用是否携带了任一模型覆盖字段(用于 allowModelOverride 门禁与"没有覆盖"判定) */
+/** 调用是否携带了任一模型覆盖字段(用于"没有覆盖"判定) */
 function hasModelOverride(override?: ModelSelectionOverride): boolean {
   return override !== undefined
     && (override.provider !== undefined || override.model !== undefined || override.reasoningEffort !== undefined)
@@ -81,6 +81,8 @@ export function selectionOverrideOf(args: { provider?: string; model?: string; r
 /**
  * 解析生成 agent 的模型选择, 优先级: 单次调用覆盖 > 插件 config > 宿主默认选择。
  * provider+model 必须成对解析出来: 只给一边时用低优先级来源补另一边, 补齐不了直接抛错。
+ * allowedModels 非空时是一份允许清单: 无论模型来自调用覆盖还是默认链, 解析结果不在清单内
+ * 都明确拒绝(部署方借此约束调用方能用的模型范围; 清单为空 = 不限制)。
  * reasoningEffort 与模型同源(见下), 显式钉住模型时不继承宿主默认档位。
  *
  * 背景(E2E 实测): agent-loop 把 {{model}} 提示词变量直接读 agent.options.model, 不做任何默认解析——
@@ -88,10 +90,6 @@ export function selectionOverrideOf(args: { provider?: string; model?: string; r
  * 否则 persona 组装期 "{{model}} has no value" 让整个 turn 失败。
  */
 function resolveAgentOptions(ctx: Context, override?: ModelSelectionOverride): ModelSelection {
-  if (!state.config.allowModelOverride && hasModelOverride(override)) {
-    throw new Error('model override is disabled by plugin config (allowModelOverride: false); '
-      + 'remove provider/model/reasoningEffort from the call, or enable allowModelOverride in cordis.yml')
-  }
   const cfg = { provider: state.config.provider, model: state.config.model }
   const host = hostDefaultSelection(ctx)
   const provider = override?.provider || cfg.provider || host?.provider
@@ -109,6 +107,11 @@ function resolveAgentOptions(ctx: Context, override?: ModelSelectionOverride): M
       + `host default selection has {provider: ${JSON.stringify(host?.provider ?? null)}, model: ${JSON.stringify(host?.model ?? null)}}. `
       + '请在调用里成对传 provider+model(先用 model_list 查可用值), 或在插件 config 成对配置, 或先在 dsh 设置里选择默认模型.',
     )
+  }
+  const allowed = state.config.allowedModels
+  if (allowed.length > 0 && !allowed.includes(`${provider}/${model}`)) {
+    throw new Error(`model "${provider}/${model}" is not in allowedModels [${allowed.join(', ')}]; `
+      + `调用方请改选清单内的模型(见 model_list), 或由部署方调整插件的 allowedModels 配置`)
   }
   return reasoningEffort ? { provider, model, reasoningEffort } : { provider, model }
 }
