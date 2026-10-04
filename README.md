@@ -137,7 +137,7 @@ Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP 
 
 ## Web settings panel
 
-The bundle adds a **Settings → dsh-carrot-on-a-stick** section to the dsh web UI: live status badge, the MCP endpoint (click to copy), start/stop buttons, connected client list, and queue counters.
+The bundle adds a **Settings → MCP Service** section to the dsh web UI: live status badge, the MCP endpoint (click or use the copy button), overview tiles (uptime / pooled agents / client connections / active queue / resource subscriptions), a config summary in three groups (model & execution, security, capacity & reclamation — unhardened security items highlighted in amber), start/stop buttons (stop asks for confirmation), and the connected client list (cross-day connections show the date).
 
 ## Known limitations
 
