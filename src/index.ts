@@ -515,6 +515,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         taskTimeoutMs: state.config.taskTimeoutMs,
         sessionTtlMs: state.config.sessionTtlMs,
         queuePersist: persistPath !== '',
+        queuePersistPath: state.config.queuePersistPath || '',
         queuePersistEncrypted: persistPath !== '' && state.config.queuePersistKey !== '',
         authEnabled: state.config.authToken !== '',
         workspaceRoots: state.config.workspaceRoots,

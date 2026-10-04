@@ -1451,6 +1451,7 @@ try {
     checks['GUI 路由: status 快照(版本/监听/配置)'] = st.status === 200 && typeof stBody.version === 'string'
       && typeof stBody.listening === 'boolean' && typeof stBody.config?.sessionTtlMs === 'number'
       && typeof stBody.config?.allowPresetOverride === 'boolean'
+      && typeof stBody.config?.queuePersistPath === 'string'
       && stBody.stats?.connections === 0 && Array.isArray(stBody.connections)
     const stopCross = await callGui('stop', { httpMethod: 'POST' })
     checks['GUI 路由: 无同源标识的 stop 被 403(CSRF 门禁)'] = stopCross.status === 403
