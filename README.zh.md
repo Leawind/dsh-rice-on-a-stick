@@ -1,6 +1,4 @@
-| 中文 | [English](./README.md) |
-| ---- | ---------------------- |
-
+| 中文 | [English](./README.md) || `defaultDetail`                        | `summary`             | `session_prompt` 的默认详略级别                                                     || ---- | ---------------------- |
 # DSH Carrot on a Stick
 
 一个 [DSH](https://github.com/deepseek-ai/deepseek-harness) 插件，通过 MCP 协议为其他应用提供操作 DSH 的能力。
@@ -13,21 +11,21 @@
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `dsh_get_started` | 给 agent 的 dsh 入门课——概念、典型工作流、错误应对。初次使用先调用它                                                                   |
 | `echo`            | 验证连通性                                                                                                                             |
-| `dsh_status`      | 插件状态：版本、监听、uptime、队列计数、已连接客户端                                                                                   |
+| `dsh_status`      | 插件状态：版本、监听、uptime、模型允许清单、已连接客户端                                                                               |
 | `dsh_list_tools`  | 列出宿主全局工具注册表                                                                                                                 |
 | `workspace_list`  | 已注册的工作区及其会话                                                                                                                 |
-| `model_list`      | 可路由的 provider / 模型 / 推理档，以及当前缺省选择                                                                                    |
-| `agent_run`       | 同步执行任务，返回结构化结果；`sessionId` 续接会话；新建会话必须按调用指定 `provider` / `model`（`reasoningEffort` / `preset` 可选）；可取消，带进度心跳 |
-| `agent_steer`     | 对运行中的 agent 实时下达指令——`steer` 在下个 step 边界生效，`inject` 只注入上下文                                                     |
-| `task_inbox`      | 后台任务入队，返回 `taskId`；`idempotencyKey` 幂等去重                                                                                 |
-| `task_result`     | 取回队列任务结果（`detail: "status"` 轻量轮询）                                                                                        |
-| `task_list`       | 队列一览：排队 / 执行中 / 已结束                                                                                                       |
-| `task_cancel`     | 取消排队中（立即生效）或执行中的任务（`cancelling` → `cancelled`）                                                                     |
+| `model_list`      | 可路由的 provider / 模型 / 推理档，以及宿主当前缺省选择                                                                                |
+| `session_create`  | 新建会话（界面"新会话"）：cwd + 显式成对指定 `provider` / `model`（`reasoningEffort` / `preset` / `title` 可选），返回 `sessionId`      |
+| `session_prompt`  | 在会话里发消息并等本轮完成，返回结构化结果；`mode: "queue"`（默认，忙时排进会话 inbox）或 `"steer"`（打断当前 step）                    |
+| `session_cancel`  | 停止会话当前 turn（界面停止按钮），保留排队消息                                                                                        |
+| `session_queue`   | 管理会话的排队消息（界面 QueueDock）：`list` / `edit` / `remove` / `steer`                                                             |
 | `session_list`    | 已知会话（live + 持久化），按时间倒序                                                                                                  |
 | `session_history` | 读会话最近轮次；`roles` 过滤（如 `["assistant"]` 只看回答）                                                                            |
-| `select_model`    | 切换已有会话的模型，历史保留                                                                                                           |
-| `attach_session`  | 把会话归组到其 cwd 对应的工作区                                                                                                        |
-| `rename_session`  | 给会话改名                                                                                                                             |
+| `session_search`  | 按字面短语搜索会话内容（界面搜索框同源）                                                                                               |
+| `session_fork`    | 分叉会话：继承 cwd / 预设 / 模型，新 `sessionId`                                                                                       |
+| `session_archive` | 归档会话（界面唯一的"删除"）：活动会话须 `stopActivity: true` 先停止                                                                   |
+| `session_select_model` | 切换已有会话的模型，历史保留                                                                                                      |
+| `session_rename`  | 给会话改名                                                                                                                             |
 
 ### 资源
 
@@ -45,38 +43,28 @@
 | `dsh://sessions/{id}/history[/{before}]`      | 对话纪要（可翻页）            |
 | `dsh://sessions/{id}/events[/{after}]`        | 原始事件流（JSONL，可翻页）   |
 | `dsh://sessions/{id}/activity`                | 当前 turn 活动窗口            |
-| `dsh://queue[/{taskId}]`                      | 队列 / 任务明细（含全量结果） |
-| `dsh://agents`                                | 常驻会话池                    |
 
-`resources/subscribe` 可订阅任务状态迁移、turn 收敛刷新、实时活动，沿 SSE 推送——无需轮询。配置 `resourceFirst: true` 后九个只读工具下线、结果以资源引用返回（面向确认支持 MCP resources 的客户端；默认 `false`，工具与资源并存）。
+`resources/subscribe` 可订阅 turn 收敛刷新与实时活动，沿 SSE 推送——无需轮询。配置 `resourceFirst: true` 后八个只读工具下线、结果以资源引用返回（面向确认支持 MCP resources 的客户端；默认 `false`，工具与资源并存）。
 
 ## 常用模式
 
-**一次性任务**——同步执行，返回结构化总结；之后用 `sessionId` 续接（`context` 只发增量）：
+**一次性任务**——先建会话（显式选模型），再发消息；之后用 `sessionId` 续接（`context` 只发增量）：
 
 ```json
-{ "name": "agent_run", "arguments": { "task": "修复 src/auth 里挂掉的测试", "cwd": "/workspace/app" } }
+{ "name": "session_create", "arguments": { "cwd": "/workspace/app", "provider": "deepseek-account", "model": "deepseek-chat" } }
+{ "name": "session_prompt", "arguments": { "sessionId": "…", "task": "修复 src/auth 里挂掉的测试" } }
 ```
 
-**异步队列**——提交、轻量轮询、完成后取一次：
+**忙碌会话**——忙时再发默认排进会话 inbox（宿主持久，自动继续）；要立即打断用 `mode: "steer"`；停止当前 turn 用 `session_cancel`（排队保留）。
 
-```json
-{ "name": "task_inbox",   "arguments": { "task": "…", "cwd": "/workspace/app" } }
-{ "name": "task_result",  "arguments": { "taskId": "…", "detail": "status" } }
-{ "name": "task_cancel",  "arguments": { "taskId": "…" } }
-{ "name": "task_result",  "arguments": { "taskId": "…" } }
-```
-
-**会话**——`session_list` 找会话，`session_history` 回看，`select_model` 换模型，`agent_steer` 中途纠偏。
+**会话**——`session_list` 找会话，`session_history` 回看，`session_select_model` 换模型，`session_prompt` 的 `mode: "steer"` 中途纠偏，`session_search` 按内容搜会话，`session_fork` 分叉，`session_archive` 归档。
 
 **模型与 preset**
 
--   优先级：**单次调用参数 > 插件 config > 宿主默认**。只配一边会用低优先级来源补全；补不齐会明确报错。
--   模型契约：新建会话必须按调用成对指定 `provider`+`model`（先 `model_list` 查可用值），续接已有会话沿用其原模型（换模型走 `select_model`）——插件不做任何默认回填；`allowedModels` 允许清单约束调用方能选的范围（空 = 不限制）。preset（`preset` 参数，对新建会话生效）受 `allowPresetOverride` 门禁。
--   会话池按 `cwd + 模型 + preset` 分组：同一目录、不同模型/preset → 不同的会话。接管已有会话沿用其模型与 preset。
+-   模型契约：新建会话必须按调用成对指定 `provider`+`model`（先 `model_list` 查可用值），续接已有会话沿用其原模型（换模型走 `session_select_model`）——插件不做任何默认回填；`allowedModels` 允许清单约束调用方能选的范围（空 = 不限制）。preset（`session_create` 的 `preset` 参数，仅新建会话生效）受 `allowPresetOverride` 门禁。
 -   按 `sessionId` 续接时在会话自己的目录执行；显式传入的 `cwd` 必须与之一致。
 
-**结果体积**——`detail` 控制 token 开销：`summary`（默认，数百 token）/ `normal`（~2k）/ `full`（排查用）；`task_result` 另有 `status` 档供轮询。结果是结构化的（`sessionId`、`model`、`changes`、`verification`、`leftovers`…）；失败以 `isError: true` 返回。
+**结果体积**——`detail` 控制 token 开销：`summary`（默认，数百 token）/ `normal`（~2k）/ `full`（排查用）。结果是结构化的（`sessionId`、`model`、`changes`、`verification`、`leftovers`…）；失败以 `isError: true` 返回。
 
 ## 配置（cordis.yml）
 
@@ -96,8 +84,6 @@
             # preset: 'standard'               # 挂载的 agent preset
             # allowedModels: ['deepseek-account/deepseek-chat']  # 模型允许清单(空 = 不限制)
             # allowPresetOverride: true        # false = 锁死 preset
-            # queuePersistPath: '.dsh/queue.json'
-            # queuePersistKey: 'passphrase'    # 持久化文件加密口令
             # sessionTtlMs: 86400000
 ```
 
@@ -109,15 +95,9 @@
 | `allowedHosts`                         | —                     | Host 头白名单追加项（绑定地址与 loopback 始终放行）                                  |
 | `allowedModels`                        | `[]`（不限制）        | 允许调用方选择的模型清单（`provider/model`）。非空时：调用指定的模型不在清单内，请求被明确拒绝。注意插件不做默认模型回填——新建会话的模型由调用方显式指定 |
 | `allowPresetOverride`                  | `true`                | 是否允许调用方为新建会话选 preset                                                    |
-| `preset`                               | `standard`            | 挂载的 agent preset（按调用 `preset` 只对新建会话生效）                              |
-| `defaultDetail`                        | `summary`             | `agent_run` / `task_result` 的默认详略级别                                           |
+| `preset`                               | `standard`            | 新建会话未指定 preset 时挂载的默认 agent preset                                      |
+| `defaultDetail`                        | `summary`             | `session_prompt` 的默认详略级别                                                     |
 | `resourceFirst`                        | `false`               | 资源优先形态：只读工具下线，结果以资源引用返回                                       |
-| `reattachOrphans`                      | `false`               | 启动时把未分组会话批量补挂到工作区                                                   |
-| `maxQueue` / `taskTtlMs` / `maxAgents` | `100` / 24 小时 / `8` | 队列容量、结果保留时长、会话池上限                                                   |
-| `taskTimeoutMs`                        | `0`（关闭）           | agent turn 超时自动取消                                                              |
-| `progressIntervalMs`                   | `5000`（最小 250）    | 进度心跳间隔                                                                         |
-| `queuePersistPath`                     | —（关闭）             | 队列持久化文件；重启后已完成结果可取回、排队任务重新执行、执行中的如实标记被打断     |
-| `queuePersistKey`                      | —（明文 + 启动告警）  | 持久化文件加密口令；口令错误 / 文件损坏则队列从空开始                                |
 | `sessionTtlMs`                         | `86400000`            | 空闲 MCP 传输会话超过该时长被回收（`0` = 永不）                                      |
 
 ## 安全
@@ -128,20 +108,19 @@
 2. 配置 `workspaceRoots`——不配就没有任何目录边界；配置后执行与会话读取（列举 / 历史 / 干预 / 接管）同时受限；
 3. 不要绑定 `0.0.0.0` 或暴露到局域网/公网，除非前面有反代 + TLS + 认证。
 
-内置防护：Host / Origin 头白名单（防 DNS rebinding）、HTTP 入口只服务 `/mcp`、401 带 Bearer 挑战、空闲传输会话按 `sessionTtlMs` 自动回收。注意 spawn 出的会话遵循宿主 / preset 的**审批策略**——本插件无人值守运行，`ask` 类策略下敏感操作可能弹窗等待或直接失败；部署前请按实际 preset 验证。启用 `queuePersistPath` 后任务载荷会写入该文件（不设 `queuePersistKey` 为明文）——请放在文件系统权限合适的路径。
+内置防护：Host / Origin 头白名单（防 DNS rebinding）、HTTP 入口只服务 `/mcp`、401 带 Bearer 挑战、空闲传输会话按 `sessionTtlMs` 自动回收。注意插件创建的会话遵循宿主 / preset 的**审批策略**——本插件无人值守运行，`ask` 类策略下敏感操作可能弹窗等待或直接失败；部署前请按实际 preset 验证。
 
 ## Web 设置面板
 
-bundle 会向 dsh Web UI 注入 **设置 → MCP 服务** 区：实时状态徽章、MCP 端点（点击或按"复制"按钮）、概览瓦片（运行时长 / 常驻 Agent / 客户端连接 / 队列活跃 / 资源订阅）、配置摘要（模型与执行、安全、容量与回收三组，安全项未加固时以琥珀色提示）、停止 / 启动按钮（停止需确认）、已连接客户端列表（跨天连接显示日期）。
+bundle 会向 dsh Web UI 注入 **设置 → MCP 服务** 区：实时状态徽章、MCP 端点（点击或按"复制"按钮）、概览瓦片（运行时长 / 客户端连接 / 资源订阅）、配置摘要（模型限制 / Preset / 默认详略与安全两组，安全项未加固时以琥珀色提示）、停止 / 启动按钮（停止需确认）、已连接客户端列表（跨天连接显示日期）。
 
-**配置编辑**——"修改配置"展开常用字段的表单：模型限制（开关 + 勾选清单，空 = 调用方任意指定；模型本身由调用方每次显式指定，面板不配置默认模型）、preset、preset 覆盖开关、默认详略、队列容量 / 会话池上限 / 任务超时 / 空闲回收（毫秒直填，`0` 语义与配置文件一致）、队列持久化路径与只写的 authToken（留空不改动，可显式清除）。保存经宿主 configEditor 写入 profile 配置文件的本插件条目并热重载生效——与手改文件同语义：运行中任务中断、MCP 客户端断开（重连即恢复）、队列按持久化设置恢复，保存前有确认提示；"恢复默认"删除本插件的覆盖行（含手动编辑的非表单字段），同样需确认。写前做字段白名单与类型/下限校验，宿主侧写路径再过一遍 Config schema。目录白名单、http 端口、队列加密口令等结构性/安全边界字段仍请编辑 cordis.yml。
+**配置编辑**——"修改配置"展开常用字段的表单：模型限制（开关 + 勾选清单，空 = 调用方任意指定；模型本身由调用方每次显式指定，面板不配置默认模型）、preset、preset 覆盖开关、默认详略与只写的 authToken（留空不改动，可显式清除）。保存经宿主 configEditor 写入 profile 配置文件的本插件条目并热重载生效——与手改文件同语义：运行中 turn 中断、MCP 客户端断开（重连即恢复），保存前有确认提示；"恢复默认"删除本插件的覆盖行（含手动编辑的非表单字段），同样需确认。写前做字段白名单与类型校验，宿主侧写路径再过一遍 Config schema。目录白名单、http 端口等结构性/安全边界字段仍请编辑 cordis.yml。
 
 ## 已知限制
 
--   spawn 出的会话遵循宿主 / preset 审批策略——无人值守场景下 `ask` 类策略可能弹窗或失败关闭。
--   `select_model` 依赖 web profile 的 `sessionController`；headless 部署回退为模型目录 + 按调用覆盖。
+-   插件创建的会话遵循宿主 / preset 审批策略——无人值守场景下 `ask` 类策略可能弹窗或失败关闭（turn 以 blocked 收场，结果 error 里有说明）。
+-   `session_search` / `session_fork` / `session_archive` 依赖 web profile 的 `sessionController` / `workspaceController`；缺席部署会明确报不可用。
 -   `dsh_list_tools` 只列宿主全局注册表；按 agent 实际可见范围列出需要宿主侧 API。
--   不配置 `queuePersistPath` 时队列为进程内存，重启即失。
 
 ## 感谢
 

@@ -12,22 +12,22 @@ A [DSH](https://github.com/deepseek-ai/deepseek-harness) plugin that exposes DSH
 | Tool              | Purpose                                                                                                                                                                            |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dsh_get_started` | dsh crash course for the agent — concepts, recipes, error recovery. Call this first                                                                                                |
-| `echo`            | connectivity check                                                                                                                                                                 |
-| `dsh_status`      | plugin status: version, listening, uptime, queue counters, connected clients                                                                                                       |
-| `dsh_list_tools`  | list the host's global tool registry                                                                                                                                               |
-| `workspace_list`  | registered workspaces and their sessions                                                                                                                                           |
-| `model_list`      | routable providers / models / reasoning efforts, and the current default                                                                                                           |
-| `agent_run`       | run a task now, get a structured result back; `sessionId` continues a session; new sessions must pass `provider` / `model` per call (`reasoningEffort` / `preset` optional); cancellable, with progress heartbeats |
-| `agent_steer`     | mid-run guidance to a running agent — `steer` acts at the next step boundary, `inject` adds context only                                                                           |
-| `task_inbox`      | queue a background task, get a `taskId`; `idempotencyKey` dedupes retries                                                                                                          |
-| `task_result`     | fetch a queued task's result (`detail: "status"` for cheap polling)                                                                                                                |
-| `task_list`       | queue overview: queued / running / finished                                                                                                                                        |
-| `task_cancel`     | cancel a queued (immediate) or running task (`cancelling` → `cancelled`)                                                                                                           |
-| `session_list`    | known sessions (live + persisted), newest first                                                                                                                                    |
-| `session_history` | recent turns of a session; `roles` filter (e.g. `["assistant"]`)                                                                                                                   |
-| `select_model`    | switch an existing session's model, history preserved                                                                                                                              |
-| `attach_session`  | attach a session to the workspace of its cwd                                                                                                                                       |
-| `rename_session`  | rename a session                                                                                                                                                                   |
+| `echo`                 | connectivity check                                                                                                                                                                 |
+| `dsh_status`          | plugin status: version, listening, uptime, model allowlist, connected clients                                                                                                      |
+| `dsh_list_tools`      | list the host's global tool registry                                                                                                                                               |
+| `workspace_list`      | registered workspaces and their sessions                                                                                                                                           |
+| `model_list`          | routable providers / models / reasoning efforts, and the host's current default                                                                                                    |
+| `session_create`      | create a session (the UI's new-session button): cwd + explicit `provider` / `model` pair (`reasoningEffort` / `preset` / `title` optional); returns `sessionId`                    |
+| `session_prompt`      | send a message into a session and wait for the turn; `mode: queue` (default, host inbox) or `steer` (interrupt the current step)                                                    |
+| `session_cancel`      | stop the session's current turn (the UI stop button); queued messages are kept                                                                                                     |
+| `session_queue`       | manage the session's queued messages (the UI QueueDock): `list` / `edit` / `remove` / `steer`                                                                                     |
+| `session_list`        | known sessions (live + persisted), newest first                                                                                                                                    |
+| `session_history`     | recent turns of a session; `roles` filter (e.g. `["assistant"]`)                                                                                                                   |
+| `session_search`      | full-phrase search over session content (same source as the UI search box)                                                                                                         |
+| `session_fork`        | fork a session: inherits cwd / preset / model, new `sessionId`                                                                                                                     |
+| `session_archive`     | archive a session (the UI's only "delete"): active sessions need `stopActivity: true` first                                                                                       |
+| `session_select_model`| switch an existing session's model, history preserved                                                                                                                              |
+| `session_rename`      | rename a session                                                                                                                                                                   |
 
 ### Resources
 
@@ -46,37 +46,30 @@ Resource-capable clients can read the same data without spending tokens, and sub
 | `dsh://sessions/{id}/events[/{after}]`        | raw event stream (JSONL, paged)           |
 | `dsh://sessions/{id}/activity`                | live turn window                          |
 | `dsh://queue[/{taskId}]`                      | queue / task detail incl. the full result |
-| `dsh://agents`                                | resident session pool                     |
 
 `resources/subscribe` pushes task status transitions, turn-end history refreshes, and live activity over SSE — no polling. Setting `resourceFirst: true` in the config retires the nine read-only tools and returns results as resource references (for clients confirmed to support MCP resources; default `false` keeps tools and resources coexisting).
 
 ## Everyday patterns
 
-**One-off task** — synchronous, structured summary back; continue later with `sessionId` (send only the delta in `context`):
+**One-off task** — create a session (explicitly picking the model), then send the work; continue later with `sessionId` (send only the delta in `context`):
 
 ```json
-{ "name": "agent_run", "arguments": { "task": "fix the failing test in src/auth", "cwd": "/workspace/app" } }
+{ "name": "session_create", "arguments": { "cwd": "/workspace/app", "provider": "deepseek-account", "model": "deepseek-chat" } }
+{ "name": "session_prompt", "arguments": { "sessionId": "…", "task": "fix the failing test in src/auth" } }
 ```
 
-**Background queue** — submit, poll cheaply, fetch once done:
+**Busy session** — sending while busy queues into the session's durable host inbox by default (it runs automatically when free); `mode: "steer"` interrupts the current step instead; `session_cancel` stops the current turn and keeps the queue.
 
-```json
-{ "name": "task_inbox",   "arguments": { "task": "…", "cwd": "/workspace/app" } }
-{ "name": "task_result",  "arguments": { "taskId": "…", "detail": "status" } }
-{ "name": "task_cancel",  "arguments": { "taskId": "…" } }
-{ "name": "task_result",  "arguments": { "taskId": "…" } }
-```
-
-**Sessions** — `session_list` to find one, `session_history` to read it, `select_model` to switch its model, `agent_steer` to redirect it mid-run.
+**Sessions** — `session_list` to find one, `session_history` to read it, `session_select_model` to switch its model, `session_prompt` with `mode: "steer"` to redirect mid-run, `session_search` to find sessions by content, `session_fork` to branch, `session_archive` to retire.
 
 **Models & presets**
 
--   Priority: **per-call arguments > plugin config > host default**. A half-set pair completes from the lower source; unresolvable calls fail loudly.
--   Model contract: new sessions must pass `provider`+`model` as an explicit pair (look them up in `model_list` first); resuming a sessionId keeps that session's model (change it with `select_model`) — the plugin performs no default backfill. The `allowedModels` allowlist bounds what callers may pick (empty = unrestricted). Presets (`preset` argument, for new sessions) sit under `allowPresetOverride`.
--   Sessions are pooled per `cwd + model + preset`: same directory, different model/preset → a separate session. Taking over a session keeps its model and preset.
+-   Model contract: new sessions must pass `provider`+`model` as an explicit pair (look them up in `model_list` first); resuming a sessionId keeps that session's model (change it with `session_select_model`) — the plugin performs no default backfill. The `allowedModels` allowlist bounds what callers may pick (empty = unrestricted). Presets (`preset` on `session_create`, new sessions only) sit under `allowPresetOverride`.
 -   Continuing by `sessionId` runs in the session's own directory; an explicitly passed `cwd` must match it.
 
-**Result size** — `detail` controls token cost: `summary` (default, a few hundred tokens) / `normal` (~2k) / `full` (debugging); `task_result` adds a `status` level for polling. Results are structured (`sessionId`, `model`, `changes`, `verification`, `leftovers`, …); failures come back with `isError: true`.
+**Result size** — `detail` controls token cost: `summary` (default, a few hundred tokens) / `normal` (~2k) / `full` (debugging). Results are structured (`sessionId`, `model`, `changes`, `verification`, `leftovers`, …); failures come back with `isError: true`.
+
+**Result size** — `detail` controls token cost: `summary` (default, a few hundred tokens) / `normal` (~2k) / `full` (debugging) Results are structured (`sessionId`, `model`, `changes`, `verification`, `leftovers`, …); failures come back with `isError: true`.
 
 ## Configuration (cordis.yml)
 
@@ -96,8 +89,6 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
             # preset: 'standard'               # agent preset to mount
             # allowedModels: ['deepseek-account/deepseek-chat']  # model allowlist (empty = unrestricted)
             # allowPresetOverride: true        # false = pin the preset
-            # queuePersistPath: '.dsh/queue.json'
-            # queuePersistKey: 'passphrase'    # encrypt the persistence file
             # sessionTtlMs: 86400000
 ```
 
@@ -110,15 +101,8 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
 | `allowedModels`                        | `[]` (unrestricted)     | allowlist of models callers may pick (`provider/model`). When non-empty, a per-call model outside the list is rejected cleanly. Note the plugin never backfills a default model — new sessions get the model the caller passes |
 | `allowPresetOverride`                  | `true`                  | whether callers may pick a preset for new sessions                                                                       |
 | `preset`                               | `standard`              | agent preset to mount (per-call `preset` applies to new sessions only)                                                   |
-| `defaultDetail`                        | `summary`               | default `detail` level for `agent_run` / `task_result`                                                                   |
-| `resourceFirst`                        | `false`                 | resource-first mode: read-only tools retire, results come back as resource references                                    |
-| `reattachOrphans`                      | `false`                 | bulk-attach ungrouped sessions to workspaces at startup                                                                  |
-| `maxQueue` / `taskTtlMs` / `maxAgents` | `100` / 24 h / `8`      | queue capacity, result retention, session-pool size                                                                      |
-| `taskTimeoutMs`                        | `0` (off)               | auto-cancel an agent turn after this long                                                                                |
-| `progressIntervalMs`                   | `5000` (min 250)        | progress heartbeat interval                                                                                              |
-| `queuePersistPath`                     | — (off)                 | persist the task queue; finished results survive restarts, queued tasks re-execute, running tasks are marked interrupted |
-| `queuePersistKey`                      | — (plaintext + warning) | encrypts the persistence file; wrong passphrase / corrupt file → queue starts empty                                      |
-| `sessionTtlMs`                         | `86400000`              | idle MCP transport sessions are reaped after this (`0` = never)                                                          |
+| `defaultDetail`                        | `summary`               | default `detail` level for `session_prompt`                                                                             |
+| `sessionTtlMs`                        | `86400000`              | idle MCP transport sessions are reaped after this (`0` = never)                                                          |
 
 ## Security
 
@@ -128,18 +112,18 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
 2.  Set `workspaceRoots` — without it there is no directory boundary at all; with it, execution and session reads (list / history / steer / takeover) are both constrained;
 3.  Never bind `0.0.0.0` or expose to LAN/WAN without a reverse proxy + TLS + auth.
 
-Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP surface limited to `/mcp`, `401` answers with a Bearer challenge, idle transport sessions reaped after `sessionTtlMs`. Note that spawned sessions follow the host/preset **approval policy** — this plugin runs unattended, so `ask`-style policies may pop dialogs or fail closed; verify sensitive operations under your preset before deploying. If you enable `queuePersistPath`, task payloads are written to that file (plaintext unless `queuePersistKey` is set) — choose a location with appropriate permissions.
+Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP surface limited to `/mcp`, `401` answers with a Bearer challenge, idle transport sessions reaped after `sessionTtlMs`. Note that sessions created through this plugin follow the host/preset **approval policy** — this plugin runs unattended, so `ask`-style policies may pop dialogs or fail closed; verify sensitive operations under your preset before deploying.
 
 ## Web settings panel
 
-The bundle adds a **Settings → MCP Service** section to the dsh web UI: live status badge, the MCP endpoint (click or use the copy button), overview tiles (uptime / pooled agents / client connections / active queue / resource subscriptions), a config summary in three groups (model & execution, security, capacity & reclamation — unhardened security items highlighted in amber), start/stop buttons (stop asks for confirmation), and the connected client list (cross-day connections show the date).
+The bundle adds a **Settings → MCP Service** section to the dsh web UI: live status badge, the MCP endpoint (click or use the copy button), overview tiles (uptime / client connections / resource subscriptions), a config summary (model restrictions / preset / default detail, and security — unhardened items highlighted in amber), start/stop buttons (stop asks for confirmation), and the connected client list (cross-day connections show the date).
 
 **Config editing** — "Edit config" expands a form for the common fields: model restrictions (a switch plus a checkbox allowlist; empty = callers may pick anything — the model itself is always explicit per call, the panel does not configure a default), preset, the preset-override toggle, default detail, queue capacity / agent pool cap / task timeout / idle reclamation (milliseconds, `0` semantics matching the config file), the queue persistence path, and a write-only auth token (left empty means unchanged; explicit clearing supported). Saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running tasks are interrupted, MCP clients disconnect (reconnect to recover), the queue is restored per its persistence setting, with a confirmation prompt beforehand; "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks too. Writes are pre-checked against a field allowlist plus type/lower-bound validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port, the queue encryption key) remain file-only in cordis.yml.
 
 ## Known limitations
 
--   Spawned sessions follow the host/preset approval policy — `ask`-style policies may pop a dialog or fail closed in unattended use.
--   `select_model` requires the web profile's `sessionController`; headless deployments fall back to the model catalog plus per-call overrides.
+-   Sessions created through the plugin follow the host/preset approval policy — in unattended use `ask`-style policies may pop a dialog or fail closed (the turn ends `blocked`, explained in the result error).
+-   `session_search` / `session_fork` / `session_archive` need the web profile's `sessionController` / `workspaceController`; deployments without them report the tool as unavailable.
 -   `dsh_list_tools` only lists the host-global registry; per-agent tool visibility needs a host-side API.
 -   Without `queuePersistPath` the queue lives in memory and is lost on restart.
 
