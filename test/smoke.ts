@@ -5,10 +5,9 @@
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(日志恢复模型)/无法恢复报错
  *   D. session_cancel / session_queue(list/edit/remove/未知 itemId)
- *   E. session_select_model / session_rename / session_search / session_fork / session_archive(含白名单)
+ *   E. session_select_model / session_rename / session_search / session_fork / session_archive
  *   F. session_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
  *   G. allowedModels 允许清单(独立 ctx)
- *   H. workspaceRoots 白名单(独立 ctx)
  *   I. resourceFirst 形态(独立 ctx)——只读面下线, prompt 默认 uri 档
  *   J. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
  *   K. GUI 控制面路由: status/models/config-update/stop-start 同源
@@ -17,7 +16,6 @@
  * 测试是普通 TypeScript, node test/smoke.ts 直跑(Node 原生 type stripping, 需 Node ≥ 23.6)。
  */
 import { EventEmitter } from 'node:events'
-import { resolve } from 'node:path'
 import { apply } from '../lib/index.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
@@ -267,31 +265,7 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase C: workspaceRoots 白名单(独立端口独立 ctx) ──
-  {
-    const outsideDir = resolve(FAKE_CWD, '..', 'dsh-carrot-outside')
-    const phase = await startPhase(8092, makeCtx({
-      llm: fakeLlm,
-      extraSessions: [{ id: 'sess-outside', cwd: outsideDir }],
-    }), { workspaceRoots: [FAKE_CWD] })
-    const createOut = await phase.call('session_create', { cwd: outsideDir, provider: 'p1', model: 'm1', preset: 'standard' })
-    checks['白名单: 白名单外建会话被拒'] = String(createOut.status === 200 ? innerOf(createOut).error ?? '' : '').includes('workspaceRoots')
-    const createIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
-    checks['白名单: 白名单内建会话放行'] = typeof innerOf(createIn).sessionId === 'string'
-    const promptOut = await phase.call('session_prompt', { sessionId: 'sess-outside', task: 'x' })
-    checks['白名单: 越界会话续接被拒'] = String(promptOut.status === 200 ? innerOf(promptOut).error ?? '' : '').includes('workspaceRoots')
-    const histOut = await phase.call('session_history', { sessionId: 'sess-outside' })
-    checks['白名单: 越界会话历史不可读'] = String(histOut.status === 200 ? innerOf(histOut).error ?? '' : '').includes('workspaceRoots')
-    const slD = await phase.call('session_list', {})
-    checks['白名单: 会话清单只列白名单内'] = slD.status === 200
-      && !JSON.stringify(innerOf(slD)).includes('sess-outside')
-      && JSON.stringify(innerOf(slD)).includes('sess-live')
-    const archiveOut = await phase.call('session_archive', { sessionId: 'sess-outside', stopActivity: true })
-    checks['白名单: 越界会话归档被拒'] = String(archiveOut.status === 200 ? innerOf(archiveOut).error ?? '' : '').includes('workspaceRoots')
-    await phase.dispose()
-  }
-
-  // ── Phase D: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
+  // ── Phase C: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
   {
     const phase = await startPhase(8091, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { resourceFirst: true })
     const names = await phase.toolNames()

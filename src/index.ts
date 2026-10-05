@@ -8,11 +8,11 @@
  *   config     配置接口与默认值
  *   types      跨模块纯数据类型
  *   state      进程内可变状态(config/会话记录/hooks/通知钩子)
- *   paths      cwd 规范化与 workspaceRoots 白名单(安全边界)
+ *   paths      cwd 规范化与路径包含判定
  *   projection 结果投影(token 预算)与会话纪要投影
  *   host       宿主服务桥接(零宿主副本原则) + 工作区归组/会话查找
  *   engine     执行引擎(显式模型/preset 契约/三级接管/取消/结构化结果)
- *   data       数据层: 工具面与资源面共享的读实现(同白名单边界) + 资源 URI 构造器
+ *   data       数据层: 工具面与资源面共享的读实现 + 资源 URI 构造器
  *   notify     资源订阅枢纽(per-connection 订阅登记/updated 定向推送/list_changed 合并广播)
  *   tools      16 个 MCP 工具注册(resourceFirst 形态下只读面 8 个下线)
  *   resources  资源面: 全量只读 URI + resources/subscribe + completion + annotations
@@ -26,8 +26,8 @@
  * 模型与 preset 契约: 均由调用方在创建会话时显式指定(provider+model 成对、preset 取值见
  * model_list 的 presets), 插件不做任何默认回填; 续接已有会话沿用其原模型与原 preset。
  *
- * 安全: 默认仅监听本机; Bearer 常时比较; Host/Origin 白名单防 DNS rebinding; 10MB 体上限;
- * workspaceRoots 白名单约束执行与内容读取面。暴露公网前必须加反代 + TLS + 认证(README「安全」)。
+ * 安全: 默认仅监听本机; Bearer 常时比较; Host/Origin 白名单防 DNS rebinding; 10MB 体上限。
+ * 暴露公网前必须加反代 + TLS + 认证(README「安全」)。
  *
  * 回路: 调用方 → session_create 建会话 → session_prompt 发消息等本轮结果 → 用 sessionId 续接
  */
@@ -38,7 +38,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { DEFAULTS, PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, type Config } from './config.js'
 import { state } from './state.js'
-import { canonicalCwd } from './paths.js'
 import { registerTools } from './tools.js'
 import { registerResources } from './resources.js'
 import { resUri, collectModelCatalog } from './data.js'
@@ -230,8 +229,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     defaultDetail: config.defaultDetail ?? DEFAULTS.defaultDetail,
     sessionTtlMs: Math.max(0, config.sessionTtlMs ?? DEFAULTS.sessionTtlMs),
     authToken: config.authToken ?? DEFAULTS.authToken,
-    // 白名单根同样 realpath 规范化: 与被校验目录(canonicalCwd)同一 canon, 根路径经符号链接时才不会漏判
-    workspaceRoots: await Promise.all((config.workspaceRoots ?? []).map((r) => canonicalCwd(r))),
     resourceFirst: config.resourceFirst ?? DEFAULTS.resourceFirst,
   }
 
@@ -338,7 +335,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       config: {
         allowedModels: state.config.allowedModels,
         defaultDetail: state.config.defaultDetail,
-        workspaceRoots: state.config.workspaceRoots,
         authEnabled: state.config.authToken !== '',
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
       },

@@ -1,5 +1,5 @@
 /**
- * 数据层: 工具面(tools)与资源面(resources)共用的读实现——两个面同数据、同 workspaceRoots 白名单边界。
+ * 数据层: 工具面(tools)与资源面(resources)共用的读实现——两个面同数据。
  * 从 tools.ts 抽出(消除"工具↔资源"潜在环), 并承载资源面新增的载荷:
  *   presetsPayload      preset 花名册(dsh://presets; session_create 的 preset 参数取值来源)
  *   workspacesPayload   工作区清单/单工作区(dsh://workspaces[/id])
@@ -14,7 +14,7 @@ import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { PLUGIN_VERSION, authTokenHint } from './config.js'
 import { state } from './state.js'
 import type { ModelSelection, ModelSelectionOverride } from './types.js'
-import { canonicalCwd, isWithin, sessionCwdRefusal } from './paths.js'
+import { canonicalCwd, isWithin } from './paths.js'
 import { historyTurnsOf, projectModel, type HistoryRole } from './projection.js'
 import { eventsOf, headerOfSnapshot, serviceOf } from './host.js'
 import { hostDefaultSelection, knownSelectionOf } from './engine.js'
@@ -194,20 +194,11 @@ export async function collectSessions(ctx: Context, cwd?: string): Promise<{ tot
     const header = headerOfSnapshot(snap)
     if (header && !headers.has(header.id)) headers.set(header.id, header)
   }
-  // cwd 过滤参数在白名单模式下也受白名单约束(与 agent_run 的 cwd 拒绝同风格, 越界直接 isError)
-  const whitelistActive = state.config.workspaceRoots.length > 0
+  // cwd 过滤参数: 只列该目录(含子目录)下的会话
   const filterRoot = cwd ? await canonicalCwd(resolve(cwd)) : undefined
-  if (filterRoot !== undefined && whitelistActive && !state.config.workspaceRoots.some((root) => isWithin(root, filterRoot))) {
-    throw new Error(`cwd not allowed (outside workspaceRoots): ${filterRoot}`)
-  }
-  // 白名单模式: 只列白名单内会话(header 无 cwd 无法验证, 一并排除)——会话清单与执行面同一边界
   const visible = [...headers.values()]
     .filter((h) => {
       const sessionCwd = h.cwd
-      if (whitelistActive) {
-        if (sessionCwd === undefined) return false
-        if (!state.config.workspaceRoots.some((root) => isWithin(root, sessionCwd))) return false
-      }
       return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
     })
   const items = visible
@@ -231,7 +222,7 @@ export async function sessionMetaPayload(ctx: Context, sessionId: string): Promi
   const { sessions } = await collectSessions(ctx, undefined)
   const item = sessions.find((s) => String(s.sessionId) === sessionId)
   if (!item) {
-    throw new Error(`session not found (or outside workspaceRoots): ${sessionId}`)
+    throw new Error(`session not found: ${sessionId}`)
   }
   const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
   return { ...item, historyReadable: live !== undefined }
@@ -244,25 +235,16 @@ export async function sessionHistoryPayload(ctx: Context, sessionId: string, lim
   if (!session) {
     throw new Error(`session not live: ${sessionId} (persisted-only sessions cannot be read back; host does not expose a full-log load API — use agent_run with this sessionId to resume)`)
   }
-  // 白名单模式: 会话内容读取与执行面同一边界(越界会话不可读)
-  if (state.config.workspaceRoots.length > 0) {
-    const refusal = await sessionCwdRefusal(sessionId, (session as { header?: SessionHeader }).header?.cwd)
-    if (refusal) throw new Error(refusal)
-  }
   const events = eventsOf(session)
   return { sessionId, totalEvents: events.length, turns: historyTurnsOf(events, limit, beforeIndex, roles) }
 }
 
-/** 活动/事件流面的公共前置: live 校验 + 白名单校验, 返回 live 会话对象。不可读时抛错。 */
+/** 活动/事件流面的公共前置: live 校验, 返回 live 会话对象。不可读时抛错。 */
 async function liveSessionOf(ctx: Context, sessionId: string): Promise<{ session: unknown; events: readonly unknown[] }> {
   const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
   const session = sessions?.get?.(sessionId)
   if (!session) {
     throw new Error(`session not live: ${sessionId} (activity/events streams exist only for in-memory sessions)`)
-  }
-  if (state.config.workspaceRoots.length > 0) {
-    const refusal = await sessionCwdRefusal(sessionId, (session as { header?: SessionHeader }).header?.cwd)
-    if (refusal) throw new Error(refusal)
   }
   return { session, events: eventsOf(session) }
 }
@@ -408,7 +390,6 @@ export function basicStatusSnapshot(): Record<string, unknown> {
     config: {
       allowedModels: state.config.allowedModels,
       defaultDetail: state.config.defaultDetail,
-      workspaceRoots: state.config.workspaceRoots,
       authEnabled: state.config.authToken !== '',
       ...(state.config.authToken !== '' ? { authTokenHint: authTokenHint(state.config.authToken) } : {}),
     },

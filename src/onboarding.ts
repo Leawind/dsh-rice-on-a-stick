@@ -155,7 +155,6 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 | "cannot determine the model of persisted session" | call \`session_select_model\` on it once (the host cold-resumes and remembers), then retry \`session_prompt\` |
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from \`model_list\` that appears there |
 | "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` first |
-| cwd outside workspaceRoots | pick a directory under the configured roots (see \`dsh_status\`) |
 | turn ends \`blocked\` | the host waits for interactive approval an unattended run cannot grant — arrange approval host-side, then continue via \`session_prompt\` |
 `,
   results: `\
@@ -170,8 +169,6 @@ model/preset that actually answered.
   limits: `\
 ## Deployment-imposed limits (visible via \`dsh_status\` / \`model_list\`)
 
-- \`workspaceRoots\`: the cwd whitelist — execution, session takeover, and session reads all
-  stop at this boundary.
 - \`allowedModels\`: the allowlist of models sessions may be created with
   (absent/empty = any model).
 - Model and preset are both explicit: new sessions require \`provider\`+\`model\` (from

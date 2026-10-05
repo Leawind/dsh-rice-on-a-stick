@@ -360,7 +360,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       submitConfig({ values: values });
     }
     function resetConfig() {
-      if (!window.confirm('恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段，如目录白名单），并热重载生效。确认？')) return;
+      if (!window.confirm('恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段），并热重载生效。确认？')) return;
       submitConfig({ reset: true });
     }
 
@@ -374,7 +374,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const cfg = state.config || {};
     const subs = (state.stats || {}).subscriptions || {};
     const conns = state.connections || [];
-    const roots = Array.isArray(cfg.workspaceRoots) ? cfg.workspaceRoots : [];
     const httpOff = state.httpEnabled === false;
     const d = form !== null ? form.draft : null;
     const dirtyCount = form !== null ? countDirty(form.draft, form.base) : 0;
@@ -418,7 +417,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
               : null),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
-      // 端点卡: URL + 复制, 及接入/认证/白名单等"不知道会出错"的信息
+      // 端点卡: URL + 复制, 及接入/认证等"不知道会出错"的信息
       React.createElement('div', { className: 'dcs-card' },
         React.createElement('div', { className: 'dcs-urlrow' },
           React.createElement('span', { className: 'dcs-url' }, state.endpoint),
@@ -430,11 +429,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         httpOff
           ? React.createElement('div', { className: 'dcs-hint dcs-warn' }, 'HTTP 监听已在配置中关闭（http: false），需在 cordis.patch.yml 中启用')
           : null,
-        roots.length
-          ? React.createElement('div', { className: 'dcs-hint', title: roots.join('\n') },
-              '目录白名单：' + roots.length + ' 个目录（会话只能在这些目录内工作）')
-          : React.createElement('div', { className: 'dcs-hint dcs-warn' },
-              '目录白名单未配置：会话可在任意目录工作（cordis.patch.yml 的 workspaceRoots）'),
       ),
       // 设置表单(常显): 草稿-保存, 写入经宿主 configEditor 落盘 + 热重载
       d ? React.createElement('div', { className: 'dcs-form' },

@@ -15,7 +15,7 @@
  *   destructiveHint=false → 有写副作用但不具破坏性(prompt/cancel/queue/select_model: 历史保留)
  *
  * 数据与资源面同源(data.ts): 同 collectSessions/sessionHistoryPayload 等实现、
- * 同 workspaceRoots 白名单边界。读实现归 data.ts, 本模块只保留协议注册与行为语义。
+ * 同一数据边界。读实现归 data.ts, 本模块只保留协议注册与行为语义。
  *
  * resourceFirst(config): 资源优先形态——只读工具不再注册, 客户端经 resources 面取数据;
  * session_prompt 的默认 detail 变为 'uri'(只回引用)。默认 false: 工具与资源并存。
@@ -28,9 +28,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { state } from './state.js'
 import type { ModelSelection } from './types.js'
 import { DETAIL_ARG, projectModel, renderResult } from './projection.js'
-import { cancelSession, createSession, promptSession, queueManage, selectionOf, sessionCwdOf } from './engine.js'
-import { asSessionId, findSessionHeader, serviceOf } from './host.js'
-import { sessionCwdRefusal } from './paths.js'
+import { cancelSession, createSession, promptSession, queueManage, selectionOf } from './engine.js'
+import { asSessionId, serviceOf } from './host.js'
 import { guideSectionDoc, type GuideSection } from './onboarding.js'
 import {
   basicStatusSnapshot,
@@ -150,7 +149,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       'dsh_status',
       {
         title: 'Plugin status',
-        description: '查看插件部署状态(只读): 版本/监听状态/uptime/配置摘要(模型白名单/目录白名单/结果形态)/订阅观测/连接的 MCP 客户端。Web 设置面板同源数据。',
+        description: '查看插件部署状态(只读): 版本/监听状态/uptime/配置摘要(模型白名单/结果形态)/订阅观测/连接的 MCP 客户端。Web 设置面板同源数据。',
         inputSchema: {},
         annotations: { readOnlyHint: true },
       },
@@ -205,7 +204,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       title: 'Create session',
       description: '新建会话(界面"新会话"按钮): 创建绑定到 cwd 工作区的空白会话, 挂载指定模型与 preset。返回 sessionId, 之后用 session_prompt 在里面干活。模型(provider+model 成对, 取值见 model_list)与 preset(取值见 model_list 的 presets 字段 / dsh://presets)都必须显式指定——与界面新建会话先选模型和预设一致, 不做任何默认回填。title 缺省由宿主在首轮后自动生成。',
       inputSchema: {
-        cwd: z.string().describe('工作目录(会话绑定的工作区; 配置 workspaceRoots 时必须在白名单内)'),
+        cwd: z.string().describe('工作目录(会话绑定的工作区)'),
         provider: z.string().describe('模型 provider route(见 model_list / dsh://models; 需与 model 成对)'),
         model: z.string().describe('模型 id(见 model_list / dsh://models; 需与 provider 成对)'),
         reasoningEffort: z.string().optional().describe('推理强度 id(见 model_list 的 reasoningEfforts; 缺省 = 适配器默认)'),
@@ -378,7 +377,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       'session_list',
       {
         title: 'List sessions',
-        description: '列出已知会话的元数据(sessionId/创建时间/cwd/preset/当前模型)。live 与持久化合并、live 优先、按创建时间倒序; 模型选择仅本插件创建过或 live 的会话可知。配置 workspaceRoots 时只列白名单内会话。用于挑选要续接(session_prompt 的 sessionId)/改名/归档的会话。',
+        description: '列出已知会话的元数据(sessionId/创建时间/cwd/preset/当前模型)。live 与持久化合并、live 优先、按创建时间倒序; 模型选择仅本插件创建过或 live 的会话可知。用于挑选要续接(session_prompt 的 sessionId)/改名/归档的会话。',
         inputSchema: {
           limit: z.number().int().min(1).max(100).optional().describe('最多返回条数(默认 20)'),
           cwd: z.string().optional().describe('只列该目录(含子目录)下的会话'),
@@ -401,7 +400,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       'session_history',
       {
         title: 'Session history',
-        description: '读取一个 live 会话的对话纪要(user/assistant/tool_call/tool_result/turn_end 轮次, 从最新往回取, 文本截断)。roles 可只取指定类型(如只看回答传 ["assistant"], 排查问题再取 tool_call/tool_result); 支持 beforeIndex 向更早翻页。配置 workspaceRoots 时, 白名单外会话不可读。只支持内存中的 live 会话; 已持久化但不在内存的会话, 宿主未暴露整日志加载 API, 无法读取。',
+        description: '读取一个 live 会话的对话纪要(user/assistant/tool_call/tool_result/turn_end 轮次, 从最新往回取, 文本截断)。roles 可只取指定类型(如只看回答传 ["assistant"], 排查问题再取 tool_call/tool_result); 支持 beforeIndex 向更早翻页。只支持内存中的 live 会话; 已持久化但不在内存的会话, 宿主未暴露整日志加载 API, 无法读取。',
         inputSchema: {
           sessionId: z.string().describe('会话 id(live; 来自 session_prompt 结果或 session_list)'),
           limit: z.number().int().min(1).max(50).optional().describe('最多返回轮数(默认 10)'),
@@ -487,15 +486,6 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ sessionId, stopActivity }) => {
-      // 白名单边界先行(与续接/接管同款): 越界会话不可归档(归档会停止 agent, 等价一次干预)
-      if (state.config.workspaceRoots.length > 0) {
-        const header = await findSessionHeader(ctx, asSessionId(sessionId))
-        const cwd = header?.cwd ?? (await sessionCwdOf(ctx, sessionId))
-        if (cwd !== undefined) {
-          const refusal = await sessionCwdRefusal(sessionId, cwd)
-          if (refusal) return outError(JSON.stringify({ error: refusal }))
-        }
-      }
       const wc = serviceOf<WorkspaceControllerView>(ctx, 'workspaceController')
       if (typeof wc?.archiveSession !== 'function') {
         return outError(JSON.stringify({ error: 'workspaceController service unavailable (session_archive needs the host workspace controller)' }))

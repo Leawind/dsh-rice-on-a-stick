@@ -29,7 +29,7 @@ const state = {
   startedAt,
   config: {
     allowedModels: [], defaultDetail: 'summary',
-    authEnabled: false, authToken: '', workspaceRoots: undefined,
+    authEnabled: false, authToken: '',
   },
   connections: DEFAULT_CONNS(),
 }

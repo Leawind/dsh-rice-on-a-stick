@@ -3,9 +3,9 @@
  *
  * 界面事实(逆向自宿主): 会话创建后 agent 常驻内存, 没有池/LRU/淘汰/超时旋钮; 冷会话由宿主
  * resolveAgent 机制按需透明恢复; 发消息 = followup(排队) 或 steer(打断消化); 停止 = cancel(保留排队)。
- * 本引擎因此不维护任何池或队列: 会话解析 = 本插件记录 → live 接管 → 持久化冷恢复(三级),
- * 每级都先过 workspaceRoots 白名单(越界会话不可续接/接管/干预)。会话生命周期归宿主 registry,
- * 本插件只在 sessionRecords 里记住"自己创建/续接过的会话"的 cwd 与模型选择(供 resume 与结果回报)。
+ * 本引擎因此不维护任何池或队列: 会话解析 = 本插件记录 → live 接管 → 持久化冷恢复(三级)。
+ * 会话生命周期归宿主 registry, 本插件只在 sessionRecords 里记住"自己创建/续接过的会话"的
+ * cwd 与模型选择(供 resume 与结果回报)。
  *
  * 模型契约: 新建会话必须显式成对指定 provider+model(不做任何默认回填——宿主对插件直连的
  * agents.create/resume 不做默认解析, {{model}} 变量在组装期就要值); 续接沿用会话原模型
@@ -17,7 +17,7 @@ import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from './state.js'
 import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionTurnResult } from './types.js'
-import { canonicalCwd, canonicalizeAllowedCwd, sessionCwdRefusal } from './paths.js'
+import { canonicalCwd, canonicalWorkdir } from './paths.js'
 import { extractTexts, parseSummary } from './projection.js'
 import {
   asSessionId,
@@ -149,7 +149,7 @@ function renameSessionTitle(ctx: Context, session: unknown, title: string): void
 
 export interface CreateSessionOptions {
   ctx: Context
-  /** 工作目录(realpath 规范化 + workspaceRoots 白名单校验) */
+  /** 工作目录(realpath 规范化) */
   cwd: string
   /** 模型选择(必须显式成对指定; 过 allowedModels 清单) */
   selection: ModelSelection
@@ -166,7 +166,7 @@ export interface CreateSessionOptions {
 export async function createSession(opts: CreateSessionOptions): Promise<{ sessionId: string; cwd: string; selection: ModelSelection; preset: string }> {
   const { ctx, cwd, selection, title } = opts
   const presetName = await resolvePreset(ctx, opts.preset)
-  const canonical = await canonicalizeAllowedCwd(cwd)
+  const canonical = await canonicalWorkdir(cwd)
   const newSessionId = asSessionId(randomUUID())
   const handle = await ctx.agents.create({
     sessionId: newSessionId,
@@ -200,23 +200,17 @@ interface ResolvedSession {
 }
 
 /**
- * prompt 前的会话解析(三级, 每级先过 workspaceRoots 白名单——否则"cwd 参数给白名单内目录 +
- * sessionId 指向白名单外会话"就是一条沙箱绕过路径):
+ * prompt 前的会话解析(三级):
  *   1. live 接管: ctx.agents.get(UI 手开的、插件建的和别的插件持有的会话), 沿用其原模型;
  *   2. 本插件记录: 自己创建过的会话 handle 直接用(防 live 查询失败的边角);
  *   3. 持久化冷恢复: 与界面打开旧会话一致——resume 重建 agent, 模型选择尽量从持久化日志恢复。
  */
 async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise<ResolvedSession> {
-  const whitelistActive = state.config.workspaceRoots.length > 0
   const sid = asSessionId(sessionId)
 
   // 1. live 接管(不做持久化 resume; 沿用会话原有选择, 想换模型走 session_select_model)
   const live = ctx.agents.get(sid)
   if (live) {
-    if (whitelistActive) {
-      const refusal = await sessionCwdRefusal(sessionId, live.session.header.cwd)
-      if (refusal) throw new Error(refusal)
-    }
     await attachSessionCwd(ctx, sid, live.session.header.cwd)
     const rec = state.sessionRecords.get(sessionId)
     return { sessionId: sid, handle: { agent: live, dispose: () => Promise.resolve() }, selection: rec?.selection ?? selectionOfAgent(live), preset: rec?.preset ?? '' }
@@ -225,20 +219,12 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
   // 2. 本插件记录(创建过; live 查询没拿到时的兜底)
   const rec = state.sessionRecords.get(sessionId)
   if (rec) {
-    if (whitelistActive) {
-      const refusal = await sessionCwdRefusal(sessionId, rec.cwd)
-      if (refusal) throw new Error(refusal)
-    }
     return { sessionId: sid, handle: rec.handle, selection: rec.selection, preset: rec.preset }
   }
 
-  // 3. 持久化冷恢复(与界面打开旧会话一致): header 预读做白名单校验; resume 重建 agent,
+  // 3. 持久化冷恢复(与界面打开旧会话一致): resume 重建 agent,
   //    模型选择尽量从持久化日志恢复(界面建的会话模型选择在日志里, 与界面同源)。
   const header = await findSessionHeader(ctx, sid)
-  if (whitelistActive && header !== undefined) {
-    const refusal = await sessionCwdRefusal(sessionId, header.cwd)
-    if (refusal) throw new Error(refusal)
-  }
   const selection = await recoverSelectionFromLog(ctx, sessionId)
   if (!selection) {
     throw new Error(`cannot determine the model of persisted session "${sessionId}" (no selection found in session log); `
@@ -478,13 +464,8 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
 
 /** 停止会话当前 turn(界面停止按钮的服务端语义): 官方 agent.cancel, 保留未开工的排队消息 */
 export async function cancelSession(ctx: Context, sessionId: string): Promise<{ cancelled: boolean; error?: string }> {
-  const whitelistActive = state.config.workspaceRoots.length > 0
   const live = ctx.agents.get(asSessionId(sessionId))
   if (!live) return { cancelled: false, error: `session "${sessionId}" is not running (no live agent)` }
-  if (whitelistActive) {
-    const refusal = await sessionCwdRefusal(sessionId, live.session.header.cwd)
-    if (refusal) throw new Error(refusal)
-  }
   ;(live as { cancel?: (cause: unknown, options?: unknown) => void }).cancel?.({ kind: 'user' }, { keepInbox: true })
   return { cancelled: true }
 }
@@ -506,13 +487,8 @@ export interface QueueManageOptions {
  */
 export async function queueManage(opts: QueueManageOptions): Promise<unknown> {
   const { ctx, sessionId, action, itemId, content } = opts
-  const whitelistActive = state.config.workspaceRoots.length > 0
   const live = ctx.agents.get(asSessionId(sessionId))
   if (!live) return { error: `session "${sessionId}" is not running (no live agent); queue management needs the session to be live` }
-  if (whitelistActive) {
-    const refusal = await sessionCwdRefusal(sessionId, live.session.header.cwd)
-    if (refusal) throw new Error(refusal)
-  }
   // inbox 形状来自宿主 agent-loop(readonly UserMessage 数组 + replace/remove); 经 unknown 桥接
   const inbox = (live as unknown as {
     inbox?: {

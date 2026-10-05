@@ -39,12 +39,6 @@ export interface Config {
   defaultDetail?: 'summary' | 'normal' | 'full'
   /** Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>, 常数时间比较) */
   authToken?: string
-  /**
-   * cwd 白名单(设置后会话只能在列出的目录下干活; 跨平台分隔符/大小写安全, 启动时按 realpath 规范化)。
-   * 约束面: cwd 参数(session_create/session_prompt)、sessionId 续接、session_list 与 session_history
-   * 的内容读取。select_model/rename_session 等元数据操作仍按 sessionId 可达(不触达执行与内容)。
-   */
-  workspaceRoots?: string[]
   /** Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名; 对外暴露时按需配置) */
   allowedHosts?: string[]
   /**
@@ -71,7 +65,6 @@ export const DEFAULTS = {
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
   sessionTtlMs: 24 * 60 * 60 * 1000,
   authToken: '',
-  workspaceRoots: [] as string[],
   resourceFirst: false,
 }
 
@@ -88,7 +81,6 @@ export const Config = Schema.object({
   allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('模型白名单(provider/model 形式; 空 = 不限制)。非空时: session_create/session_select_model 指定的模型不在名单内, 请求会被明确拒绝'),
   defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).description('结果默认详略级别(单次调用可用 detail 参数覆盖)'),
   authToken: Schema.string().default(DEFAULTS.authToken).role('secret').description('Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>; 空 = 关闭认证)'),
-  workspaceRoots: Schema.array(Schema.string()).default(DEFAULTS.workspaceRoots).description('cwd 白名单(设置后会话只能在列出的目录下干活, 同时约束会话续接与内容读取)'),
   allowedHosts: Schema.array(Schema.string()).default([]).description('Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名)'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('MCP 传输会话空闲 TTL 毫秒数(0 = 永不淘汰; 超时会话被关闭, 客户端按规范重新 initialize)'),
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('资源优先形态(true 时只读工具面下线, 数据一律经 MCP resources 面读取)'),
