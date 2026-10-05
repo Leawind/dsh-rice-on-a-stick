@@ -147,7 +147,47 @@ window.__ModuleLoader__ = {
           return function () {};
         },
       };
-      var ctx = { get: function (name) { return name === 'slots' ? slots : undefined; } };
+      // locale 服务桩(与 dsh-client-locale 同面: register/bind/subscribe/getSnapshot);
+      // 活跃语言经 /__test/locale 轮询驱动(POST /__test/mode {locale} 切换), 供双语冒烟。
+      var localeSvc = (function () {
+        var dicts = {};
+        var bound = {};
+        var active = 'zh';
+        var revision = 0;
+        var listeners = new Set();
+        function translate(ns, key, params) {
+          var dict = dicts[ns] || {};
+          var pack = dict[active] !== undefined ? dict[active] : dict.zh;
+          var template = pack && pack[key] !== undefined ? pack[key] : key;
+          if (!params) return template;
+          return template.replace(/\\{(\\w+)\\}/g, function (m, name) {
+            return name in params ? String(params[name]) : m;
+          });
+        }
+        return {
+          register: function (ns, d) { dicts[ns] = d; return function () {}; },
+          bind: function (ns) {
+            if (!bound[ns]) bound[ns] = function (key, params) { return translate(ns, key, params); };
+            return bound[ns];
+          },
+          subscribe: function (fn) { listeners.add(fn); return function () { listeners.delete(fn); }; },
+          getSnapshot: function () { return { active: active, revision: revision }; },
+          __setActive: function (id) {
+            if (active === id) return;
+            active = id;
+            revision++;
+            listeners.forEach(function (fn) { try { fn(); } catch (e) { /* 桩内吞掉 */ } });
+          },
+        };
+      })();
+      window.__localeSvc = localeSvc;
+      var ctx = {
+        get: function (name) { return name === 'slots' ? slots : name === 'locale' ? localeSvc : undefined; },
+        // cordis 上下文的 effect: 立即执行注册体并回传 disposer(面板用它登记字典)
+        effect: function (fn) {
+          try { return fn(); } catch (e) { window.__boot.errors.push(String(e && e.message || e)); return function () {}; }
+        },
+      };
       Promise.resolve(module.apply(ctx)).then(
         function () { window.__boot.applied = true; },
         function (e) { window.__boot.errors.push(String(e && e.message || e)); });
@@ -161,6 +201,16 @@ function renderPanel() {
     window.__root.render(el);
   } catch (e) { window.__boot.errors.push(String(e && e.message || e)); }
 }
+// 轮询 harness 的语言模式, 变化时驱动 locale 桩(面板经 subscribe 收到重渲染)
+window.__localeSeen = null;
+setInterval(function () {
+  fetch('/__test/locale').then(function (r) { return r.json(); }).then(function (j) {
+    if (j.locale && j.locale !== window.__localeSeen) {
+      window.__localeSeen = j.locale;
+      window.__localeSvc.__setActive(j.locale);
+    }
+  }).catch(function () { /* 首轮可能早于服务就绪 */ });
+}, 400);
 <\/script>
 <script src="/client.js"><\/script>
 </body>
@@ -249,6 +299,9 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/__test/state') {
       return json(res, 200, { state: snapshot(), rpcCounts, configCalls, boot })
     }
+    if (url.pathname === '/__test/locale') {
+      return json(res, 200, { locale: mode.locale ?? 'zh' })
+    }
     if (req.method === 'POST' && url.pathname === '/__test/mode') {
       const body = await readBody(req)
       if (typeof body.statusError === 'boolean') mode.statusError = body.statusError
@@ -256,6 +309,7 @@ const server = createServer(async (req, res) => {
       if (typeof body.listening === 'boolean') state.listening = body.listening
       if (typeof body.httpEnabled === 'boolean') state.httpEnabled = body.httpEnabled
       if (Array.isArray(body.connections)) state.connections = body.connections
+      if (body.locale === 'zh' || body.locale === 'en') mode.locale = body.locale
       return json(res, 200, { ok: true, mode })
     }
     json(res, 404, { error: 'not found' })

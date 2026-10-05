@@ -35,17 +35,17 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   function fmtDur(ms) {
     if (!(ms >= 0)) return '—';
     const s = Math.floor(ms / 1000);
-    if (s < 60) return s + ' 秒';
+    if (s < 60) return t('dur.s', { n: s });
     const m = Math.floor(s / 60);
-    if (m < 60) return m + ' 分 ' + (s % 60) + ' 秒';
+    if (m < 60) return t('dur.ms', { m: m, s: s % 60 });
     const h = Math.floor(m / 60);
-    if (h < 24) return h + ' 时 ' + (m % 60) + ' 分';
-    return Math.floor(h / 24) + ' 天 ' + (h % 24) + ' 时';
+    if (h < 24) return t('dur.hm', { h: h, m: m % 60 });
+    return t('dur.dh', { d: Math.floor(h / 24), h: h % 24 });
   }
 
   function fmtAgo(ts, now) {
     if (!ts) return '—';
-    return fmtDur(now - ts) + '前';
+    return t('ago', { d: fmtDur(now - ts) });
   }
 
   // 绝对时刻: 今天给时钟, 跨天补月-日(连接列表里昨天的连接不能只给时:分:秒)
@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const p = (n) => (n < 10 ? '0' + n : '' + n);
     const clock = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
     if (now !== undefined && new Date(now).toDateString() !== d.toDateString()) {
-      return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + clock;
+      return t('clock.md', { m: d.getMonth() + 1, d: d.getDate(), c: clock });
     }
     return clock;
   }
@@ -87,6 +87,117 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   function maskOf(token) {
     return token.length >= 12 ? token.slice(0, 4) + '...' + token.slice(-4) : '••••••';
   }
+
+  // ── 多语言: 跟随宿主语言设置(dsh 语言行, 偏好存宿主 user-settings 的 locale 命名空间) ──
+  // 宿主客户端上下文提供 locale 服务(dsh-client-locale): register 字典 + bind 翻译函数 +
+  // subscribe/getSnapshot 快照订阅。apply 里软获取: 服务缺席(极老宿主/离线桩)时退化
+  // 中文-only 的本地翻译。zh 是键集来源, en 与 zh 键一一对应。
+  var NS_I18N = 'dsh-carrot-on-a-stick';
+  var DICT = {
+    zh: {
+      'nav': 'MCP 服务',
+      'uptime': '已运行 {d}',
+      'processing': '处理中…',
+      'stop': '停止',
+      'start': '启动',
+      'stop.confirm': '停止后所有已连接的 MCP 客户端会被切断。确认停止？',
+      'copy': '复制',
+      'copied': '已复制',
+      'whitelist.title': '模型白名单',
+      'whitelist.hint': '空清单 = 不限制；添加后仅清单内的模型可用。模型与 preset 均由调用方每次显式指定',
+      'whitelist.empty': '清单为空——调用方可以指定任意模型。',
+      'whitelist.remove': '移除 {m}',
+      'whitelist.add': '添加模型…',
+      'whitelist.filter': '输入关键字过滤 provider / 模型 / 名称',
+      'whitelist.done': '完成',
+      'cat.loading': '模型目录加载中…',
+      'cat.unavailable': '模型目录不可用（宿主未提供），请稍后重试或编辑配置文件。',
+      'cat.none': '没有匹配的候选模型。',
+      'cat.capped': '共 {total} 个匹配，仅显示前 {cap} 个——请继续输入关键字缩小范围。',
+      'detail.title': '默认详略',
+      'detail.hint': '返回给调用方的结果详略；单次调用可按次覆盖',
+      'detail.summary': '简要（summary）',
+      'detail.normal': '标准（normal）',
+      'detail.full': '完整（full）',
+      'auth.hint': '开启后 MCP 客户端连接须携带令牌',
+      'auth.regen': '重新生成令牌',
+      'save.reset': '恢复默认…',
+      'save.resetConfirm': '恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段），并热重载生效。确认？',
+      'conns.title': '客户端连接',
+      'conns.none': '暂无连接——MCP 客户端接入后显示在这里。',
+      'conns.stopped': '服务已停止，不接受连接。',
+      'conns.client': '客户端',
+      'conns.connectedAt': '连接于',
+      'conns.lastActivity': '最近活跃',
+      'conns.requests': '请求',
+      'conns.unreported': '(未报告)',
+      'conns.subs': ' · 订阅 {n}',
+      'dur.s': '{n} 秒',
+      'dur.ms': '{m} 分 {s} 秒',
+      'dur.hm': '{h} 时 {m} 分',
+      'dur.dh': '{d} 天 {h} 时',
+      'ago': '{d}前',
+      'clock.md': '{m}月{d}日 {c}',
+      'loading': '载入中…',
+    },
+    en: {
+      'nav': 'MCP Service',
+      'uptime': 'Up {d}',
+      'processing': 'Working…',
+      'stop': 'Stop',
+      'start': 'Start',
+      'stop.confirm': 'Stopping disconnects every connected MCP client. Stop?',
+      'copy': 'Copy',
+      'copied': 'Copied',
+      'whitelist.title': 'Model whitelist',
+      'whitelist.hint': 'Empty list = unrestricted; once populated only listed models are usable. Model and preset are always explicit per call',
+      'whitelist.empty': 'List is empty — callers may use any model.',
+      'whitelist.remove': 'Remove {m}',
+      'whitelist.add': 'Add model…',
+      'whitelist.filter': 'Type to filter by provider / model / name',
+      'whitelist.done': 'Done',
+      'cat.loading': 'Loading model catalog…',
+      'cat.unavailable': 'Model catalog unavailable (not provided by the host). Retry later or edit the config file.',
+      'cat.none': 'No matching models.',
+      'cat.capped': '{total} matches, showing the first {cap} — refine the keyword to narrow down.',
+      'detail.title': 'Default detail',
+      'detail.hint': 'Result verbosity returned to callers; overridable per call',
+      'detail.summary': 'Summary',
+      'detail.normal': 'Normal',
+      'detail.full': 'Full',
+      'auth.hint': 'When on, MCP clients must present the token to connect',
+      'auth.regen': 'Regenerate token',
+      'save.reset': 'Restore defaults…',
+      'save.resetConfirm': 'Restoring defaults removes every override this plugin wrote to the config file (including fields outside the form) and hot-reloads. Continue?',
+      'conns.title': 'Client connections',
+      'conns.none': 'No connections yet — they appear here once MCP clients connect.',
+      'conns.stopped': 'Service stopped; not accepting connections.',
+      'conns.client': 'Client',
+      'conns.connectedAt': 'Connected',
+      'conns.lastActivity': 'Last activity',
+      'conns.requests': 'Requests',
+      'conns.unreported': '(not reported)',
+      'conns.subs': ' · {n} subs',
+      'dur.s': '{n}s',
+      'dur.ms': '{m}m {s}s',
+      'dur.hm': '{h}h {m}m',
+      'dur.dh': '{d}d {h}h',
+      'ago': '{d} ago',
+      'clock.md': '{m}/{d} {c}',
+      'loading': 'Loading…',
+    },
+  };
+  function fillParams(template, params) {
+    if (!params) return template;
+    return template.replace(/\{(\w+)\}/g, function (m, name) {
+      return name in params ? String(params[name]) : m;
+    });
+  }
+  // 翻译函数: apply 里拿到宿主 locale 服务后替换为 locale.bind(NS); 缺席时本地中文回退
+  var t = function (key, params) {
+    return fillParams((DICT.zh[key] !== undefined ? DICT.zh[key] : key), params);
+  };
+  var LOCALE = null; // locale 服务(订阅语言切换用), apply 里赋值
 
   // ── 样式: 只引用宿主 --dsw-* token(var fallback 为亮色中性值, 宿主缺失时可读性兜底) ──
   const PANEL_CSS = [
@@ -213,6 +324,11 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // busy 的 ref 镜像: 轮询刷新回调里判断"提交在途则不吃掉乐观草稿"(闭包里读 state 会过期)
     const busyRef = React.useRef(false);
     function setBusy(v) { busyRef.current = v; setBusyState(v); }
+    // 语言切换 → 整面板重渲染: 订阅宿主 locale 快照(t 每次调用都走当前语言, 只需触发重渲染)
+    const [, localeTick] = React.useReducer(function (x) { return x + 1; }, 0);
+    React.useEffect(function () {
+      return LOCALE ? LOCALE.subscribe(localeTick) : undefined;
+    }, []);
     const [copied, setCopied] = React.useState(false);
     // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。未脏时跟随轮询刷新, 脏后不再覆盖。
     const [form, setForm] = React.useState(null);
@@ -269,7 +385,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       if (!state || busy) return;
       const target = state.listening ? 'stop' : 'start';
       // 停止会切断全部已连接客户端并停止接受新请求, 轻确认防误触
-      if (target === 'stop' && !window.confirm('停止后所有已连接的 MCP 客户端会被切断。确认停止？')) return;
+      if (target === 'stop' && !window.confirm(t('stop.confirm'))) return;
       setBusy(true);
       rpc(target)
         .then(function () { return refresh(); })
@@ -327,14 +443,14 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         });
     }
     function resetConfig() {
-      if (!window.confirm('恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段），并热重载生效。确认？')) return;
+      if (!window.confirm(t('save.resetConfirm'))) return;
       submitConfig({ reset: true });
     }
 
     if (!state) {
       return React.createElement('div', { className: 'dcs-root' },
         React.createElement('style', null, PANEL_CSS),
-        error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : '载入中…');
+        error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : t('loading'));
     }
 
     const now = Date.now();
@@ -371,15 +487,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         React.createElement(Badge, {
           ok: !!state.listening,
           warn: !httpOff,
-          title: '已运行 ' + fmtDur(state.uptimeMs),
+          title: t('uptime', { d: fmtDur(state.uptimeMs) }),
         }),
         React.createElement('span', { className: 'dcs-title' }, 'dsh-carrot-on-a-stick'),
         React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
         React.createElement('span', { className: 'dcs-spacer' }),
         state.listening
-          ? React.createElement('button', { className: 'dcs-btn dcs-btn-danger', onClick: toggleServer, disabled: busy }, busy ? '处理中…' : '停止')
+          ? React.createElement('button', { className: 'dcs-btn dcs-btn-danger', onClick: toggleServer, disabled: busy }, busy ? t('processing') : t('stop'))
           : (!httpOff
-              ? React.createElement('button', { className: 'dcs-btn dcs-btn-primary', onClick: toggleServer, disabled: busy }, busy ? '处理中…' : '启动')
+              ? React.createElement('button', { className: 'dcs-btn dcs-btn-primary', onClick: toggleServer, disabled: busy }, busy ? t('processing') : t('start'))
               : null),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
@@ -387,19 +503,19 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       React.createElement('div', { className: 'dcs-card' },
         React.createElement('div', { className: 'dcs-urlrow' },
           React.createElement('span', { className: 'dcs-url' }, state.endpoint),
-          React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? '已复制' : '复制'),
+          React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
         ),
       ),
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘 + 热重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
-          label: '模型白名单',
-          hint: '空清单 = 不限制；添加后仅清单内的模型可用。模型与 preset 均由调用方每次显式指定',
+          label: t('whitelist.title'),
+          hint: t('whitelist.hint'),
         }),
         React.createElement('div', { className: 'dcs-listwrap' },
               // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
               d.allowedModels.length === 0
-                ? React.createElement('div', { className: 'dcs-listmsg' }, '清单为空——调用方可以指定任意模型。')
+                ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.empty'))
                 : React.createElement('div', { className: 'dcs-list' },
                     d.allowedModels.map(function (pair) {
                       const nm = nameOf(pair);
@@ -407,7 +523,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                         React.createElement('span', null, pair,
                           nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
                         React.createElement('button', {
-                          type: 'button', className: 'dcs-x', title: '移除 ' + pair, disabled: busy,
+                          type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }), disabled: busy,
                           onClick: function () { change({ allowedModels: d.allowedModels.filter(function (x) { return x !== pair; }) }); },
                         }, '✕'),
                       );
@@ -415,27 +531,27 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
               // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
               adding === null
                 ? React.createElement('div', null,
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', disabled: busy, onClick: function () { setAdding(''); } }, '添加模型…'))
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', disabled: busy, onClick: function () { setAdding(''); } }, t('whitelist.add')))
                 : React.createElement('div', { className: 'dcs-addrow' },
                     React.createElement('input', {
                       className: 'dcs-input',
                       type: 'text',
                       value: adding,
-                      placeholder: '输入关键字过滤 provider / 模型 / 名称',
+                      placeholder: t('whitelist.filter'),
                       spellCheck: false,
                       disabled: busy,
                       onChange: function (e) { setAdding(e.target.value); },
                     }),
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, '完成'),
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, t('whitelist.done')),
                   ),
               adding !== null
                 ? (cat === null
-                    ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录加载中…')
+                    ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.loading'))
                     : cat === false
-                      ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录不可用（宿主未提供），请稍后重试或编辑配置文件。')
+                      ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.unavailable'))
                       : React.createElement('div', { className: 'dcs-list' },
                           candidates.length === 0
-                            ? React.createElement('div', { className: 'dcs-listmsg' }, '没有匹配的候选模型。')
+                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.none'))
                             : candidates.slice(0, CAND_CAP).map(function (e) {
                                 return React.createElement('button', {
                                   key: e.pair, type: 'button', className: 'dcs-cand', disabled: busy,
@@ -446,26 +562,26 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                                 );
                               }),
                           candidates.length > CAND_CAP
-                            ? React.createElement('div', { className: 'dcs-listmsg' }, '共 ' + candidates.length + ' 个匹配，仅显示前 ' + CAND_CAP + ' 个——请继续输入关键字缩小范围。')
+                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.capped', { total: candidates.length, cap: CAND_CAP }))
                             : null))
                 : null,
             ),
         React.createElement(Row, {
-          label: '默认详略',
-          hint: '返回给调用方的结果详略；单次调用可按次覆盖',
+          label: t('detail.title'),
+          hint: t('detail.hint'),
           control: React.createElement('select', {
             className: 'dcs-input',
             value: d.defaultDetail,
             disabled: busy,
             onChange: function (e) { change({ defaultDetail: e.target.value }); },
           },
-            React.createElement('option', { value: 'summary' }, '简要（summary）'),
-            React.createElement('option', { value: 'normal' }, '标准（normal）'),
-            React.createElement('option', { value: 'full' }, '完整（full）')),
+            React.createElement('option', { value: 'summary' }, t('detail.summary')),
+            React.createElement('option', { value: 'normal' }, t('detail.normal')),
+            React.createElement('option', { value: 'full' }, t('detail.full'))),
         }),
         React.createElement(Row, {
           label: 'Auth Token',
-          hint: '开启后 MCP 客户端连接须携带令牌',
+          hint: t('auth.hint'),
           control: React.createElement(Switch, {
             checked: d.authOn,
             disabled: busy,
@@ -487,7 +603,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                 React.createElement('button', {
                   type: 'button', className: 'dcs-btn', disabled: busy,
                   onClick: function () { const t = generateToken(); change({ authToken: t }, t); },
-                }, '重新生成令牌'),
+                }, t('auth.regen')),
                 React.createElement('code', { className: 'dcs-tokenval' }, maskOf(d.authToken || cfg.authToken || '')),
                 React.createElement('button', {
                   type: 'button', className: 'dcs-btn', disabled: busy || !(d.authToken || cfg.authToken),
@@ -499,35 +615,35 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                       window.setTimeout(function () { setTokenCopied(false); }, 1500);
                     }, function () { /* 剪贴板被拒即静默 */ });
                   },
-                }, tokenCopied ? '已复制' : '复制'),
+                }, tokenCopied ? t('copied') : t('copy')),
               ),
             )
           : null,
         React.createElement('div', { className: 'dcs-savebar' },
           cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
           React.createElement('div', { className: 'dcs-savebtns' },
-            React.createElement('button', { className: 'dcs-btn', onClick: resetConfig, disabled: busy }, '恢复默认…'),
+            React.createElement('button', { className: 'dcs-btn', onClick: resetConfig, disabled: busy }, t('save.reset')),
           ),
         ),
       ) : null,
       // 连接列表
       React.createElement('div', null,
         React.createElement('div', { className: 'dcs-sechead' },
-          React.createElement('span', { className: 'dcs-sectitle' }, '客户端连接'),
+          React.createElement('span', { className: 'dcs-sectitle' }, t('conns.title')),
           React.createElement('span', { className: 'dcs-seccount' },
-            conns.length + (subs.subscriptions ? ' · 订阅 ' + subs.subscriptions : '')),
+            conns.length + (subs.subscriptions ? t('conns.subs', { n: subs.subscriptions }) : '')),
         ),
         conns.length === 0
-          ? React.createElement('div', { className: 'dcs-empty' }, state.listening ? '暂无连接——MCP 客户端接入后显示在这里。' : '服务已停止，不接受连接。')
+          ? React.createElement('div', { className: 'dcs-empty' }, state.listening ? t('conns.none') : t('conns.stopped'))
           : React.createElement('div', { className: 'dcs-table' },
               React.createElement('div', { className: 'dcs-tr dcs-trh' },
-                React.createElement('span', null, '客户端'),
-                React.createElement('span', null, '连接于'),
-                React.createElement('span', null, '最近活跃'),
-                React.createElement('span', { className: 'dcs-num' }, '请求')),
+                React.createElement('span', null, t('conns.client')),
+                React.createElement('span', null, t('conns.connectedAt')),
+                React.createElement('span', null, t('conns.lastActivity')),
+                React.createElement('span', { className: 'dcs-num' }, t('conns.requests'))),
               conns.map(function (c) {
-                return React.createElement('div', { key: c.sessionId, className: 'dcs-tr', title: (c.userAgent || '(未报告)') + '\nsession ' + c.sessionId },
-                  React.createElement('span', { className: 'dcs-ua' }, c.userAgent || '(未报告)'),
+                return React.createElement('div', { key: c.sessionId, className: 'dcs-tr', title: (c.userAgent || t('conns.unreported')) + '\nsession ' + c.sessionId },
+                  React.createElement('span', { className: 'dcs-ua' }, c.userAgent || t('conns.unreported')),
                   React.createElement('span', { className: 'dcs-num' }, fmtClock(c.connectedAt, now)),
                   React.createElement('span', { className: 'dcs-num' }, fmtAgo(c.lastActivity, now)),
                   React.createElement('span', { className: 'dcs-num' }, String(c.requests ?? 0)),
@@ -540,20 +656,31 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   module.exports = {
     inject: ['slots'],
     async apply(ctx) {
-      // slots 服务可能晚于 apply 就绪(与官方设置区插件同型等待姿势)
+      // slots/locale 服务可能晚于 apply 就绪(与官方设置区插件同型等待姿势)。
+      // locale 缺席不算致命: 退化本地中文回退, 面板照常工作(只是不跟随宿主语言切换)。
       let slots = ctx.slots || ctx.get('slots');
-      for (let i = 0; slots === undefined && i < 80; i++) {
+      let locale = ctx.locale || ctx.get('locale');
+      for (let i = 0; (slots === undefined || locale === undefined) && i < 80; i++) {
         await new Promise(function (resolve) { window.setTimeout(resolve, 500); });
-        slots = ctx.slots || ctx.get('slots');
+        slots = slots !== undefined ? slots : (ctx.slots || ctx.get('slots'));
+        locale = locale !== undefined ? locale : (ctx.locale || ctx.get('locale'));
       }
       if (slots === undefined) {
         console.warn('[dsh-carrot-on-a-stick] slots 服务 40s 内未就绪, 设置面板未注册');
         return;
       }
+      if (locale !== undefined) {
+        LOCALE = locale;
+        ctx.effect(function () { return locale.register(NS_I18N, DICT); }, NS_I18N + ': dictionaries');
+        t = locale.bind(NS_I18N);
+      } else {
+        console.warn('[dsh-carrot-on-a-stick] locale 服务不可用, 面板固定使用中文');
+      }
       slots.inject('settings.section', function () {
         return slots.register(
-          // 侧栏宽度有限, 长名会被截断; 全名保留在面板标题里
-          { name: 'settings.section', id: 'dsh-carrot-on-a-stick', order: 110, label: function () { return 'MCP 服务'; } },
+          // 侧栏宽度有限, 长名会被截断; 全名保留在面板标题里。
+          // label 用 thunk + locale 元数据: 宿主在语言切换时重取侧栏文案(与官方/dshmarket 同姿势)
+          { name: 'settings.section', id: 'dsh-carrot-on-a-stick', order: 110, label: function () { return t('nav'); }, locale: NS_I18N },
           function () { return React.createElement(StatusPanel); },
         );
       });

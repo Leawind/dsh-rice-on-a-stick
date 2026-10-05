@@ -109,6 +109,8 @@ Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP 
 
 ## Web settings panel
 
+Panel copy follows the DSH language setting (Chinese/English) and switches immediately; it falls back to Chinese when the host offers no locale service.
+
 The bundle adds a **Settings → MCP Service** section to the dsh web UI, in four blocks, styled directly with the host's global `--dsw-*` theme tokens (light/dark follows automatically):
 
 -   **Status header** — live badge (running / stopped / listener off; hover for uptime) plus start/stop buttons. Stopping asks for confirmation — it cuts every connected MCP client. State polls every 10 seconds.
