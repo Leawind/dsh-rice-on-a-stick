@@ -1,5 +1,5 @@
 /**
- * MCP 工具注册(16 个; resourceFirst 部署形态下只读面 8 个下线, 数据一律走 resources 面)。
+ * MCP 工具注册(17 个 = 16 个会话/目录工具 + echo; resourceFirst 部署形态下只读面 8 个下线, 数据一律走 resources 面)。
  *
  * 工具面 = dsh web 界面的操作清单(sessionController 的服务端语义), 会话是唯一操作单元:
  *   session_create(新建会话) / session_prompt(发消息, 含界面"忙碌时发送行为"的 queue|steer 两模式) /
@@ -37,6 +37,7 @@ import {
   collectModelCatalog,
   collectSessions,
   hostToolsPayload,
+  presetsPayload,
   resUri,
   sessionHistoryPayload,
   workspacesPayload,
@@ -179,13 +180,20 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       'model_list',
       {
         title: 'List models',
-        description: '列出当前可路由的 provider、模型 id 与推理档(reasoningEfforts), 以及宿主当前缺省选择。session_create / session_select_model 的 provider/model/reasoningEffort 都取自这里。source=sessionController 为官方口径(与 Web UI 模型选择器同源); source=llm 为回退(不含推理档)。',
+        description: '列出当前可路由的 provider、模型 id 与推理档(reasoningEfforts)、preset 花名册(presets), 以及宿主当前缺省选择。session_create 的 provider/model/preset 都取自这里。source=sessionController 为官方口径(与 Web UI 模型选择器同源); source=llm 为回退(不含推理档)。',
         inputSchema: {
           provider: z.string().optional().describe('只看该 provider(缺省 = 全部)'),
         },
         annotations: { readOnlyHint: true },
       },
-      async ({ provider }) => out(JSON.stringify(await collectModelCatalog(ctx, provider), null, 2)),
+      async ({ provider }) => {
+        const catalog = await collectModelCatalog(ctx, provider)
+        // preset 花名册并入(session_create 的另一个必填参数, 让调用方一次查齐); 缺席时省略
+        const presets = await presetsPayload(ctx)
+          .then((p) => (p.presets as { id: string }[]).map((x) => x.id))
+          .catch(() => undefined)
+        return out(JSON.stringify(presets ? { ...catalog, presets } : catalog, null, 2))
+      },
     )
   }
 
@@ -195,13 +203,13 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
     'session_create',
     {
       title: 'Create session',
-      description: '新建会话(界面"新会话"按钮): 创建绑定到 cwd 工作区的空白会话, 挂载指定模型与 preset。返回 sessionId, 之后用 session_prompt 在里面干活。模型必须显式成对指定(provider+model 取值见 model_list, 与界面新建会话先选模型一致; 不做任何默认回填)。preset 缺省挂部署默认(见 dsh_status); title 缺省由宿主在首轮后自动生成。',
+      description: '新建会话(界面"新会话"按钮): 创建绑定到 cwd 工作区的空白会话, 挂载指定模型与 preset。返回 sessionId, 之后用 session_prompt 在里面干活。模型(provider+model 成对, 取值见 model_list)与 preset(取值见 model_list 的 presets 字段 / dsh://presets)都必须显式指定——与界面新建会话先选模型和预设一致, 不做任何默认回填。title 缺省由宿主在首轮后自动生成。',
       inputSchema: {
         cwd: z.string().describe('工作目录(会话绑定的工作区; 配置 workspaceRoots 时必须在白名单内)'),
         provider: z.string().describe('模型 provider route(见 model_list / dsh://models; 需与 model 成对)'),
         model: z.string().describe('模型 id(见 model_list / dsh://models; 需与 provider 成对)'),
         reasoningEffort: z.string().optional().describe('推理强度 id(见 model_list 的 reasoningEfforts; 缺省 = 适配器默认)'),
-        preset: z.string().optional().describe('挂载的 agent preset id(见 dsh://presets; 缺省 = 部署默认)'),
+        preset: z.string().describe('挂载的 agent preset id(必填; 取值见 model_list 的 presets 字段 / dsh://presets)'),
         title: z.string().optional().describe('会话标题(缺省由宿主在首轮后自动生成)'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },

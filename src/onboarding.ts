@@ -29,8 +29,9 @@ Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
 
 Quick start:
-- Read dsh://models before picking a model; create a session with session_create
-  (cwd + provider+model pair are explicit — no defaults are backfilled).
+- Read dsh://models before picking a model and dsh://presets for valid preset ids;
+  create a session with session_create (cwd, provider+model pair, preset are all
+  explicit — no defaults are backfilled).
 - session_prompt sends a message into a session and waits for the turn to finish,
   returning a uri-level result pointing at dsh://sessions/{id}/history
   (pass detail=summary|normal|full to inline the payload).
@@ -46,8 +47,9 @@ Your MCP client is the commander; dsh is the executor — sessions here are the 
 sessions the dsh web UI shows (session-centric, one conversation = one agent).
 
 Quick start:
-- Call model_list before picking a model; create a session with session_create
-  (cwd + provider+model pair — explicit, no defaults are backfilled).
+- Call model_list first — it holds both the model catalog and the preset roster
+  (its \`presets\` field); create a session with session_create
+  (cwd, provider+model pair, preset — all explicit, no defaults are backfilled).
 - session_prompt sends a message into a session and waits for the turn to finish,
   returning a structured result ({changes, verification, leftovers, ...}); failures come
   back with isError:true. Reuse the same sessionId to keep the conversation going
@@ -93,13 +95,14 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 - **session / agent** — one conversation and its runtime. The web UI calls it a session;
   the runtime object that executes turns is its agent. They are 1:1: creating a session
   creates the agent, and the agent's context IS the session history.
-- **Model selection** — chosen per session at creation (\`session_create\` requires an
-  explicit \`provider\`+\`model\` pair from \`model_list\`; nothing is backfilled) and
-  switchable later with \`session_select_model\` (takes effect on the next step,
-  history preserved).
-- **preset** — the persona mounted at session creation (an id from the host's
-  \`agentPresets\` roster). Per-call \`preset\` applies to **new** sessions only; continuing
-  an existing session keeps its original preset.
+- **Model & preset selection** — chosen per session at creation (\`session_create\`
+  requires an explicit \`provider\`+\`model\` pair and a \`preset\`, all from
+  \`model_list\` / \`dsh://presets\`; nothing is backfilled). The model is switchable
+  later with \`session_select_model\` (takes effect on the next step, history
+  preserved); the preset stays with the session.
+- **preset** — the persona mounted at session creation (an id from \`model_list\`'s
+  \`presets\` field or the \`dsh://presets\` resource). Required explicitly at creation,
+  like the model; continuing an existing session keeps its original preset.
 - **send modes** — \`session_prompt\` mode mirrors the UI's "busy send behavior":
   \`queue\` (default) appends to the session's durable inbox while the agent is busy
   (it runs after the current turn); \`steer\` redirects the running turn at the next
@@ -120,7 +123,7 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
   workflows: `\
 ## Workflow recipes
 
-1. **One-off task** — \`session_create\` (cwd + provider/model pair), then
+1. **One-off task** — \`session_create\` (cwd + provider/model pair + preset), then
    \`session_prompt\` with the task. The result carries the \`sessionId\`; pass it back
    later to continue that conversation (send only the delta).
 2. **Keep working in a session** — repeat \`session_prompt\` with the same \`sessionId\`.
@@ -148,9 +151,9 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 | Situation | Do this instead |
 |---|---|
 | "provider + model are required" | call \`model_list\` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
+| "unknown preset" | pick an id from \`model_list\`'s \`presets\` field (or the \`dsh://presets\` resource) — new sessions always need an explicit preset |
 | "cannot determine the model of persisted session" | call \`session_select_model\` on it once (the host cold-resumes and remembers), then retry \`session_prompt\` |
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from \`model_list\` that appears there |
-| preset refused | the deployment pinned it (\`allowPresetOverride: false\`); drop the preset argument |
 | "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` first |
 | cwd outside workspaceRoots | pick a directory under the configured roots (see \`dsh_status\`) |
 | turn ends \`blocked\` | the host waits for interactive approval an unattended run cannot grant — arrange approval host-side, then continue via \`session_prompt\` |
@@ -171,10 +174,10 @@ model/preset that actually answered.
   stop at this boundary.
 - \`allowedModels\`: the allowlist of models sessions may be created with
   (absent/empty = any model).
-- \`allowPresetOverride\`: whether you may pick a preset for a new session.
-- The model is explicit: new sessions require \`provider\`+\`model\` (from \`model_list\`);
-  resuming a sessionId keeps that session's model. The result tells you which
-  model/preset actually answered (\`model\` / \`preset\` fields).
+- Model and preset are both explicit: new sessions require \`provider\`+\`model\` (from
+  \`model_list\`) and a \`preset\` (from \`model_list\`'s \`presets\` / \`dsh://presets\`);
+  resuming a sessionId keeps that session's model and preset. The result tells you
+  which model/preset actually answered (\`model\` / \`preset\` fields).
 `,
 }
 

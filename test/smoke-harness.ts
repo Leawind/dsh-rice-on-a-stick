@@ -310,7 +310,7 @@ export function makeCtx(opts: {
       },
     },
     agentPresets: {
-      mount: async (agentCtx, id) => { mounted.push(id ?? 'standard'); return { id: id ?? 'standard' } },
+      mount: async (agentCtx, id) => { mounted.push(id); return { id } },
       // roster(校验 per-call preset 存在性 + dsh://presets 资源投影): standard 带 name/description, reviewer 只有 id
       list: async () => [{ id: 'standard', name: 'Standard', description: 'default persona' }, { id: 'reviewer' }],
     },

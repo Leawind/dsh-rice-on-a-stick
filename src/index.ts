@@ -1,40 +1,35 @@
 /**
  * dsh-carrot-on-a-stick — 在 Harness 内部启动 MCP server, 把 dsh 的操作能力暴露给任意 MCP 客户端。
  *
- * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置构建、队列持久化接线、
+ * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置构建、
  * Streamable HTTP 传输层(认证/Host/Origin/体上限/会话路由)与 GUI 控制面。
  *
  * 模块布局(职责单一, 依赖自上而下无环):
  *   config     配置接口与默认值
  *   types      跨模块纯数据类型
- *   state      进程内可变状态(config/池/锁/队列/hooks/通知钩子)
+ *   state      进程内可变状态(config/会话记录/hooks/通知钩子)
  *   paths      cwd 规范化与 workspaceRoots 白名单(安全边界)
- *   persist    队列持久化静态加密(AES-256-GCM)
  *   projection 结果投影(token 预算)与会话纪要投影
  *   host       宿主服务桥接(零宿主副本原则) + 工作区归组/会话查找
- *   engine     执行引擎(模型解析/会话池/三级接管/取消/进度/结构化结果)
+ *   engine     执行引擎(显式模型/preset 契约/三级接管/取消/结构化结果)
  *   data       数据层: 工具面与资源面共享的读实现(同白名单边界) + 资源 URI 构造器
  *   notify     资源订阅枢纽(per-connection 订阅登记/updated 定向推送/list_changed 合并广播)
- *   tools      17 个 MCP 工具注册与模型目录(resourceFirst 形态下只读面 9 个下线)
+ *   tools      16 个 MCP 工具注册(resourceFirst 形态下只读面 8 个下线)
  *   resources  资源面: 全量只读 URI + resources/subscribe + completion + annotations
  *   onboarding initialize 的 instructions 引导 + dsh_get_started 帮助文档(agent 认知面)
  *
- * 工具集: echo / dsh_list_tools / dsh_status / workspace_list / model_list / agent_run /
- *   agent_steer / task_inbox / task_result / task_cancel / task_list / session_list /
- *   session_history / select_model / rename_session / attach_session / dsh_get_started
- *   (各工具用途见 tools.ts 与 README)
+ * 工具集 = 界面操作清单(会话中心): session_create / session_prompt / session_cancel /
+ *   session_queue / session_select_model / session_rename / session_search / session_fork /
+ *   session_archive / session_list / session_history, 加目录与状态类(model_list /
+ *   workspace_list / dsh_status / dsh_list_tools / dsh_get_started / echo)。
  *
- * 实时干预: agent_steer 对运行中的 agent 转向(steer)/注入上下文(inject);
- *   空闲会话拒绝 steer(避免无人接管的 turn), inject 挂起到下次唤醒。
- *
- * 模型与人格: 优先级 = 单次调用参数 > 插件 config(provider+model / preset) > 宿主默认选择。
- * 常驻会话按 cwd + 模型三元组 + preset 分池; 会话内换模型走 select_model;
- * preset 只对新建会话生效(接管已有会话沿用其原 preset)。
+ * 模型与 preset 契约: 均由调用方在创建会话时显式指定(provider+model 成对、preset 取值见
+ * model_list 的 presets), 插件不做任何默认回填; 续接已有会话沿用其原模型与原 preset。
  *
  * 安全: 默认仅监听本机; Bearer 常时比较; Host/Origin 白名单防 DNS rebinding; 10MB 体上限;
  * workspaceRoots 白名单约束执行与内容读取面。暴露公网前必须加反代 + TLS + 认证(README「安全」)。
  *
- * 回路: 调用方上下文 →(context)→ task_inbox → dsh agent 执行 → 结果进队列 → task_result → 调用方持久化
+ * 回路: 调用方 → session_create 建会话 → session_prompt 发消息等本轮结果 → 用 sessionId 续接
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
@@ -155,12 +150,10 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 // ── GUI 配置编辑(config-update 路由)的字段面 ──
 
-/** 字符串字段(空串语义与配置文件一致: preset 空由部署默认兜底, authToken/queuePersistPath 空即关闭) */
-const GUI_STRING_FIELDS = new Set(['preset', 'queuePersistPath', 'authToken'])
-/** 布尔字段 */
-const GUI_BOOL_FIELDS = new Set(['allowPresetOverride'])
+/** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token) */
+const GUI_STRING_FIELDS = new Set(['authToken'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
-const GUI_NUMBER_MIN: Record<string, number> = { maxQueue: 1, maxAgents: 1, taskTimeoutMs: 0, sessionTtlMs: 0 }
+const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
 const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
 
@@ -173,9 +166,6 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (GUI_STRING_FIELDS.has(key)) {
       if (typeof value !== 'string') throw httpError(400, `${key} 必须是字符串`)
-      out[key] = value
-    } else if (GUI_BOOL_FIELDS.has(key)) {
-      if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
       out[key] = value
     } else if (key in GUI_NUMBER_MIN) {
       const n = typeof value === 'number' ? value : Number(value)
@@ -237,8 +227,6 @@ function hostnameOf(hostHeader: string): string {
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   state.config = {
     allowedModels: (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean),
-    allowPresetOverride: config.allowPresetOverride ?? DEFAULTS.allowPresetOverride,
-    preset: config.preset ?? DEFAULTS.preset,
     defaultDetail: config.defaultDetail ?? DEFAULTS.defaultDetail,
     sessionTtlMs: Math.max(0, config.sessionTtlMs ?? DEFAULTS.sessionTtlMs),
     authToken: config.authToken ?? DEFAULTS.authToken,
@@ -349,8 +337,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       uptimeMs: Date.now() - startedAt,
       config: {
         allowedModels: state.config.allowedModels,
-        allowPresetOverride: state.config.allowPresetOverride,
-        preset: state.config.preset,
         defaultDetail: state.config.defaultDetail,
         workspaceRoots: state.config.workspaceRoots,
         authEnabled: state.config.authToken !== '',

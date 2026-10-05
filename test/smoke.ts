@@ -2,17 +2,16 @@
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝)
  *   A. 协议: initialize(instructions)/echo/tools_list(精确 17 工具)/版本协商
- *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型拒绝/未知 preset
+ *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(日志恢复模型)/无法恢复报错
  *   D. session_cancel / session_queue(list/edit/remove/未知 itemId)
  *   E. session_select_model / session_rename / session_search / session_fork / session_archive(含白名单)
  *   F. session_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
  *   G. allowedModels 允许清单(独立 ctx)
- *   H. allowPresetOverride:false 锁 preset(独立 ctx)
- *   I. workspaceRoots 白名单(独立 ctx)
- *   J. resourceFirst 形态(独立 ctx)——只读面下线, prompt 默认 uri 档
- *   K. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
- *   L. GUI 控制面路由: status/models/config-update/stop-start 同源
+ *   H. workspaceRoots 白名单(独立 ctx)
+ *   I. resourceFirst 形态(独立 ctx)——只读面下线, prompt 默认 uri 档
+ *   J. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
+ *   K. GUI 控制面路由: status/models/config-update/stop-start 同源
  *
  * 假宿主与 RPC 小工具在 smoke-harness.ts; 时序敏感断言一律走 waitFor/轮询。
  * 测试是普通 TypeScript, node test/smoke.ts 直跑(Node 原生 type stripping, 需 Node ≥ 23.6)。
@@ -22,7 +21,7 @@ import { resolve } from 'node:path'
 import { apply } from '../lib/index.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
-import { Config as ConfigSchema, DEFAULTS } from '../lib/config.js'
+import { Config as ConfigSchema } from '../lib/config.js'
 import {
   archived,
   attachedIds,
@@ -97,7 +96,7 @@ try {
   }
 
   // ── session_create ──
-  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', title: 'smoke 会话' } } })
+  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话' } } })
   const mkInner = mk.status === 200 ? innerOf(mk) : { error: 'bad' }
   checks['session_create 返回 sessionId/模型/preset'] = typeof mkInner.sessionId === 'string'
     && mkInner.model?.provider === 'p1' && mkInner.model?.model === 'm1' && mkInner.preset === 'standard'
@@ -111,9 +110,18 @@ try {
   const mkNoModel = await rpc(init.sid, { jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1' } } })
   checks['session_create 缺 model 被明确拒绝'] = String(innerOf(mkNoModel).error ?? '').includes('session_create') && String(innerOf(mkNoModel).error ?? '').includes('model')
 
+  // 参数校验: preset 同契约必填(不做默认回填)
+  const mkNoPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 113, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1' } } })
+  checks['session_create 缺 preset 被明确拒绝'] = String(innerOf(mkNoPreset).error ?? '').toLowerCase().includes('preset')
+
   // 未知 preset 被拒(roster 校验)
   const mkBadPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } } })
   checks['session_create 未知 preset 被拒'] = String(mkBadPreset.status === 200 ? innerOf(mkBadPreset).error ?? '' : '').includes('unknown preset')
+
+  // model_list 并出 preset 花名册(session_create 两个必填参数一次查齐)
+  const ml = await rpc(init.sid, { jsonrpc: '2.0', id: 114, method: 'tools/call', params: { name: 'model_list', arguments: {} } })
+  checks['model_list 输出带 presets 花名册'] = JSON.stringify(innerOf(ml)).includes('"standard"')
+    && JSON.stringify(innerOf(ml)).includes('"reviewer"')
 
   // ── session_prompt: live 接管(沿用原模型) ──
   const runLive = await rpc(init.sid, { jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'say ok' } } })
@@ -240,7 +248,6 @@ try {
     const seen = sse.events.slice(before).map((e: any) => e.params?.uri ?? '')
     return seen.some((u) => u.includes('sess-live/history')) && seen.some((u) => u.includes('sess-live/activity'))
   }, 8000)
-  console.error('DBG SUB:', JSON.stringify(sse.events.slice(before).map((e: any) => e.params?.uri ?? e.method)).slice(0, 240))
   checks['订阅推送: turn 收敛后 history/activity 收到 updated'] = sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/history'))
     && sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/activity'))
   sse.close()
@@ -251,36 +258,25 @@ try {
   // ── Phase B: allowedModels 允许清单(独立端口独立 ctx) ──
   {
     const phase = await startPhase(8098, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
-    const mkOut = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9' })
+    const mkOut = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
     checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? innerOf(mkOut).error ?? '' : '').includes('not in allowedModels')
-    const mkIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1' })
+    const mkIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
     checks['allowedModels: select_model 清单外被拒'] = String(innerOf(selOut).error ?? '').includes('not in allowedModels')
     await phase.dispose()
   }
 
-  // ── Phase C: allowPresetOverride:false 锁 preset(独立端口独立 ctx) ──
-  {
-    const phase = await startPhase(8093, makeCtx({ llm: fakeLlm }), { allowPresetOverride: false })
-    const presetGate = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'reviewer' })
-    checks['allowPresetOverride:false 门禁(preset 覆盖被拒)'] = parsePayload(presetGate.text).result?.isError === true
-      && String(innerOf(presetGate).error ?? '').includes('allowPresetOverride')
-    const noPreset = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1' })
-    checks['allowPresetOverride:false 不带 preset 仍可用'] = typeof innerOf(noPreset).sessionId === 'string'
-    await phase.dispose()
-  }
-
-  // ── Phase D: workspaceRoots 白名单(独立端口独立 ctx) ──
+  // ── Phase C: workspaceRoots 白名单(独立端口独立 ctx) ──
   {
     const outsideDir = resolve(FAKE_CWD, '..', 'dsh-carrot-outside')
     const phase = await startPhase(8092, makeCtx({
       llm: fakeLlm,
       extraSessions: [{ id: 'sess-outside', cwd: outsideDir }],
     }), { workspaceRoots: [FAKE_CWD] })
-    const createOut = await phase.call('session_create', { cwd: outsideDir, provider: 'p1', model: 'm1' })
+    const createOut = await phase.call('session_create', { cwd: outsideDir, provider: 'p1', model: 'm1', preset: 'standard' })
     checks['白名单: 白名单外建会话被拒'] = String(createOut.status === 200 ? innerOf(createOut).error ?? '' : '').includes('workspaceRoots')
-    const createIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1' })
+    const createIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     checks['白名单: 白名单内建会话放行'] = typeof innerOf(createIn).sessionId === 'string'
     const promptOut = await phase.call('session_prompt', { sessionId: 'sess-outside', task: 'x' })
     checks['白名单: 越界会话续接被拒'] = String(promptOut.status === 200 ? innerOf(promptOut).error ?? '' : '').includes('workspaceRoots')
@@ -295,7 +291,7 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase E: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
+  // ── Phase D: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
   {
     const phase = await startPhase(8091, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { resourceFirst: true })
     const names = await phase.toolNames()
@@ -309,7 +305,7 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase F: 传输层安全(独立端口独立 ctx)——Bearer 401 / Host 403 / 传输 TTL GC ──
+  // ── Phase E: 传输层安全(独立端口独立 ctx)——Bearer 401 / Host 403 / 传输 TTL GC ──
   {
     const phase = await startPhase(8088, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', sessionTtlMs: 400 })
     const noAuth = await phase.call('echo', { text: 'x' }, { noToken: true })
@@ -328,21 +324,21 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase G: GUI 控制面路由(独立端口独立 ctx)──
+  // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──
   {
     const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})
     const st = await phase.gui('status')
     const stBody = st.status === 200 ? JSON.parse(st.body) : {}
     checks['GUI 路由: status 快照(版本/监听/配置摘要)'] = st.status === 200 && typeof stBody.version === 'string'
       && typeof stBody.listening === 'boolean' && Array.isArray(stBody.config?.allowedModels)
-      && typeof stBody.config?.allowPresetOverride === 'boolean'
+      && typeof stBody.config?.defaultDetail === 'string'
       && typeof stBody.stats?.connections === 'number' && Array.isArray(stBody.connections)
     const modelsRoute = await phase.gui('models')
     checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200
       && modelsRoute.body.includes('Provider One')
     const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { port: 9999 } }) })
     checks['GUI 路由: config-update 白名单外字段 400'] = cfgBadField.status === 400
-    const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { preset: 'reviewer' } }) })
+    const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
     const stopCross = await phase.gui('stop', { httpMethod: 'POST' })
@@ -377,7 +373,8 @@ try {
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {
     const c = ConfigSchema(null) as any
-    return c.allowedModels.length === 0 && c.preset === DEFAULTS.preset && c.defaultDetail === 'summary' && c.resourceFirst === false
+    return c.allowedModels.length === 0 && c.defaultDetail === 'summary' && c.resourceFirst === false
+      && !('preset' in c) && !('allowPresetOverride' in c)
   })()
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
     try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }
@@ -387,7 +384,7 @@ try {
   })()
   checks['Config schema: ~standard.validate 合法配置通过并填默认'] = (() => {
     const r = ConfigSchema['~standard'].validate({ allowedModels: ['a/b'] }) as { value: any }
-    return r.value.allowedModels.length === 1 && r.value.preset === 'standard'
+    return r.value.allowedModels.length === 1 && r.value.defaultDetail === 'summary'
   })()
 }
 

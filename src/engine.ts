@@ -36,21 +36,15 @@ async function mountPreset(ctx: Context, agentCtx: Context, preset: string): Pro
 }
 
 /**
- * preset 解析: 缺省回落部署默认(config.preset); 显式指定时先过门禁
- * (allowPresetOverride: false = 部署锁死 preset), 再校验 roster 存在性
- * (ctx.agentPresets.list() 可用时给出可用清单, 不可用时透传给 mount 由宿主报错)。
+ * preset 解析: 与模型同契约, 调用必须显式指定(不做任何默认回填);
+ * roster 可用时校验存在性(agentPresets.list()), 不可用时透传给 mount 由宿主报错。
  */
-async function resolvePreset(ctx: Context, preset?: string): Promise<string> {
-  if (!preset) return state.config.preset
-  if (!state.config.allowPresetOverride) {
-    throw new Error('preset override is disabled by plugin config (allowPresetOverride: false); '
-      + 'remove preset from the call, or enable allowPresetOverride in cordis.yml')
-  }
+async function resolvePreset(ctx: Context, preset: string): Promise<string> {
   const presets = serviceOf<{ list?: () => Promise<{ id?: string }[]> }>(ctx, 'agentPresets')
   if (typeof presets?.list === 'function') {
     const roster = await presets.list().catch(() => undefined)
     if (roster && !roster.some((p) => p?.id === preset)) {
-      throw new Error(`unknown preset "${preset}" (available: ${roster.map((p) => p?.id ?? '').filter(Boolean).join(', ') || 'none'}; check agentPresets roster or config.preset)`)
+      throw new Error(`unknown preset "${preset}" (available: ${roster.map((p) => p?.id ?? '').filter(Boolean).join(', ') || 'none'}; check model_list presets / dsh://presets for valid ids)`)
     }
   }
   return preset
@@ -159,8 +153,8 @@ export interface CreateSessionOptions {
   cwd: string
   /** 模型选择(必须显式成对指定; 过 allowedModels 清单) */
   selection: ModelSelection
-  /** per-call preset(门禁与 roster 校验在此统一做; 缺省 = 部署默认) */
-  preset?: string
+  /** per-call preset(与模型同契约必填; roster 校验在此统一做) */
+  preset: string
   /** 会话标题(缺省由宿主 title 服务在首轮后自动生成) */
   title?: string
 }
@@ -176,7 +170,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<{ sessi
   const newSessionId = asSessionId(randomUUID())
   const handle = await ctx.agents.create({
     sessionId: newSessionId,
-    // 声明 preset(per-call 覆盖 > 部署默认): 当前版本主要靠 setup 里 mount, meta.agentPreset 供未来 Harness 版本直接消费。
+    // 声明 preset(调用显式指定): 当前版本主要靠 setup 里 mount, meta.agentPreset 供未来 Harness 版本直接消费。
     meta: { cwd: canonical, agentPreset: presetName },
     // 模型选择: 调用显式指定(agent.options.model 是 {{model}} 变量的来源)
     agentOptions: agentOptionsOf(selection),
@@ -256,16 +250,18 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
       resumeSessionId: sid,
       agentOptions: agentOptionsOf(selection),
       setup: async (agentCtx) => {
+        // preset 无默认可回填: 会话 header 里记录了创建时的 preset 就恢复它;
+        // mount 失败或 header 无记录时不再猜一个默认, 交给宿主 resume 的自身语义并留下告警。
         const originalPreset = header?.agentPreset
-        if (originalPreset && originalPreset !== state.config.preset) {
-          try {
-            await mountPreset(ctx, agentCtx, originalPreset)
-            return
-          } catch (e) {
-            console.warn(`[dsh-carrot-on-a-stick] resume: original preset "${originalPreset}" mount failed, falling back to "${state.config.preset}":`, String(e))
-          }
+        if (!originalPreset) {
+          console.warn(`[dsh-carrot-on-a-stick] resume: session "${sessionId}" has no agentPreset in its header, mounting nothing`)
+          return
         }
-        await mountPreset(ctx, agentCtx, state.config.preset)
+        try {
+          await mountPreset(ctx, agentCtx, originalPreset)
+        } catch (e) {
+          console.warn(`[dsh-carrot-on-a-stick] resume: original preset "${originalPreset}" mount failed, mounting nothing:`, String(e))
+        }
       },
     })
   } catch (e) {
@@ -278,7 +274,7 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
     handle,
     cwd: resumedCwd,
     selection,
-    preset: header?.agentPreset ?? state.config.preset,
+    preset: header?.agentPreset ?? '',
   }
   state.sessionRecords.set(sessionId, resumed)
   await attachSessionCwd(ctx, sid, handle.agent.session.header.cwd)

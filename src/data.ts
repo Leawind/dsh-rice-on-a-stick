@@ -1,7 +1,7 @@
 /**
  * 数据层: 工具面(tools)与资源面(resources)共用的读实现——两个面同数据、同 workspaceRoots 白名单边界。
  * 从 tools.ts 抽出(消除"工具↔资源"潜在环), 并承载资源面新增的载荷:
- *   presetsPayload      preset 花名册(dsh://presets; agent_run 的 preset 参数此前无从查证)
+ *   presetsPayload      preset 花名册(dsh://presets; session_create 的 preset 参数取值来源)
  *   workspacesPayload   工作区清单/单工作区(dsh://workspaces[/id])
  *   sessionMetaPayload  单会话元数据(dsh://sessions/{id}; persisted-only 也可读)
  *   activityPayload     当前 turn 活动窗口(dsh://sessions/{id}/activity; 订阅核心场景)
@@ -335,7 +335,7 @@ export async function sessionEventsPayload(ctx: Context, sessionId: string, afte
 export async function presetsPayload(ctx: Context): Promise<Record<string, unknown>> {
   const presets = serviceOf<{ list?: () => Promise<readonly { id?: string; name?: string; description?: string; order?: number }[]> }>(ctx, 'agentPresets')
   if (typeof presets?.list !== 'function') {
-    throw new Error('agentPresets service unavailable (preset roster unreadable; use config.preset default)')
+    throw new Error('agentPresets service unavailable (preset roster unreadable)')
   }
   const roster = (await presets.list()) ?? []
   return {
@@ -407,8 +407,6 @@ export function basicStatusSnapshot(): Record<string, unknown> {
     version: PLUGIN_VERSION,
     config: {
       allowedModels: state.config.allowedModels,
-      allowPresetOverride: state.config.allowPresetOverride,
-      preset: state.config.preset,
       defaultDetail: state.config.defaultDetail,
       workspaceRoots: state.config.workspaceRoots,
     },

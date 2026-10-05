@@ -27,14 +27,6 @@ export interface Config {
    * 模型本身由调用方显式指定(插件不做任何默认回填), 清单只约束"能选哪些"。
    */
   allowedModels?: string[]
-  /**
-   * 是否允许调用方为新建会话选择 agent preset(session_create 的 preset 参数; 默认 true)。
-   * 设为 false = 由部署锁死 preset(仍用 config.preset), 指定请求会被明确拒绝。
-   * preset 只在新建会话时生效: 续接已有会话沿用该会话创建时的 preset。
-   */
-  allowPresetOverride?: boolean
-  /** 部署默认 agent preset(新建会话未指定 preset 时挂载; 默认 standard) */
-  preset?: string
   /** 结果默认详略级别(默认 summary; 单次调用可用 detail 参数覆盖) */
   defaultDetail?: 'summary' | 'normal' | 'full'
   /** Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>, 常数时间比较) */
@@ -65,11 +57,9 @@ export interface Config {
 
 /** 运行时配置默认值 */
 export const DEFAULTS = {
-  // 模型不做任何默认: 调用必须显式成对指定 provider+model(与 web 界面一致: 新会话先选模型),
+  // 模型与 preset 都不做任何默认: 调用必须显式指定(与 web 界面一致: 新会话先选模型与预设),
   // allowedModels 只约束"能选哪些", 不提供默认。
   allowedModels: [] as string[],
-  allowPresetOverride: true,
-  preset: 'standard',
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
   sessionTtlMs: 24 * 60 * 60 * 1000,
   authToken: '',
@@ -88,8 +78,6 @@ export const Config = Schema.object({
   port: Schema.number().default(8090).description('MCP 监听端口'),
   host: Schema.string().default('127.0.0.1').description('MCP 监听地址(安全默认仅本机; 暴露公网/局域网前必须自行加认证+反代+TLS)'),
   allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('允许调用方选择的模型清单(provider/model 形式; 空 = 不限制)。非空时: session_create/session_select_model 指定的模型不在清单内, 请求会被明确拒绝'),
-  allowPresetOverride: Schema.boolean().default(DEFAULTS.allowPresetOverride).description('是否允许调用方为新建会话选择 agent preset(false = 由部署锁死; 续接已有会话沿用其创建时的 preset)'),
-  preset: Schema.string().default(DEFAULTS.preset).description('部署默认 agent preset(新建会话未指定时挂载)'),
   defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).description('结果默认详略级别(单次调用可用 detail 参数覆盖)'),
   authToken: Schema.string().default(DEFAULTS.authToken).role('secret').description('Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>; 空 = 关闭认证)'),
   workspaceRoots: Schema.array(Schema.string()).default(DEFAULTS.workspaceRoots).description('cwd 白名单(设置后会话只能在列出的目录下干活, 同时约束会话续接与内容读取)'),
