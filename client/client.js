@@ -266,7 +266,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-candname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
     // Auth Token 行(生成/复制/清除; 清除与"生成后放弃"之外的清空同状态)
-    '.dcs-tokenrow{display:flex;align-items:center;gap:8px;}',
+    '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;}',
     '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
     // 保存栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
@@ -607,7 +607,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             },
           }),
         }),
-        React.createElement('div', { className: 'dcs-listwrap' },
+        d.authOn
+          ? React.createElement('div', { className: 'dcs-listwrap' },
               React.createElement('div', { className: 'dcs-tokenrow' },
                 React.createElement('button', {
                   type: 'button', className: 'dcs-btn', disabled: busy,
@@ -638,7 +639,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                   },
                 }, tokenCopied ? t('copied') : t('copy')),
               ),
-            ),
+            )
+          : null,
         React.createElement('div', { className: 'dcs-savebar' },
           cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
           React.createElement('div', { className: 'dcs-savebtns' },
