@@ -410,7 +410,16 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
 
   const WEB_ROUTES: Record<string, (body: unknown) => unknown> = {
-    status: () => statusSnapshot(),
+    // 面板 status: 在工具面快照基础上回显 authToken 完整值, 供令牌行的复制按钮随时取用。
+    // 回显只发生在同源 GUI 路由——完整令牌本就明文存于 cordis.patch.yml, 能读本路由的同源页面
+    // 与本机进程同样读得到该文件, 不增加攻击面; MCP 工具面(dsh_status)仍只透掩码, 不把凭证
+    // 交给被认证的调用方。
+    status: () => {
+      const snap = statusSnapshot()
+      const cfg = snap.config as Record<string, unknown>
+      if (state.config.authToken !== '') cfg.authToken = state.config.authToken
+      return snap
+    },
     // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
     models: () => collectModelCatalog(ctx),
     stop: () => stopMcpServer(),

@@ -29,7 +29,7 @@ const state = {
   startedAt,
   config: {
     allowedModels: [], defaultDetail: 'summary',
-    authEnabled: false, workspaceRoots: undefined,
+    authEnabled: false, authToken: '', workspaceRoots: undefined,
   },
   connections: DEFAULT_CONNS(),
 }
@@ -220,7 +220,7 @@ const server = createServer(async (req, res) => {
           state.config.authEnabled = Boolean(payload.values.authToken)
           state.config.authTokenHint = payload.values.authToken
             ? (payload.values.authToken.length >= 12
-                ? payload.values.authToken.slice(0, 4) + '…' + payload.values.authToken.slice(-4)
+                ? payload.values.authToken.slice(0, 4) + '...' + payload.values.authToken.slice(-4)
                 : '••••••')
             : undefined
         } else {

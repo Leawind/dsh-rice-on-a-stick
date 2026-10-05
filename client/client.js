@@ -62,8 +62,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
   // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回显。
-  // 语义归一: 未碰字段 = 不提交(保持现状); 碰过字段 = 提交最终值, 空 = 清除——
-  // "清除"按钮与"生成后放弃"之外的所有清空路径产生完全相同的草稿状态与保存行为。
+  // 语义: 开关开 = 启用认证(提交非空令牌, 开启时无令牌则自动生成); 开关关 = 撤销认证(提交空串)。
   function draftFromStatus(st) {
     const c = (st && st.config) || {};
     const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
@@ -71,8 +70,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没加"的中间态, 保存时校验
       allowedModels: allowed,
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
-      authToken: '',        // 只写字段: 恒不回显
-      authTokenEdited: false, // 生成过/清除过才提交该字段
+      authOn: c.authEnabled === true,
+      authToken: '',        // 待提交的令牌(只写)
+      authTokenEdited: false, // 碰过开关/重新生成才提交该字段
     };
   }
 
@@ -85,6 +85,11 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
+  // 令牌掩码: 首尾各 4 字符, 中间固定三点; 太短没有辨识价值一律定长圆点
+  function maskOf(token) {
+    return token.length >= 12 ? token.slice(0, 4) + '...' + token.slice(-4) : '••••••';
+  }
+
   // 草稿 → config-update 载荷; 非法值抛 Error(中文报因, 只展示不动后端)
   function collectValues(d) {
     if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
@@ -94,7 +99,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
       defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
     };
-    if (d.authTokenEdited) values.authToken = String(d.authToken ?? '');
+    if (d.authTokenEdited) values.authToken = d.authOn ? d.authToken : '';
     return values;
   }
 
@@ -106,12 +111,12 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     return false;
   }
 
-  // 脏检查: authToken 的"框内有值"与"碰过框"合起来算一项, 其余逐字段对比; 返回脏字段数
+  // 脏检查: 令牌的"开关变动或碰过"合起来算一项, 其余逐字段对比; 返回脏字段数
   function countDirty(draft, base) {
     let n = 0;
-    if (draft.authToken !== '' || draft.authTokenEdited !== base.authTokenEdited) n++;
+    if (draft.authTokenEdited || draft.authOn !== base.authOn) n++;
     Object.keys(draft).forEach(function (k) {
-      if (k === 'authToken' || k === 'authTokenEdited') return;
+      if (k === 'authOn' || k === 'authToken' || k === 'authTokenEdited') return;
       if (!sameVal(draft[k], base[k])) n++;
     });
     return n;
@@ -507,60 +512,42 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             React.createElement('option', { value: 'normal' }, '标准（normal）'),
             React.createElement('option', { value: 'full' }, '完整（full）')),
         }),
-        (function () {
-          const draftToken = d.authTokenEdited && d.authToken !== '';
-          let control;
-          if (draftToken) {
-            // 草稿令牌: 完整值仅此一次展示(等宽), 复制后保存生效
-            control = React.createElement('span', { className: 'dcs-tokenrow' },
-              React.createElement('code', { className: 'dcs-tokenval' }, d.authToken),
-              React.createElement('button', {
-                type: 'button', className: 'dcs-btn', disabled: busy,
-                onClick: function () {
-                  if (!navigator.clipboard) return;
-                  navigator.clipboard.writeText(d.authToken).then(function () {
-                    setTokenCopied(true);
-                    window.setTimeout(function () { setTokenCopied(false); }, 1500);
-                  }, function () { /* 剪贴板被拒即静默 */ });
-                },
-              }, tokenCopied ? '已复制' : '复制'),
-            );
-          } else if (cfg.authEnabled) {
-            // 已配置: 只显示首尾 4 字符掩码; 换新令牌(生成即替换)或清除
-            control = React.createElement('span', { className: 'dcs-tokenrow' },
-              React.createElement('code', { className: 'dcs-tokenval' }, cfg.authTokenHint || '••••••'),
-              React.createElement('button', {
-                type: 'button', className: 'dcs-btn', disabled: busy,
-                onClick: function () { setDraft({ authToken: generateToken(), authTokenEdited: true }); },
-              }, '生成新令牌'),
-              React.createElement('button', {
-                type: 'button', className: 'dcs-btn dcs-btn-danger', disabled: busy,
-                onClick: function () { setDraft({ authToken: '', authTokenEdited: true }); },
-              }, '清除'),
-            );
-          } else {
-            // 未配置: 主路径是生成(256 位 Web Crypto), 不提供手填
-            control = React.createElement('span', { className: 'dcs-tokenrow' },
-              React.createElement('button', {
-                type: 'button', className: 'dcs-btn', disabled: busy,
-                onClick: function () { setDraft({ authToken: generateToken(), authTokenEdited: true }); },
-              }, '生成令牌'),
-            );
-          }
-          return React.createElement('div', null,
-            React.createElement(Row, {
-              label: 'Auth Token',
-              hint: draftToken
-                ? '保存生效；完整值仅此一次展示，之后只显示首尾 4 字符'
-                : 'Bearer 认证；未配置时 8090 对本机所有进程开放。改动保存热重载：已连接客户端被切断，重连须携带新令牌',
-              control: control,
-            }),
-            draftToken
-              ? React.createElement('div', { className: 'dcs-listmsg' },
-                  'MCP 客户端接入头：Authorization: Bearer <令牌>。保存前请先复制。')
-              : null,
-          );
-        })(),
+        React.createElement(Row, {
+          label: 'Auth Token',
+          hint: '开启后 MCP 客户端连接须携带令牌',
+          control: React.createElement(Switch, {
+            checked: d.authOn,
+            disabled: busy,
+            onChange: function (v) {
+              // 开启且手头没有待提交令牌时自动生成一个; 关闭即撤销认证(提交空串)
+              setDraft(v
+                ? { authOn: true, authToken: d.authToken || generateToken(), authTokenEdited: true }
+                : { authOn: false, authToken: '', authTokenEdited: true });
+            },
+          }),
+        }),
+        d.authOn
+          ? React.createElement('div', { className: 'dcs-listwrap' },
+              React.createElement('div', { className: 'dcs-tokenrow' },
+                React.createElement('button', {
+                  type: 'button', className: 'dcs-btn', disabled: busy,
+                  onClick: function () { setDraft({ authToken: generateToken(), authTokenEdited: true }); },
+                }, '重新生成令牌'),
+                React.createElement('code', { className: 'dcs-tokenval' }, maskOf(d.authToken || cfg.authToken || '')),
+                React.createElement('button', {
+                  type: 'button', className: 'dcs-btn', disabled: busy || !(d.authToken || cfg.authToken),
+                  onClick: function () {
+                    const tokenNow = d.authToken || cfg.authToken || '';
+                    if (!tokenNow || !navigator.clipboard) return;
+                    navigator.clipboard.writeText(tokenNow).then(function () {
+                      setTokenCopied(true);
+                      window.setTimeout(function () { setTokenCopied(false); }, 1500);
+                    }, function () { /* 剪贴板被拒即静默 */ });
+                  },
+                }, tokenCopied ? '已复制' : '复制'),
+              ),
+            )
+          : null,
         React.createElement('div', { className: 'dcs-savebar' },
           React.createElement('div', { className: 'dcs-savenote' },
             '保存会写入配置并热重载：运行中的会话被中断，客户端重连即恢复',

@@ -17,7 +17,7 @@ export const PLUGIN_NAME = 'dsh-carrot-on-a-stick'
  * 太短的令牌没有辨识价值一律 '••••••'。完整值只在生成/输入当下可见, 永不回显。
  */
 export function authTokenHint(token: string): string {
-  return token.length >= 12 ? `${token.slice(0, 4)}…${token.slice(-4)}` : '••••••'
+  return token.length >= 12 ? `${token.slice(0, 4)}...${token.slice(-4)}` : '••••••'
 }
 
 /** 插件版本(MCP server 握手时上报; 发布版本号发布时再定, 开发期间保持 0.1.0) */
