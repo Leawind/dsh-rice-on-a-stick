@@ -1,4 +1,6 @@
-| 中文 | [English](./README.md) || `defaultDetail`                        | `summary`             | `session_prompt` 的默认详略级别                                                     || ---- | ---------------------- |
+| 中文 | [English](./README.md) |
+| ---- | ---------------------- |
+
 # DSH Carrot on a Stick
 
 一个 [DSH](https://github.com/deepseek-ai/deepseek-harness) 插件，通过 MCP 协议为其他应用提供操作 DSH 的能力。
@@ -14,8 +16,8 @@
 | `dsh_status`      | 插件状态：版本、监听、uptime、模型允许清单、已连接客户端                                                                               |
 | `dsh_list_tools`  | 列出宿主全局工具注册表                                                                                                                 |
 | `workspace_list`  | 已注册的工作区及其会话                                                                                                                 |
-| `model_list`      | 可路由的 provider / 模型 / 推理档，以及宿主当前缺省选择                                                                                |
-| `session_create`  | 新建会话（界面"新会话"）：cwd + 显式成对指定 `provider` / `model`（`reasoningEffort` / `preset` / `title` 可选），返回 `sessionId`      |
+| `model_list`      | 可路由的 provider / 模型 / 推理档、preset 花名册，以及宿主当前缺省选择                                                                 |
+| `session_create`  | 新建会话（界面"新会话"）：cwd + 显式指定 `provider` / `model` / `preset`（`reasoningEffort` / `title` 可选），返回 `sessionId`          |
 | `session_prompt`  | 在会话里发消息并等本轮完成，返回结构化结果；`mode: "queue"`（默认，忙时排进会话 inbox）或 `"steer"`（打断当前 step）                    |
 | `session_cancel`  | 停止会话当前 turn（界面停止按钮），保留排队消息                                                                                        |
 | `session_queue`   | 管理会话的排队消息（界面 QueueDock）：`list` / `edit` / `remove` / `steer`                                                             |
@@ -48,10 +50,10 @@
 
 ## 常用模式
 
-**一次性任务**——先建会话（显式选模型），再发消息；之后用 `sessionId` 续接（`context` 只发增量）：
+**一次性任务**——先建会话（显式选模型与 preset），再发消息；之后用 `sessionId` 续接（`context` 只发增量）：
 
 ```json
-{ "name": "session_create", "arguments": { "cwd": "/workspace/app", "provider": "deepseek-account", "model": "deepseek-chat" } }
+{ "name": "session_create", "arguments": { "cwd": "/workspace/app", "provider": "deepseek-account", "model": "deepseek-chat", "preset": "standard" } }
 { "name": "session_prompt", "arguments": { "sessionId": "…", "task": "修复 src/auth 里挂掉的测试" } }
 ```
 
@@ -61,7 +63,7 @@
 
 **模型与 preset**
 
--   模型契约：新建会话必须按调用成对指定 `provider`+`model`（先 `model_list` 查可用值），续接已有会话沿用其原模型（换模型走 `session_select_model`）——插件不做任何默认回填；`allowedModels` 允许清单约束调用方能选的范围（空 = 不限制）。preset（`session_create` 的 `preset` 参数，仅新建会话生效）受 `allowPresetOverride` 门禁。
+-   显式契约：新建会话必须按调用指定 `provider`+`model` 与 `preset`（先 `model_list` 查可用值，其 `presets` 字段即 preset 花名册），续接已有会话沿用其原模型与 preset（换模型走 `session_select_model`）——插件不做任何默认回填；`allowedModels` 允许清单约束调用方能选的模型（空 = 不限制）。
 -   按 `sessionId` 续接时在会话自己的目录执行；显式传入的 `cwd` 必须与之一致。
 
 **结果体积**——`detail` 控制 token 开销：`summary`（默认，数百 token）/ `normal`（~2k）/ `full`（排查用）。结果是结构化的（`sessionId`、`model`、`changes`、`verification`、`leftovers`…）；失败以 `isError: true` 返回。
@@ -81,9 +83,8 @@
             # authToken: 'your-secret-token'
             # workspaceRoots: ['/workspace']   # cwd 白名单（同时约束会话面）
             # allowedHosts: ['my-box.lan']     # Host 头白名单追加项
-            # preset: 'standard'               # 挂载的 agent preset
+            # preset 不再配置: 新建会话的 preset 由调用方显式指定(取值见 model_list 的 presets 字段)
             # allowedModels: ['deepseek-account/deepseek-chat']  # 模型允许清单(空 = 不限制)
-            # allowPresetOverride: true        # false = 锁死 preset
             # sessionTtlMs: 86400000
 ```
 
@@ -93,9 +94,7 @@
 | `authToken`                            | —                     | Bearer token；设置后所有请求强制校验                                                 |
 | `workspaceRoots`                       | —                     | cwd 白名单——agent 只能在列出的目录（含子目录）下干活；同时限制可接管、可读的会话范围 |
 | `allowedHosts`                         | —                     | Host 头白名单追加项（绑定地址与 loopback 始终放行）                                  |
-| `allowedModels`                        | `[]`（不限制）        | 允许调用方选择的模型清单（`provider/model`）。非空时：调用指定的模型不在清单内，请求被明确拒绝。注意插件不做默认模型回填——新建会话的模型由调用方显式指定 |
-| `allowPresetOverride`                  | `true`                | 是否允许调用方为新建会话选 preset                                                    |
-| `preset`                               | `standard`            | 新建会话未指定 preset 时挂载的默认 agent preset                                      |
+| `allowedModels`                        | `[]`（不限制）        | 允许调用方选择的模型清单（`provider/model`）。非空时：调用指定的模型不在清单内，请求被明确拒绝。注意插件不做默认回填——新建会话的模型与 preset 都由调用方显式指定 |
 | `defaultDetail`                        | `summary`             | `session_prompt` 的默认详略级别                                                     |
 | `resourceFirst`                        | `false`               | 资源优先形态：只读工具下线，结果以资源引用返回                                       |
 | `sessionTtlMs`                         | `86400000`            | 空闲 MCP 传输会话超过该时长被回收（`0` = 永不）                                      |
@@ -116,7 +115,7 @@ bundle 会向 dsh Web UI 注入 **设置 → MCP 服务** 区，自上而下四�
 
 -   **状态头**：实时徽章（运行中 / 已停止 / 监听关闭，悬停显示运行时长）与启动 / 停止按钮——停止需确认，会切断全部已连接的 MCP 客户端；状态每 10 秒轮询刷新。
 -   **端点卡**：MCP 端点 URL（等宽字体，一键复制）加接入必知的三件事——如何接入（把 URL 作为 MCP 服务器添加到任意客户端）、是否需要 Bearer Token、目录白名单边界（未配置时琥珀色提示）；`http: false` 时提示只能改 cordis.yml 启用。
--   **设置表单**（常显）：模型限制（开关 + 勾选清单，空 = 调用方任意指定；模型本身由调用方每次显式指定，面板不配置默认模型）、preset、preset 覆盖开关、默认详略与只写的 authToken（留空不改动，可显式清除）。出现改动后显示保存栏：保存经宿主 configEditor 写入 profile 配置文件的本插件条目并热重载生效——与手改文件同语义：运行中 turn 中断、MCP 客户端断开（重连即恢复），后果写在保存栏不再弹确认；"恢复默认"删除本插件的覆盖行（含手动编辑的非表单字段），需确认。写前做字段白名单与类型校验，宿主侧写路径再过一遍 Config schema。目录白名单、http 端口等结构性/安全边界字段仍请编辑 cordis.yml。
+-   **设置表单**（常显）：模型限制（开关右侧不放文字，状态由下方内容区表达；开启后是**已选清单**——只列已选模型并可逐个移除，点"添加模型"展开可搜索的候选列表，长目录不必逐个翻找；空清单 = 调用方任意指定，模型与 preset 本身由调用方每次显式指定，面板不配置默认值）、默认详略与只写的 authToken（未改动不提交；输入即覆盖，改动后留空或点"清除"保存 = 撤销认证，两者行为一致）。出现改动后显示保存栏：保存经宿主 configEditor 写入 profile 配置文件的本插件条目并热重载生效——与手改文件同语义：运行中 turn 中断、MCP 客户端断开（重连即恢复），后果写在保存栏不再弹确认；"恢复默认"删除本插件的覆盖行（含手动编辑的非表单字段），需确认。写前做字段白名单与类型校验，宿主侧写路径再过一遍 Config schema。目录白名单、http 端口等结构性/安全边界字段仍请编辑 cordis.yml。
 -   **客户端连接**：已连接 MCP 客户端列表（客户端 / 连接于 / 最近活跃 / 请求数，悬停显示传输会话 id）。
 
 ## 已知限制

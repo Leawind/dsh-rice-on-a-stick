@@ -3,7 +3,7 @@
 
 # DSH Carrot on a Stick
 
-A [DSH](https://github.com/deepseek-ai/deepseek-harness) plugin that exposes DSH operations through the MCP protocol。
+A [DSH](https://github.com/deepseek-ai/deepseek-harness) plugin that exposes DSH operations through the MCP protocol.
 
 ## MCP features
 
@@ -16,8 +16,8 @@ A [DSH](https://github.com/deepseek-ai/deepseek-harness) plugin that exposes DSH
 | `dsh_status`          | plugin status: version, listening, uptime, model allowlist, connected clients                                                                                                      |
 | `dsh_list_tools`      | list the host's global tool registry                                                                                                                                               |
 | `workspace_list`      | registered workspaces and their sessions                                                                                                                                           |
-| `model_list`          | routable providers / models / reasoning efforts, and the host's current default                                                                                                    |
-| `session_create`      | create a session (the UI's new-session button): cwd + explicit `provider` / `model` pair (`reasoningEffort` / `preset` / `title` optional); returns `sessionId`                    |
+| `model_list`          | routable providers / models / reasoning efforts, the preset roster, and the host's current default                                                                                 |
+| `session_create`      | create a session (the UI's new-session button): cwd + explicit `provider` / `model` / `preset` (`reasoningEffort` / `title` optional); returns `sessionId`                          |
 | `session_prompt`      | send a message into a session and wait for the turn; `mode: queue` (default, host inbox) or `steer` (interrupt the current step)                                                    |
 | `session_cancel`      | stop the session's current turn (the UI stop button); queued messages are kept                                                                                                     |
 | `session_queue`       | manage the session's queued messages (the UI QueueDock): `list` / `edit` / `remove` / `steer`                                                                                     |
@@ -46,14 +46,14 @@ Resource-capable clients can read the same data without spending tokens, and sub
 | `dsh://sessions/{id}/events[/{after}]`        | raw event stream (JSONL, paged)           |
 | `dsh://sessions/{id}/activity`                | live turn window                          |
 
-`resources/subscribe` pushes task status transitions, turn-end history refreshes, and live activity over SSE — no polling. Setting `resourceFirst: true` in the config retires the nine read-only tools and returns results as resource references (for clients confirmed to support MCP resources; default `false` keeps tools and resources coexisting).
+`resources/subscribe` pushes turn-end history refreshes and live activity over SSE — no polling. Setting `resourceFirst: true` in the config retires the eight read-only tools and returns results as resource references (for clients confirmed to support MCP resources; default `false` keeps tools and resources coexisting).
 
 ## Everyday patterns
 
-**One-off task** — create a session (explicitly picking the model), then send the work; continue later with `sessionId` (send only the delta in `context`):
+**One-off task** — create a session (explicitly picking the model and preset), then send the work; continue later with `sessionId` (send only the delta in `context`):
 
 ```json
-{ "name": "session_create", "arguments": { "cwd": "/workspace/app", "provider": "deepseek-account", "model": "deepseek-chat" } }
+{ "name": "session_create", "arguments": { "cwd": "/workspace/app", "provider": "deepseek-account", "model": "deepseek-chat", "preset": "standard" } }
 { "name": "session_prompt", "arguments": { "sessionId": "…", "task": "fix the failing test in src/auth" } }
 ```
 
@@ -63,12 +63,10 @@ Resource-capable clients can read the same data without spending tokens, and sub
 
 **Models & presets**
 
--   Model contract: new sessions must pass `provider`+`model` as an explicit pair (look them up in `model_list` first); resuming a sessionId keeps that session's model (change it with `session_select_model`) — the plugin performs no default backfill. The `allowedModels` allowlist bounds what callers may pick (empty = unrestricted). Presets (`preset` on `session_create`, new sessions only) sit under `allowPresetOverride`.
+-   Explicit contract: new sessions must pass `provider`+`model` and a `preset` (look them up in `model_list` first — its `presets` field is the preset roster); resuming a sessionId keeps that session's model and preset (change the model with `session_select_model`) — the plugin performs no default backfill. The `allowedModels` allowlist bounds which models callers may pick (empty = unrestricted).
 -   Continuing by `sessionId` runs in the session's own directory; an explicitly passed `cwd` must match it.
 
 **Result size** — `detail` controls token cost: `summary` (default, a few hundred tokens) / `normal` (~2k) / `full` (debugging). Results are structured (`sessionId`, `model`, `changes`, `verification`, `leftovers`, …); failures come back with `isError: true`.
-
-**Result size** — `detail` controls token cost: `summary` (default, a few hundred tokens) / `normal` (~2k) / `full` (debugging) Results are structured (`sessionId`, `model`, `changes`, `verification`, `leftovers`, …); failures come back with `isError: true`.
 
 ## Configuration (cordis.yml)
 
@@ -85,9 +83,8 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
             # authToken: 'your-secret-token'
             # workspaceRoots: ['/workspace']   # cwd whitelist (also gates session surfaces)
             # allowedHosts: ['my-box.lan']     # extra allowed Host header values
-            # preset: 'standard'               # agent preset to mount
+            # preset is not configurable: the caller passes it explicitly on session_create (see model_list's presets field)
             # allowedModels: ['deepseek-account/deepseek-chat']  # model allowlist (empty = unrestricted)
-            # allowPresetOverride: true        # false = pin the preset
             # sessionTtlMs: 86400000
 ```
 
@@ -97,10 +94,9 @@ Every option is declared on a Schemastery schema (the entry-exported `Config`): 
 | `authToken`                            | —                       | Bearer token; enforced on every request when set                                                                         |
 | `workspaceRoots`                       | —                       | cwd whitelist — agents may only work inside listed directories; also limits which sessions can be taken over or read     |
 | `allowedHosts`                         | —                       | extra allowed Host-header values (bind host and loopback always allowed)                                                 |
-| `allowedModels`                        | `[]` (unrestricted)     | allowlist of models callers may pick (`provider/model`). When non-empty, a per-call model outside the list is rejected cleanly. Note the plugin never backfills a default model — new sessions get the model the caller passes |
-| `allowPresetOverride`                  | `true`                  | whether callers may pick a preset for new sessions                                                                       |
-| `preset`                               | `standard`              | agent preset to mount (per-call `preset` applies to new sessions only)                                                   |
+| `allowedModels`                        | `[]` (unrestricted)     | allowlist of models callers may pick (`provider/model`). When non-empty, a per-call model outside the list is rejected cleanly. Note the plugin never backfills defaults — new sessions get the model and preset the caller passes |
 | `defaultDetail`                        | `summary`               | default `detail` level for `session_prompt`                                                                             |
+| `resourceFirst`                        | `false`                 | resource-first mode: read-only tools retire, results come back as resource references                                     |
 | `sessionTtlMs`                        | `86400000`              | idle MCP transport sessions are reaped after this (`0` = never)                                                          |
 
 ## Security
@@ -119,7 +115,7 @@ The bundle adds a **Settings → MCP Service** section to the dsh web UI, in fou
 
 -   **Status header** — live badge (running / stopped / listener off; hover for uptime) plus start/stop buttons. Stopping asks for confirmation — it cuts every connected MCP client. State polls every 10 seconds.
 -   **Endpoint card** — the MCP endpoint URL (monospace, one-click copy) plus the three things you must know to connect: how to hook it up (add the URL as an MCP server in any client), whether a Bearer token is required, and the directory-allowlist boundary (amber notice when unconfigured). With `http: false` it notes that the listener can only be re-enabled in cordis.yml.
--   **Settings form** (always visible) — model restrictions (a switch plus a checkbox allowlist; empty = callers may pick anything — the model itself is always explicit per call, the panel does not configure a default), preset, the preset-override toggle, default detail, and a write-only auth token (left empty means unchanged; explicit clearing supported). A save bar appears once anything is edited: saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running turns are interrupted, MCP clients disconnect (reconnect to recover); the consequence is stated on the save bar rather than a confirmation dialog. "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks first. Writes are pre-checked against a field allowlist plus type validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port) remain file-only in cordis.yml.
+-   **Settings form** (always visible) — model restrictions (the switch carries no status text — the state is expressed by the content below it; when on it becomes a **chosen list**: only selected models are listed, each removable, and "Add model…" opens a searchable candidate list so large catalogs don't need endless scrolling; an empty list = callers may pick any model — the model and preset themselves are always explicit per call, the panel does not configure defaults), default detail, and a write-only auth token (untouched = not submitted; typing overwrites, and saving with the field emptied — or via the "Clear" button — revokes auth; both paths behave identically). A save bar appears once anything is edited: saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running turns are interrupted, MCP clients disconnect (reconnect to recover); the consequence is stated on the save bar rather than a confirmation dialog. "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks first. Writes are pre-checked against a field allowlist plus type validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port) remain file-only in cordis.yml.
 -   **Client connections** — the connected MCP client list (client / connected at / last activity / requests; hover for the transport session id).
 
 ## Known limitations
