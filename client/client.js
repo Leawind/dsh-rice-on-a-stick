@@ -1,10 +1,13 @@
 window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) => {
   var module = { exports: {} }; var exports = module.exports;
   // dsh-carrot-on-a-stick — client half(浏览器, 静态 bundle 形态)
-  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-carrot-on-a-stick/{status|stop|start|config-update}(host 半注册)
-  // - 注册 settings.section 设置页面板: 状态概览 / 配置摘要(模型·安全·容量) / 配置编辑(草稿-保存, 经宿主
+  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
+  // - 注册 settings.section 设置页面板: 状态头 / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
   //   configEditor 写 profile patch 后热重载生效) / 软停启 / MCP 客户端连接列表
-  // - React 由模块系统种子提供; 不依赖其它 client 包(内联样式 + 注入的 dcs-* 表单样式, 双主题中性配色)
+  // - React 由模块系统种子提供; 不依赖其它 client 包
+  // - 视觉直接引用宿主全局 --dsw-* 主题 token(与宿主同文档, 深浅主题自动跟随), 每处 var() 带中性
+  //   fallback 兜底; 控件规格对齐官方 primitives(输入 32px/radius-md, 按钮 sm 28/md 36, 开关 36×20,
+  //   发丝分隔线 0.5px, 主按钮 = label-primary 黑白填充, 强调/焦点 = deepseek 蓝)
   'use strict';
 
   const React = require('react');
@@ -57,86 +60,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     return clock;
   }
 
-  function shortId(s) { return s ? String(s).slice(0, 8) + '…' : '—'; }
-
-  // 中性内联样式(不引主题变量, 深浅主题均可读); 警示用琥珀, 危险用红, 正常用绿
-  const S = {
-    box: { display: 'flex', flexDirection: 'column', gap: '16px' },
-    header: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
-    title: { fontWeight: 600, fontSize: '15px' },
-    version: { opacity: 0.6, fontSize: '12px' },
-    badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '2px 10px', borderRadius: '999px', border: '1px solid rgba(128,128,128,.4)' },
-    dot: { width: '8px', height: '8px', borderRadius: '50%', display: 'inline-block' },
-    btnMini: { cursor: 'pointer', marginLeft: '8px', padding: '1px 8px', borderRadius: '5px', border: '1px solid rgba(128,128,128,.4)', background: 'transparent', color: 'inherit', fontSize: '12px', opacity: 0.85 },
-    endpoint: { fontVariantNumeric: 'tabular-nums', textDecoration: 'underline dotted', textDecorationColor: 'rgba(128,128,128,.5)', cursor: 'pointer', wordBreak: 'break-all' },
-    endpointRow: { display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: '4px 0', fontSize: '13px' },
-    metaKey: { opacity: 0.55, marginRight: '6px' },
-    copied: { fontSize: '12px', opacity: 0.6, marginLeft: '8px' },
-    error: { fontSize: '12.5px', color: '#c0392b' },
-    // 概览瓦片行
-    tiles: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: '8px' },
-    tile: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '10px 12px', background: 'rgba(128,128,128,.07)', borderRadius: '8px', minWidth: '0' },
-    tileVal: { fontSize: '16px', fontWeight: 600, lineHeight: 1.25, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-    tileKey: { fontSize: '11px', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-    // 配置分组(字段卡片网格)
-    groupTitle: { margin: '0 0 8px', fontSize: '12px', fontWeight: 600, opacity: 0.65 },
-    fields: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))', gap: '8px' },
-    field: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '7px 10px', border: '1px solid rgba(128,128,128,.18)', borderRadius: '6px', minWidth: '0' },
-    fieldKey: { fontSize: '11px', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-    fieldVal: { fontSize: '12.5px', fontVariantNumeric: 'tabular-nums', wordBreak: 'break-all' },
-    warn: { color: '#b8860b' },
-    ok: { color: '#1f883d' },
-    // 连接列表
-    connHead: { fontSize: '13px', fontWeight: 600, opacity: 0.75, display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' },
-    connSub: { fontSize: '12px', fontWeight: 400, opacity: 0.55 },
-    connTable: { display: 'flex', flexDirection: 'column' },
-    connRow: { display: 'grid', gridTemplateColumns: '76px minmax(140px, 1fr) 96px 104px 52px', gap: '10px', fontSize: '12.5px', padding: '6px 8px', alignItems: 'center', borderBottom: '1px solid rgba(128,128,128,.12)' },
-    connHeadRow: { opacity: 0.55, fontSize: '12px' },
-    connUa: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.85 },
-    mono: { fontVariantNumeric: 'tabular-nums' },
-    empty: { fontSize: '12.5px', opacity: 0.55, padding: '6px 8px' },
-    // 配置编辑(视觉层用注入的 dcs-* 类: hover/focus/过渡态内联样式表达不了, 见 CFG_CSS)
-    cfgHead: { display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap', margin: '0 0 8px' },
-    cfgTitle: { margin: 0, fontSize: '12px', fontWeight: 600, opacity: 0.65 },
-    cfgWrap: { display: 'flex', flexDirection: 'column' },
-    cfgHint: { fontSize: '11.5px', opacity: 0.55, lineHeight: 1.6 },
-    cfgDirty: { fontSize: '12px', color: '#b8860b', fontWeight: 600 },
-  };
-
-  function Badge(props) {
-    const ok = props.ok;
-    const warn = props.warn;
-    const color = ok ? '#1f883d' : warn ? '#b8860b' : '#c0392b';
-    const text = ok ? '运行中' : warn ? '已停止' : '监听关闭';
-    return React.createElement(
-      'span',
-      { style: S.badge },
-      React.createElement('span', { style: Object.assign({}, S.dot, { background: color }) }),
-      text,
-    );
-  }
-
-  // 概览瓦片: 大数字 + 小标签
-  function Tile(props) {
-    return React.createElement('div', { style: S.tile, title: props.title },
-      React.createElement('span', { style: S.tileVal }, props.value),
-      React.createElement('span', { style: S.tileKey }, props.label),
-    );
-  }
-
-  // 配置字段卡片: 小标签 + 值; tone='warn' 琥珀提示
-  function Field(props) {
-    const valStyle = props.tone === 'warn' ? Object.assign({}, S.fieldVal, S.warn) : S.fieldVal;
-    return React.createElement('div', { style: S.field, title: props.title },
-      React.createElement('span', { style: S.fieldKey }, props.label),
-      React.createElement('span', { style: valStyle }, props.value),
-    );
-  }
-
-  // ── 配置编辑: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──  // status 生效值 → 草稿初值; 占位串("(跟随宿主默认)"等)只是显示形态, 映射回空串 = 跟随默认
+  // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
+  // status 生效值 → 草稿初值; 占位语义: authToken 恒不回填, 空 = 不改动
   function draftFromStatus(st) {
     const c = (st && st.config) || {};
-    const numText = function (v) { return typeof v === 'number' && Number.isFinite(v) ? String(v) : ''; };
     const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
     return {
       limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没勾"的中间态, 保存时校验
@@ -165,85 +92,117 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     return values;
   }
 
-  // 表单视觉层: 对齐官方设置页的行式列表(标题+副标题居左, 控件居右, 发丝分隔线, 填充式圆角控件)。
-  // 主题色板经 CSS 变量注入(dcsPalette 按 body 背景亮度判定深浅), 样式表本身只引用 var()。
-  const CFG_CSS = [
-    '.dcs-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 2px;border-bottom:1px solid var(--dcs-line,rgba(128,128,128,.18));}',
+  function sameVal(a, b) {
+    if (a === b) return true;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
+    }
+    return false;
+  }
+
+  // 脏检查: 逐字段对比草稿与基准(authToken 只写字段: 非空/勾选清除即算改动); 返回脏字段数
+  function countDirty(draft, base) {
+    let n = 0;
+    Object.keys(draft).forEach(function (k) {
+      if (k === 'authToken' || k === 'authTokenClear') { if (draft[k]) n++; return; }
+      if (!sameVal(draft[k], base[k])) n++;
+    });
+    return n;
+  }
+
+  // ── 样式: 只引用宿主 --dsw-* token(var fallback 为亮色中性值, 宿主缺失时可读性兜底) ──
+  const PANEL_CSS = [
+    '.dcs-root{display:flex;flex-direction:column;gap:20px;color:var(--dsw-alias-label-primary,#0f1115);}',
+    // 头部
+    '.dcs-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.dcs-title{font-size:15px;font-weight:600;}',
+    '.dcs-ver{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    '.dcs-spacer{flex:1;}',
+    // 状态徽章(官方 Tag 同型: 状态色 12% color-mix 底 + 同色文字 + 6px 点)
+    '.dcs-tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;}',
+    '.dcs-dot{width:6px;height:6px;border-radius:50%;background:currentColor;}',
+    '.dcs-tag-ok{color:var(--dsw-alias-state-success-primary,#22c55e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 12%,transparent);}',
+    '.dcs-tag-warn{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
+    '.dcs-tag-err{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 12%,transparent);}',
+    // 按钮(官方 primitives: sm 28px/12px 字/radius-sm; md 36px/14px 字/radius-md; 主按钮 = label-primary 填充)
+    '.dcs-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;height:28px;min-width:58px;padding:0 10px;border:none;border-radius:var(--dsw-radius-sm,8px);font-family:inherit;font-size:12px;cursor:pointer;background:transparent;color:var(--dsw-alias-label-primary,#0f1115);transition:background .1s ease,opacity .1s ease;}',
+    '.dcs-btn:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
+    '.dcs-btn:disabled{opacity:.4;cursor:default;}',
+    '.dcs-btn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;}',
+    '.dcs-btn-md{height:36px;padding:0 14px;border-radius:var(--dsw-radius-md,12px);font-size:14px;}',
+    '.dcs-btn-primary{background:var(--dsw-alias-brand-primary,#0f1115);color:var(--dsw-alias-label-primary-foreground,#fff);font-weight:500;}',
+    '.dcs-btn-primary:hover:enabled{background:var(--dsw-alias-button-primary-hover,#43454a);}',
+    '.dcs-btn-danger{color:var(--dsw-alias-state-error-primary,#ec1313);}',
+    // 端点卡(官方 settings-card 同型: 填充底 + 半像素描边)
+    '.dcs-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l3,rgba(0,0,0,.12)));}',
+    '.dcs-urlrow{display:flex;align-items:center;gap:8px;}',
+    '.dcs-url{flex:1;min-width:0;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;word-break:break-all;}',
+    '.dcs-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    '.dcs-warn{color:var(--dsw-alias-state-warn-label,#dd8629);}',
+    // 错误行
+    '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
+    // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题, 行间 0.5px 发丝线)
+    '.dcs-form{display:flex;flex-direction:column;}',
+    '.dcs-form > * + *{border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 2px;}',
     '.dcs-labels{display:flex;flex-direction:column;gap:2px;min-width:0;}',
-    '.dcs-label{font-size:13.5px;line-height:20px;}',
-    '.dcs-sub{font-size:12px;line-height:18px;opacity:.6;}',
+    '.dcs-label{font-size:13px;line-height:20px;font-weight:500;}',
+    '.dcs-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-control{flex:none;display:flex;align-items:center;}',
-    '.dcs-text{box-sizing:border-box;width:300px;max-width:100%;height:30px;padding:0 10px;font-size:12.5px;color:inherit;background:var(--dcs-fill,rgba(128,128,128,.1));border:1px solid transparent;border-radius:8px;outline:none;font-variant-numeric:tabular-nums;}',
-    '.dcs-text:hover:enabled{background:var(--dcs-fill-hover,rgba(128,128,128,.15));}',
-    '.dcs-text:focus{border-color:rgba(46,160,67,.65);box-shadow:0 0 0 2px rgba(46,160,67,.16);}',
-    '.dcs-text:disabled{opacity:.45;}',
-    '.dcs-text::placeholder{opacity:.4;}',
-    'select.dcs-text{padding-right:26px;}',
     '.dcs-inline{display:flex;align-items:center;gap:8px;}',
-    '.dcs-switch{position:relative;flex:none;width:36px;height:20px;border-radius:999px;border:none;cursor:pointer;padding:2px;background:var(--dcs-switch-off,rgba(128,128,128,.4));transition:background .15s ease;}',
-    '.dcs-switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:var(--dcs-knob-off,#fff);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s ease,background .15s ease;}',
-    '.dcs-switch[data-on="1"]{background:var(--dcs-switch-on,#2da44e);}',
-    '.dcs-switch[data-on="1"]::after{left:18px;background:var(--dcs-knob-on,#1b1b1e);}',
-    '.dcs-switch:disabled{opacity:.45;cursor:default;}',
-    '.dcs-switchstate{font-size:12px;opacity:.6;}',
-    '.dcs-btn{cursor:pointer;height:30px;padding:0 14px;border-radius:8px;border:none;background:var(--dcs-btn,rgba(128,128,128,.12));color:inherit;font-size:12.5px;transition:background .12s ease;}',
-    '.dcs-btn:hover:enabled{background:var(--dcs-btn-hover,rgba(128,128,128,.2));}',
-    '.dcs-btn:disabled{opacity:.45;cursor:default;}',
-    '.dcs-btn-primary{background:rgba(46,160,67,.2);color:var(--dcs-ok,#2da44e);font-weight:600;}',
-    '.dcs-btn-primary:hover:enabled{background:rgba(46,160,67,.3);}',
-    '.dcs-btn-danger{color:var(--dcs-danger,#c0392b);}',
-    '.dcs-link{background:none;border:none;padding:0;color:var(--dcs-warn,#b8860b);cursor:pointer;font-size:12px;}',
+    // 输入(官方 Input: 32px 高/0.5px border-l4/radius-md/焦点边框变品牌蓝)
+    '.dcs-input{box-sizing:border-box;width:300px;max-width:100%;height:32px;padding:0 8px;font-family:inherit;font-size:14px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);outline:none;transition:border-color .1s ease;}',
+    '.dcs-input:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
+    '.dcs-input:disabled{opacity:.4;}',
+    '.dcs-input::placeholder{color:var(--dsw-alias-label-dimmed,#979da6);}',
+    'select.dcs-input{width:200px;padding-right:24px;}',
+    // 开关(官方 Switch: 36×20 胶囊, 关轨 = border-l3, 开轨 = brand-primary, thumb 16px 位移 16px)
+    '.dcs-switch{position:relative;flex:none;width:36px;height:20px;border:none;border-radius:999px;cursor:pointer;padding:2px;background:var(--dsw-alias-border-l3,rgba(0,0,0,.2));transition:background .12s ease;}',
+    '.dcs-switch::after{content:"";display:block;width:16px;height:16px;border-radius:999px;background:var(--dsw-alias-switch-thumb,#fff);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .12s ease;}',
+    '.dcs-switch[data-on="1"]{background:var(--dsw-alias-brand-primary,#0f1115);}',
+    '.dcs-switch[data-on="1"]::after{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground,#fff);}',
+    '.dcs-switch:disabled{opacity:.4;cursor:default;}',
+    '.dcs-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;}',
+    '.dcs-state{font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);}',
+    // 模型限制勾选清单
+    '.dcs-listwrap{padding:0 2px 12px;}',
+    '.dcs-list{display:flex;flex-direction:column;max-height:200px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
+    '.dcs-check{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer;}',
+    '.dcs-check input{accent-color:var(--dsw-alias-state-business-primary,#4176e6);cursor:pointer;margin:0;flex:none;}',
+    '.dcs-checkname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
+    // 保存栏
+    '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
+    '.dcs-savenote{flex:1;min-width:200px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    '.dcs-savebtns{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+    '.dcs-dirty{font-size:12px;font-weight:500;color:var(--dsw-alias-state-warn-label,#dd8629);}',
+    '.dcs-link{background:none;border:none;padding:0;font-family:inherit;font-size:12px;cursor:pointer;color:var(--dsw-alias-state-warn-label,#dd8629);}',
     '.dcs-link:hover:enabled{opacity:.8;}',
-    '.dcs-link:disabled{opacity:.45;cursor:default;}',
-    '.dcs-err{font-size:12px;color:var(--dcs-danger,#c0392b);line-height:18px;}',
-    '.dcs-modelist{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;padding:8px 12px;border:1px solid var(--dcs-line,rgba(128,128,128,.2));border-radius:8px;}',
-    '.dcs-check{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;padding:3px 0;}',
-    '.dcs-check input{accent-color:#2da44e;cursor:pointer;margin:0;flex:none;}',
-    '.dcs-checkname{opacity:.6;font-size:11.5px;}',
+    '.dcs-link:disabled{opacity:.4;cursor:default;}',
+    // 连接列表
+    '.dcs-sechead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding-bottom:4px;}',
+    '.dcs-sectitle{font-size:13px;font-weight:600;}',
+    '.dcs-seccount{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    '.dcs-table{display:flex;flex-direction:column;}',
+    '.dcs-tr{display:grid;grid-template-columns:minmax(120px,1fr) 84px 92px 48px;gap:10px;align-items:center;padding:7px 2px;font-size:12.5px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-tr:last-child{border-bottom:none;}',
+    '.dcs-trh{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);border-bottom-color:var(--dsw-alias-border-l3,rgba(0,0,0,.12));}',
+    '.dcs-ua{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.dcs-num{text-align:right;font-variant-numeric:tabular-nums;}',
+    '.dcs-empty{font-size:12.5px;color:var(--dsw-alias-label-tertiary,#81858c);padding:8px 2px;}',
   ].join('');
 
-  // 依宿主 body 背景亮度判定深浅主题, 给出官方同型的单色开关/填充控件色板(官方 dark: 开=近白轨+暗滑块)
-  function dcsPalette() {
-    let dark = true;
-    try {
-      const bg = getComputedStyle(document.body).backgroundColor || '';
-      const m = bg.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
-      if (m) dark = (0.2126 * Number(m[1]) + 0.7152 * Number(m[2]) + 0.0722 * Number(m[3])) / 255 < 0.5;
-    } catch (e) { /* 取不到就按深色 */ }
-    return dark
-      ? {
-          '--dcs-line': 'rgba(255,255,255,.09)',
-          '--dcs-fill': 'rgba(255,255,255,.07)',
-          '--dcs-fill-hover': 'rgba(255,255,255,.11)',
-          '--dcs-btn': 'rgba(255,255,255,.08)',
-          '--dcs-btn-hover': 'rgba(255,255,255,.14)',
-          '--dcs-switch-off': 'rgba(255,255,255,.25)',
-          '--dcs-switch-on': '#f9fafb',
-          '--dcs-knob-off': '#f9fafb',
-          '--dcs-knob-on': '#1b1b1e',
-          '--dcs-ok': '#3fb950',
-          '--dcs-danger': '#ff7b72',
-          '--dcs-warn': '#d29922',
-        }
-      : {
-          '--dcs-line': 'rgba(0,0,0,.1)',
-          '--dcs-fill': 'rgba(0,0,0,.05)',
-          '--dcs-fill-hover': 'rgba(0,0,0,.09)',
-          '--dcs-btn': 'rgba(0,0,0,.06)',
-          '--dcs-btn-hover': 'rgba(0,0,0,.11)',
-          '--dcs-switch-off': 'rgba(0,0,0,.22)',
-          '--dcs-switch-on': '#1b1b1e',
-          '--dcs-knob-off': '#fff',
-          '--dcs-knob-on': '#f9fafb',
-          '--dcs-ok': '#1f883d',
-          '--dcs-danger': '#c0392b',
-          '--dcs-warn': '#b8860b',
-        };
+  // 状态徽章: 运行中(绿)/已停止(琥珀)/监听关闭(红); title 带运行时长
+  function Badge(props) {
+    const cls = props.ok ? 'dcs-tag dcs-tag-ok' : props.warn ? 'dcs-tag dcs-tag-warn' : 'dcs-tag dcs-tag-err';
+    const text = props.ok ? '运行中' : props.warn ? '已停止' : '监听关闭';
+    return React.createElement('span', { className: cls, title: props.title },
+      React.createElement('span', { className: 'dcs-dot' }), text);
   }
 
   // 表单行: 标题+副标题居左, 控件居右(官方设置行同款)
-  function CfgRow(props) {
-    return React.createElement('div', { className: 'dcs-row', title: props.title },
+  function Row(props) {
+    return React.createElement('div', { className: 'dcs-row' },
       React.createElement('div', { className: 'dcs-labels' },
         React.createElement('span', { className: 'dcs-label' }, props.label),
         props.hint ? React.createElement('span', { className: 'dcs-sub' }, props.hint) : null,
@@ -252,7 +211,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     );
   }
 
-  // 自绘开关(36×20 胶囊, 官方同型: 开=亮轨+暗滑块, 关=暗轨+亮滑块)
+  // 自绘开关(36×20 胶囊, 官方同型)
   function Switch(props) {
     return React.createElement('button', {
       type: 'button',
@@ -265,93 +224,33 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     });
   }
 
-  // 文本/数字/密码输入行
-  function CfgText(props) {
-    return React.createElement(CfgRow, {
-      label: props.label,
-      title: props.title,
-      hint: props.hint,
-      control: React.createElement('input', {
-        className: 'dcs-text',
-        type: props.password ? 'password' : 'text',
-        value: props.value,
-        placeholder: props.placeholder,
-        inputMode: props.numeric ? 'numeric' : undefined,
-        spellCheck: false,
-        disabled: props.disabled,
-        onChange: function (e) { props.onChange(e.target.value); },
-      }),
-    });
-  }
-
-  // 下拉行
-  function CfgSelect(props) {
-    return React.createElement(CfgRow, {
-      label: props.label,
-      title: props.title,
-      hint: props.hint,
-      control: React.createElement('select', {
-        className: 'dcs-text',
-        value: props.value,
-        disabled: props.disabled,
-        onChange: function (e) { props.onChange(e.target.value); },
-      },
-        props.options.map(function (o) {
-          return React.createElement('option', { key: o.v, value: o.v }, o.t);
-        })),
-    });
-  }
-
-  // 开关行: 滑块 + 当前态文案
-  function CfgSwitch(props) {
-    return React.createElement(CfgRow, {
-      label: props.label,
-      title: props.title,
-      hint: props.hint,
-      control: React.createElement('span', { className: 'dcs-inline' },
-        React.createElement(Switch, { checked: props.checked, disabled: props.disabled, onChange: props.onChange }),
-        React.createElement('span', { className: 'dcs-switchstate' }, props.checked ? props.onText : props.offText),
-      ),
-    });
-  }
-
-  // Token 行: 只写密码框 + 可选"清除"; clearing 态整块替换为"将清除 + 撤销"
-  function CfgToken(props) {
-    const control = props.clearing
-      ? React.createElement('span', { className: 'dcs-inline' },
-          React.createElement('span', { className: 'dcs-switchstate', style: { color: 'var(--dcs-warn,#b8860b)', opacity: 1 } }, '保存时清除已配置的 Token'),
-          React.createElement('button', { type: 'button', className: 'dcs-link', disabled: props.disabled, onClick: props.onCancelClear }, '撤销'),
-        )
-      : React.createElement('span', { className: 'dcs-inline' },
-          React.createElement('input', {
-            className: 'dcs-text',
-            type: 'password',
-            value: props.value,
-            placeholder: props.placeholder,
-            spellCheck: false,
-            disabled: props.disabled,
-            onChange: function (e) { props.onChange(e.target.value); },
-          }),
-          props.canClear ? React.createElement('button', { type: 'button', className: 'dcs-link', disabled: props.disabled, onClick: props.onClear }, '清除') : null,
-        );
-    return React.createElement(CfgRow, { label: 'Auth Token', title: props.title, hint: props.hint, control: control });
-  }
-
   function StatusPanel() {
     const [state, setState] = React.useState(null);
     const [error, setError] = React.useState('');
     const [busy, setBusy] = React.useState(false);
     const [copied, setCopied] = React.useState(false);
-    // 配置编辑态: null = 折叠; 否则 { draft, base }, 脏检查逐字段对比(authToken 只写字段: 非空/勾选清除即算改动)
-    const [edit, setEdit] = React.useState(null);
+    // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。未脏时跟随轮询刷新, 脏后不再覆盖。
+    const [form, setForm] = React.useState(null);
     const [cfgError, setCfgError] = React.useState('');
-    // 模型目录(选择器数据源): null = 未加载, false = 加载失败; 展开表单时拉一次
+    // 模型目录(模型限制勾选清单的数据源): null = 未加载, false = 加载失败
     const [cat, setCat] = React.useState(null);
+    // config-update 成功后置位: 下一次 status 到达无条件重置草稿(以服务端生效值为准)
+    const rebaseRef = React.useRef(false);
 
     const refresh = React.useCallback(function () {
-      return rpc('status')
-        .then(function (s) { setState(s); setError(''); })
-        .catch(function (e) { setError(String((e && e.message) || e)); });
+      return rpc('status').then(function (s) {
+        setState(s);
+        setError('');
+        const force = rebaseRef.current;
+        rebaseRef.current = false;
+        setForm(function (prev) {
+          const fresh = draftFromStatus(s);
+          if (prev === null || force || countDirty(prev.draft, prev.base) === 0) {
+            return { draft: fresh, base: fresh };
+          }
+          return prev; // 用户正在编辑: 不让轮询吃掉未保存的修改
+        });
+      }).catch(function (e) { setError(String((e && e.message) || e)); });
     }, []);
 
     React.useEffect(function () {
@@ -366,11 +265,22 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       };
     }, [refresh]);
 
-    function toggle() {
+    // 模型限制开启时才需要目录: 展开时惰性拉一次
+    const limitOn = form !== null && form.draft.limitModels;
+    React.useEffect(function () {
+      if (!limitOn || cat !== null) return;
+      let alive = true;
+      rpc('models')
+        .then(function (m) { if (alive) setCat(m && Array.isArray(m.providers) ? m : false); })
+        .catch(function () { if (alive) setCat(false); });
+      return function () { alive = false; };
+    }, [limitOn, cat]);
+
+    function toggleServer() {
       if (!state || busy) return;
       const target = state.listening ? 'stop' : 'start';
       // 停止会切断全部已连接客户端并停止接受新请求, 轻确认防误触
-      if (target === 'stop' && !window.confirm('停止后所有已连接的 MCP 客户端会被切断, 确认停止?')) return;
+      if (target === 'stop' && !window.confirm('停止后所有已连接的 MCP 客户端会被切断。确认停止？')) return;
       setBusy(true);
       rpc(target)
         .then(function () { return refresh(); })
@@ -387,47 +297,31 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       }
     }
 
-    // ── 配置编辑 ──
-    const editing = edit !== null;
-    const sameVal = function (a, b) {
-      if (a === b) return true;
-      if (Array.isArray(a) && Array.isArray(b)) {
-        return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
-      }
-      return false;
-    };
-    const dirtyKeys = editing ? Object.keys(edit.draft).filter(function (k) {
-      if (k === 'authToken' || k === 'authTokenClear') return Boolean(edit.draft[k]);
-      return !sameVal(edit.draft[k], edit.base[k]);
-    }) : [];
-
-    function startEdit() {
-      const d = draftFromStatus(state);
-      setEdit({ draft: d, base: d });
-      setCfgError('');
-      if (cat === null) {
-        rpc('models')
-          .then(function (m) { setCat(m && Array.isArray(m.providers) ? m : false); })
-          .catch(function () { setCat(false); });
-      }
-    }
     function setDraft(patch) {
-      setEdit(function (prev) {
+      setForm(function (prev) {
         return prev === null ? prev : { draft: Object.assign({}, prev.draft, patch), base: prev.base };
       });
     }
-    function discardEdit() {
-      setEdit(null);
+
+    // 放弃修改: 草稿回到当前生效值(纯本地, 不发请求)
+    function discardDraft() {
+      if (state === null) return;
+      const fresh = draftFromStatus(state);
+      setForm({ draft: fresh, base: fresh });
       setCfgError('');
     }
-    // 保存/重置共用: 确认 → config-update → 收起表单 → 立即刷新 + 2.5s 后再刷(等重载稳定)
-    function submitConfig(payload, confirmText) {
+
+    // 保存/恢复默认共用: config-update → 以服务端值为准重置草稿 → 立即刷新 + 2.5s 后再刷(等重载稳定)。
+    // 保存不弹确认: 后果文案就写在保存栏; 恢复默认保留确认(波及表单外字段)。
+    function submitConfig(payload) {
       if (busy) return;
-      if (!window.confirm(confirmText)) return;
       setBusy(true);
       setCfgError('');
       rpc('config-update', payload)
-        .then(function () { setEdit(null); return refresh(); })
+        .then(function () {
+          rebaseRef.current = true;
+          return refresh();
+        })
         .catch(function (e) { setCfgError(String((e && e.message) || e)); })
         .finally(function () {
           setBusy(false);
@@ -435,209 +329,217 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         });
     }
     function saveConfig() {
-      if (!editing) return;
+      if (!form) return;
       let values;
-      try { values = collectValues(edit.draft); } catch (e) { setCfgError(String((e && e.message) || e)); return; }
-      submitConfig(
-        { values: values },
-        '保存会写入 profile 配置文件并热重载本插件: 运行中的 turn 会被中断, 已连接的 MCP 客户端会断开(重连即恢复)。确认保存?',
-      );
+      try { values = collectValues(form.draft); } catch (e) { setCfgError(String((e && e.message) || e)); return; }
+      submitConfig({ values: values });
     }
     function resetConfig() {
-      if (!editing) return;
-      submitConfig(
-        { reset: true },
-        '恢复默认会移除本插件在配置文件中的全部覆盖行(包括手动编辑的非表单字段, 如目录白名单), 并热重载生效。确认恢复?',
-      );
+      if (!window.confirm('恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段，如目录白名单），并热重载生效。确认？')) return;
+      submitConfig({ reset: true });
     }
 
     if (!state) {
-      return React.createElement('div', { style: S.box },
-        error ? React.createElement('div', { style: S.error }, '⚠ ', error) : '载入中…');
+      return React.createElement('div', { className: 'dcs-root' },
+        React.createElement('style', null, PANEL_CSS),
+        error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : '载入中…');
     }
 
     const now = Date.now();
     const cfg = state.config || {};
-    const stats = state.stats || {};
-    const subs = stats.subscriptions || {};
+    const subs = (state.stats || {}).subscriptions || {};
     const conns = state.connections || [];
     const roots = Array.isArray(cfg.workspaceRoots) ? cfg.workspaceRoots : [];
+    const httpOff = state.httpEnabled === false;
+    const d = form !== null ? form.draft : null;
+    const dirtyCount = form !== null ? countDirty(form.draft, form.base) : 0;
 
-    // 模型限制摘要: 面板不展示"默认模型"(模型由调用方每次显式指定, 没有部署默认)
-    const allowedModels = Array.isArray(cfg.allowedModels) ? cfg.allowedModels : [];
-
-
-    return React.createElement('div', { style: Object.assign({}, S.box, dcsPalette()) },
-      // 表单/按钮样式(hover/focus/过渡态内联样式表达不了) + 主题色板(CSS 变量), 随面板注入
-      React.createElement('style', null, CFG_CSS),
-      // 头部: 状态徽章 + 标题/版本 + 操作
-      React.createElement('div', { style: S.header },
-        React.createElement(Badge, { ok: !!state.listening, warn: state.httpEnabled !== false }),
-        React.createElement('span', { style: S.title }, 'dsh-carrot-on-a-stick'),
-        React.createElement('span', { style: S.version }, 'v' + (state.version || '?')),
-        React.createElement('span', { style: { flex: 1 } }),
-        state.listening
-          ? React.createElement('button', { className: 'dcs-btn dcs-btn-danger', onClick: toggle, disabled: busy }, busy ? '处理中…' : '停止')
-          : (state.httpEnabled !== false
-              ? React.createElement('button', { className: 'dcs-btn dcs-btn-primary', onClick: toggle, disabled: busy }, busy ? '处理中…' : '启动')
-              : null),
-        React.createElement('button', { className: 'dcs-btn', onClick: refresh }, '刷新'),
-      ),
-      // 端点行: 点击文本或"复制"按钮均可复制
-      React.createElement('div', { style: S.endpointRow },
-        React.createElement('span', { style: S.metaKey }, '端点'),
-        React.createElement('span', { style: S.endpoint, title: '点击复制', onClick: copyEndpoint }, state.endpoint),
-        React.createElement('button', { style: S.btnMini, onClick: copyEndpoint }, '复制'),
-        copied ? React.createElement('span', { style: S.copied }, '✓ 已复制') : null,
-      ),
-      error ? React.createElement('div', { style: S.error }, '⚠ ', error) : null,
-      // 概览瓦片
-      React.createElement('div', { style: S.tiles },
-        React.createElement(Tile, { label: '运行时长', value: fmtDur(state.uptimeMs) }),
-        React.createElement(Tile, { label: 'MCP 客户端', value: String(conns.length) }),
-        React.createElement(Tile, { label: '资源订阅', value: String(subs.subscriptions || 0), title: 'resources/subscribe 订阅数, 跨 ' + (subs.connections ?? 0) + ' 个连接' }),
-      ),
-      // 配置摘要: 模型与执行 / 安全
-      React.createElement('div', null,
-        React.createElement('h4', { style: S.groupTitle }, '模型与执行'),
-        React.createElement('div', { style: S.fields },
-          React.createElement(Field, {
-            label: '模型限制',
-            value: allowedModels.length ? allowedModels.length + ' 个可选' : '不限制（调用方每次显式指定）',
-            title: allowedModels.length ? allowedModels.join('\n') : '调用方新建会话时必须成对指定 provider+model',
-          }),
-          React.createElement(Field, { label: 'Preset', value: cfg.preset || '—' }),
-          React.createElement(Field, { label: '默认详略', value: cfg.defaultDetail || '—' }),
-        ),
-      ),
-      React.createElement('div', null,
-        React.createElement('h4', { style: S.groupTitle }, '安全'),
-        React.createElement('div', { style: S.fields },
-          React.createElement(Field, {
-            label: '认证', tone: cfg.authEnabled ? undefined : 'warn',
-            value: cfg.authEnabled ? 'Bearer 已启用' : '未设置（仅本机）',
-          }),
-          React.createElement(Field, {
-            label: '目录白名单', tone: roots.length ? undefined : 'warn',
-            value: roots.length ? roots.length + ' 个目录' : '未配置（无目录边界）',
-            title: roots.length ? roots.join('\n') : undefined,
-          }),
-        ),
-      ),
-      // 配置编辑: 默认折叠, "修改配置"展开草稿表单; 写入走 config-update 路由(宿主 configEditor 落盘 + 热重载)
-      (function () {
-        if (!editing) {
-          return React.createElement('div', null,
-            React.createElement('div', { style: S.cfgHead },
-              React.createElement('h4', { style: S.cfgTitle }, '配置'),
-              React.createElement('button', { className: 'dcs-btn', onClick: startEdit }, '修改配置'),
-            ),
-            React.createElement('div', { style: S.cfgHint },
-              '常用配置可在此图形化修改(保存写入 profile 配置文件并热重载生效); 目录白名单、http 端口等其余字段请编辑 cordis.patch.yml。'),
-          );
-        }
-        const d = edit.draft;
-        const disable = busy;
-        // 模型目录: 供"模型限制"勾选清单(模型本身由调用方每次显式指定, 面板不配置默认模型)
-        const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
-        // 限制清单勾选项: 目录全量 + 草稿里已勾但目录没有的条目(防静默丢失)
-        const catalogPairs = [];
-        catProviders.forEach(function (p) {
-          (p.models || []).forEach(function (m) {
-            catalogPairs.push({ pair: p.id + '/' + m.id, name: m.name && m.name !== m.id ? m.name : '' });
-          });
-        });
-        const listEntries = catalogPairs.concat(
+    // 模型限制清单勾选项: 目录全量 + 草稿里已勾但目录没有的条目(防静默丢失)
+    const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
+    const catalogPairs = [];
+    catProviders.forEach(function (p) {
+      (p.models || []).forEach(function (m) {
+        catalogPairs.push({ pair: p.id + '/' + m.id, name: m.name && m.name !== m.id ? m.name : '' });
+      });
+    });
+    const listEntries = d
+      ? catalogPairs.concat(
           d.allowedModels
             .filter(function (pair) { return !catalogPairs.some(function (e) { return e.pair === pair; }); })
-            .map(function (pair) { return { pair: pair, name: '' }; }),
-        );
-        const toggleModel = function (pair, on) {
-          setDraft({ allowedModels: on ? d.allowedModels.concat([pair]) : d.allowedModels.filter(function (x) { return x !== pair; }) });
-        };
-        return React.createElement('div', null,
-          React.createElement('div', { style: S.cfgHead },
-            React.createElement('h4', { style: S.cfgTitle }, '配置'),
-            dirtyKeys.length > 0 ? React.createElement('span', { style: S.cfgDirty }, dirtyKeys.length + ' 项未保存') : null,
-            React.createElement('span', { style: { flex: 1 } }),
-            React.createElement('button', { className: 'dcs-btn', onClick: discardEdit, disabled: disable }, '收起'),
-          ),
-          React.createElement('div', { style: S.cfgWrap },
-            React.createElement(CfgSwitch, {
-              label: '模型限制', checked: d.limitModels,
-              onText: '限制清单（' + d.allowedModels.length + ' 个）', offText: '不限制（调用方每次显式指定模型）',
-              hint: '开启后调用方只能使用勾选的模型, 清单外的请求会被明确拒绝',
-              disabled: disable,
-              onChange: function (v) { setDraft({ limitModels: v }); },
+            .map(function (pair) { return { pair: pair, name: '' }; }))
+      : [];
+
+    return React.createElement('div', { className: 'dcs-root' },
+      React.createElement('style', null, PANEL_CSS),
+      // 头部: 状态徽章 + 标题/版本 + 启停
+      React.createElement('div', { className: 'dcs-head' },
+        React.createElement(Badge, {
+          ok: !!state.listening,
+          warn: !httpOff,
+          title: '已运行 ' + fmtDur(state.uptimeMs),
+        }),
+        React.createElement('span', { className: 'dcs-title' }, 'dsh-carrot-on-a-stick'),
+        React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
+        React.createElement('span', { className: 'dcs-spacer' }),
+        state.listening
+          ? React.createElement('button', { className: 'dcs-btn dcs-btn-danger', onClick: toggleServer, disabled: busy }, busy ? '处理中…' : '停止')
+          : (!httpOff
+              ? React.createElement('button', { className: 'dcs-btn dcs-btn-primary', onClick: toggleServer, disabled: busy }, busy ? '处理中…' : '启动')
+              : null),
+      ),
+      error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
+      // 端点卡: URL + 复制, 及接入/认证/白名单等"不知道会出错"的信息
+      React.createElement('div', { className: 'dcs-card' },
+        React.createElement('div', { className: 'dcs-urlrow' },
+          React.createElement('span', { className: 'dcs-url' }, state.endpoint),
+          React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? '已复制' : '复制'),
+        ),
+        React.createElement('div', { className: 'dcs-hint' }, '在任意 MCP 客户端中把此 URL 添加为 MCP 服务器'),
+        React.createElement('div', { className: 'dcs-hint' },
+          cfg.authEnabled ? '已启用 Bearer 认证：客户端连接需携带 Token' : '认证未启用：连接无需 Token'),
+        httpOff
+          ? React.createElement('div', { className: 'dcs-hint dcs-warn' }, 'HTTP 监听已在配置中关闭（http: false），需在 cordis.patch.yml 中启用')
+          : null,
+        roots.length
+          ? React.createElement('div', { className: 'dcs-hint', title: roots.join('\n') },
+              '目录白名单：' + roots.length + ' 个目录（会话只能在这些目录内工作）')
+          : React.createElement('div', { className: 'dcs-hint dcs-warn' },
+              '目录白名单未配置：会话可在任意目录工作（cordis.patch.yml 的 workspaceRoots）'),
+      ),
+      // 设置表单(常显): 草稿-保存, 写入经宿主 configEditor 落盘 + 热重载
+      d ? React.createElement('div', { className: 'dcs-form' },
+        React.createElement(Row, {
+          label: '模型限制',
+          hint: '本服务无默认模型，由调用方每次显式指定；开启后仅清单内的模型可用',
+          control: React.createElement('span', { className: 'dcs-inline' },
+            React.createElement(Switch, {
+              checked: d.limitModels,
+              disabled: busy,
+              onChange: function (v) { setDraft({ limitModels: v }); if (v) setCat(null); },
             }),
-            d.limitModels
-              ? React.createElement('div', { style: { margin: '0 2px 6px' } },
-                  cat === null
-                    ? React.createElement('div', { className: 'dcs-sub', style: { padding: '4px 2px' } }, '模型目录加载中…')
-                    : listEntries.length === 0
-                      ? React.createElement('div', { className: 'dcs-sub', style: { padding: '4px 2px' } }, '模型目录为空或不可用, 无法勾选——请稍后重开表单或编辑配置文件。')
-                      : React.createElement('div', { className: 'dcs-modelist' },
-                          listEntries.map(function (e) {
-                            const checked = d.allowedModels.indexOf(e.pair) !== -1;
-                            return React.createElement('label', { key: e.pair, className: 'dcs-check' },
-                              React.createElement('input', { type: 'checkbox', checked: checked, disabled: disable, onChange: function (ev) { toggleModel(e.pair, ev.target.checked); } }),
-                              e.pair,
-                              e.name ? React.createElement('span', { className: 'dcs-checkname' }, e.name) : null,
-                            );
-                          })),
-                )
+            React.createElement('span', { className: 'dcs-state' }, d.limitModels ? '限制 ' + d.allowedModels.length + ' 个' : '不限制'),
+          ),
+        }),
+        d.limitModels
+          ? React.createElement('div', { className: 'dcs-listwrap' },
+              cat === null
+                ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录加载中…')
+                : listEntries.length === 0
+                  ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录为空或不可用，无法勾选——请稍后关闭再开启限制，或编辑配置文件。')
+                  : React.createElement('div', { className: 'dcs-list' },
+                      listEntries.map(function (e) {
+                        const checked = d.allowedModels.indexOf(e.pair) !== -1;
+                        return React.createElement('label', { key: e.pair, className: 'dcs-check' },
+                          React.createElement('input', {
+                            type: 'checkbox',
+                            checked: checked,
+                            disabled: busy,
+                            onChange: function (ev) {
+                              setDraft({ allowedModels: ev.target.checked ? d.allowedModels.concat([e.pair]) : d.allowedModels.filter(function (x) { return x !== e.pair; }) });
+                            },
+                          }),
+                          e.pair,
+                          e.name ? React.createElement('span', { className: 'dcs-checkname' }, e.name) : null,
+                        );
+                      })),
+            )
+          : null,
+        React.createElement(Row, {
+          label: 'Preset',
+          hint: '新建会话未指定时挂载的 preset；留空 = 部署默认',
+          control: React.createElement('input', {
+            className: 'dcs-input',
+            type: 'text',
+            value: d.preset,
+            placeholder: '留空 = 部署默认',
+            spellCheck: false,
+            disabled: busy,
+            onChange: function (e) { setDraft({ preset: e.target.value }); },
+          }),
+        }),
+        React.createElement(Row, {
+          label: 'Preset 覆盖',
+          hint: '调用方新建会话时可否指定其他 preset',
+          control: React.createElement('span', { className: 'dcs-inline' },
+            React.createElement(Switch, { checked: d.allowPresetOverride, disabled: busy, onChange: function (v) { setDraft({ allowPresetOverride: v }); } }),
+            React.createElement('span', { className: 'dcs-state' }, d.allowPresetOverride ? '允许' : '锁死'),
+          ),
+        }),
+        React.createElement(Row, {
+          label: '默认详略',
+          hint: '返回给调用方的结果详略；单次调用可按次覆盖',
+          control: React.createElement('select', {
+            className: 'dcs-input',
+            value: d.defaultDetail,
+            disabled: busy,
+            onChange: function (e) { setDraft({ defaultDetail: e.target.value }); },
+          },
+            React.createElement('option', { value: 'summary' }, '简要（summary）'),
+            React.createElement('option', { value: 'normal' }, '标准（normal）'),
+            React.createElement('option', { value: 'full' }, '完整（full）')),
+        }),
+        (function () {
+          const control = d.authTokenClear
+            ? React.createElement('span', { className: 'dcs-inline' },
+                React.createElement('span', { className: 'dcs-state dcs-warn' }, '保存时清除已配置的 Token'),
+                React.createElement('button', { type: 'button', className: 'dcs-link', disabled: busy, onClick: function () { setDraft({ authTokenClear: false }); } }, '撤销'),
+              )
+            : React.createElement('span', { className: 'dcs-inline' },
+                React.createElement('input', {
+                  className: 'dcs-input',
+                  type: 'password',
+                  value: d.authToken,
+                  placeholder: cfg.authEnabled ? '已配置——输入新值替换' : '未配置',
+                  spellCheck: false,
+                  disabled: busy,
+                  onChange: function (e) { setDraft({ authToken: e.target.value }); },
+                }),
+                cfg.authEnabled
+                  ? React.createElement('button', { type: 'button', className: 'dcs-link', disabled: busy, onClick: function () { setDraft({ authTokenClear: true, authToken: '' }); } }, '清除')
+                  : null,
+              );
+          return React.createElement(Row, {
+            label: 'Auth Token',
+            hint: '只写：留空 = 不改动；清除并保存 = 撤销认证',
+            control: control,
+          });
+        })(),
+        React.createElement('div', { className: 'dcs-savebar' },
+          React.createElement('div', { className: 'dcs-savenote' },
+            '保存会写入配置并热重载：运行中的会话被中断，客户端重连即恢复',
+            cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
+          ),
+          React.createElement('div', { className: 'dcs-savebtns' },
+            dirtyCount > 0 ? React.createElement('span', { className: 'dcs-dirty' }, dirtyCount + ' 项未保存') : null,
+            dirtyCount > 0
+              ? React.createElement('button', { className: 'dcs-btn', onClick: discardDraft, disabled: busy }, '放弃修改')
               : null,
-            React.createElement(CfgText, { label: 'Preset', value: d.preset, hint: '新建会话应用的人格 preset id', disabled: disable, onChange: function (v) { setDraft({ preset: v }); } }),
-            React.createElement(CfgSwitch, { label: 'Preset 覆盖', checked: d.allowPresetOverride, onText: '允许（按调用）', offText: '禁止（锁死）', hint: 'MCP 调用方可否按请求指定 preset', disabled: disable, onChange: function (v) { setDraft({ allowPresetOverride: v }); } }),
-            React.createElement(CfgSelect, {
-              label: '默认详略', value: d.defaultDetail, hint: '任务结果投影的详略档位', disabled: disable,
-              options: [{ v: 'summary', t: '简要（summary）' }, { v: 'normal', t: '标准（normal）' }, { v: 'full', t: '完整（full）' }],
-              onChange: function (v) { setDraft({ defaultDetail: v }); },
-            }),
-            React.createElement(CfgToken, {
-              value: d.authToken, clearing: d.authTokenClear, canClear: !!cfg.authEnabled,
-              placeholder: cfg.authEnabled ? '已配置（输入新值替换）' : '未配置',
-              hint: '只写: 留空 = 不改动现有 Token',
-              disabled: disable,
-              onChange: function (v) { setDraft({ authToken: v }); },
-              onClear: function () { setDraft({ authTokenClear: true, authToken: '' }); },
-              onCancelClear: function () { setDraft({ authTokenClear: false }); },
-            }),
-            React.createElement('div', { className: 'dcs-row', style: { borderBottom: 'none' } },
-              React.createElement('div', { className: 'dcs-labels' },
-                React.createElement('span', { className: 'dcs-sub' }, '保存会写入 profile 配置文件并热重载: 运行中任务中断, MCP 客户端断开重连即恢复'),
-                cfgError ? React.createElement('span', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
-              ),
-              React.createElement('div', { className: 'dcs-control', style: { gap: '8px' } },
-                React.createElement('button', { className: 'dcs-btn', onClick: resetConfig, disabled: disable }, '恢复默认…'),
-                React.createElement('button', { className: 'dcs-btn dcs-btn-primary', onClick: saveConfig, disabled: disable || dirtyKeys.length === 0 }, busy ? '保存中…' : '保存修改'),
-              ),
-            ),
+            React.createElement('button', { className: 'dcs-btn', onClick: resetConfig, disabled: busy }, '恢复默认…'),
+            React.createElement('button', { className: 'dcs-btn dcs-btn-md dcs-btn-primary', onClick: saveConfig, disabled: busy || dirtyCount === 0 }, busy ? '保存中…' : '保存'),
           ),
-        );
-      })(),
+        ),
+      ) : null,
       // 连接列表
       React.createElement('div', null,
-        React.createElement('div', { style: S.connHead },
-          React.createElement('span', null, '连接中的 MCP 客户端 (' + conns.length + ')'),
-          subs.subscriptions ? React.createElement('span', { style: S.connSub }, '· 订阅 ' + subs.subscriptions) : null,
+        React.createElement('div', { className: 'dcs-sechead' },
+          React.createElement('span', { className: 'dcs-sectitle' }, '客户端连接'),
+          React.createElement('span', { className: 'dcs-seccount' },
+            conns.length + (subs.subscriptions ? ' · 订阅 ' + subs.subscriptions : '')),
         ),
         conns.length === 0
-          ? React.createElement('div', { style: S.empty }, state.listening ? '暂无连接——MCP 客户端接入后此处实时显示。' : '服务已停止, 不接受连接。')
-          : React.createElement('div', { style: S.connTable },
-              React.createElement('div', { style: Object.assign({}, S.connRow, S.connHeadRow) },
-                React.createElement('span', null, '会话'),
-                React.createElement('span', null, '客户端 (User-Agent)'),
-                React.createElement('span', { style: S.mono }, '连接于'),
-                React.createElement('span', { style: S.mono }, '最近活跃'),
-                React.createElement('span', { style: S.mono }, '请求数')),
+          ? React.createElement('div', { className: 'dcs-empty' }, state.listening ? '暂无连接——MCP 客户端接入后显示在这里。' : '服务已停止，不接受连接。')
+          : React.createElement('div', { className: 'dcs-table' },
+              React.createElement('div', { className: 'dcs-tr dcs-trh' },
+                React.createElement('span', null, '客户端'),
+                React.createElement('span', null, '连接于'),
+                React.createElement('span', null, '最近活跃'),
+                React.createElement('span', { className: 'dcs-num' }, '请求')),
               conns.map(function (c) {
-                return React.createElement('div', { key: c.sessionId, style: S.connRow },
-                  React.createElement('span', { style: S.mono, title: c.sessionId }, shortId(c.sessionId)),
-                  React.createElement('span', { style: S.connUa, title: c.userAgent || '' }, c.userAgent || '(未报告)'),
-                  React.createElement('span', { style: S.mono }, fmtClock(c.connectedAt, now)),
-                  React.createElement('span', { style: S.mono }, fmtAgo(c.lastActivity, now)),
-                  React.createElement('span', { style: S.mono }, String(c.requests ?? 0)),
+                return React.createElement('div', { key: c.sessionId, className: 'dcs-tr', title: (c.userAgent || '(未报告)') + '\nsession ' + c.sessionId },
+                  React.createElement('span', { className: 'dcs-ua' }, c.userAgent || '(未报告)'),
+                  React.createElement('span', { className: 'dcs-num' }, fmtClock(c.connectedAt, now)),
+                  React.createElement('span', { className: 'dcs-num' }, fmtAgo(c.lastActivity, now)),
+                  React.createElement('span', { className: 'dcs-num' }, String(c.requests ?? 0)),
                 );
               })),
       ),
