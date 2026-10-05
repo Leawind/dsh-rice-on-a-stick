@@ -40,13 +40,11 @@ const boot = { errors: [] }
 const mode = { statusError: false, actionDelayMs: 0 }
 
 function snapshot() {
-  let queueActive = 1, queueDone = 3, queueError = 1, queueCancelled = 1
+  // 与 src/index.ts 的 statusSnapshot() 同形: stats 只含 connections 与 subscriptions 观测
   return {
     ...state,
     uptimeMs: now() - startedAt,
     stats: {
-      liveAgents: 2,
-      queue: { active: queueActive, done: queueDone, error: queueError, cancelled: queueCancelled },
       connections: state.connections.length,
       subscriptions: { connections: state.connections.length, subscriptions: 3 },
     },
@@ -69,10 +67,65 @@ async function readBody(req) {
 const PAGE = `<!doctype html>
 <html lang="zh">
 <head><meta charset="utf-8"><title>dsh-carrot-on-a-stick UI smoke harness</title>
-<style>body{font:14px/1.5 system-ui,sans-serif;margin:24px;background:#fafafa;color:#222}</style>
+<style>
+/* 宿主 --dsw-* 主题 token stub(取自官方 dsh-client-ui-theme 实测值): 面板样式直接引用这些变量,
+   这里提供亮/暗两套并可用右下角按钮切换(body[data-ds-dark-theme]), 模拟宿主的真实取值路径 */
+body{
+  --dsw-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --ds-font-family-code:"SF Mono","JetBrains Mono","Fira Code",Consolas,monospace;
+  --dsw-radius-sm:8px;--dsw-radius-md:12px;
+  --dsw-focus-ring-width:2px;
+  --dsw-alias-label-primary:#0f1115;
+  --dsw-alias-label-secondary:#61666b;
+  --dsw-alias-label-tertiary:#81858c;
+  --dsw-alias-label-dimmed:#979da6;
+  --dsw-alias-label-primary-foreground:#ffffff;
+  --dsw-alias-brand-primary:#0f1115;
+  --dsw-alias-button-primary-hover:#43454a;
+  --dsw-alias-interactive-bg-hover:rgba(38,49,72,.06);
+  --dsw-alias-border-l2:rgba(0,0,0,.10);
+  --dsw-alias-border-l3:rgba(0,0,0,.12);
+  --dsw-alias-border-l4:rgba(0,0,0,.16);
+  --dsw-alias-bg-layer-1:#ffffff;
+  --dsw-alias-settings-card-fill:#ffffff;
+  --dsw-elevation-stroke-color:rgba(0,0,0,.12);
+  --dsw-elevation-stroke:0 0 0 .5px var(--dsw-elevation-stroke-color);
+  --dsw-alias-state-business-primary:#4176e6;
+  --dsw-alias-state-success-primary:#22c55e;
+  --dsw-alias-state-warn-primary:#f59e0b;
+  --dsw-alias-state-warn-label:#dd8629;
+  --dsw-alias-state-error-primary:#ec1313;
+  --dsw-alias-switch-thumb:#ffffff;
+  background:var(--dsw-alias-settings-card-fill);color:var(--dsw-alias-label-primary);
+  font:14px/1.5 var(--dsw-font-family);margin:24px;
+}
+body[data-ds-dark-theme]{
+  --dsw-alias-label-primary:#f9fafb;
+  --dsw-alias-label-secondary:#cfd3d6;
+  --dsw-alias-label-tertiary:#adb2b8;
+  --dsw-alias-label-dimmed:#61666b;
+  --dsw-alias-label-primary-foreground:#000000;
+  --dsw-alias-brand-primary:#f9fafb;
+  --dsw-alias-button-primary-hover:#ebeef2;
+  --dsw-alias-interactive-bg-hover:rgba(255,255,255,.08);
+  --dsw-alias-border-l2:rgba(255,255,255,.12);
+  --dsw-alias-border-l3:rgba(255,255,255,.16);
+  --dsw-alias-border-l4:rgba(255,255,255,.20);
+  --dsw-alias-bg-layer-1:#232324;
+  --dsw-alias-settings-card-fill:#232324;
+  --dsw-elevation-stroke-color:rgba(255,255,255,.06);
+  --dsw-alias-state-business-primary:#5686fe;
+  --dsw-alias-state-error-primary:#f25a5a;
+  --dsw-alias-switch-thumb:#adb2b8;
+  background:#353638;
+}
+#theme-toggle{position:fixed;right:16px;bottom:16px;padding:6px 12px;cursor:pointer;border-radius:8px;
+  border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+</style>
 </head>
 <body>
 <div id="root"></div>
+<button id="theme-toggle" onclick="document.body.toggleAttribute('data-ds-dark-theme')">切换深浅主题</button>
 <script src="/vendor/react.js"><\/script>
 <script src="/vendor/react-dom.js"><\/script>
 <script>
