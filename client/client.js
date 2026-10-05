@@ -519,10 +519,13 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             checked: d.authOn,
             disabled: busy,
             onChange: function (v) {
-              // 开启且手头没有待提交令牌时自动生成一个; 关闭即撤销认证(提交空串)
-              setDraft(v
-                ? { authOn: true, authToken: d.authToken || generateToken(), authTokenEdited: true }
-                : { authOn: false, authToken: '', authTokenEdited: true });
+              // 开启: 服务端已启用且没有待提交令牌时只是回拨开关(令牌保持持久化值不动);
+              //   未启用时沿用待提交令牌 → 服务端持久化令牌 → 都没有(首次运行)才生成;
+              // 关闭: 已启用(或有待提交令牌)时提交空串撤销认证, 本就关闭则只是回拨。
+              if (v && cfg.authEnabled && !d.authToken) { setDraft({ authOn: true, authToken: '', authTokenEdited: false }); return; }
+              if (v) { setDraft({ authOn: true, authToken: d.authToken || cfg.authToken || generateToken(), authTokenEdited: true }); return; }
+              if (!cfg.authEnabled && !d.authToken) { setDraft({ authOn: false, authToken: '', authTokenEdited: false }); return; }
+              setDraft({ authOn: false, authToken: '', authTokenEdited: true });
             },
           }),
         }),
