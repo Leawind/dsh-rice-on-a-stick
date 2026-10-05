@@ -30,15 +30,25 @@ export interface Config {
   port?: number
   host?: string
   /**
-   * 模型白名单(provider/model 形式; 默认空 = 不限制)。
-   * 非空时: session_create / session_select_model 指定的模型不在名单内, 请求会被明确拒绝。
-   * 模型本身由调用方显式指定(插件不做任何默认回填), 白名单只约束"能选哪些"。
+   * 模型白名单(provider/model 形式; 启用且非空时才限制)。
+   * 启用(allowedModelsEnabled)时: session_create / session_select_model 指定的模型不在名单内,
+   * 请求会被明确拒绝。模型本身由调用方显式指定(插件不做任何默认回填), 白名单只约束"能选哪些"。
    */
   allowedModels?: string[]
+  /**
+   * 模型白名单开关(缺省按"清单非空即启用"推导)。关闭 = 暂时不限制, 清单原样保留——
+   * 重新开启即恢复约束, 不必逐个重加模型。
+   */
+  allowedModelsEnabled?: boolean
   /** 结果默认详略级别(默认 summary; 单次调用可用 detail 参数覆盖) */
   defaultDetail?: 'summary' | 'normal' | 'full'
-  /** Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>, 常数时间比较) */
+  /** Bearer token(启用认证时所有请求必须带 Authorization: Bearer <token>, 常数时间比较) */
   authToken?: string
+  /**
+   * 认证开关(缺省按"已配置令牌即启用"推导)。关闭 = 暂不校验, 令牌原样保留——
+   * 重新开启即恢复校验, 不必重新生成令牌; 令牌只在面板"重新生成令牌"时才被替换。
+   */
+  authEnabled?: boolean
   /** Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名; 对外暴露时按需配置) */
   allowedHosts?: string[]
   /**
@@ -62,9 +72,11 @@ export const DEFAULTS = {
   // 模型与 preset 都不做任何默认: 调用必须显式指定(与 web 界面一致: 新会话先选模型与预设),
   // allowedModels 只约束"能选哪些", 不提供默认。
   allowedModels: [] as string[],
+  allowedModelsEnabled: false as boolean,
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
   sessionTtlMs: 24 * 60 * 60 * 1000,
   authToken: '',
+  authEnabled: false as boolean,
   resourceFirst: false,
 }
 
@@ -78,9 +90,11 @@ export const Config = Schema.object({
   http: Schema.boolean().default(true).description('是否启动 HTTP MCP server(显式 false 时不监听, 仅保留生命周期钩子)'),
   port: Schema.number().default(8090).description('MCP 监听端口'),
   host: Schema.string().default('127.0.0.1').description('MCP 监听地址(安全默认仅本机; 暴露公网/局域网前必须自行加认证+反代+TLS)'),
-  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('模型白名单(provider/model 形式; 空 = 不限制)。非空时: session_create/session_select_model 指定的模型不在名单内, 请求会被明确拒绝'),
+  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('模型白名单(provider/model 形式)。启用(allowedModelsEnabled)且非空时: session_create/session_select_model 指定的模型不在名单内, 请求会被明确拒绝'),
+  allowedModelsEnabled: Schema.boolean().description('模型白名单开关。关闭 = 暂时不限制, 清单原样保留(重新开启即恢复约束); 缺省按"清单非空即启用"推导'),
   defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).description('结果默认详略级别(单次调用可用 detail 参数覆盖)'),
-  authToken: Schema.string().default(DEFAULTS.authToken).role('secret').description('Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>; 空 = 关闭认证)'),
+  authToken: Schema.string().default(DEFAULTS.authToken).role('secret').description('Bearer token(启用认证时所有请求必须带 Authorization: Bearer <token>)'),
+  authEnabled: Schema.boolean().description('认证开关。关闭 = 暂不校验, 令牌原样保留(重新开启即恢复校验); 缺省按"已配置令牌即启用"推导'),
   allowedHosts: Schema.array(Schema.string()).default([]).description('Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名)'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('MCP 传输会话空闲 TTL 毫秒数(0 = 永不淘汰; 超时会话被关闭, 客户端按规范重新 initialize)'),
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('资源优先形态(true 时只读工具面下线, 数据一律经 MCP resources 面读取)'),

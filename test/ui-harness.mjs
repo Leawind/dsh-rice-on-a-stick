@@ -28,7 +28,7 @@ const state = {
   endpoint: `http://127.0.0.1:8090/mcp`,
   startedAt,
   config: {
-    allowedModels: [], defaultDetail: 'summary',
+    allowedModels: [], allowedModelsEnabled: false, defaultDetail: 'summary',
     authEnabled: false, authToken: '',
   },
   connections: DEFAULT_CONNS(),
@@ -271,8 +271,8 @@ const server = createServer(async (req, res) => {
           Object.assign(state.config, payload.values)
           // 与后端 statusSnapshot 的派生字段保持一致(authToken 只写: 载荷缺省 = 保持; 空串 = 清除;
           // 掩码 = 首尾各4字符)
+          // authToken 只写: 更新掩码; authEnabled 是独立开关字段(关闭不清令牌, 与后端同语义)
           if ('authToken' in payload.values) {
-            state.config.authEnabled = Boolean(payload.values.authToken)
             state.config.authTokenHint = payload.values.authToken
               ? (payload.values.authToken.length >= 12
                   ? payload.values.authToken.slice(0, 4) + '...' + payload.values.authToken.slice(-4)

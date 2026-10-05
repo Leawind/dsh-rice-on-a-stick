@@ -67,10 +67,11 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const c = (st && st.config) || {};
     const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
     return {
+      whitelistOn: c.allowedModelsEnabled === true,
       allowedModels: allowed,
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
       authOn: c.authEnabled === true,
-      authToken: '',        // 在途令牌(只写): 生成/开启的乐观值, rebase 后清空
+      authToken: '',        // 在途令牌(只写): 重新生成的乐观值, rebase 后清空
     };
   }
 
@@ -81,11 +82,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     let bin = '';
     bytes.forEach(function (b) { bin += String.fromCharCode(b); });
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
-  // 令牌掩码: 首尾各 4 字符, 中间固定三点; 太短没有辨识价值一律定长圆点
-  function maskOf(token) {
-    return token.length >= 12 ? token.slice(0, 4) + '...' + token.slice(-4) : '••••••';
   }
 
   // ── 多语言: 跟随宿主语言设置(dsh 语言行, 偏好存宿主 user-settings 的 locale 命名空间) ──
@@ -103,7 +99,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'copy': '复制',
       'copied': '已复制',
       'whitelist.title': '模型白名单',
-      'whitelist.hint': '空清单 = 不限制；添加后仅清单内的模型可用。模型与 preset 均由调用方每次显式指定',
+      'whitelist.hint': '关闭 = 暂时不限制（清单保留）；开启后仅清单内的模型可用。模型与 preset 均由调用方每次显式指定',
       'whitelist.empty': '清单为空——调用方可以指定任意模型。',
       'whitelist.remove': '移除 {m}',
       'whitelist.add': '添加模型…',
@@ -118,8 +114,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'detail.summary': '简要（summary）',
       'detail.normal': '标准（normal）',
       'detail.full': '完整（full）',
-      'auth.hint': '开启后 MCP 客户端连接须携带令牌',
+      'auth.hint': '开启后 MCP 客户端连接须携带令牌；关闭不删除令牌',
       'auth.regen': '重新生成令牌',
+      'auth.show': '显示',
+      'auth.hide': '隐藏',
       'save.reset': '恢复默认…',
       'save.resetConfirm': '恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段），并热重载生效。确认？',
       'conns.title': '客户端连接',
@@ -149,7 +147,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'copy': 'Copy',
       'copied': 'Copied',
       'whitelist.title': 'Model whitelist',
-      'whitelist.hint': 'Empty list = unrestricted; once populated only listed models are usable. Model and preset are always explicit per call',
+      'whitelist.hint': 'Off = temporarily unrestricted (the list is kept); when on, only listed models are usable. Model and preset are always explicit per call',
       'whitelist.empty': 'List is empty — callers may use any model.',
       'whitelist.remove': 'Remove {m}',
       'whitelist.add': 'Add model…',
@@ -164,8 +162,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'detail.summary': 'Summary',
       'detail.normal': 'Normal',
       'detail.full': 'Full',
-      'auth.hint': 'When on, MCP clients must present the token to connect',
+      'auth.hint': 'When on, MCP clients must present the token to connect; turning off keeps the token',
       'auth.regen': 'Regenerate token',
+      'auth.show': 'Show',
+      'auth.hide': 'Hide',
       'save.reset': 'Restore defaults…',
       'save.resetConfirm': 'Restoring defaults removes every override this plugin wrote to the config file (including fields outside the form) and hot-reloads. Continue?',
       'conns.title': 'Client connections',
@@ -267,7 +267,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
     // Auth Token 行(生成/复制/清除; 清除与"生成后放弃"之外的清空同状态)
     '.dcs-tokenrow{display:flex;align-items:center;gap:8px;}',
-    '.dcs-tokenval{font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;line-height:18px;word-break:break-all;color:var(--dsw-alias-label-secondary,#61666b);}',
+    '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
     // 保存栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
     '.dcs-savebtns{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
@@ -334,6 +334,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const [cfgError, setCfgError] = React.useState('');
     // 令牌复制反馈(独立于端点复制, 各自 1.5s 复位)
     const [tokenCopied, setTokenCopied] = React.useState(false);
+    // 令牌明文展示(默认密码式隐藏; 点击"显示"切换, 输入框只读可选可复制)
+    const [tokenShown, setTokenShown] = React.useState(false);
     // 模型白名单的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
     const [adding, setAdding] = React.useState(null);
     // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
@@ -409,14 +411,16 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
     // 变更即保存: 控件改动 = 乐观更新草稿 + 立即 config-update(宿主写盘热重载)。
     // 提交失败显示在保存栏, 草稿随下次刷新回到服务端生效值。
-    // authToken 形参存在时一并提交该只写字段(开关/重新生成才有, 普通改动不回传令牌)。
+    // authToken 形参存在时一并提交该只写字段(仅"重新生成令牌"替换令牌, 开关不回传令牌)。
     function change(patch, authToken) {
       if (!form) return;
       const next = Object.assign({}, form.draft, patch);
       setDraft(next);
       const values = {
+        allowedModelsEnabled: next.whitelistOn === true,
         allowedModels: (next.allowedModels || []).slice(),
         defaultDetail: next.defaultDetail,
+        authEnabled: next.authOn === true,
       };
       if (arguments.length > 1) values.authToken = authToken;
       submitConfig({ values: values });
@@ -510,6 +514,11 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         React.createElement(Row, {
           label: t('whitelist.title'),
           hint: t('whitelist.hint'),
+          control: React.createElement(Switch, {
+            checked: d.whitelistOn,
+            disabled: busy,
+            onChange: function (v) { change({ whitelistOn: v }); },
+          }),
         }),
         React.createElement('div', { className: 'dcs-listwrap' },
               // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
@@ -585,25 +594,38 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             checked: d.authOn,
             disabled: busy,
             onChange: function (v) {
-              // 开启: 沿用在途令牌 → 服务端持久化令牌 → 都没有才生成, 立即提交;
-              // 关闭: 提交空串撤销认证(服务端令牌即刻清除, 再开启会生成新令牌)。
+              // 开启: 已有令牌(服务端持久化或在途)只开开关; 没有令牌才生成并一并提交。
+              // 关闭: 只关开关, 令牌原样保留——重新开启即恢复校验, 不换令牌;
+              //   令牌仅在"重新生成令牌"被替换。
               if (v) {
-                const token = d.authToken || cfg.authToken || generateToken();
+                if (d.authToken || cfg.authToken) { change({ authOn: true }); return; }
+                const token = generateToken();
                 change({ authOn: true, authToken: token }, token);
                 return;
               }
-              change({ authOn: false, authToken: '' }, '');
+              change({ authOn: false });
             },
           }),
         }),
-        d.authOn
-          ? React.createElement('div', { className: 'dcs-listwrap' },
+        React.createElement('div', { className: 'dcs-listwrap' },
               React.createElement('div', { className: 'dcs-tokenrow' },
                 React.createElement('button', {
                   type: 'button', className: 'dcs-btn', disabled: busy,
-                  onClick: function () { const t = generateToken(); change({ authToken: t }, t); },
+                  onClick: function () { const token = generateToken(); change({ authToken: token }, token); },
                 }, t('auth.regen')),
-                React.createElement('code', { className: 'dcs-tokenval' }, maskOf(d.authToken || cfg.authToken || '')),
+                React.createElement('input', {
+                  className: 'dcs-input dcs-tokeninput',
+                  type: tokenShown ? 'text' : 'password',
+                  value: d.authToken || cfg.authToken || '',
+                  readOnly: true,
+                  spellCheck: false,
+                  disabled: busy,
+                  onFocus: function (e) { e.target.select(); },
+                }),
+                React.createElement('button', {
+                  type: 'button', className: 'dcs-btn', disabled: !(d.authToken || cfg.authToken),
+                  onClick: function () { setTokenShown(!tokenShown); },
+                }, tokenShown ? t('auth.hide') : t('auth.show')),
                 React.createElement('button', {
                   type: 'button', className: 'dcs-btn', disabled: busy || !(d.authToken || cfg.authToken),
                   onClick: function () {
@@ -616,8 +638,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                   },
                 }, tokenCopied ? t('copied') : t('copy')),
               ),
-            )
-          : null,
+            ),
         React.createElement('div', { className: 'dcs-savebar' },
           cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
           React.createElement('div', { className: 'dcs-savebtns' },

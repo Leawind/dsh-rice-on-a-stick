@@ -253,7 +253,7 @@ try {
   for (const d of disposers.splice(0)) if (typeof d === 'function') d()
   await new Promise((r) => setTimeout(r, 150))
 
-  // ── Phase B: allowedModels 允许清单(独立端口独立 ctx) ──
+  // ── Phase B: allowedModels 允许清单(独立端口独立 ctx; 缺省开关按"清单非空即启用"推导) ──
   {
     const phase = await startPhase(8098, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
     const mkOut = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
@@ -262,6 +262,16 @@ try {
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
     checks['allowedModels: select_model 清单外被拒'] = String(innerOf(selOut).error ?? '').includes('not in allowedModels')
+    await phase.dispose()
+  }
+
+  // ── Phase B2: 开关显式关闭 = 暂时不限制(清单保留) ──
+  {
+    const phase = await startPhase(8092, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'], allowedModelsEnabled: false })
+    const mkOff = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
+    checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
+    const stOff = await phase.call('dsh_status', {})
+    checks['allowedModels: 关闭态 status 透出 enabled=false'] = innerOf(stOff).config?.allowedModelsEnabled === false
     await phase.dispose()
   }
 

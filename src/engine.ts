@@ -10,7 +10,7 @@
  * 模型契约: 新建会话必须显式成对指定 provider+model(不做任何默认回填——宿主对插件直连的
  * agents.create/resume 不做默认解析, {{model}} 变量在组装期就要值); 续接沿用会话原模型
  * (冷恢复时尽量从持久化日志恢复最近一次选择, 与界面打开旧会话的行为一致); 换模型走 session_select_model。
- * allowedModels 非空时是允许清单: 新建/换模型指定的模型不在清单内明确拒绝。
+ * allowedModels 启用且非空时是允许清单: 新建/换模型指定的模型不在清单内明确拒绝(开关可暂时关闭)。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
@@ -70,12 +70,13 @@ function agentOptionsOf(selection: ModelSelection): AgentOptions {
   return opts
 }
 
-/** allowedModels 允许清单校验(空 = 不限制); 越界抛带清单内容的明确错误 */
+/** allowedModels 允许清单校验(开关关闭或清单为空 = 不限制); 越界抛带清单内容的明确错误 */
 function assertModelAllowed(selection: ModelSelection): void {
   const allowed = state.config.allowedModels
-  if (allowed.length > 0 && !allowed.includes(`${selection.provider}/${selection.model}`)) {
+  if (!state.config.allowedModelsEnabled || allowed.length === 0) return
+  if (!allowed.includes(`${selection.provider}/${selection.model}`)) {
     throw new Error(`model "${selection.provider}/${selection.model}" is not in allowedModels [${allowed.join(', ')}]; `
-      + `调用方请改选清单内的模型(见 model_list), 或由部署方调整插件的 allowedModels 配置`)
+      + `调用方请改选清单内的模型(见 model_list), 或由部署方调整/关闭插件的 allowedModels 配置`)
   }
 }
 

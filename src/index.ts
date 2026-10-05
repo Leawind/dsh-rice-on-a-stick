@@ -151,6 +151,8 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token) */
 const GUI_STRING_FIELDS = new Set(['authToken'])
+/** 布尔字段(模型白名单/认证的开关; 关闭均不清除对应值) */
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
@@ -165,6 +167,9 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (GUI_STRING_FIELDS.has(key)) {
       if (typeof value !== 'string') throw httpError(400, `${key} 必须是字符串`)
+      out[key] = value
+    } else if (GUI_BOOL_FIELDS.has(key)) {
+      if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
       out[key] = value
     } else if (key in GUI_NUMBER_MIN) {
       const n = typeof value === 'number' ? value : Number(value)
@@ -224,11 +229,17 @@ function hostnameOf(hostHeader: string): string {
  * 插件入口: 启动 MCP server(StreamableHTTP, 跨网), 通过 ctx 桥接 dsh 能力。
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  const models = (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean)
+  const token = config.authToken ?? DEFAULTS.authToken
   state.config = {
-    allowedModels: (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean),
+    allowedModels: models,
+    // 开关缺省按旧语义推导(清单非空即限制 / 已配令牌即启用): 老配置升级零行为变化, 开关又能在
+    // 不丢清单/令牌的前提下暂时关闭
+    allowedModelsEnabled: config.allowedModelsEnabled ?? models.length > 0,
     defaultDetail: config.defaultDetail ?? DEFAULTS.defaultDetail,
     sessionTtlMs: Math.max(0, config.sessionTtlMs ?? DEFAULTS.sessionTtlMs),
-    authToken: config.authToken ?? DEFAULTS.authToken,
+    authToken: token,
+    authEnabled: config.authEnabled ?? token !== '',
     resourceFirst: config.resourceFirst ?? DEFAULTS.resourceFirst,
   }
 
@@ -334,8 +345,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       uptimeMs: Date.now() - startedAt,
       config: {
         allowedModels: state.config.allowedModels,
+        allowedModelsEnabled: state.config.allowedModelsEnabled,
         defaultDetail: state.config.defaultDetail,
-        authEnabled: state.config.authToken !== '',
+        authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
       },
       stats: {

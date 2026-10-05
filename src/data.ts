@@ -159,6 +159,7 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
     ...(failures.length ? { failures } : {}),
     config: {
       allowedModels: state.config.allowedModels,
+      allowedModelsEnabled: state.config.allowedModelsEnabled,
     },
   }
 }
@@ -389,8 +390,9 @@ export function basicStatusSnapshot(): Record<string, unknown> {
     version: PLUGIN_VERSION,
     config: {
       allowedModels: state.config.allowedModels,
+      allowedModelsEnabled: state.config.allowedModelsEnabled,
       defaultDetail: state.config.defaultDetail,
-      authEnabled: state.config.authToken !== '',
+      authEnabled: state.config.authEnabled,
       ...(state.config.authToken !== '' ? { authTokenHint: authTokenHint(state.config.authToken) } : {}),
     },
   }

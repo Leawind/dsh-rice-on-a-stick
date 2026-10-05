@@ -311,7 +311,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
     'session_select_model',
     {
       title: 'Select session model',
-      description: '切换一个会话使用的模型(界面模型选择器; 走官方 sessionController.selectModel: 校验后写一条持久通知, 在下一个 step 生效, 对话历史保留)。配置 allowedModels 时目标模型必须在清单内。需要 web profile 的 sessionController。',
+      description: '切换一个会话使用的模型(界面模型选择器; 走官方 sessionController.selectModel: 校验后写一条持久通知, 在下一个 step 生效, 对话历史保留)。模型白名单启用时目标模型必须在清单内(开关可暂时关闭)。需要 web profile 的 sessionController。',
       inputSchema: {
         sessionId: z.string().describe('要换模型的会话 id'),
         provider: z.string().describe('目标 provider route(见 model_list / dsh://models)'),
@@ -322,7 +322,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
     },
     async ({ sessionId, provider, model, reasoningEffort }) => {
       const allowed = state.config.allowedModels
-      if (allowed.length > 0 && !allowed.includes(`${provider}/${model}`)) {
+      if (state.config.allowedModelsEnabled && allowed.length > 0 && !allowed.includes(`${provider}/${model}`)) {
         return outError(JSON.stringify({ error: `model "${provider}/${model}" is not in allowedModels [${allowed.join(', ')}]` }))
       }
       const sc = serviceOf<SessionControllerView>(ctx, 'sessionController')
