@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
       authOn: c.authEnabled === true,
       authToken: '',        // 待提交的令牌(只写)
-      authTokenEdited: false, // 碰过开关/重新生成才提交该字段
+      authTokenEdited: false, // 碰过令牌才提交该字段; 开关相对生效值变动另行触发提交
     };
   }
 
@@ -91,7 +91,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   }
 
   // 草稿 → config-update 载荷; 非法值抛 Error(中文报因, 只展示不动后端)
-  function collectValues(d) {
+  // 令牌提交条件: 碰过令牌或开关相对生效值变动(与 countDirty 同判据, 脏则必提交);
+  // 开着提交草稿值(空则沿用服务端持久化值), 关着提交空串撤销认证。
+  function collectValues(d, base, cfg) {
     if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
       throw new Error('模型白名单: 已开启但清单为空, 请至少添加一个模型, 或关闭限制');
     }
@@ -99,7 +101,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
       defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
     };
-    if (d.authTokenEdited) values.authToken = d.authOn ? d.authToken : '';
+    if (d.authTokenEdited || d.authOn !== (base && base.authOn)) {
+      values.authToken = d.authOn ? (d.authToken || (cfg && cfg.authToken) || '') : '';
+    }
     return values;
   }
 
@@ -352,7 +356,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     function saveConfig() {
       if (!form) return;
       let values;
-      try { values = collectValues(form.draft); } catch (e) { setCfgError(String((e && e.message) || e)); return; }
+      try { values = collectValues(form.draft, form.base, state.config); } catch (e) { setCfgError(String((e && e.message) || e)); return; }
       submitConfig({ values: values });
     }
     function resetConfig() {
@@ -521,11 +525,12 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             onChange: function (v) {
               // 开启: 服务端已启用且没有待提交令牌时只是回拨开关(令牌保持持久化值不动);
               //   未启用时沿用待提交令牌 → 服务端持久化令牌 → 都没有(首次运行)才生成;
-              // 关闭: 已启用(或有待提交令牌)时提交空串撤销认证, 本就关闭则只是回拨。
+              // 关闭: 只拨开关, 不清待提交令牌(未保存前开↔关令牌稳定); 服务端本就未启用时
+              //   回到干净草稿, 启用中则靠 authOn 偏离 base 在保存时提交空串撤销认证。
               if (v && cfg.authEnabled && !d.authToken) { setDraft({ authOn: true, authToken: '', authTokenEdited: false }); return; }
               if (v) { setDraft({ authOn: true, authToken: d.authToken || cfg.authToken || generateToken(), authTokenEdited: true }); return; }
-              if (!cfg.authEnabled && !d.authToken) { setDraft({ authOn: false, authToken: '', authTokenEdited: false }); return; }
-              setDraft({ authOn: false, authToken: '', authTokenEdited: true });
+              if (!cfg.authEnabled) { setDraft({ authOn: false, authTokenEdited: false }); return; }
+              setDraft({ authOn: false });
             },
           }),
         }),
