@@ -28,7 +28,7 @@ const state = {
   endpoint: `http://127.0.0.1:8090/mcp`,
   startedAt,
   config: {
-    allowedModels: [], allowPresetOverride: true, preset: 'standard', defaultDetail: 'summary',
+    allowedModels: [], defaultDetail: 'summary',
     authEnabled: false, workspaceRoots: undefined,
   },
   connections: DEFAULT_CONNS(),
@@ -195,16 +195,16 @@ const server = createServer(async (req, res) => {
         return json(res, 200, snapshot())
       }
       if (method === 'models') {
-        // 模型目录(选择器数据源), 与 collectModelCatalog 输出同形
+        // 模型目录(添加模型面板的数据源), 与 collectModelCatalog 输出同形; 模型给足一打以目检搜索/上限
+        const many = Array.from({ length: 12 }, (_, i) => ({ id: 'm' + (i + 1), name: 'Model ' + 'ABCDEFGHIJKL'[i] }))
         return json(res, 200, {
           source: 'mock',
           default: { provider: 'fake-prov', model: 'm1' },
-          routableProviders: ['fake-prov'],
-          providers: [{
-            id: 'fake-prov',
-            name: 'Fake Provider',
-            models: [{ id: 'm1', name: 'Model One' }, { id: 'm2', name: 'Model Two' }],
-          }],
+          routableProviders: ['fake-prov', 'other-prov'],
+          providers: [
+            { id: 'fake-prov', name: 'Fake Provider', models: many },
+            { id: 'other-prov', name: 'Other Provider', models: [{ id: 'x1', name: 'Xray One' }] },
+          ],
         })
       }
       if (method === 'config-update') {
@@ -216,8 +216,7 @@ const server = createServer(async (req, res) => {
           state.config = JSON.parse(JSON.stringify(initialConfig))
         } else if (payload.values && typeof payload.values === 'object') {
           Object.assign(state.config, payload.values)
-          // 与后端 statusSnapshot 的派生字段保持一致
-          state.config.queuePersist = Boolean(payload.values.queuePersistPath)
+          // 与后端 statusSnapshot 的派生字段保持一致(authToken 只写: 空串 = 清除)
           state.config.authEnabled = Boolean(payload.values.authToken)
         } else {
           return json(res, 400, { error: 'values 必须是对象' })

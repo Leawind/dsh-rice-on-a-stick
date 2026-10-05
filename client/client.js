@@ -61,34 +61,31 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   }
 
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
-  // status 生效值 → 草稿初值; 占位语义: authToken 恒不回填, 空 = 不改动
+  // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回填。
+  // 语义归一: 未碰字段 = 不提交(保持现状); 碰过字段 = 提交框内最终值, 留空 = 清除——
+  // "清除"按钮与手动清空输入框产生完全相同的草稿状态, 保存行为一致。
   function draftFromStatus(st) {
     const c = (st && st.config) || {};
     const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
     return {
-      limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没勾"的中间态, 保存时校验
+      limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没加"的中间态, 保存时校验
       allowedModels: allowed,
-      allowPresetOverride: c.allowPresetOverride !== false,
-      preset: typeof c.preset === 'string' ? c.preset : '',
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
-      authToken: '',        // 只写字段: 恒不回填, 空 = 不改动
-      authTokenClear: false, // true = 保存时显式清空已配置的 Token
+      authToken: '',        // 只写字段: 恒不回填
+      authTokenEdited: false, // 碰过输入框(含点"清除")才提交该字段
     };
   }
 
   // 草稿 → config-update 载荷; 非法值抛 Error(中文报因, 只展示不动后端)
   function collectValues(d) {
     if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
-      throw new Error('模型限制: 已开启但未勾选任何模型, 请至少勾选一个, 或关闭限制');
+      throw new Error('模型限制: 已开启但清单为空, 请至少添加一个模型, 或关闭限制');
     }
     const values = {
       allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
-      allowPresetOverride: Boolean(d.allowPresetOverride),
-      preset: String(d.preset ?? ''),
       defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
     };
-    if (d.authToken) values.authToken = String(d.authToken);
-    else if (d.authTokenClear) values.authToken = '';
+    if (d.authTokenEdited) values.authToken = String(d.authToken ?? '');
     return values;
   }
 
@@ -100,11 +97,12 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     return false;
   }
 
-  // 脏检查: 逐字段对比草稿与基准(authToken 只写字段: 非空/勾选清除即算改动); 返回脏字段数
+  // 脏检查: authToken 的"框内有值"与"碰过框"合起来算一项, 其余逐字段对比; 返回脏字段数
   function countDirty(draft, base) {
     let n = 0;
+    if (draft.authToken !== '' || draft.authTokenEdited !== base.authTokenEdited) n++;
     Object.keys(draft).forEach(function (k) {
-      if (k === 'authToken' || k === 'authTokenClear') { if (draft[k]) n++; return; }
+      if (k === 'authToken' || k === 'authTokenEdited') return;
       if (!sameVal(draft[k], base[k])) n++;
     });
     return n;
@@ -149,7 +147,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-label{font-size:13px;line-height:20px;font-weight:500;}',
     '.dcs-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-control{flex:none;display:flex;align-items:center;}',
-    '.dcs-inline{display:flex;align-items:center;gap:8px;}',
     // 输入(官方 Input: 32px 高/0.5px border-l4/radius-md/焦点边框变品牌蓝)
     '.dcs-input{box-sizing:border-box;width:300px;max-width:100%;height:32px;padding:0 8px;font-family:inherit;font-size:14px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);outline:none;transition:border-color .1s ease;}',
     '.dcs-input:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
@@ -163,22 +160,28 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-switch[data-on="1"]::after{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground,#fff);}',
     '.dcs-switch:disabled{opacity:.4;cursor:default;}',
     '.dcs-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;}',
-    '.dcs-state{font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);}',
-    // 模型限制勾选清单
-    '.dcs-listwrap{padding:0 2px 12px;}',
-    '.dcs-list{display:flex;flex-direction:column;max-height:200px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
-    '.dcs-check{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer;}',
-    '.dcs-check input{accent-color:var(--dsw-alias-state-business-primary,#4176e6);cursor:pointer;margin:0;flex:none;}',
-    '.dcs-checkname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    // 模型限制: 已选清单 + 添加面板(开关右侧不放文字, 状态由下方内容表达, 布局不随文案跳动)
+    '.dcs-listwrap{padding:0 2px 12px;display:flex;flex-direction:column;gap:8px;}',
+    '.dcs-list{display:flex;flex-direction:column;max-height:220px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
+    '.dcs-chosen{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;font-size:13px;}',
+    '.dcs-chosenname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);margin-left:8px;}',
+    '.dcs-x{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:14px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
+    '.dcs-x:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-state-error-primary,#ec1313);}',
+    '.dcs-x:disabled{opacity:.4;cursor:default;}',
+    '.dcs-addrow{display:flex;align-items:center;gap:8px;}',
+    '.dcs-addrow .dcs-input{flex:1;width:auto;min-width:0;}',
+    '.dcs-cand{display:flex;align-items:center;gap:8px;width:100%;padding:5px 2px;border:none;background:transparent;font-family:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--dsw-alias-label-primary,#0f1115);border-radius:6px;transition:background .1s ease;}',
+    '.dcs-cand:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
+    '.dcs-cand:disabled{opacity:.4;cursor:default;}',
+    '.dcs-candname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
+    // Auth Token 行(输入 + 清除; 清除与手动清空同状态)
+    '.dcs-tokenrow{display:flex;align-items:center;gap:8px;}',
     // 保存栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
     '.dcs-savenote{flex:1;min-width:200px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-savebtns{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
     '.dcs-dirty{font-size:12px;font-weight:500;color:var(--dsw-alias-state-warn-label,#dd8629);}',
-    '.dcs-link{background:none;border:none;padding:0;font-family:inherit;font-size:12px;cursor:pointer;color:var(--dsw-alias-state-warn-label,#dd8629);}',
-    '.dcs-link:hover:enabled{opacity:.8;}',
-    '.dcs-link:disabled{opacity:.4;cursor:default;}',
     // 连接列表
     '.dcs-sechead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding-bottom:4px;}',
     '.dcs-sectitle{font-size:13px;font-weight:600;}',
@@ -232,7 +235,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。未脏时跟随轮询刷新, 脏后不再覆盖。
     const [form, setForm] = React.useState(null);
     const [cfgError, setCfgError] = React.useState('');
-    // 模型目录(模型限制勾选清单的数据源): null = 未加载, false = 加载失败
+    // 模型限制的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
+    const [adding, setAdding] = React.useState(null);
+    // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
     const [cat, setCat] = React.useState(null);
     // config-update 成功后置位: 下一次 status 到达无条件重置草稿(以服务端生效值为准)
     const rebaseRef = React.useRef(false);
@@ -265,16 +270,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       };
     }, [refresh]);
 
-    // 模型限制开启时才需要目录: 展开时惰性拉一次
-    const limitOn = form !== null && form.draft.limitModels;
+    // 添加模型面板打开时才需要目录: 惰性拉一次
     React.useEffect(function () {
-      if (!limitOn || cat !== null) return;
+      if (adding === null || cat !== null) return;
       let alive = true;
       rpc('models')
         .then(function (m) { if (alive) setCat(m && Array.isArray(m.providers) ? m : false); })
         .catch(function () { if (alive) setCat(false); });
       return function () { alive = false; };
-    }, [limitOn, cat]);
+    }, [adding, cat]);
 
     function toggleServer() {
       if (!state || busy) return;
@@ -354,7 +358,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const d = form !== null ? form.draft : null;
     const dirtyCount = form !== null ? countDirty(form.draft, form.base) : 0;
 
-    // 模型限制清单勾选项: 目录全量 + 草稿里已勾但目录没有的条目(防静默丢失)
+    // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
     const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
     const catalogPairs = [];
     catProviders.forEach(function (p) {
@@ -362,12 +366,17 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         catalogPairs.push({ pair: p.id + '/' + m.id, name: m.name && m.name !== m.id ? m.name : '' });
       });
     });
-    const listEntries = d
-      ? catalogPairs.concat(
-          d.allowedModels
-            .filter(function (pair) { return !catalogPairs.some(function (e) { return e.pair === pair; }); })
-            .map(function (pair) { return { pair: pair, name: '' }; }))
-      : [];
+    const nameOf = function (pair) {
+      const hit = catalogPairs.find(function (e) { return e.pair === pair; });
+      return hit ? hit.name : '';
+    };
+    // 添加面板候选项: 目录全量 - 已选, 按关键字过滤(pair/展示名不区分大小写子串); 无关键字时也列出(上限 50, 提示继续过滤)
+    const chosenSet = d ? d.allowedModels : [];
+    const q = adding !== null ? adding.trim().toLowerCase() : '';
+    const candidates = adding === null ? [] : catalogPairs
+      .filter(function (e) { return chosenSet.indexOf(e.pair) === -1; })
+      .filter(function (e) { return !q || e.pair.toLowerCase().includes(q) || e.name.toLowerCase().includes(q); });
+    const CAND_CAP = 50;
 
     return React.createElement('div', { className: 'dcs-root' },
       React.createElement('style', null, PANEL_CSS),
@@ -411,60 +420,68 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         React.createElement(Row, {
           label: '模型限制',
           hint: '本服务无默认模型，由调用方每次显式指定；开启后仅清单内的模型可用',
-          control: React.createElement('span', { className: 'dcs-inline' },
-            React.createElement(Switch, {
-              checked: d.limitModels,
-              disabled: busy,
-              onChange: function (v) { setDraft({ limitModels: v }); if (v) setCat(null); },
-            }),
-            React.createElement('span', { className: 'dcs-state' }, d.limitModels ? '限制 ' + d.allowedModels.length + ' 个' : '不限制'),
-          ),
+          control: React.createElement(Switch, {
+            checked: d.limitModels,
+            disabled: busy,
+            onChange: function (v) { setDraft({ limitModels: v }); },
+          }),
         }),
         d.limitModels
           ? React.createElement('div', { className: 'dcs-listwrap' },
-              cat === null
-                ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录加载中…')
-                : listEntries.length === 0
-                  ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录为空或不可用，无法勾选——请稍后关闭再开启限制，或编辑配置文件。')
-                  : React.createElement('div', { className: 'dcs-list' },
-                      listEntries.map(function (e) {
-                        const checked = d.allowedModels.indexOf(e.pair) !== -1;
-                        return React.createElement('label', { key: e.pair, className: 'dcs-check' },
-                          React.createElement('input', {
-                            type: 'checkbox',
-                            checked: checked,
-                            disabled: busy,
-                            onChange: function (ev) {
-                              setDraft({ allowedModels: ev.target.checked ? d.allowedModels.concat([e.pair]) : d.allowedModels.filter(function (x) { return x !== e.pair; }) });
-                            },
-                          }),
-                          e.pair,
-                          e.name ? React.createElement('span', { className: 'dcs-checkname' }, e.name) : null,
-                        );
-                      })),
+              // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
+              d.allowedModels.length === 0
+                ? React.createElement('div', { className: 'dcs-listmsg' }, '清单为空——调用方将无法新建任何会话，请添加模型或关闭限制。')
+                : React.createElement('div', { className: 'dcs-list' },
+                    d.allowedModels.map(function (pair) {
+                      const nm = nameOf(pair);
+                      return React.createElement('div', { key: pair, className: 'dcs-chosen' },
+                        React.createElement('span', null, pair,
+                          nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
+                        React.createElement('button', {
+                          type: 'button', className: 'dcs-x', title: '移除 ' + pair, disabled: busy,
+                          onClick: function () { setDraft({ allowedModels: d.allowedModels.filter(function (x) { return x !== pair; }) }); },
+                        }, '✕'),
+                      );
+                    })),
+              // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
+              adding === null
+                ? React.createElement('div', null,
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', disabled: busy, onClick: function () { setAdding(''); } }, '添加模型…'))
+                : React.createElement('div', { className: 'dcs-addrow' },
+                    React.createElement('input', {
+                      className: 'dcs-input',
+                      type: 'text',
+                      value: adding,
+                      placeholder: '输入关键字过滤 provider / 模型 / 名称',
+                      spellCheck: false,
+                      disabled: busy,
+                      onChange: function (e) { setAdding(e.target.value); },
+                    }),
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, '完成'),
+                  ),
+              adding !== null
+                ? (cat === null
+                    ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录加载中…')
+                    : cat === false
+                      ? React.createElement('div', { className: 'dcs-listmsg' }, '模型目录不可用（宿主未提供），请稍后重试或编辑配置文件。')
+                      : React.createElement('div', { className: 'dcs-list' },
+                          candidates.length === 0
+                            ? React.createElement('div', { className: 'dcs-listmsg' }, '没有匹配的候选模型。')
+                            : candidates.slice(0, CAND_CAP).map(function (e) {
+                                return React.createElement('button', {
+                                  key: e.pair, type: 'button', className: 'dcs-cand', disabled: busy,
+                                  onClick: function () { setDraft({ allowedModels: d.allowedModels.concat([e.pair]) }); },
+                                },
+                                  e.pair,
+                                  e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
+                                );
+                              }),
+                          candidates.length > CAND_CAP
+                            ? React.createElement('div', { className: 'dcs-listmsg' }, '共 ' + candidates.length + ' 个匹配，仅显示前 ' + CAND_CAP + ' 个——请继续输入关键字缩小范围。')
+                            : null))
+                : null,
             )
           : null,
-        React.createElement(Row, {
-          label: 'Preset',
-          hint: '新建会话未指定时挂载的 preset；留空 = 部署默认',
-          control: React.createElement('input', {
-            className: 'dcs-input',
-            type: 'text',
-            value: d.preset,
-            placeholder: '留空 = 部署默认',
-            spellCheck: false,
-            disabled: busy,
-            onChange: function (e) { setDraft({ preset: e.target.value }); },
-          }),
-        }),
-        React.createElement(Row, {
-          label: 'Preset 覆盖',
-          hint: '调用方新建会话时可否指定其他 preset',
-          control: React.createElement('span', { className: 'dcs-inline' },
-            React.createElement(Switch, { checked: d.allowPresetOverride, disabled: busy, onChange: function (v) { setDraft({ allowPresetOverride: v }); } }),
-            React.createElement('span', { className: 'dcs-state' }, d.allowPresetOverride ? '允许' : '锁死'),
-          ),
-        }),
         React.createElement(Row, {
           label: '默认详略',
           hint: '返回给调用方的结果详略；单次调用可按次覆盖',
@@ -479,28 +496,27 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             React.createElement('option', { value: 'full' }, '完整（full）')),
         }),
         (function () {
-          const control = d.authTokenClear
-            ? React.createElement('span', { className: 'dcs-inline' },
-                React.createElement('span', { className: 'dcs-state dcs-warn' }, '保存时清除已配置的 Token'),
-                React.createElement('button', { type: 'button', className: 'dcs-link', disabled: busy, onClick: function () { setDraft({ authTokenClear: false }); } }, '撤销'),
-              )
-            : React.createElement('span', { className: 'dcs-inline' },
-                React.createElement('input', {
-                  className: 'dcs-input',
-                  type: 'password',
-                  value: d.authToken,
-                  placeholder: cfg.authEnabled ? '已配置——输入新值替换' : '未配置',
-                  spellCheck: false,
-                  disabled: busy,
-                  onChange: function (e) { setDraft({ authToken: e.target.value }); },
-                }),
-                cfg.authEnabled
-                  ? React.createElement('button', { type: 'button', className: 'dcs-link', disabled: busy, onClick: function () { setDraft({ authTokenClear: true, authToken: '' }); } }, '清除')
-                  : null,
-              );
+          const edited = d.authTokenEdited;
+          const control = React.createElement('span', { className: 'dcs-tokenrow' },
+            React.createElement('input', {
+              className: 'dcs-input',
+              type: 'password',
+              value: d.authToken,
+              placeholder: cfg.authEnabled ? '已配置——清空并保存即清除' : '未配置',
+              spellCheck: false,
+              disabled: busy,
+              onChange: function (e) { setDraft({ authToken: e.target.value, authTokenEdited: true }); },
+            }),
+            cfg.authEnabled
+              ? React.createElement('button', {
+                  type: 'button', className: 'dcs-btn', disabled: busy,
+                  onClick: function () { setDraft({ authToken: '', authTokenEdited: true }); },
+                }, '清除')
+              : null,
+          );
           return React.createElement(Row, {
             label: 'Auth Token',
-            hint: '只写：留空 = 不改动；清除并保存 = 撤销认证',
+            hint: '只写：未改动不提交；输入即覆盖，改动后留空（或点清除）保存 = 撤销认证',
             control: control,
           });
         })(),
