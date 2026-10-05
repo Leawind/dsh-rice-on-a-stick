@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // 草稿 → config-update 载荷; 非法值抛 Error(中文报因, 只展示不动后端)
   function collectValues(d) {
     if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
-      throw new Error('模型限制: 已开启但清单为空, 请至少添加一个模型, 或关闭限制');
+      throw new Error('模型白名单: 已开启但清单为空, 请至少添加一个模型, 或关闭限制');
     }
     const values = {
       allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
@@ -160,7 +160,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-switch[data-on="1"]::after{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground,#fff);}',
     '.dcs-switch:disabled{opacity:.4;cursor:default;}',
     '.dcs-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;}',
-    // 模型限制: 已选清单 + 添加面板(开关右侧不放文字, 状态由下方内容表达, 布局不随文案跳动)
+    // 模型白名单: 已选清单 + 添加面板(开关右侧不放文字, 状态由下方内容表达, 布局不随文案跳动)
     '.dcs-listwrap{padding:0 2px 12px;display:flex;flex-direction:column;gap:8px;}',
     '.dcs-list{display:flex;flex-direction:column;max-height:220px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
     '.dcs-chosen{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;font-size:13px;}',
@@ -235,7 +235,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。未脏时跟随轮询刷新, 脏后不再覆盖。
     const [form, setForm] = React.useState(null);
     const [cfgError, setCfgError] = React.useState('');
-    // 模型限制的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
+    // 模型白名单的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
     const [adding, setAdding] = React.useState(null);
     // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
     const [cat, setCat] = React.useState(null);
@@ -418,8 +418,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       // 设置表单(常显): 草稿-保存, 写入经宿主 configEditor 落盘 + 热重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
-          label: '模型限制',
-          hint: '本服务无默认模型，由调用方每次显式指定；开启后仅清单内的模型可用',
+          label: '模型白名单',
+          hint: '本服务无默认模型，由调用方每次显式指定；开启后仅白名单内的模型可用',
           control: React.createElement(Switch, {
             checked: d.limitModels,
             disabled: busy,

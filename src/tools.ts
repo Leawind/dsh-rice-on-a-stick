@@ -150,7 +150,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       'dsh_status',
       {
         title: 'Plugin status',
-        description: '查看插件部署状态(只读): 版本/监听状态/uptime/配置摘要(模型允许清单/白名单/结果形态)/订阅观测/连接的 MCP 客户端。Web 设置面板同源数据。',
+        description: '查看插件部署状态(只读): 版本/监听状态/uptime/配置摘要(模型白名单/目录白名单/结果形态)/订阅观测/连接的 MCP 客户端。Web 设置面板同源数据。',
         inputSchema: {},
         annotations: { readOnlyHint: true },
       },

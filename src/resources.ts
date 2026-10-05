@@ -186,7 +186,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readStatus(uri, {}))
   mcp.registerResource('status-config', resUri.statusConfig, {
-    title: 'Plugin config', description: '部署配置摘要(模型允许清单/白名单/结果形态; 低频变化, 适合缓存)',
+    title: 'Plugin config', description: '部署配置摘要(模型白名单/目录白名单/结果形态; 低频变化, 适合缓存)',
     mimeType: 'application/json', annotations: ann.doc,
   }, (uri) => readStatusField('config')(uri, {}))
   mcp.registerResource('status-stats', resUri.statusStats, {

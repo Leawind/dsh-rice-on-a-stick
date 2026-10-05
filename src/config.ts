@@ -22,9 +22,9 @@ export interface Config {
   port?: number
   host?: string
   /**
-   * 允许调用方选择的模型清单(provider/model 形式; 默认空 = 不限制)。
-   * 非空时是一份允许清单: session_create / session_select_model 指定的模型不在清单内, 请求会被明确拒绝。
-   * 模型本身由调用方显式指定(插件不做任何默认回填), 清单只约束"能选哪些"。
+   * 模型白名单(provider/model 形式; 默认空 = 不限制)。
+   * 非空时: session_create / session_select_model 指定的模型不在名单内, 请求会被明确拒绝。
+   * 模型本身由调用方显式指定(插件不做任何默认回填), 白名单只约束"能选哪些"。
    */
   allowedModels?: string[]
   /** 结果默认详略级别(默认 summary; 单次调用可用 detail 参数覆盖) */
@@ -77,7 +77,7 @@ export const Config = Schema.object({
   http: Schema.boolean().default(true).description('是否启动 HTTP MCP server(显式 false 时不监听, 仅保留生命周期钩子)'),
   port: Schema.number().default(8090).description('MCP 监听端口'),
   host: Schema.string().default('127.0.0.1').description('MCP 监听地址(安全默认仅本机; 暴露公网/局域网前必须自行加认证+反代+TLS)'),
-  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('允许调用方选择的模型清单(provider/model 形式; 空 = 不限制)。非空时: session_create/session_select_model 指定的模型不在清单内, 请求会被明确拒绝'),
+  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).description('模型白名单(provider/model 形式; 空 = 不限制)。非空时: session_create/session_select_model 指定的模型不在名单内, 请求会被明确拒绝'),
   defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).description('结果默认详略级别(单次调用可用 detail 参数覆盖)'),
   authToken: Schema.string().default(DEFAULTS.authToken).role('secret').description('Bearer token 认证(设置后所有请求必须带 Authorization: Bearer <token>; 空 = 关闭认证)'),
   workspaceRoots: Schema.array(Schema.string()).default(DEFAULTS.workspaceRoots).description('cwd 白名单(设置后会话只能在列出的目录下干活, 同时约束会话续接与内容读取)'),
