@@ -12,6 +12,14 @@ import Schema from '@deepseek-ai/schemastery'
 /** Cordis 插件名(= 包名, 也是 userMessage.source.plugin 的取值) */
 export const PLUGIN_NAME = 'dsh-carrot-on-a-stick'
 
+/**
+ * authToken 的展示掩码(面板与 dsh_status 只透露这些): 长度足够时取首尾各 4 字符,
+ * 太短的令牌没有辨识价值一律 '••••••'。完整值只在生成/输入当下可见, 永不回显。
+ */
+export function authTokenHint(token: string): string {
+  return token.length >= 12 ? `${token.slice(0, 4)}…${token.slice(-4)}` : '••••••'
+}
+
 /** 插件版本(MCP server 握手时上报; 发布版本号发布时再定, 开发期间保持 0.1.0) */
 export const PLUGIN_VERSION = '0.1.0'
 

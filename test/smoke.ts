@@ -316,6 +316,11 @@ try {
     checks['安全: 伪造 Host 403(DNS rebinding 防线)'] = badHost.status === 403
     const okAuth = await phase.call('echo', { text: 'with-token' })
     checks['安全: 正确 Bearer 放行'] = okAuth.status === 200 && okAuth.text.includes('with-token')
+    // 令牌掩码: status 快照只透首尾 4 字符, 不回显完整值
+    const stAuth = await phase.gui('status')
+    const stAuthCfg = (stAuth.status === 200 ? JSON.parse(stAuth.body) : {}).config ?? {}
+    checks['安全: status 只透令牌掩码(首尾各4字符)'] = stAuthCfg.authEnabled === true
+      && stAuthCfg.authTokenHint === 'secr…oken' && !stAuth.body.includes('secret-token')
     // TTL GC: 初始化后闲置, 400ms TTL(sweeper 间隔 200ms)到期被关; 重新 initialize 恢复
     const stale = await phase.callAfter(1200, 'echo', { text: 'after-ttl' })
     checks['传输 TTL: 空闲超时会话被关(旧 sid 404)'] = stale.status === 404

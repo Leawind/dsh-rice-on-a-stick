@@ -11,7 +11,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import { PLUGIN_VERSION } from './config.js'
+import { PLUGIN_VERSION, authTokenHint } from './config.js'
 import { state } from './state.js'
 import type { ModelSelection, ModelSelectionOverride } from './types.js'
 import { canonicalCwd, isWithin, sessionCwdRefusal } from './paths.js'
@@ -409,6 +409,8 @@ export function basicStatusSnapshot(): Record<string, unknown> {
       allowedModels: state.config.allowedModels,
       defaultDetail: state.config.defaultDetail,
       workspaceRoots: state.config.workspaceRoots,
+      authEnabled: state.config.authToken !== '',
+      ...(state.config.authToken !== '' ? { authTokenHint: authTokenHint(state.config.authToken) } : {}),
     },
   }
 }

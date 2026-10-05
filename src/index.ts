@@ -36,7 +36,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { DEFAULTS, PLUGIN_NAME, PLUGIN_VERSION, type Config } from './config.js'
+import { DEFAULTS, PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, type Config } from './config.js'
 import { state } from './state.js'
 import { canonicalCwd } from './paths.js'
 import { registerTools } from './tools.js'
@@ -340,6 +340,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         defaultDetail: state.config.defaultDetail,
         workspaceRoots: state.config.workspaceRoots,
         authEnabled: state.config.authToken !== '',
+        authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
       },
       stats: {
         connections: connections.size,

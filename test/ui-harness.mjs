@@ -216,8 +216,13 @@ const server = createServer(async (req, res) => {
           state.config = JSON.parse(JSON.stringify(initialConfig))
         } else if (payload.values && typeof payload.values === 'object') {
           Object.assign(state.config, payload.values)
-          // 与后端 statusSnapshot 的派生字段保持一致(authToken 只写: 空串 = 清除)
+          // 与后端 statusSnapshot 的派生字段保持一致(authToken 只写: 空串 = 清除; 掩码 = 首尾各4字符)
           state.config.authEnabled = Boolean(payload.values.authToken)
+          state.config.authTokenHint = payload.values.authToken
+            ? (payload.values.authToken.length >= 12
+                ? payload.values.authToken.slice(0, 4) + '…' + payload.values.authToken.slice(-4)
+                : '••••••')
+            : undefined
         } else {
           return json(res, 400, { error: 'values 必须是对象' })
         }
