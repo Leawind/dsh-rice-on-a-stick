@@ -90,8 +90,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
   // ── 多语言: 跟随宿主语言设置(dsh 语言行, 偏好存宿主 user-settings 的 locale 命名空间) ──
   // 宿主客户端上下文提供 locale 服务(dsh-client-locale): register 字典 + bind 翻译函数 +
-  // subscribe/getSnapshot 快照订阅。apply 里软获取: 服务缺席(极老宿主/离线桩)时退化
-  // 中文-only 的本地翻译。zh 是键集来源, en 与 zh 键一一对应。
+  // subscribe/getSnapshot 快照订阅, 经模块级 inject 声明后使用。zh 是键集来源, en 与 zh 键一一对应。
   var NS_I18N = 'dsh-carrot-on-a-stick';
   var DICT = {
     zh: {
@@ -193,7 +192,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       return name in params ? String(params[name]) : m;
     });
   }
-  // 翻译函数: apply 里拿到宿主 locale 服务后替换为 locale.bind(NS); 缺席时本地中文回退
+  // 翻译函数: apply 里替换为宿主 locale.bind(NS); 下面是同名形状的本地中文回退(服务可用前的极短窗口)
   var t = function (key, params) {
     return fillParams((DICT.zh[key] !== undefined ? DICT.zh[key] : key), params);
   };
@@ -654,28 +653,23 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   }
 
   module.exports = {
-    inject: ['slots'],
+    // locale 必须显式声明 inject: 真机 cordis 上下文对未声明服务的属性访问直接抛错
+    // (cannot get property ... without inject), 没有软获取一说; 能跑 dshmarket 的宿主必有 locale。
+    inject: ['slots', 'locale'],
     async apply(ctx) {
-      // slots/locale 服务可能晚于 apply 就绪(与官方设置区插件同型等待姿势)。
-      // locale 缺席不算致命: 退化本地中文回退, 面板照常工作(只是不跟随宿主语言切换)。
+      // slots 服务可能晚于 apply 就绪(与官方设置区插件同型等待姿势)
       let slots = ctx.slots || ctx.get('slots');
-      let locale = ctx.locale || ctx.get('locale');
-      for (let i = 0; (slots === undefined || locale === undefined) && i < 80; i++) {
+      for (let i = 0; slots === undefined && i < 80; i++) {
         await new Promise(function (resolve) { window.setTimeout(resolve, 500); });
-        slots = slots !== undefined ? slots : (ctx.slots || ctx.get('slots'));
-        locale = locale !== undefined ? locale : (ctx.locale || ctx.get('locale'));
+        slots = ctx.slots || ctx.get('slots');
       }
       if (slots === undefined) {
         console.warn('[dsh-carrot-on-a-stick] slots 服务 40s 内未就绪, 设置面板未注册');
         return;
       }
-      if (locale !== undefined) {
-        LOCALE = locale;
-        ctx.effect(function () { return locale.register(NS_I18N, DICT); }, NS_I18N + ': dictionaries');
-        t = locale.bind(NS_I18N);
-      } else {
-        console.warn('[dsh-carrot-on-a-stick] locale 服务不可用, 面板固定使用中文');
-      }
+      LOCALE = ctx.locale;
+      ctx.effect(function () { return ctx.locale.register(NS_I18N, DICT); }, NS_I18N + ': dictionaries');
+      t = ctx.locale.bind(NS_I18N);
       slots.inject('settings.section', function () {
         return slots.register(
           // 侧栏宽度有限, 长名会被截断; 全名保留在面板标题里。

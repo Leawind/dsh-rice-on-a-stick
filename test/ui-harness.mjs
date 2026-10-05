@@ -182,6 +182,9 @@ window.__ModuleLoader__ = {
       })();
       window.__localeSvc = localeSvc;
       var ctx = {
+        // 与真机一致: inject 声明过的服务以 ctx 属性直接可取(slots/locale)
+        slots: slots,
+        locale: localeSvc,
         get: function (name) { return name === 'slots' ? slots : name === 'locale' ? localeSvc : undefined; },
         // cordis 上下文的 effect: 立即执行注册体并回传 disposer(面板用它登记字典)
         effect: function (fn) {
