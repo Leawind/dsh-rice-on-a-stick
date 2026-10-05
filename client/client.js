@@ -62,17 +62,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
   // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回显。
-  // 语义: 开关开 = 启用认证(提交非空令牌, 开启时无令牌则自动生成); 开关关 = 撤销认证(提交空串)。
+  // 语义: 所有改动实时保存(改动即 config-update, 无保存按钮); 草稿只是提交在途时的乐观显示。
   function draftFromStatus(st) {
     const c = (st && st.config) || {};
     const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
     return {
-      limitModels: allowed.length > 0, // 开关与清单分开存: 允许"开了但还没加"的中间态, 保存时校验
       allowedModels: allowed,
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
       authOn: c.authEnabled === true,
-      authToken: '',        // 待提交的令牌(只写)
-      authTokenEdited: false, // 碰过令牌才提交该字段; 开关相对生效值变动另行触发提交
+      authToken: '',        // 在途令牌(只写): 生成/开启的乐观值, rebase 后清空
     };
   }
 
@@ -88,42 +86,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // 令牌掩码: 首尾各 4 字符, 中间固定三点; 太短没有辨识价值一律定长圆点
   function maskOf(token) {
     return token.length >= 12 ? token.slice(0, 4) + '...' + token.slice(-4) : '••••••';
-  }
-
-  // 草稿 → config-update 载荷; 非法值抛 Error(中文报因, 只展示不动后端)
-  // 令牌提交条件: 碰过令牌或开关相对生效值变动(与 countDirty 同判据, 脏则必提交);
-  // 开着提交草稿值(空则沿用服务端持久化值), 关着提交空串撤销认证。
-  function collectValues(d, base, cfg) {
-    if (d.limitModels && (!Array.isArray(d.allowedModels) || d.allowedModels.length === 0)) {
-      throw new Error('模型白名单: 已开启但清单为空, 请至少添加一个模型, 或关闭限制');
-    }
-    const values = {
-      allowedModels: d.limitModels ? (d.allowedModels || []).slice() : [],
-      defaultDetail: d.defaultDetail === 'normal' || d.defaultDetail === 'full' ? d.defaultDetail : 'summary',
-    };
-    if (d.authTokenEdited || d.authOn !== (base && base.authOn)) {
-      values.authToken = d.authOn ? (d.authToken || (cfg && cfg.authToken) || '') : '';
-    }
-    return values;
-  }
-
-  function sameVal(a, b) {
-    if (a === b) return true;
-    if (Array.isArray(a) && Array.isArray(b)) {
-      return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
-    }
-    return false;
-  }
-
-  // 脏检查: 令牌的"开关变动或碰过"合起来算一项, 其余逐字段对比; 返回脏字段数
-  function countDirty(draft, base) {
-    let n = 0;
-    if (draft.authTokenEdited || draft.authOn !== base.authOn) n++;
-    Object.keys(draft).forEach(function (k) {
-      if (k === 'authOn' || k === 'authToken' || k === 'authTokenEdited') return;
-      if (!sameVal(draft[k], base[k])) n++;
-    });
-    return n;
   }
 
   // ── 样式: 只引用宿主 --dsw-* token(var fallback 为亮色中性值, 宿主缺失时可读性兜底) ──
@@ -198,9 +160,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-tokenval{font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;line-height:18px;word-break:break-all;color:var(--dsw-alias-label-secondary,#61666b);}',
     // 保存栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
-    '.dcs-savenote{flex:1;min-width:200px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-savebtns{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
-    '.dcs-dirty{font-size:12px;font-weight:500;color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 连接列表
     '.dcs-sechead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding-bottom:4px;}',
     '.dcs-sectitle{font-size:13px;font-weight:600;}',
@@ -249,7 +209,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   function StatusPanel() {
     const [state, setState] = React.useState(null);
     const [error, setError] = React.useState('');
-    const [busy, setBusy] = React.useState(false);
+    const [busy, setBusyState] = React.useState(false);
+    // busy 的 ref 镜像: 轮询刷新回调里判断"提交在途则不吃掉乐观草稿"(闭包里读 state 会过期)
+    const busyRef = React.useRef(false);
+    function setBusy(v) { busyRef.current = v; setBusyState(v); }
     const [copied, setCopied] = React.useState(false);
     // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。未脏时跟随轮询刷新, 脏后不再覆盖。
     const [form, setForm] = React.useState(null);
@@ -269,12 +232,13 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         setError('');
         const force = rebaseRef.current;
         rebaseRef.current = false;
+        const fresh = draftFromStatus(s);
         setForm(function (prev) {
-          const fresh = draftFromStatus(s);
-          if (prev === null || force || countDirty(prev.draft, prev.base) === 0) {
+          // 实时保存下没有"未保存修改"; 只避让提交在途的乐观草稿(成功路径 force 无条件 rebase)
+          if (prev === null || force || !busyRef.current) {
             return { draft: fresh, base: fresh };
           }
-          return prev; // 用户正在编辑: 不让轮询吃掉未保存的修改
+          return prev;
         });
       }).catch(function (e) { setError(String((e && e.message) || e)); });
     }, []);
@@ -328,18 +292,23 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       });
     }
 
-    // 放弃修改: 草稿回到当前生效值(纯本地, 不发请求)
-    function discardDraft() {
-      if (state === null) return;
-      const fresh = draftFromStatus(state);
-      setForm({ draft: fresh, base: fresh });
-      setCfgError('');
+    // 变更即保存: 控件改动 = 乐观更新草稿 + 立即 config-update(宿主写盘热重载)。
+    // 提交失败显示在保存栏, 草稿随下次刷新回到服务端生效值。
+    // authToken 形参存在时一并提交该只写字段(开关/重新生成才有, 普通改动不回传令牌)。
+    function change(patch, authToken) {
+      if (!form) return;
+      const next = Object.assign({}, form.draft, patch);
+      setDraft(next);
+      const values = {
+        allowedModels: (next.allowedModels || []).slice(),
+        defaultDetail: next.defaultDetail,
+      };
+      if (arguments.length > 1) values.authToken = authToken;
+      submitConfig({ values: values });
     }
 
     // 保存/恢复默认共用: config-update → 以服务端值为准重置草稿 → 立即刷新 + 2.5s 后再刷(等重载稳定)。
-    // 保存不弹确认: 后果文案就写在保存栏; 恢复默认保留确认(波及表单外字段)。
     function submitConfig(payload) {
-      if (busy) return;
       setBusy(true);
       setCfgError('');
       rpc('config-update', payload)
@@ -347,17 +316,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           rebaseRef.current = true;
           return refresh();
         })
-        .catch(function (e) { setCfgError(String((e && e.message) || e)); })
+        .catch(function (e) {
+          setCfgError(String((e && e.message) || e));
+          rebaseRef.current = true; // 失败也放弃乐观草稿: 以服务端生效值为准
+          return refresh();
+        })
         .finally(function () {
           setBusy(false);
           window.setTimeout(function () { refresh(); }, 2500);
         });
-    }
-    function saveConfig() {
-      if (!form) return;
-      let values;
-      try { values = collectValues(form.draft, form.base, state.config); } catch (e) { setCfgError(String((e && e.message) || e)); return; }
-      submitConfig({ values: values });
     }
     function resetConfig() {
       if (!window.confirm('恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段），并热重载生效。确认？')) return;
@@ -376,7 +343,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const conns = state.connections || [];
     const httpOff = state.httpEnabled === false;
     const d = form !== null ? form.draft : null;
-    const dirtyCount = form !== null ? countDirty(form.draft, form.base) : 0;
 
     // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
     const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
@@ -417,35 +383,23 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
               : null),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
-      // 端点卡: URL + 复制, 及接入/认证等"不知道会出错"的信息
+      // 端点卡: 只有 URL + 复制
       React.createElement('div', { className: 'dcs-card' },
         React.createElement('div', { className: 'dcs-urlrow' },
           React.createElement('span', { className: 'dcs-url' }, state.endpoint),
           React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? '已复制' : '复制'),
         ),
-        React.createElement('div', { className: 'dcs-hint' }, '在任意 MCP 客户端中把此 URL 添加为 MCP 服务器'),
-        React.createElement('div', { className: 'dcs-hint' },
-          cfg.authEnabled ? '已启用 Bearer 认证：客户端连接需携带 Token' : '认证未启用：连接无需 Token'),
-        httpOff
-          ? React.createElement('div', { className: 'dcs-hint dcs-warn' }, 'HTTP 监听已在配置中关闭（http: false），需在 cordis.patch.yml 中启用')
-          : null,
       ),
-      // 设置表单(常显): 草稿-保存, 写入经宿主 configEditor 落盘 + 热重载
+      // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘 + 热重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
           label: '模型白名单',
-          hint: '本服务无默认模型，由调用方每次显式指定；开启后仅白名单内的模型可用',
-          control: React.createElement(Switch, {
-            checked: d.limitModels,
-            disabled: busy,
-            onChange: function (v) { setDraft({ limitModels: v }); },
-          }),
+          hint: '空清单 = 不限制；添加后仅清单内的模型可用。模型与 preset 均由调用方每次显式指定',
         }),
-        d.limitModels
-          ? React.createElement('div', { className: 'dcs-listwrap' },
+        React.createElement('div', { className: 'dcs-listwrap' },
               // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
               d.allowedModels.length === 0
-                ? React.createElement('div', { className: 'dcs-listmsg' }, '清单为空——调用方将无法新建任何会话，请添加模型或关闭限制。')
+                ? React.createElement('div', { className: 'dcs-listmsg' }, '清单为空——调用方可以指定任意模型。')
                 : React.createElement('div', { className: 'dcs-list' },
                     d.allowedModels.map(function (pair) {
                       const nm = nameOf(pair);
@@ -454,7 +408,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                           nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
                         React.createElement('button', {
                           type: 'button', className: 'dcs-x', title: '移除 ' + pair, disabled: busy,
-                          onClick: function () { setDraft({ allowedModels: d.allowedModels.filter(function (x) { return x !== pair; }) }); },
+                          onClick: function () { change({ allowedModels: d.allowedModels.filter(function (x) { return x !== pair; }) }); },
                         }, '✕'),
                       );
                     })),
@@ -485,7 +439,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                             : candidates.slice(0, CAND_CAP).map(function (e) {
                                 return React.createElement('button', {
                                   key: e.pair, type: 'button', className: 'dcs-cand', disabled: busy,
-                                  onClick: function () { setDraft({ allowedModels: d.allowedModels.concat([e.pair]) }); },
+                                  onClick: function () { change({ allowedModels: d.allowedModels.concat([e.pair]) }); },
                                 },
                                   e.pair,
                                   e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
@@ -495,8 +449,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                             ? React.createElement('div', { className: 'dcs-listmsg' }, '共 ' + candidates.length + ' 个匹配，仅显示前 ' + CAND_CAP + ' 个——请继续输入关键字缩小范围。')
                             : null))
                 : null,
-            )
-          : null,
+            ),
         React.createElement(Row, {
           label: '默认详略',
           hint: '返回给调用方的结果详略；单次调用可按次覆盖',
@@ -504,7 +457,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             className: 'dcs-input',
             value: d.defaultDetail,
             disabled: busy,
-            onChange: function (e) { setDraft({ defaultDetail: e.target.value }); },
+            onChange: function (e) { change({ defaultDetail: e.target.value }); },
           },
             React.createElement('option', { value: 'summary' }, '简要（summary）'),
             React.createElement('option', { value: 'normal' }, '标准（normal）'),
@@ -517,14 +470,14 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             checked: d.authOn,
             disabled: busy,
             onChange: function (v) {
-              // 开启: 服务端已启用且没有待提交令牌时只是回拨开关(令牌保持持久化值不动);
-              //   未启用时沿用待提交令牌 → 服务端持久化令牌 → 都没有(首次运行)才生成;
-              // 关闭: 只拨开关, 不清待提交令牌(未保存前开↔关令牌稳定); 服务端本就未启用时
-              //   回到干净草稿, 启用中则靠 authOn 偏离 base 在保存时提交空串撤销认证。
-              if (v && cfg.authEnabled && !d.authToken) { setDraft({ authOn: true, authToken: '', authTokenEdited: false }); return; }
-              if (v) { setDraft({ authOn: true, authToken: d.authToken || cfg.authToken || generateToken(), authTokenEdited: true }); return; }
-              if (!cfg.authEnabled) { setDraft({ authOn: false, authTokenEdited: false }); return; }
-              setDraft({ authOn: false });
+              // 开启: 沿用在途令牌 → 服务端持久化令牌 → 都没有才生成, 立即提交;
+              // 关闭: 提交空串撤销认证(服务端令牌即刻清除, 再开启会生成新令牌)。
+              if (v) {
+                const token = d.authToken || cfg.authToken || generateToken();
+                change({ authOn: true, authToken: token }, token);
+                return;
+              }
+              change({ authOn: false, authToken: '' }, '');
             },
           }),
         }),
@@ -533,7 +486,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
               React.createElement('div', { className: 'dcs-tokenrow' },
                 React.createElement('button', {
                   type: 'button', className: 'dcs-btn', disabled: busy,
-                  onClick: function () { setDraft({ authToken: generateToken(), authTokenEdited: true }); },
+                  onClick: function () { const t = generateToken(); change({ authToken: t }, t); },
                 }, '重新生成令牌'),
                 React.createElement('code', { className: 'dcs-tokenval' }, maskOf(d.authToken || cfg.authToken || '')),
                 React.createElement('button', {
@@ -551,17 +504,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
             )
           : null,
         React.createElement('div', { className: 'dcs-savebar' },
-          React.createElement('div', { className: 'dcs-savenote' },
-            '保存会写入配置并热重载：运行中的会话被中断，客户端重连即恢复',
-            cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
-          ),
+          cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
           React.createElement('div', { className: 'dcs-savebtns' },
-            dirtyCount > 0 ? React.createElement('span', { className: 'dcs-dirty' }, dirtyCount + ' 项未保存') : null,
-            dirtyCount > 0
-              ? React.createElement('button', { className: 'dcs-btn', onClick: discardDraft, disabled: busy }, '放弃修改')
-              : null,
             React.createElement('button', { className: 'dcs-btn', onClick: resetConfig, disabled: busy }, '恢复默认…'),
-            React.createElement('button', { className: 'dcs-btn dcs-btn-md dcs-btn-primary', onClick: saveConfig, disabled: busy || dirtyCount === 0 }, busy ? '保存中…' : '保存'),
           ),
         ),
       ) : null,
