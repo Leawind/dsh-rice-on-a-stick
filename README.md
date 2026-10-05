@@ -45,7 +45,6 @@ Resource-capable clients can read the same data without spending tokens, and sub
 | `dsh://sessions/{id}/history[/{before}]`      | conversation digest (paged)               |
 | `dsh://sessions/{id}/events[/{after}]`        | raw event stream (JSONL, paged)           |
 | `dsh://sessions/{id}/activity`                | live turn window                          |
-| `dsh://queue[/{taskId}]`                      | queue / task detail incl. the full result |
 
 `resources/subscribe` pushes task status transitions, turn-end history refreshes, and live activity over SSE — no polling. Setting `resourceFirst: true` in the config retires the nine read-only tools and returns results as resource references (for clients confirmed to support MCP resources; default `false` keeps tools and resources coexisting).
 
@@ -116,16 +115,18 @@ Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP 
 
 ## Web settings panel
 
-The bundle adds a **Settings → MCP Service** section to the dsh web UI: live status badge, the MCP endpoint (click or use the copy button), overview tiles (uptime / client connections / resource subscriptions), a config summary (model restrictions / preset / default detail, and security — unhardened items highlighted in amber), start/stop buttons (stop asks for confirmation), and the connected client list (cross-day connections show the date).
+The bundle adds a **Settings → MCP Service** section to the dsh web UI, in four blocks, styled directly with the host's global `--dsw-*` theme tokens (light/dark follows automatically):
 
-**Config editing** — "Edit config" expands a form for the common fields: model restrictions (a switch plus a checkbox allowlist; empty = callers may pick anything — the model itself is always explicit per call, the panel does not configure a default), preset, the preset-override toggle, default detail, queue capacity / agent pool cap / task timeout / idle reclamation (milliseconds, `0` semantics matching the config file), the queue persistence path, and a write-only auth token (left empty means unchanged; explicit clearing supported). Saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running tasks are interrupted, MCP clients disconnect (reconnect to recover), the queue is restored per its persistence setting, with a confirmation prompt beforehand; "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks too. Writes are pre-checked against a field allowlist plus type/lower-bound validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port, the queue encryption key) remain file-only in cordis.yml.
+-   **Status header** — live badge (running / stopped / listener off; hover for uptime) plus start/stop buttons. Stopping asks for confirmation — it cuts every connected MCP client. State polls every 10 seconds.
+-   **Endpoint card** — the MCP endpoint URL (monospace, one-click copy) plus the three things you must know to connect: how to hook it up (add the URL as an MCP server in any client), whether a Bearer token is required, and the directory-allowlist boundary (amber notice when unconfigured). With `http: false` it notes that the listener can only be re-enabled in cordis.yml.
+-   **Settings form** (always visible) — model restrictions (a switch plus a checkbox allowlist; empty = callers may pick anything — the model itself is always explicit per call, the panel does not configure a default), preset, the preset-override toggle, default detail, and a write-only auth token (left empty means unchanged; explicit clearing supported). A save bar appears once anything is edited: saving goes through the host configEditor into this plugin's profile entry and hot-reloads — same semantics as hand-editing the file: running turns are interrupted, MCP clients disconnect (reconnect to recover); the consequence is stated on the save bar rather than a confirmation dialog. "Restore defaults" removes the plugin's override row (including hand-edited non-form fields) and asks first. Writes are pre-checked against a field allowlist plus type validation, and the host write path validates against the `Config` schema again. Structural and security-boundary fields (directory allowlist, http port) remain file-only in cordis.yml.
+-   **Client connections** — the connected MCP client list (client / connected at / last activity / requests; hover for the transport session id).
 
 ## Known limitations
 
 -   Sessions created through the plugin follow the host/preset approval policy — in unattended use `ask`-style policies may pop a dialog or fail closed (the turn ends `blocked`, explained in the result error).
 -   `session_search` / `session_fork` / `session_archive` need the web profile's `sessionController` / `workspaceController`; deployments without them report the tool as unavailable.
 -   `dsh_list_tools` only lists the host-global registry; per-agent tool visibility needs a host-side API.
--   Without `queuePersistPath` the queue lives in memory and is lost on restart.
 
 ## Acknowledgements
 
