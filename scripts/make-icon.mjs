@@ -1,6 +1,6 @@
-// 生成"胡萝卜钓竿"图标：Minecraft 原版 carrot_on_a_stick 材质（16x16）整数放大 3x，
-// 贴在 64x64 圆角底板上 → assets/icon.svg + 多尺寸 PNG（零依赖，PNG 手工编码）
-// `node scripts/make-icon.mjs` 重新生成。
+// 生成"胡萝卜钓竿"图标：DeepSeek 蓝鲸（戴女仆发箍）被 MC 原版胡萝卜钓竿吸引
+// MC 材质 carrot_on_a_stick（16x16）逐像素转录；场景 32x32 逻辑格 2 倍放大到 64x64 圆角底板
+// 零依赖，PNG 手工编码；`node scripts/make-icon.mjs` 重新生成。
 import { deflateSync } from 'node:zlib'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -48,20 +48,59 @@ const SPRITE_PAL = {
   Q: '#af4900', // 萝卜描边
 }
 
+// ---- DeepSeek 蓝鲸（每行：[起始x, 结束x(含), 字符]，'.' 留空） ----
+const WHALE_ROWS = {
+  14: [[6, 6, 'S'], [10, 10, 'S'], [20, 20, 'U']],
+  15: [[7, 9, 'S']],
+  16: [[8, 8, 'S'], [14, 16, 'F'], [19, 19, 'U']],
+  17: [[8, 8, 'S'], [13, 17, 'F']],
+  18: [[8, 18, 'B']],
+  19: [[6, 14, 'B'], [15, 15, 'E'], [16, 18, 'B']],
+  20: [[1, 2, 'B'], [3, 15, 'B'], [16, 16, 'P'], [17, 18, 'B']],
+  21: [[2, 18, 'B']],
+  22: [[1, 18, 'B']],
+  23: [[1, 17, 'B']],
+  24: [[2, 15, 'B']],
+  25: [[3, 13, 'B']],
+  26: [[5, 12, 'b']],
+  27: [[6, 10, 'b']],
+}
+const WHALE_PAL = {
+  B: '#4d6bfe', // 鲸身（DeepSeek 蓝）
+  b: '#d7e2ff', // 鲸腹
+  E: '#16265c', // 眼睛
+  F: '#f5f8ff', // 女仆发箍
+  P: '#ff9eb5', // 腮红
+  S: '#8fd8ff', // 水柱
+  U: '#8fd8ff', // 气泡
+}
+
 const TILE_PAL = {
   B: '#2a333f', // 底板
   K: '#1a212a', // 底板外沿
 }
 
 const TILE = 64
-const CHAMFER = 8 // 四角圆切尺寸
-const SPRITE_SCALE = 3 // 材质整数放大倍数
-const SPRITE_MARGIN = 8 // 材质贴图边距
-if (SPRITE.length !== 16 || SPRITE.some((row) => row.length !== 16)) {
-  throw new Error('SPRITE 必须是 16 行 x 16 列')
+const SCENE = 32 // 逻辑格边长
+const ART_SCALE = 2 // 逻辑格 → 底板像素
+const CHAMFER = 8 // 四角圆切尺寸（底板像素）
+const SPRITE_AT = [13, 0] // 材质在场景中的落点
+
+// 场景网格：null = 透明
+const scene = Array.from({ length: SCENE }, () => Array(SCENE).fill(null))
+for (let sy = 0; sy < 16; sy++) {
+  for (let sx = 0; sx < 16; sx++) {
+    const c = SPRITE[sy][sx]
+    if (c !== '.') scene[SPRITE_AT[1] + sy][SPRITE_AT[0] + sx] = SPRITE_PAL[c]
+  }
+}
+for (const [y, ranges] of Object.entries(WHALE_ROWS)) {
+  for (const [x0, x1, c] of ranges) {
+    for (let x = x0; x <= x1; x++) scene[Number(y)][x] = WHALE_PAL[c]
+  }
 }
 
-// grid[y][x] = '#rrggbb' 或 null（透明）
+// 底板：圆切 → 外沿 → 底色，再叠上 2 倍场景
 const grid = []
 for (let y = 0; y < TILE; y++) {
   grid.push([])
@@ -75,16 +114,13 @@ for (let y = 0; y < TILE; y++) {
     else grid[y].push(TILE_PAL.B)
   }
 }
-
-// 贴材质（不透明像素直接覆盖；半透明则与底色混合）
-for (let sy = 0; sy < 16; sy++) {
-  for (let sx = 0; sx < 16; sx++) {
-    const c = SPRITE[sy][sx]
-    if (c === '.') continue
-    const hex = SPRITE_PAL[c]
-    for (let dy = 0; dy < SPRITE_SCALE; dy++) {
-      for (let dx = 0; dx < SPRITE_SCALE; dx++) {
-        grid[SPRITE_MARGIN + sy * SPRITE_SCALE + dy][SPRITE_MARGIN + sx * SPRITE_SCALE + dx] = hex
+for (let sy = 0; sy < SCENE; sy++) {
+  for (let sx = 0; sx < SCENE; sx++) {
+    const hex = scene[sy][sx]
+    if (!hex) continue
+    for (let dy = 0; dy < ART_SCALE; dy++) {
+      for (let dx = 0; dx < ART_SCALE; dx++) {
+        grid[sy * ART_SCALE + dy][sx * ART_SCALE + dx] = hex
       }
     }
   }
