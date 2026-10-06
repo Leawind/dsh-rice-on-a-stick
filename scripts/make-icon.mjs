@@ -49,31 +49,36 @@ const SPRITE_PAL = {
 }
 
 // ---- DeepSeek 蓝鲸（每行：[起始x, 结束x(含), 字符]，'.' 留空） ----
+// 按 MC 物品材质画法：深色描边 + 同色系多阶明暗（受光 L / 基色 B / 暗面 D，腹部 b/bs）
 const WHALE_ROWS = {
-  14: [[6, 6, 'S'], [10, 10, 'S'], [20, 20, 'U']],
-  15: [[7, 9, 'S']],
-  16: [[8, 8, 'S'], [14, 16, 'F'], [19, 19, 'U']],
-  17: [[8, 8, 'S'], [13, 17, 'F']],
-  18: [[8, 18, 'B']],
-  19: [[6, 14, 'B'], [15, 15, 'E'], [16, 18, 'B']],
-  20: [[1, 2, 'B'], [3, 15, 'B'], [16, 16, 'P'], [17, 18, 'B']],
-  21: [[2, 18, 'B']],
-  22: [[1, 18, 'B']],
-  23: [[1, 17, 'B']],
-  24: [[2, 15, 'B']],
-  25: [[3, 13, 'B']],
-  26: [[5, 12, 'b']],
-  27: [[6, 10, 'b']],
+  14: [[20, 20, 'U']],
+  15: [[19, 19, 'U']],
+  18: [[14, 16, 'F']],
+  19: [[9, 12, 'L'], [13, 17, 'F'], [18, 19, 'L']],
+  20: [[7, 8, 'L'], [9, 15, 'B'], [16, 16, 'E'], [17, 19, 'B']],
+  21: [[4, 15, 'B'], [16, 16, 'E'], [17, 18, 'B'], [19, 19, 'D']],
+  22: [[3, 16, 'B'], [17, 17, 'P'], [18, 18, 'B'], [19, 19, 'D']],
+  23: [[2, 18, 'B'], [19, 19, 'D']],
+  24: [[2, 18, 'B']],
+  25: [[3, 16, 'B']],
+  26: [[4, 14, 'bs']],
+  27: [[5, 13, 'b']],
+  28: [[6, 11, 'b']],
 }
 const WHALE_PAL = {
-  B: '#4d6bfe', // 鲸身（DeepSeek 蓝）
+  B: '#4d6bfe', // 鲸身基色（DeepSeek 蓝）
+  D: '#2c3f9e', // 鲸身暗面
+  L: '#7d95ff', // 鲸身受光
   b: '#d7e2ff', // 鲸腹
-  E: '#16265c', // 眼睛
-  F: '#f5f8ff', // 女仆发箍
+  bs: '#aebfe8', // 鲸腹过渡
+  E: '#0f1830', // 眼睛
+  F: '#f5f8ff', // 发箍受光
+  Fs: '#c2cfe8', // 发箍暗面
   P: '#ff9eb5', // 腮红
   S: '#8fd8ff', // 水柱
   U: '#8fd8ff', // 气泡
 }
+const WHALE_OUTLINE = '#0f1830' // 描边
 
 const TILE_PAL = {
   B: '#2a333f', // 底板
@@ -100,6 +105,22 @@ for (const [y, ranges] of Object.entries(WHALE_ROWS)) {
   }
 }
 
+// 鲸鱼描边：与鲸鱼像素 4-邻接的空格填描边色（气泡 U 不触发描边）
+const whaleHexes = new Set(Object.entries(WHALE_PAL).filter(([k]) => k !== 'U').map(([, v]) => v))
+const outlineCells = []
+for (let y = 0; y < SCENE; y++) {
+  for (let x = 0; x < SCENE; x++) {
+    if (scene[y][x]) continue
+    const near =
+      (x > 0 && whaleHexes.has(scene[y][x - 1])) ||
+      (x < SCENE - 1 && whaleHexes.has(scene[y][x + 1])) ||
+      (y > 0 && whaleHexes.has(scene[y - 1][x])) ||
+      (y < SCENE - 1 && whaleHexes.has(scene[y + 1][x]))
+    if (near) outlineCells.push([x, y])
+  }
+}
+for (const [x, y] of outlineCells) scene[y][x] = WHALE_OUTLINE
+
 // 底板：圆切 → 外沿 → 底色，再叠上 2 倍场景
 const grid = []
 for (let y = 0; y < TILE; y++) {
@@ -123,6 +144,16 @@ for (let sy = 0; sy < SCENE; sy++) {
         grid[sy * ART_SCALE + dy][sx * ART_SCALE + dx] = hex
       }
     }
+  }
+}
+// 圆切保护：场景像素若压到切角区则置回透明
+for (let y = 0; y < TILE; y++) {
+  for (let x = 0; x < TILE; x++) {
+    const tl = x + y
+    const tr = TILE - 1 - x + y
+    const bl = x + TILE - 1 - y
+    const br = 2 * (TILE - 1) - x - y
+    if (tl < CHAMFER || tr < CHAMFER || bl < CHAMFER || br < CHAMFER) grid[y][x] = null
   }
 }
 
