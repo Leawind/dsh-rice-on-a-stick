@@ -2,6 +2,7 @@
   "name": "dsh-carrot-on-a-stick",
   "version": "0.1.0",
   "description": "Operate DeepSeek Harness (dsh) over MCP: expose dsh sessions, task execution, and workspace management as an MCP server for any MCP client.",
+  "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -10,12 +11,14 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./client": "./client/client.js"
+    "./client": "./client/client.js",
+    "./icon": "./icon.svg"
   },
   "files": [
     "lib",
     "src",
     "client",
+    "icon.svg",
     "cordis.yml",
     "README.md",
     "README.zh.md",

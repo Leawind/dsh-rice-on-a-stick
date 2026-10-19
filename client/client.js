@@ -682,14 +682,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS mask
   // 把宿主注入的齿轮换成自己的标记. 只读 DOM, 不改 React 管理的节点, 语言切换时重新认领.
   //
-  // 图形是 24 网格上的“斜竿 + 胡萝卜”剪影(与 assets/nav-icon.svg 同一几何): 16px 下竿身
-  // 仍需明显粗于缨子, 胡萝卜才不会被读成一根带长柄的叶子; 3 根缨子在小尺寸会糊成一团, 只留左右两根.
+  // 图形是 24 网格上的空心线稿“斜竿 + 胡萝卜”(与 assets/nav-icon.svg 同一几何): 与宿主自带的
+  // 线性图标一致用描边而非填充; 16px 下竿身仍需明显粗于缨子, 胡萝卜才不会被读成一根带长柄的叶子;
+  // 3 根缨子在小尺寸会糊成一团, 只留左右两根.
   var NAV_ICON_MARKER = 'data-dsh-carrot-nav-icon';
   var NAV_ICON_SIZE = 16;
   var NAV_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
-    + '<path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#000" stroke-width="2" stroke-linecap="round"/>'
-    + '<path d="M18.2 3.4v3.5" stroke="#000" stroke-width="1.25" stroke-linecap="round"/>'
-    + '<path d="M18.2 6.9 C15.35 6.9 15 7.9 15 8.9 C15 13.24 16.66 17.72 17.11 19.44 C17.69 20.5 18.71 20.5 19.29 19.44 C19.74 17.72 21.4 13.24 21.4 8.9 C21.4 7.9 21.05 6.9 18.2 6.9 Z" fill="#000"/>'
+    + '<path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#000" stroke-width="1.75" stroke-linecap="round"/>'
+    + '<path d="M18.2 3.4v3.5" stroke="#000" stroke-width="1.2" stroke-linecap="round"/>'
+    + '<path d="M18.2 6.9 C15.45 6.9 15.1 7.9 15.1 8.9 C15.1 13.24 16.71 17.72 17.15 19.44 C17.7 20.5 18.7 20.5 19.25 19.44 C19.69 17.72 21.3 13.24 21.3 8.9 C21.3 7.9 20.95 6.9 18.2 6.9 Z" stroke="#000" stroke-width="1.65" stroke-linejoin="round"/>'
     + '<path d="M18 6.8C16.6 5.1 15.2 4.2 13.3 3.8M18.7 6.7C19.9 5 21.2 4 22.9 3.6" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>'
     + '</svg>';
 
