@@ -5,6 +5,8 @@
 
 一个 [DSH](https://github.com/deepseek-ai/deepseek-harness) 插件，通过 MCP 协议为其他应用提供操作 DSH 的能力。
 
+要求 DSH `>=0.2.1-rc.2`（声明在 `engines.dsh`，已在 0.2.1-rc.2 真机 e2e 验证）。
+
 ## MCP 功能
 
 ### 工具

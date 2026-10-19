@@ -5,6 +5,8 @@
 
 A [DSH](https://github.com/deepseek-ai/deepseek-harness) plugin that exposes DSH operations through the MCP protocol.
 
+Requires DSH `>=0.2.1-rc.2` (declared as `engines.dsh`; verified end-to-end on 0.2.1-rc.2).
+
 ## MCP features
 
 ### Tools
