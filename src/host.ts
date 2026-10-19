@@ -14,11 +14,26 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { randomUUID } from 'node:crypto'
 import { canonicalCwd } from './paths.js'
-import type { ModelSelection } from './types.js'
+import type { ApprovalAnswer, ApprovalRequestView, ApprovalServiceView, ModelSelection } from './types.js'
 
 /** SessionId 品牌转换: 宿主实现同样只是编译期 cast, 运行时原样返回字符串 */
 export function asSessionId(id: string): SessionId {
   return id as SessionId
+}
+
+/**
+ * 审批事件/服务的宿主面声明(编译期)。宿主在 dsh-user-approval 里注册
+ * `approval/request` waterfall; 这里补上声明, 让 ctx.on 有类型。
+ */
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'approval/request'(request: ApprovalRequestView, next: () => Promise<ApprovalAnswer>): Promise<ApprovalAnswer>
+  }
+}
+
+/** ctx.approval 可选服务(缺省 = headless/旧宿主, 审批接管自动降级) */
+export function approvalServiceOf(ctx: Context): ApprovalServiceView | undefined {
+  return serviceOf<ApprovalServiceView>(ctx, 'approval')
 }
 
 /** 深冻结纯数据(数组/普通对象逐层 Object.freeze) */

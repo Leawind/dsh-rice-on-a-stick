@@ -20,6 +20,7 @@
 -   **真实会话，不是 shell 包装**——`session_create` / `session_prompt` 对应界面的“新会话”和“发送”；历史、分叉、归档、切换模型与排队操作走的是宿主自己的 session controller。
 -   **异步编排，不阻塞客户端**——`session_submit` 只做 admission，立刻返回 `requestId`；`session_poll` 批量观察多个会话（有界 long-poll，返回 `changed` / `timedOut`）；`session_result` 按 id 取回结构化结果。客户端超时/取消等待不会杀掉 dsh 里的 turn，停止工作必须显式调 `session_cancel`。
 -   **忙时也能干预**——会话忙时再发消息默认排进宿主持久 inbox，空闲后自动继续；用 `mode: "steer"` 可打断当前 step 立即纠偏。
+-   **审批可读，也可接管**——`approval_list` 始终可读出挂起审批；部署时把 `approvalControl` 设为 `fallback`（界面优先，无人可答时交给 MCP）或 `exclusive`（直接交给 MCP），就能用 `approval_answer` 允许/拒绝，`approval_policy` 在 `ask` / `never` 间切换。默认 `off` 不改变宿主/界面的审批行为。
 -   **省 token 的读法**——结果按 `summary` / `normal` / `full` 投影；支持 resources 的客户端可直接读资源并订阅变化，不必轮询。
 -   **模型与 preset 显式契约**——不偷偷回填默认值：调用方从 `model_list` 取 `provider`、`model`、`preset` 并显式传入；可选的允许清单约束能选哪些模型。
 -   **默认本机优先**——只监听 `127.0.0.1`，可选 Bearer 认证、Host / Origin 白名单，以及空闲传输会话回收。
@@ -36,14 +37,15 @@ Claude Code / Cursor / Cline / 你的 agent
 
 ## 环境要求
 
--   DSH `>= 0.2.1-rc.2`（声明在 `engines.dsh`；同步会话面已在 0.2.1-rc.2 真机端到端验证，异步控制面待真机 e2e）。
--   web 或 desktop profile：设置面板与完整会话面需要它；最小 / headless profile 仍可运行 MCP server，但可能没有会话控制器。
+-   DSH `>= 0.2.1-rc.2`（声明在 `engines.dsh`；异步控制面已通过 smoke 与真机 e2e，审批接管依赖宿主 `approval/request`）。
+-   web 或 desktop profile：设置面板与完整会话面需要它；最小 / headless profile 仍可运行 MCP server，但可能没有会话控制器 / 审批服务。
 -   支持 **Streamable HTTP** 的 MCP 客户端，或给只支持 stdio 的客户端加一层桥接。
 -   本插件**没有目录白名单**：会话可在调用方指定的任意 `cwd` 工作，暴露面请自行评估，见[安全](#安全)。
 
 | 插件版本 | DSH 版本 | 状态 |
 | --- | --- | --- |
-| `0.2.0-rc.1` | `0.2.1-rc.2` | 当前版本；异步控制面经 smoke 覆盖，待真机 e2e |
+| `0.3.0-rc.1` | `0.2.1-rc.2` | 当前版本；新增审批控制面，异步与审批面经 smoke + 真机 e2e |
+| `0.2.0-rc.1` | `0.2.1-rc.2` | 异步控制面（submit/poll/result） |
 | `0.1.0-rc.1` | `0.2.1-rc.2` | 旧版同步会话面；已端到端验证 |
 
 ## 安装
@@ -134,10 +136,10 @@ http://127.0.0.1:8090/mcp
 
 | 工具 | 用途 |
 | --- | --- |
-| `session_create` | 新建会话（界面的“新会话”）：`cwd` + 显式 `provider` / `model` / `preset`，返回 `sessionId` |
+| `session_create` | 新建会话（界面的“新会话”）：`cwd` + 显式 `provider` / `model` / `preset`，返回 `sessionId`；可选 `approvalPolicy: "ask" \| "never"` 在创建时设定审批策略 |
 | `session_prompt` | 在会话里发消息并等本轮完成（阻塞式便捷入口）；`mode: "queue"`（默认，忙时排进宿主 inbox）或 `"steer"`（打断当前 step）。客户端取消等待只停止等待，turn 继续跑；此时结果带 `pending: true` 与 `requestId` |
 | `session_submit` | 异步提交：只做 admission，立刻返回 `requestId` / `messageId`；同一 `requestId` 重复提交幂等 |
-| `session_poll` | 批量观察 1–20 个会话：返回 `state`（idle / running / waiting-approval / inactive / not-found）、`lastTurn`、`queued`、`pendingApprovals`、`cursor`、最后一条 assistant 消息；`waitMs` 有界 long-poll（≤30s），变化即返回 `changed: true` |
+| `session_poll` | 批量观察 1–20 个会话：返回 `state`（idle / running / waiting-approval / inactive / not-found）、`lastTurn`、`queued`、`pendingApprovals`（每项带 `answerable`）、`cursor`、最后一条 assistant 消息；`waitMs` 有界 long-poll（≤30s），变化即返回 `changed: true` |
 | `session_result` | 按 `requestId` 取回结果：`status` 为 completed / blocked / errored / cancelled（未收敛时 running/pending，请求未认领时 pending）；省略 `requestId` 取该会话最近一次提交 |
 | `session_cancel` | 停止会话当前 turn（界面的停止按钮）；排队消息保留。这是**唯一**会停止工作的路径 |
 | `session_queue` | 管理排队消息（界面的 QueueDock）：`list` / `edit` / `remove` / `steer` |
@@ -148,6 +150,14 @@ http://127.0.0.1:8090/mcp
 | `session_archive` | 归档会话（界面唯一的“删除”）；活动会话须先传 `stopActivity: true` |
 | `session_select_model` | 切换已有会话的模型，历史保留 |
 | `session_rename` | 给会话改名 |
+
+### 审批
+
+| 工具 | 用途 |
+| --- | --- |
+| `approval_list` | 列出一个或多个会话的挂起审批（`approvalId` / `toolName` / `callId` / `reason` / `answerable` / `policy`）；`answerable: true` 才可被 `approval_answer` 回答 |
+| `approval_answer` | 回答一个被插件扣住的审批：`decision: "allow"` → `allowed-once`，`"reject"` → `rejected`；可用 `approvalId` 或 `callId` 定位。仅在 `approvalControl` 为 `fallback` / `exclusive` 时生效 |
+| `approval_policy` | 读取（`action: "get"`）或切换（`"set"`，策略 `ask` / `never`）会话审批策略；`set` 要求会话 live，冷会话可在 `session_create` 时直接指定 |
 
 ## 资源
 
@@ -173,6 +183,8 @@ http://127.0.0.1:8090/mcp
 **异步编排（多 worker）**——先 `session_create` 建 N 个会话，然后对每个会话 `session_submit` 一条任务（可自带幂等 `requestId`）；循环 `session_poll`，一次传所有 `sessionIds`、`waitMs: 20000`，任一 worker 变化就返回，不要秒级轮询；看到某个会话 `lastTurn.reason` 后，用 `session_result` 取它的 `requestId` 结果。需要停一个 worker 用 `session_cancel`，退休用 `session_archive`。
 
 **忙碌会话**——忙时再发默认排进宿主持久 inbox（空闲后自动继续）；要立即打断用 `mode: "steer"`；停止当前 turn 用 `session_cancel`（排队保留）。
+
+**审批门**——`session_poll` 报 `waiting-approval` 时，用 `approval_list` 看有没有 `answerable: true`；有就 `approval_answer`（allow / reject）后继续 poll。部署默认 `approvalControl: off`，此时审批仍由界面回答；无人值守建议创建会话时传 `approvalPolicy: "never"`，或对 live 会话用 `approval_policy` 切换。
 
 **会话**——`session_list` 找会话，`session_history` 回看，`session_select_model` 换模型，`session_prompt` 的 `mode: "steer"` 中途纠偏，`session_search` 按内容搜会话，`session_fork` 分叉，`session_archive` 归档。
 
@@ -220,6 +232,8 @@ http://127.0.0.1:8090/mcp
 | `allowedModels` | `[]` | 模型白名单（`provider/model`）。启用且非空时，调用指定的模型不在名单内会被明确拒绝。插件不做默认回填——新建会话的模型与 preset 都由调用方显式指定 |
 | `defaultDetail` | `summary` | `session_prompt` / `session_result` 的默认详略级别 |
 | `resourceFirst` | `false` | 资源优先形态：只读工具下线，结果以资源引用返回 |
+| `approvalControl` | `off` | 审批接管模式：`off` = 只读展示，审批归宿主/界面；`fallback` = 界面优先，无人可答时交给 MCP；`exclusive` = 直接交给 MCP（界面不再显示该审批），仅建议无人值守部署 |
+| `approvalTimeoutMs` | `120000` | 审批被扣住后等待 MCP 回答的上限；超时按 `unavailable` 失败关闭 |
 | `sessionTtlMs` | `86400000` | 空闲 MCP 传输会话超过该时长被回收（`0` = 永不） |
 
 ## Web 设置面板
@@ -250,7 +264,7 @@ Auth Token 行是开关加密码式只读输入框：开启时若没有令牌，
 
 内置防护：Host / Origin 头白名单（防 DNS rebinding）、HTTP 入口只服务 `/mcp`、401 带 Bearer 挑战、空闲传输会话按 `sessionTtlMs` 自动回收。
 
-插件创建的会话遵循宿主 / preset 的**审批策略**。本插件无人值守运行，`ask` 类策略下敏感操作可能弹窗等待或直接失败；部署前请按实际 preset 验证。
+插件创建的会话遵循宿主 / preset 的**审批策略**。默认 `approvalControl: off` 时审批仍由宿主/界面回答；显式开启 `fallback` / `exclusive` 后，MCP 调用方才能用 `approval_answer` 授权或拒绝。`exclusive` 会让界面不再显示被接管的审批，务必只给可信的无人值守部署使用，并设置合理的 `approvalTimeoutMs`（超时失败关闭）。
 
 ## 排障
 
@@ -260,12 +274,14 @@ Auth Token 行是开关加密码式只读输入框：开启时若没有令牌，
 | 启动时报 `EADDRINUSE` | 端口被其他进程占用。改 `cordis.yml` 里的 `port` 后重启 |
 | 设置里没有 **MCP 服务** | 确认 bundle 已启用（`dsh plugin --profile web why dsh-carrot-on-a-stick`），并重启 profile |
 | `session_search` / `session_fork` / `session_archive` 不可用 | 宿主缺少 `sessionController` / `workspaceController`；换用 web / desktop profile |
-| turn 以 `blocked` 结束 | preset 的审批策略在等确认。换用无人值守的 preset，或先批准该操作 |
+| turn 以 `blocked` 结束 | 审批在等确认。`approval_list` 看是否有 `answerable: true`；有就用 `approval_answer`，没有就换无人值守 preset 或在 `session_create` 时传 `approvalPolicy: "never"` |
+| `approval_answer` 报 `no held approval` | 审批归界面/其他 answerer，或部署仍是 `approvalControl: off`；改成 `fallback` / `exclusive` 后重载插件 |
 | 长时间空闲后客户端要重连 | 传输会话被 `sessionTtlMs` 回收了；重新连接并 initialize 即可 |
 
 ## 已知限制
 
--   插件创建的会话遵循宿主 / preset 审批策略——无人值守场景下 `ask` 类策略可能弹窗或失败关闭（turn 以 `blocked` 收场，结果 error 里有说明）。`session_poll` 只做**只读**的 `pendingApprovals` 暴露，本版本还不提供 `approval_answer`。
+-   审批接管只作用于**本插件创建或续接过的会话**（`state.sessionRecords`），不会劫持用户在界面上手开的会话。默认 `off` 保持零行为变化；`fallback` / `exclusive` 需显式配置并重载。
+-   `approval_answer` 只能回答被插件扣住的审批；`exclusive` 下宿主界面看不到该审批，`fallback` 下界面优先。两者都由 `approvalTimeoutMs` 超时失败关闭。
 -   异步请求索引是进程内加速：最多保留最近 200 条、6 小时。`requestId` 同时写进 user 消息的 `source.rpcId`，所以显式传 `requestId` 的 `session_result` 在插件重启后仍能从会话日志重建位置；省略 `requestId` 的“最近一次提交”会丢失。
 -   `session_poll` 对 live 会话读内存状态；只有持久化日志的冷会话返回 `state: "inactive"`（日志仍可用 `session_history` 读），不会为了 poll 去激活 agent。
 -   `session_prompt` 仍是阻塞式便捷入口；MCP 客户端超时/取消只会停止等待，不会取消 dsh 的 turn。要停止工作请显式 `session_cancel`。

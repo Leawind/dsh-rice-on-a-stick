@@ -20,6 +20,7 @@ Operate a running **DeepSeek Harness (`dsh`)** from any MCP client. This plugin 
 -   **Real sessions, not a shell wrapper** — `session_create` and `session_prompt` map to the UI's new-session and send actions; history, forks, archives, model switches, and queue operations go through the host's session controller.
 -   **Async orchestration without blocking the client** — `session_submit` only admits and returns a `requestId`; `session_poll` watches many sessions at once (bounded long-poll, returns `changed` / `timedOut`); `session_result` fetches the structured result by id. A client timeout or cancelled wait never kills the dsh turn; stopping work always goes through `session_cancel`.
 -   **Steer a busy session** — a second message queues into the durable host inbox by default, or use `mode: "steer"` to interrupt the current step.
+-   **Approvals: visible, optionally answerable** — `approval_list` always reports pending approvals. Set `approvalControl` to `fallback` (UI first, MCP when nobody can answer) or `exclusive` (MCP only) to grant/reject with `approval_answer`, and switch a session between `ask` / `never` with `approval_policy`. The default `off` leaves host/UI behavior untouched.
 -   **Token-aware reads** — results are projected at `summary` / `normal` / `full`; resource-capable clients can read the same data through MCP resources and subscribe to updates instead of polling.
 -   **Explicit model and preset contract** — no hidden defaults: callers pass `provider`, `model`, and `preset` from `model_list`. An optional allowlist bounds what callers may pick.
 -   **Local-first by default** — binds `127.0.0.1`, with optional Bearer auth, Host/Origin allowlists, and idle transport-session reaping.
@@ -36,14 +37,15 @@ Claude Code / Cursor / Cline / your agent
 
 ## Requirements
 
--   DSH `>= 0.2.1-rc.2` (declared as `engines.dsh`; the synchronous session surface was end-to-end verified on 0.2.1-rc.2, the async control plane is awaiting real-host e2e).
--   A web or desktop profile for the settings panel and the full session surface. Minimal/headless profiles can still run the MCP server, but the session controllers may be absent.
+-   DSH `>= 0.2.1-rc.2` (declared as `engines.dsh`; the async control plane is covered by smoke and real-host e2e; approval control rides the host's `approval/request`).
+-   A web or desktop profile for the settings panel, the full session surface, and the host approval service. Minimal/headless profiles can still run the MCP server, but those services may be absent.
 -   An MCP client that speaks **Streamable HTTP**, or a bridge for clients that only support stdio.
 -   The plugin has **no directory whitelist**; sessions can work in any `cwd` the caller specifies. See [Security](#security).
 
 | Plugin version | DSH version | Status |
 | --- | --- | --- |
-| `0.2.0-rc.1` | `0.2.1-rc.2` | Current; async control plane covered by smoke, real-host e2e pending |
+| `0.3.0-rc.1` | `0.2.1-rc.2` | Current; adds the approval control plane; async + approval surfaces covered by smoke and real-host e2e |
+| `0.2.0-rc.1` | `0.2.1-rc.2` | Async control plane (submit/poll/result) |
 | `0.1.0-rc.1` | `0.2.1-rc.2` | Previous synchronous session surface; verified end to end |
 
 ## Install
@@ -134,10 +136,10 @@ Once connected, call `dsh_get_started` first if the client is an agent — it co
 
 | Tool | Purpose |
 | --- | --- |
-| `session_create` | Create a session (the UI's new-session button): `cwd` + explicit `provider` / `model` / `preset`; returns `sessionId` |
+| `session_create` | Create a session (the UI's new-session button): `cwd` + explicit `provider` / `model` / `preset`; returns `sessionId`; optional `approvalPolicy: "ask" \| "never"` sets the policy at creation |
 | `session_prompt` | Send a message and wait for the turn (blocking convenience path); `mode: queue` (default, host inbox) or `steer` (interrupt the current step). A cancelled wait only stops waiting — the turn keeps running; the result carries `pending: true` and `requestId` |
 | `session_submit` | Async submit: admission only, returns `requestId` / `messageId` immediately; reusing a `requestId` is idempotent |
-| `session_poll` | Watch 1–20 sessions at once: `state` (idle / running / waiting-approval / inactive / not-found), `lastTurn`, `queued`, `pendingApprovals`, `cursor`, last assistant message; `waitMs` is a bounded long-poll (≤30s) that returns `changed: true` as soon as anything changes |
+| `session_poll` | Watch 1–20 sessions at once: `state` (idle / running / waiting-approval / inactive / not-found), `lastTurn`, `queued`, `pendingApprovals` (each with `answerable`), `cursor`, last assistant message; `waitMs` is a bounded long-poll (≤30s) that returns `changed: true` as soon as anything changes |
 | `session_result` | Fetch the result by `requestId`: `status` is completed / blocked / errored / cancelled (running/pending while not settled, pending before a turn claims it); omit `requestId` for the session's latest submit |
 | `session_cancel` | Stop the session's current turn (the UI stop button); queued messages are kept. This is the **only** path that stops work |
 | `session_queue` | Manage queued messages (the UI QueueDock): `list` / `edit` / `remove` / `steer` |
@@ -148,6 +150,14 @@ Once connected, call `dsh_get_started` first if the client is an agent — it co
 | `session_archive` | Archive a session (the UI's only "delete"); active sessions need `stopActivity: true` first |
 | `session_select_model` | Switch an existing session's model; history is preserved |
 | `session_rename` | Rename a session |
+
+### Approvals
+
+| Tool | Purpose |
+| --- | --- |
+| `approval_list` | List pending approvals for one or more sessions (`approvalId` / `toolName` / `callId` / `reason` / `answerable` / `policy`); only `answerable: true` entries can be answered |
+| `approval_answer` | Answer a held approval: `decision: "allow"` → `allowed-once`, `"reject"` → `rejected`; target it by `approvalId` or `callId`. Only works with `approvalControl: fallback \| exclusive` |
+| `approval_policy` | Read (`action: "get"`) or switch (`"set"`, policy `ask` / `never`) a session's approval policy; `set` needs a live session, cold sessions can set it in `session_create` |
 
 ## Resources
 
@@ -173,6 +183,8 @@ Resource-capable clients can read the same data without spending tokens and subs
 **Async fan-out** — create N sessions with `session_create`, then `session_submit` one task per session (optionally with your own idempotent `requestId`). Loop `session_poll` with all `sessionIds` and `waitMs: 20000`: it returns when any worker changes or the wait times out, so do not poll every second. Once a session reports `lastTurn.reason`, call `session_result` with its `requestId`; `status` tells you completed/blocked/errored/cancelled. `session_cancel` stops one worker; `session_archive` retires it.
 
 **Busy session** — sending while busy queues into the durable host inbox by default (it runs automatically when free); `mode: "steer"` interrupts the current step instead; `session_cancel` stops the current turn and keeps the queue.
+
+**Approval gate** — when `session_poll` reports `waiting-approval`, call `approval_list` and check for `answerable: true`; answer it with `approval_answer` (allow / reject), then keep polling. The default `approvalControl: off` leaves approvals to the UI; for unattended runs pass `approvalPolicy: "never"` at session creation or switch a live session with `approval_policy`.
 
 **Sessions** — `session_list` to find one, `session_history` to read it, `session_select_model` to switch its model, `session_prompt` with `mode: "steer"` to redirect mid-run, `session_search` to find sessions by content, `session_fork` to branch, `session_archive` to retire.
 
@@ -220,6 +232,8 @@ That block is the bundle's own patch (`cordis.yml`). To override a field in your
 | `allowedModels` | `[]` | Allowlist of models callers may pick (`provider/model`). When enabled and non-empty, a per-call model outside the list is rejected cleanly. The plugin never backfills defaults — new sessions get the model and preset the caller passes |
 | `defaultDetail` | `summary` | Default `detail` level for `session_prompt` / `session_result` |
 | `resourceFirst` | `false` | Resource-first mode: read-only tools retire, results come back as resource references |
+| `approvalControl` | `off` | Approval control mode: `off` = read-only listing, host/UI decides; `fallback` = UI first, MCP when nobody can answer; `exclusive` = hand the approval to MCP (the UI no longer shows it), intended for unattended deployments only |
+| `approvalTimeoutMs` | `120000` | How long a held approval waits for an MCP answer before failing closed as `unavailable` |
 | `sessionTtlMs` | `86400000` | Idle MCP transport sessions are reaped after this (`0` = never) |
 
 ## Web settings panel
@@ -250,7 +264,7 @@ When enabling:
 
 Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP surface limited to `/mcp`, `401` answers with a Bearer challenge, and idle transport sessions reaped after `sessionTtlMs`.
 
-Sessions created through this plugin follow the host/preset **approval policy**. This plugin runs unattended, so `ask`-style policies may pop dialogs or fail closed; verify sensitive operations under your preset before deploying.
+Sessions created through this plugin follow the host/preset **approval policy**. With the default `approvalControl: off`, the host/UI still answers every approval. Only when you explicitly enable `fallback` / `exclusive` can an MCP caller grant or reject with `approval_answer`; `exclusive` removes that approval from the UI, so use it only for trusted unattended deployments and keep `approvalTimeoutMs` bounded (timeout fails closed).
 
 ## Troubleshooting
 
@@ -260,12 +274,14 @@ Sessions created through this plugin follow the host/preset **approval policy**.
 | `EADDRINUSE` on startup | Another process owns the port. Change `port` in `cordis.yml` and restart |
 | No **MCP Service** section | Confirm the bundle is enabled (`dsh plugin --profile web why dsh-carrot-on-a-stick`) and restart the profile |
 | `session_search` / `session_fork` / `session_archive` unavailable | The host lacks `sessionController` / `workspaceController`; use a web/desktop profile |
-| A turn ends `blocked` | The preset's approval policy asked for confirmation. Use a preset that runs unattended, or approve the operation |
+| A turn ends `blocked` | It is waiting for approval. `approval_list` shows whether an entry is `answerable`; if so use `approval_answer`, otherwise use an unattended preset or pass `approvalPolicy: "never"` to `session_create` |
+| `approval_answer` says `no held approval` | The UI/another answerer owns it, or the deployment is still `approvalControl: off`; switch to `fallback` / `exclusive` and reload the plugin |
 | Client reconnects after a long idle period | The transport session was reaped by `sessionTtlMs`; reconnect and initialize again |
 
 ## Known limitations
 
--   Sessions created through the plugin follow the host/preset approval policy — in unattended use `ask`-style policies may pop a dialog or fail closed (the turn ends `blocked`, explained in the result error). `session_poll` exposes `pendingApprovals` read-only; this version does not answer them.
+-   Approval control only applies to sessions **this plugin created or resumed** (`state.sessionRecords`); it never hijacks sessions the user opened directly in the UI. The default `off` is behavior-preserving; `fallback` / `exclusive` are explicit opt-ins that require a reload.
+-   `approval_answer` only answers approvals held by the plugin; `exclusive` hides them from the UI, `fallback` lets the UI go first. Both fail closed when `approvalTimeoutMs` expires.
 -   The async request index is an in-process accelerator: the last 200 requests for 6 hours. The `requestId` is also persisted on the user message's `source.rpcId`, so an explicit `session_result` can rebuild its position from the session log after a plugin restart; the implicit "latest submit" is lost.
 -   `session_poll` reads live sessions from memory; a persisted-only session returns `state: "inactive"` (its log is still readable with `session_history`) and is not activated just to poll it.
 -   `session_prompt` remains the blocking convenience path; an MCP client timeout/cancellation only stops the wait, never the dsh turn. Stop work explicitly with `session_cancel`.

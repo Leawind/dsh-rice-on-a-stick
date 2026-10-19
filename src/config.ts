@@ -70,6 +70,16 @@ export interface Config {
    * 默认 false 时工具与资源并存, 对不知 resources 的客户端零行为变化。
    */
   resourceFirst?: boolean
+  /**
+   * 审批接管模式(默认 off):
+   *   off       只读展示 pendingApprovals, 审批仍归宿主/界面(零行为变化)
+   *   fallback  先让宿主 answerer 链(界面)处理; 只有没人能答时才扣住等 MCP 回答
+   *   exclusive 直接扣住等 MCP 回答(界面不再显示该审批), 仅建议无人值守部署
+   * 只接管本插件创建/续接过的会话, 不劫持用户在界面上手开的会话。
+   */
+  approvalControl?: 'off' | 'fallback' | 'exclusive'
+  /** 审批被扣住后最多等多久(毫秒; 默认 120s; 超时失败关闭) */
+  approvalTimeoutMs?: number
 }
 
 /**
@@ -99,6 +109,8 @@ export const DEFAULTS = {
   authToken: '',
   authEnabled: false as boolean,
   resourceFirst: false,
+  approvalControl: 'off' as 'off' | 'fallback' | 'exclusive',
+  approvalTimeoutMs: 120_000,
 }
 
 export type RuntimeConfig = typeof DEFAULTS
@@ -132,6 +144,8 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     authToken: '',
     authEnabled: false,
     resourceFirst: parsed.resourceFirst ?? DEFAULTS.resourceFirst,
+    approvalControl: parsed.approvalControl ?? DEFAULTS.approvalControl,
+    approvalTimeoutMs: Math.max(1000, Math.min(600_000, parsed.approvalTimeoutMs ?? DEFAULTS.approvalTimeoutMs)),
   }
   Object.defineProperties(runtime, {
     allowedModels: { enumerable: true, configurable: true, get: readModels },
@@ -168,4 +182,6 @@ export const Config = Schema.object({
   allowedHosts: Schema.array(Schema.string()).default([]).description('Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名)'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('MCP 传输会话空闲 TTL 毫秒数(0 = 永不淘汰; 超时会话被关闭, 客户端按规范重新 initialize)'),
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('资源优先形态(true 时只读工具面下线, 数据一律经 MCP resources 面读取)'),
+  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('审批接管模式: off=只读展示; fallback=界面优先、无人可答时交给 MCP; exclusive=直接扣给 MCP(界面不再显示)'),
+  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('审批被扣住后等待 MCP 回答的上限毫秒数(默认 120000; 超时失败关闭)'),
 })

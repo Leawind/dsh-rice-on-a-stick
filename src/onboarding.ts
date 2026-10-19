@@ -27,7 +27,8 @@ dsh://sessions/{id}/events[/after], dsh://sessions/{id}/activity.
 Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
 Control-plane tools stay available: session_submit / session_poll / session_result
-(async fan-out) plus session_create / session_cancel / session_select_model.
+(async fan-out), approval_list / approval_answer / approval_policy (approval gate),
+plus session_create / session_cancel / session_select_model.
 
 Quick start:
 - Read dsh://models before picking a model and dsh://presets for valid preset ids;
@@ -39,6 +40,9 @@ Quick start:
 - For fan-out, session_submit returns a requestId immediately, session_poll observes
   many sessions at once with a bounded waitMs, and session_result fetches the
   structured result. Cancelling a wait never cancels the dsh turn; use session_cancel.
+- If a turn stops on an approval, approval_list shows the pending entries and
+  approval_answer answers one when the deployment enabled approvalControl
+  (fallback/exclusive); approval_policy reads or switches ask|never.
 - session_cancel stops the current turn (queued messages are kept);
   session_select_model switches the session's model in place.
 - Rosters: dsh://sessions, dsh://presets, dsh://models, dsh://workspaces.
@@ -66,6 +70,10 @@ Quick start:
   waitMs, returns changed/timedOut); session_result fetches the structured result by
   requestId. Cancelling a wait (client timeout / notifications/cancelled) only stops the
   wait — the dsh turn keeps running; use session_cancel to stop it.
+- If a turn stops on an approval, approval_list shows the pending entries (approvalId,
+  toolName, callId, reason, answerable). approval_answer allows/rejects one; this only
+  works when the deployment set approvalControl=fallback|exclusive, and only for
+  entries marked answerable. approval_policy reads or switches ask|never.
 - session_select_model switches a session's model in place (history preserved);
   session_list / session_history let you find and inspect sessions.
 - Results are projected by the detail argument to save your context budget — default
@@ -127,12 +135,15 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 - **Session lifecycle** — sessions live until the host process ends or the session is
   archived (\`session_archive\`, the UI's only "delete"). A cold (not-in-memory) session
   is transparently resumed on the next prompt with its history intact.
-- **Approval policy** — the host may be configured to ask for confirmation on certain
-  actions. Unattended runs cannot answer such prompts: when the host pauses for input,
-  the turn ends with reason \`blocked\`, which surfaces in the result \`error\`. To
-  proceed, arrange the approval host-side or relax the host approval policy for
-  unattended use, then continue the same conversation via \`session_prompt\`. Prefer
-  tasks that do not depend on interactive approvals.
+- **Approval policy** — the host may ask for confirmation before a sensitive operation
+  (\`ask\`) or reject it deterministically (\`never\`). With the default
+  \`approvalControl=off\`, this plugin only reports pending approvals
+  (\`approval_list\` / \`session_poll.pendingApprovals\`) and the UI/host answers them.
+  With \`fallback\` (UI first, MCP when nobody can answer) or \`exclusive\` (MCP only),
+  \`approval_answer\` grants \`allowed-once\` or \`rejected\`; unanswered requests fail
+  closed when the wait expires. \`approval_policy\` reads or switches the session's
+  \`ask\`/\`never\` policy; \`session_create\` can set it up front. For unattended runs,
+  \`never\` is the predictable choice.
 `,
   workflows: `\
 ## Workflow recipes
@@ -165,6 +176,11 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
    faster than that. Once a session reports \`lastTurn.reason\`, call \`session_result\`
    with its \`requestId\`; \`status\` tells you completed/blocked/errored/cancelled.
    \`session_cancel\` stops one worker; \`session_archive\` retires it.
+8. **Approval gate** — when \`session_poll\` reports \`waiting-approval\`, call
+   \`approval_list\` with the session id. If the entry is \`answerable\`, decide with
+   \`approval_answer\` (allow/reject) and keep polling; otherwise the UI/host owns it.
+   To avoid gates up front, create the session with \`approvalPolicy: "never"\` or call
+   \`approval_policy\` on a live session.
 `,
   errors: `\
 ## Error → alternative path
@@ -176,7 +192,7 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 | "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check \`session_list\` / open it in the dsh UI once, then retry \`session_prompt\` |
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from \`model_list\` that appears there |
 | "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` / \`session_submit\` first |
-| turn ends \`blocked\` | the host waits for interactive approval an unattended run cannot grant — arrange approval host-side, then continue via \`session_prompt\` |
+| turn ends \`blocked\` | the host waits for interactive approval. Call \`approval_list\`; if \`answerable\`, use \`approval_answer\`. Otherwise arrange approval host-side (or \`approval_policy: "never"\`), then continue via \`session_prompt\` |
 | "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same \`requestId\` again (it is persisted in the session log) or inspect with \`session_history\` |
 | \`status: "pending"\` / \`pending: true\` | the request is queued or the turn is still running; \`session_poll\` again, or \`session_cancel\` to stop it |
 | \`status: "cancelled"\` | the turn was stopped (explicitly or by client cancellation); read \`error\` for the cause and decide whether to resubmit |
@@ -210,8 +226,10 @@ client-cancelled wait with \`pending: true\` plus the \`requestId\` to fetch lat
   can rebuild its position from the session log after a restart.
 - \`session_poll\` reports live sessions from memory; a persisted-only session returns
   \`state: "inactive"\` (its log is still readable with \`session_history\`).
-- Pending approvals are exposed read-only in \`session_poll\` (\`pendingApprovals\`);
-  answering them is not part of this version — the host/UI remains the decision surface.
+- Pending approvals are always exposed read-only in \`session_poll\` (\`pendingApprovals\`)
+  and \`approval_list\`. Answering requires the deployment to set
+  \`approvalControl=fallback|exclusive\`; only entries marked \`answerable=true\` can be
+  answered, and the default \`off\` leaves every decision to the host/UI.
 `,
 }
 

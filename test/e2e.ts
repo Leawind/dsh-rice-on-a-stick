@@ -16,10 +16,12 @@
 //     E2E_CWD=... node test/e2e.ts
 //   E2E_WITH_AGENT=1 E2E_SESSION_ID=<id from the previous run> node test/e2e.ts   # cold resume
 const BASE = process.env.E2E_MCP_URL ?? 'http://127.0.0.1:8095/mcp'
+const TOKEN = process.env.E2E_TOKEN ?? ''
 const WITH_AGENT = process.env.E2E_WITH_AGENT === '1'
 const CWD = process.env.E2E_CWD ?? process.cwd()
 const AGENT_TIMEOUT_MS = Number(process.env.E2E_AGENT_TIMEOUT_MS ?? 180_000)
 const RESUME_SESSION = process.env.E2E_SESSION_ID ?? ''
+const APPROVAL_POLICY = process.env.E2E_APPROVAL_POLICY ?? ''
 
 const findings = []
 function report(name, ok, detail = '') {
@@ -41,6 +43,7 @@ async function rpc(sessionId, body, timeoutMs = 30_000) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream',
+        ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
         ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
       },
       body: JSON.stringify(body),
@@ -116,8 +119,9 @@ try {
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
     'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_select_model',
-    'session_rename', 'session_list', 'session_history', 'session_search', 'session_fork', 'session_archive']
-  report('tools/list 会话中心 + 异步控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
+    'session_rename', 'session_list', 'session_history', 'session_search', 'session_fork', 'session_archive',
+    'approval_list', 'approval_answer', 'approval_policy']
+  report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
   report('echo 往返', echo.resp.status === 200 && echo.resp.text.includes('e2e-ping'))
@@ -159,6 +163,15 @@ try {
   } else {
     console.log('  SKIP  session_result 未知 requestId — 当前没有可读会话')
   }
+  const approvalsMissing = await callTool(sid, 93, 'approval_list', { sessionIds: ['e2e-nonexistent-session'] })
+  report('approval_list 不可读会话 → not-found + control', approvalsMissing.inner.sessions?.[0]?.state === 'not-found'
+    && typeof approvalsMissing.inner.control === 'string',
+    `control=${approvalsMissing.inner.control ?? '?'}`)
+  const approvalAnswerMissing = await callTool(sid, 94, 'approval_answer', {
+    sessionId: 'e2e-nonexistent-session', approvalId: 'e2e-nonexistent-approval', decision: 'allow',
+  })
+  report('approval_answer 未知审批明确报错', String(approvalAnswerMissing.inner.error ?? '').includes('no held approval'),
+    String(approvalAnswerMissing.inner.error ?? '').slice(0, 160))
 
   // ── 冷会话历史: 经宿主 sessionController.inspect 非激活读取 ──
   // 首轮(宿主刚启动、还没有历史会话)没有 persisted-only 会话可测; 重启后第二轮才可测。
@@ -212,10 +225,18 @@ try {
         finish()
         process.exit(1)
       }
-      const created = await callTool(sid, 30, 'session_create', { cwd: CWD, provider, model, preset }, 60_000)
+      const created = await callTool(sid, 30, 'session_create', {
+        cwd: CWD, provider, model, preset,
+        ...(APPROVAL_POLICY ? { approvalPolicy: APPROVAL_POLICY } : {}),
+      }, 60_000)
       sessionId = String(created.inner?.sessionId ?? '')
       report('session_create 新建会话', sessionId !== '' && created.inner?.preset === preset,
         `session=${sessionId.slice(0, 8)} model=${JSON.stringify(created.inner?.model)} preset=${created.inner?.preset}`)
+      if (APPROVAL_POLICY) {
+        report('session_create 设置审批策略(宿主 setPolicy)', created.inner?.approvalPolicy === APPROVAL_POLICY
+          && created.inner?.approvalPolicyApplied === true,
+          `policy=${created.inner?.approvalPolicy ?? '?'} applied=${created.inner?.approvalPolicyApplied ?? '?'}`)
+      }
     } else {
       console.log(`\nagent leg: cold resume of ${sessionId}`)
     }
@@ -236,6 +257,16 @@ try {
       report('一行 JSON 总结解析(changes/verification)', Boolean(prompt.inner.changes || prompt.inner.verification),
         `changes="${String(prompt.inner.changes ?? '').slice(0, 80)}"`)
       report('结果带会话纪要资源引用', String(prompt.inner.resource ?? '').includes(`${sessionId}/history`), String(prompt.inner.resource ?? ''))
+      const approvalPolicy = await callTool(sid, 36, 'approval_policy', { sessionId, action: 'get' })
+      if (APPROVAL_POLICY) {
+        report('approval_policy 读到创建时设置的策略', approvalPolicy.inner?.policy === APPROVAL_POLICY,
+          `policy=${approvalPolicy.inner?.policy ?? approvalPolicy.inner?.error ?? '?'} live=${approvalPolicy.inner?.live ?? '?'}`)
+      }
+      const approvalList = await callTool(sid, 37, 'approval_list', { sessionIds: [sessionId] })
+      report('approval_list 读 live 会话(control=off, 无挂起)', approvalList.inner?.control === 'off'
+        && approvalList.inner?.sessions?.[0]?.state !== 'not-found'
+        && (approvalList.inner?.sessions?.[0]?.approvals?.length ?? -1) === 0,
+        `control=${approvalList.inner?.control ?? '?'} state=${approvalList.inner?.sessions?.[0]?.state ?? '?'}`)
       const hist = await callTool(sid, 32, 'session_history', { sessionId, roles: ['assistant'], limit: 5 })
       report('session_history 读到刚完成的轮次', !hist.inner.error && (hist.inner.turns?.length ?? 0) > 0,
         hist.inner.error ? String(hist.inner.error).slice(0, 160) : `turns=${hist.inner.turns?.length} source=${hist.inner.source ?? '?'}`)

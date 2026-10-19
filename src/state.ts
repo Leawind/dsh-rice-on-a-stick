@@ -7,7 +7,7 @@
  * 本插件持有的 sessionRecords 只起"记住创建参数"的作用, 生命周期归宿主 registry。
  */
 import { DEFAULTS, type RuntimeConfig } from './config.js'
-import type { SessionRecord, SessionRequestRecord } from './types.js'
+import type { ApprovalRuntime, SessionRecord, SessionRequestRecord } from './types.js'
 
 /**
  * apply 绑定的通知钩子(缺省 no-op, 使数据层/引擎在无 MCP 面的部署形态下零通知开销)。
@@ -35,6 +35,8 @@ interface RuntimeState {
   sessionRequests: Map<string, SessionRequestRecord>
   /** 每个会话最近一次请求(省略 requestId 时 session_result 用它) */
   latestRequestBySession: Map<string, string>
+  /** 审批接管运行时(apply 装配; 缺省 off + no-op) */
+  approvals: ApprovalRuntime
   hooks: StateHooks
 }
 
@@ -43,6 +45,12 @@ export const state: RuntimeState = {
   sessionRecords: new Map(),
   sessionRequests: new Map(),
   latestRequestBySession: new Map(),
+  approvals: {
+    mode: 'off',
+    list: () => [],
+    isAnswerable: () => false,
+    answer: () => ({ ok: false, error: 'approval control is not installed (plugin config approvalControl=off)' }),
+  },
   hooks: {
     notifySessionActivity: () => {},
     notifySessionHistory: () => {},

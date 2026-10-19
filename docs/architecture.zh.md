@@ -1,7 +1,7 @@
 # 架构说明（模块布局）
 
 > 面向维护者。读完这页，你应该知道“改 X 要动哪个文件”“为什么这里要这样绕”。
-> 配套阅读：README（功能与配置）、[e2e 记录 0.2.1-rc.2](./e2e-0.2.1-rc.2.zh.md)（真机事实与踩坑）。
+> 配套阅读：README（功能与配置）、[e2e 记录 0.3.0-rc.1](./e2e-0.3.0-rc.1.zh.md)（真机事实与踩坑）。
 
 ## 模块地图
 
@@ -22,10 +22,12 @@ src/
 │                 submit(admission)/prompt(有界等待, 客户端取消不杀 turn)、cancel/queue
 ├── control.ts    异步控制面：session_poll(批量有界 long-poll)、session_result(按 requestId
 │                 从日志投影; 索引丢失时按 rpcId 重建)
+├── approvals.ts  审批接管：approval/request waterfall 的扣住/回答/超时/abort、
+│                 策略读写、approval_list 投影(默认 off 只读)
 ├── data.ts       数据层：工具面与资源面共享的读实现(session_list/history/events/activity、
 │                 模型目录、preset 花名册、工作区、资源 URI 构造)
 ├── notify.ts     资源订阅枢纽(per-connection 订阅、updated 定向推送、list_changed 合并)
-├── tools.ts      20 个 MCP 工具注册(会话中心 11 + 异步控制面 3 + 目录/状态 5 + echo 1；
+├── tools.ts      23 个 MCP 工具注册(会话中心 11 + 异步控制面 3 + 审批控制面 3 + 目录/状态 5 + echo 1；
 │                 readOnly/destructive 注解、session_list 的 zod outputSchema + structuredContent)
 ├── resources.ts  资源面(dsh://...、模板、订阅、completion、annotations)
 └── onboarding.ts initialize instructions 与 dsh_get_started 文档(agent 认知面)
@@ -34,12 +36,13 @@ src/
 内部依赖边(改代码时保持无环)：
 
 ```
-index → {tools, resources, data, notify, onboarding, host, state, config}
-tools → {engine, control, host, onboarding, projection, state, types}
+index → {tools, resources, data, notify, onboarding, host, state, config, approvals}
+tools → {engine, control, approvals, host, onboarding, projection, state, types}
 resources → {data, notify, onboarding}
 data → {engine(默认选择/已知选择), host, paths, projection, state, types, config}
-engine → {host, paths, requests, turn, state, types}
+engine → {host, paths, requests, turn, approvals, state, types}
 control → {engine(已知选择), host, requests, turn, projection, state, types}
+approvals → {host, turn, state, types}
 turn → {projection, types}     requests → {state, types}
 host → {paths, types}          projection → types          state → {config, types}
 ```
@@ -64,6 +67,10 @@ host → {paths, types}          projection → types          state → {config
    页面无法伪造的 `Sec-Fetch-Site` 为主（same-origin 放行、cross-site 拒绝），接受桌面壳的
    `dsh-app:` origin；两个头都被桌面壳转发丢掉时，只接受回环 Host 的本机客户端；其余退回
    Origin/Host 比对。
+6. **审批失败关闭(approvals.ts)**：审批只可能由宿主 `approval/request` 的 answerer 链决定；
+   插件默认 `off`，`fallback` 只在宿主返回 `unavailable` 后接手，`exclusive` 才直接接管。
+   扣住后的出口只有 `allowed-once` / `rejected`（显式回答）与 `unavailable` / `cancelled`
+   （超时、abort、卸载）——绝不在没有决定时放行；只接管插件管理过的会话。
 
 ## 关键流程速查
 
@@ -78,6 +85,11 @@ host → {paths, types}          projection → types          state → {config
   `session_poll`（control：live agent 状态 + 事件折叠出 `lastTurn`/`pendingApprovals`/`queued`，
   有界 long-poll）→ `session_result`（按 `requestId` 从日志定位 turn 并投影；索引丢失时按
   user 消息的 `source.rpcId` 重建）。这是 MCP-only 的 pull 模型：服务端不假设客户端会被唤醒。
+- **审批门**：宿主 `approval/request` waterfall → `approvals.installApprovalBridge`（默认 off 不挂监听）。
+  `fallback` 先 `next()` 让界面 answerer 处理，返回 `unavailable` 才扣住；`exclusive` 直接扣住。
+  扣住时按 `approval/asked` 的 `callId`/`toolName` 找到日志 id，`approval_answer` resolve 为
+  `allowed-once`/`rejected`；`approvalTimeoutMs`/abort/卸载 resolve 为 `unavailable`/`cancelled`（失败关闭）。
+  只接管 `state.sessionRecords` 里的会话。`approval_policy` 走宿主 `ctx.approval.setPolicy`。
 - **历史与观测**：live 会话直接读内存日志；persisted-only 会话经 `sessionController.inspect`
   非激活读取。`dsh://sessions/{id}/activity` 只对 live 会话有意义；事件流资源按 `after` 下标翻页。
   `session_poll` 对 persisted-only 会话只报 `inactive`，不为 poll 激活 agent。
@@ -94,11 +106,11 @@ host → {paths, types}          projection → types          state → {config
 
 ## 测试布局
 
--   `test/smoke.ts`：会话中心与异步控制面的行为断言(121 项)，按 Phase 组织(协议/创建/prompt/
-    取消/队列/异步 submit-poll-result/客户端取消语义/请求索引重建/模型切换/搜索/分叉/归档/历史/
+-   `test/smoke.ts`：会话中心、异步控制面与审批接管的**行为断言(141 项)**，按 Phase 组织(协议/创建/prompt/
+    取消/队列/异步 submit-poll-result/客户端取消语义/请求索引重建/审批扣住与回答/模型切换/搜索/分叉/归档/历史/
     资源/白名单/GUI/纯函数)。假宿主(桩 Cordis 服务 + 桩 agent + 可观测记录数组)与真 HTTP 的
     RPC 小工具在 `test/smoke-harness.ts`——桩的形状必须对齐真机契约(例如
-    `sessionController.inspect` / `resolveAgent`、`turn/end` 收场)，不要为了省事造一套自洽但假的 API。
+    `sessionController.inspect` / `resolveAgent`、`turn/end` 收场、`approval/request` waterfall)，不要为了省事造一套自洽但假的 API。
 -   测试是普通 TypeScript，`node test/smoke.ts` 直跑(Node 原生 type stripping，开发机需
     Node ≥ 23.6；发布产物 `lib/` 仍支持 Node ≥ 18)；`npm run typecheck` 对测试做类型检查。
 -   `npm test` = 先 build 再跑(smoke + 端口冲突专项 `test/smoke-port.ts`)。

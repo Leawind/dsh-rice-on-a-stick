@@ -22,6 +22,8 @@ export const inspectedSessions = []
 export const followups = []
 // 会话中心新增面的记录: 搜索/分叉/归档
 export const searched = []
+// 审批策略切换记录(agent id + policy)
+export const approvalPolicyCalls = []
 // 每次 search 是否带上了取消信号(0.2.x 的 Remote search(request, signal) 契约)
 export const searchSignals = []
 export const forked = []
@@ -162,6 +164,21 @@ export const slowLiveAgent = makeSlowAgent('sess-slow', FAKE_CWD, { provider: 'l
 // 不与既有 session_prompt 取消用例、也不与彼此互相污染
 export const slowLiveAgent2 = makeSlowAgent('sess-slow2', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 export const slowLiveAgent3 = makeSlowAgent('sess-slow3', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+
+// 审批测试用 live 会话: 事件数组公开, 便于测试先追加 approval/asked 再触发
+// approval/request waterfall(真实宿主也是先写 asked、再 dispatch)。
+const approvalEvents = []
+export const approvalAgent = {
+  status: 'running',
+  __events: approvalEvents,
+  inbox: { nextTurn: [], nextStep: [], remove: () => {}, replace: () => {} },
+  session: {
+    id: 'sess-approval',
+    header: { version: 0, id: 'sess-approval', createdAt: 1, cwd: FAKE_CWD },
+    snapshotEvents: (from = 0) => approvalEvents.slice(from),
+  },
+  whenIdle: async () => {},
+}
 
 // 失败路径: 只产出 turn/end{reason: error} 的 live 会话(模型调用失败的样子)
 const errAgent = (() => {
@@ -306,9 +323,9 @@ export function makeCtx(opts: {
     get: (id) => liveCreatedSessions.get(id)
       ?? (id === 'sess-live' ? liveAgent.session : id === 'sess-live2' ? liveSession2 : id === 'sess-err' ? errAgent.session
         : id === 'sess-slow' ? slowLiveAgent.session : id === 'sess-slow2' ? slowLiveAgent2.session
-          : id === 'sess-slow3' ? slowLiveAgent3.session : undefined)
+          : id === 'sess-slow3' ? slowLiveAgent3.session : id === 'sess-approval' ? approvalAgent.session : undefined)
       ?? extraAgents.get(id)?.session,
-    list: () => [liveSession2, liveAgent.session, slowLiveAgent.session, slowLiveAgent2.session, slowLiveAgent3.session, ...[...extraAgents.values()].map((a) => a.session)],
+    list: () => [liveSession2, liveAgent.session, slowLiveAgent.session, slowLiveAgent2.session, slowLiveAgent3.session, approvalAgent.session, ...[...extraAgents.values()].map((a) => a.session)],
     flush: async (session) => { flushed.push(session.id); return true },
   }
   // 0.1.5+ 的 SessionPersistenceSnapshot(header 在 .header) + 一条旧版裸 header 形状(+ phase 注入的额外持久化会话)
@@ -326,13 +343,46 @@ export function makeCtx(opts: {
       return () => webHandlers.delete('gui')
     },
   }
+  // 审批服务桩: setPolicy 记录到全局数组; effectivePolicy 按会话记最近一次值
+  const approvalPolicies = new Map()
+  const approvalService = {
+    setPolicy: (agent, policy) => {
+      const id = String(agent?.session?.id ?? '')
+      approvalPolicies.set(id, policy)
+      approvalPolicyCalls.push({ id, policy })
+    },
+    effectivePolicy: (session) => approvalPolicies.get(String(session?.id ?? session?.header?.id ?? '')) ?? 'ask',
+    overrideOf: (session) => approvalPolicies.get(String(session?.id ?? session?.header?.id ?? '')),
+  }
+  // 事件总线桩: 只实现审批 waterfall 需要的最小子集(on/prepend + 触发链)
+  const eventListeners = new Map()
+  const on = (name, listener, options) => {
+    const list = eventListeners.get(name) ?? []
+    if (options === true || options?.prepend === true) list.unshift(listener)
+    else list.push(listener)
+    eventListeners.set(name, list)
+    return () => {
+      const i = list.indexOf(listener)
+      if (i < 0) return false
+      list.splice(i, 1)
+      return true
+    }
+  }
+  const fireApproval = async (request) => {
+    const list = eventListeners.get('approval/request') ?? []
+    const run = (i) => i >= list.length
+      ? Promise.resolve('unavailable')
+      : Promise.resolve(list[i](request, () => run(i + 1)))
+    return run(0)
+  }
   const ctx = {
     tools,
     llm,
     sessionController,
     agents: {
       get: (id) => (id === 'sess-live' ? liveAgent : id === 'sess-err' ? errAgent : id === 'sess-slow' ? slowLiveAgent
-        : id === 'sess-slow2' ? slowLiveAgent2 : id === 'sess-slow3' ? slowLiveAgent3 : undefined)
+        : id === 'sess-slow2' ? slowLiveAgent2 : id === 'sess-slow3' ? slowLiveAgent3
+          : id === 'sess-approval' ? approvalAgent : undefined)
         ?? extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {
         const id = String(sessionId)
@@ -354,6 +404,9 @@ export function makeCtx(opts: {
     sessions: fakeSessions,
     sessionPersistence: fakePersistence,
     workspaceRegistry: wsRegistry,
+    approval: approvalService,
+    on,
+    __fireApproval: fireApproval,
     effect: (fn) => { const d = fn(); disposers.push(d); return d },
     inject: (deps, fn) => {
       if (deps.includes('webServer')) {
@@ -365,6 +418,7 @@ export function makeCtx(opts: {
     get: (name) => (name === 'workspaceRegistry' ? wsRegistry
       : name === 'sessions' ? fakeSessions
         : name === 'sessionPersistence' ? fakePersistence
+          : name === 'approval' ? approvalService
 : name === 'tools' ? tools
             : name === 'agentDefaultModel' ? fakeAgentDefaultModel
               : name === 'sessionTitle' ? sessionTitle

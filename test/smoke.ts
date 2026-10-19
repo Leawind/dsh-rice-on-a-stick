@@ -23,11 +23,14 @@ import { cancelSession, promptSession } from '../lib/engine.js'
 import { serviceOf } from '../lib/host.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
+import { approvalPolicyOfEvents, createApprovalBridge } from '../lib/approvals.js'
 import { state } from '../lib/state.js'
 import { pendingApprovalsOf } from '../lib/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { Config as ConfigSchema } from '../lib/config.js'
 import {
+  approvalAgent,
+  approvalPolicyCalls,
   archived,
   attachedIds,
   checks,
@@ -86,8 +89,8 @@ try {
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_list', 'session_history',
-    'session_search', 'session_fork', 'session_archive']
-  checks['tools/list: 精确 20 个工具(会话中心 + 异步控制面)'] = toolNames.length === 20
+    'session_search', 'session_fork', 'session_archive', 'approval_list', 'approval_answer', 'approval_policy']
+  checks['tools/list: 精确 23 个工具(会话中心 + 异步/审批控制面)'] = toolNames.length === 23
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -106,10 +109,13 @@ try {
   }
 
   // ── session_create ──
-  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话' } } })
+  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', approvalPolicy: 'never' } } })
   const mkInner = mk.status === 200 ? innerOf(mk) : { error: 'bad' }
   checks['session_create 返回 sessionId/模型/preset'] = typeof mkInner.sessionId === 'string'
     && mkInner.model?.provider === 'p1' && mkInner.model?.model === 'm1' && mkInner.preset === 'standard'
+  checks['session_create 设置审批策略(approval.setPolicy)'] = mkInner.approvalPolicy === 'never'
+    && mkInner.approvalPolicyApplied === true
+    && approvalPolicyCalls.some((c) => c.id === mkInner.sessionId && c.policy === 'never')
   checks['session_create 走宿主 create(meta.cwd realpath + agentOptions + preset)'] = created.some((c) =>
     c.cwd === FAKE_CWD && c.agentOptions?.provider === 'p1' && c.agentOptions?.model === 'm1' && c.preset === 'standard')
   checks['session_create 挂载 preset'] = mounted.includes('standard')
@@ -385,12 +391,70 @@ try {
     const names = await phase.toolNames()
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-      'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'echo']
+      'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive',
+      'approval_list', 'approval_answer', 'approval_policy', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
       && String(innerOf(uriRun).note ?? '').includes('detail=summary')
+    await phase.dispose()
+  }
+
+  // ── Phase G2: 审批控制面(独立端口独立 ctx; exclusive 才会扣住) ──
+  {
+    const approvalCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
+    // 插件只接管 state.sessionRecords 里的会话; 测试里显式登记(真实路径: session_create / 首次 prompt)
+    state.sessionRecords.set('sess-approval', {
+      sessionId: 'sess-approval' as any,
+      cwd: FAKE_CWD,
+      selection: { provider: 'p1', model: 'm1' },
+      preset: 'standard',
+    })
+    const phase = await startPhase(8094, approvalCtx, { approvalControl: 'exclusive', approvalTimeoutMs: 5000 })
+    approvalAgent.__events.length = 0
+    const empty = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
+    checks['approval_list: 初始无审批'] = innerOf(empty).control === 'exclusive'
+      && innerOf(empty).sessions?.[0]?.approvals?.length === 0
+    const notHeld = await phase.call('approval_answer', { sessionId: 'sess-approval', approvalId: 'nope', decision: 'allow' })
+    checks['approval_answer: 未扣住的审批明确报错'] = String(innerOf(notHeld).error ?? '').includes('no held approval')
+
+    // 真实宿主的顺序: ApprovalService 先写 approval/asked, 再 dispatch waterfall
+    approvalAgent.__events.push({
+      type: 'approval/asked',
+      data: { id: 'ap-1', toolName: 'pwsh', callId: 'call-1', reason: 'workspace write' },
+      time: Date.now(),
+    })
+    const fired = approvalCtx.__fireApproval({
+      agent: approvalAgent,
+      toolName: 'pwsh',
+      callId: 'call-1',
+      reason: 'workspace write',
+    })
+    await new Promise((r) => setTimeout(r, 30))
+    const list = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
+    const held = innerOf(list).sessions?.[0]?.approvals?.[0]
+    checks['approval_list: 扣住后 answerable=true'] = held?.approvalId === 'ap-1' && held?.answerable === true
+      && held?.callId === 'call-1' && held?.toolName === 'pwsh'
+    const pollHeld = await phase.call('session_poll', { sessionIds: ['sess-approval'], waitMs: 0 })
+    checks['session_poll: pendingApprovals 带 answerable'] = pollHeld.status === 200
+      && innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.answerable === true
+    const answer = await phase.call('approval_answer', { sessionId: 'sess-approval', callId: 'call-1', decision: 'reject' })
+    checks['approval_answer: 按 callId 拒绝'] = innerOf(answer).ok === true
+      && innerOf(answer).outcome === 'rejected'
+    const outcome = await fired
+    approvalAgent.__events.push({ type: 'approval/decided', data: { id: 'ap-1', outcome } })
+    checks['approval/request waterfall: 回答传回宿主'] = outcome === 'rejected'
+    const cleared = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
+    checks['approval_list: 答完 pending 清空'] = innerOf(cleared).sessions?.[0]?.approvals?.length === 0
+
+    const polGet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
+    checks['approval_policy: get 返回生效策略'] = innerOf(polGet).live === true && innerOf(polGet).policy === 'ask'
+    const polSet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'set', policy: 'never' })
+    checks['approval_policy: set 调宿主 setPolicy'] = innerOf(polSet).ok === true
+      && approvalPolicyCalls.some((c) => c.id === 'sess-approval' && c.policy === 'never')
+    const polGet2 = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
+    checks['approval_policy: 切换后 get 读到 never'] = innerOf(polGet2).policy === 'never'
     await phase.dispose()
   }
 
@@ -547,6 +611,69 @@ try {
     ])
     return pending.length === 1 && pending[0].requestId === 'a2' && pending[0].toolName === 'pwsh'
   })()
+}
+
+// ── 审批桥纯函数/状态机(不依赖 MCP) ──
+{
+  checks['approvalPolicyOfEvents: 取最后一条 policy'] = (() => {
+    const policy = approvalPolicyOfEvents([
+      { type: 'approval/policy', data: { policy: 'ask' } },
+      { type: 'approval/policy', data: { policy: 'never' } },
+    ])
+    return policy === 'never'
+  })()
+  const makeBridge = (mode: 'exclusive' | 'fallback' = 'exclusive', timeoutMs = 100) => createApprovalBridge({
+    ctx: {} as any,
+    mode,
+    timeoutMs,
+    managed: () => true,
+  })
+  const events: any[] = [{ type: 'approval/asked', data: { id: 'a1', toolName: 'pwsh', callId: 'c1', reason: 'write' } }]
+  const agent = { session: { id: 's1', snapshotEvents: () => events } }
+  {
+    const bridge = makeBridge()
+    const request = { agent, toolName: 'pwsh', callId: 'c1', reason: 'write' }
+    const pending = bridge.handle(request)
+    checks['approvalBridge: 扣住后可列出且 answerable'] = bridge.runtime.list('s1').length === 1
+      && bridge.runtime.isAnswerable('s1', 'a1', 'c1')
+    const answer = bridge.runtime.answer({ sessionId: 's1', callId: 'c1', decision: 'allow' })
+    checks['approvalBridge: 回答 allow → allowed-once'] = answer.ok === true
+      && answer.outcome === 'allowed-once' && await pending === 'allowed-once'
+    checks['approvalBridge: 回答后从 map 移除'] = bridge.runtime.list().length === 0
+    bridge.dispose()
+  }
+  {
+    const bridge = makeBridge('fallback')
+    const pending = bridge.handle({ agent, toolName: 'pwsh', callId: 'c1' }, async () => 'unavailable')
+    // fallback 先 await 宿主 answerer 链; 让出一个微任务/宏任务再断言扣住
+    await new Promise((r) => setTimeout(r, 0))
+    checks['approvalBridge: fallback 在宿主无人可答时接手'] = bridge.runtime.list('s1').length === 1
+    bridge.runtime.answer({ sessionId: 's1', approvalId: 'a1', decision: 'reject' })
+    checks['approvalBridge: fallback 回答 reject → rejected'] = await pending === 'rejected'
+    bridge.dispose()
+  }
+  {
+    const bridge = makeBridge('exclusive', 10)
+    const outcome = await bridge.handle({ agent, toolName: 'pwsh', callId: 'c1' })
+    checks['approvalBridge: 超时失败关闭(unavailable)'] = outcome === 'unavailable'
+      && bridge.runtime.list().length === 0
+    bridge.dispose()
+  }
+  {
+    const bridge = makeBridge()
+    const controller = new AbortController()
+    const pending = bridge.handle({ agent, toolName: 'pwsh', callId: 'c1', signal: controller.signal })
+    controller.abort()
+    checks['approvalBridge: signal abort → cancelled'] = await pending === 'cancelled'
+      && bridge.runtime.list().length === 0
+    bridge.dispose()
+  }
+  {
+    const bridge = makeBridge()
+    const pending = bridge.handle({ agent, toolName: 'pwsh', callId: 'c1' })
+    bridge.dispose()
+    checks['approvalBridge: dispose 失败关闭(cancelled)'] = await pending === 'cancelled'
+  }
 }
 
 // ── 汇报 ──

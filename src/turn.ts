@@ -348,6 +348,8 @@ export interface PendingApproval {
   callId?: string
   reason?: string
   seq: number
+  /** 事件时间(宿主日志的 time; 桩可能没有) */
+  time?: number
 }
 
 export function pendingApprovalsOf(events: readonly unknown[]): PendingApproval[] {
@@ -364,6 +366,7 @@ export function pendingApprovalsOf(events: readonly unknown[]): PendingApproval[
         ...(d.callId !== undefined ? { callId: String(d.callId) } : {}),
         ...(typeof d.reason === 'string' ? { reason: d.reason } : {}),
         seq: i,
+        ...(typeof ev.time === 'number' ? { time: ev.time } : {}),
       })
     } else if (ev.type === 'approval/decided') {
       const d = ev.data as { id?: unknown } | undefined

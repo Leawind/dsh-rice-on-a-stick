@@ -61,7 +61,10 @@ async function pollOne(
     | undefined
   if (live !== undefined) {
     const events = eventsOf(live.session)
-    const approvals = pendingApprovalsOf(events)
+    const approvals = pendingApprovalsOf(events).map((approval) => ({
+      ...approval,
+      answerable: state.approvals.isAnswerable(sessionId, approval.requestId, approval.callId),
+    }))
     const lastTurn = lastTurnOf(events)
     const queued = queuedCountOf(live)
     const lastMessage = lastAssistantTextOf(events)

@@ -1,26 +1,29 @@
 /**
- * MCP 工具注册(20 个 = 会话中心 11 + 异步控制面 3 + 目录/状态 5 + echo;
+ * MCP 工具注册(23 个 = 会话中心 11 + 异步控制面 3 + 审批控制面 3 + 目录/状态 5 + echo;
  * resourceFirst 部署形态下只读面 8 个下线, 数据走 resources 面, 但控制面工具必须保留)。
  *
- * 工具面 = dsh web 界面的操作清单(sessionController 的服务端语义)+ MCP-only 的异步控制面:
+ * 工具面 = dsh web 界面的操作清单(sessionController 的服务端语义)+ MCP-only 的异步/审批控制面:
  *   session_create(新建会话) / session_prompt(阻塞式发消息, queue|steer) /
  *   session_submit(异步 admission, 返回 requestId) / session_poll(批量有界 long-poll) /
  *   session_result(按 requestId 取结果) / session_cancel(停止) / session_queue(QueueDock) /
  *   session_select_model(模型选择器) / session_rename / session_search / session_fork /
- *   session_archive / session_list / session_history, 加目录与状态类
+ *   session_archive / session_list / session_history, 加审批控制面
+ *   (approval_list/approval_answer/approval_policy) 与目录/状态类
  *   (model_list/workspace_list/dsh_status/dsh_list_tools/dsh_get_started/echo)。
  *
  * 用 registerTool(而非 tool): 带 title 与 annotations(2025-06-18 协议新增字段)。
  * annotations 是给调用方/模型的行为提示, 不影响执行:
- *   readOnlyHint=true     → 纯查询(session_list/session_history/session_poll/session_result/…)
- *   destructiveHint=false → 有写副作用但不具破坏性(prompt/submit/cancel/queue/select_model: 历史保留)
+ *   readOnlyHint=true     → 纯查询(session_list/session_history/session_poll/session_result/approval_list/…)
+ *   destructiveHint=false → 有写副作用但不具破坏性(prompt/submit/cancel/queue/select_model/approval_answer: 历史保留)
  *
  * 数据与资源面同源(data.ts): 同 collectSessions/sessionHistoryPayload 等实现、
- * 同一数据边界。读实现归 data.ts, 异步状态/结果归 control.ts, 本模块只保留协议注册与行为语义。
+ * 同一数据边界。读实现归 data.ts, 异步状态/结果归 control.ts, 审批接管归 approvals.ts,
+ * 本模块只保留协议注册与行为语义。
  *
  * resourceFirst(config): 资源优先形态——只读工具不再注册, 客户端经 resources 面取数据;
  * session_prompt 的默认 detail 变为 'uri'(只回引用)。session_submit/session_poll/session_result
- * 不受影响: 不支持 resources 的客户端仍必须能完成编排。默认 false: 工具与资源并存。
+ * 与审批控制面不受影响: 不支持 resources 的客户端仍必须能完成编排与应答。
+ * 默认 false: 工具与资源并存。
  *
  * 变更通知: 会话/清单的每个变更点就地调 state.hooks.notify*(hub 未挂载时为 no-op)。
  */
@@ -32,7 +35,8 @@ import type { ModelSelection } from './types.js'
 import { DETAIL_ARG, projectModel, renderResult } from './projection.js'
 import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from './engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from './control.js'
-import { asSessionId, serviceOf } from './host.js'
+import { approvalListFor, approvalPolicyOfEvents, effectiveApprovalPolicy, setApprovalPolicy } from './approvals.js'
+import { asSessionId, inspectSessionEvents, serviceOf } from './host.js'
 import { guideSectionDoc, type GuideSection } from './onboarding.js'
 import {
   basicStatusSnapshot,
@@ -227,18 +231,20 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
         reasoningEffort: z.string().optional().describe('推理强度 id(见 model_list 的 reasoningEfforts; 缺省 = 适配器默认)'),
         preset: z.string().describe('挂载的 agent preset id(必填; 取值见 model_list 的 presets 字段 / dsh://presets)'),
         title: z.string().optional().describe('会话标题(缺省由宿主在首轮后自动生成)'),
+        approvalPolicy: z.enum(['ask', 'never']).optional().describe('创建后立即设置的审批策略(可选): ask=按宿主/界面审批; never=需审批的操作直接拒绝(无人值守推荐)'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ cwd, provider, model, reasoningEffort, preset, title }) => {
+    async ({ cwd, provider, model, reasoningEffort, preset, title, approvalPolicy }) => {
       try {
         const selection = selectionOf({ provider, model, reasoningEffort })
-        const r = await createSession({ ctx, cwd, selection, preset, title })
+        const r = await createSession({ ctx, cwd, selection, preset, title, approvalPolicy })
         return out(JSON.stringify({
           sessionId: r.sessionId,
           cwd: r.cwd,
           model: projectModel(r.selection),
           preset: r.preset,
+          ...(r.approvalPolicy !== undefined ? { approvalPolicy: r.approvalPolicy, approvalPolicyApplied: r.approvalPolicyApplied } : {}),
           note: 'blank session created; send work via session_submit (async) or session_prompt (blocking)',
         }, null, 2))
       } catch (e) {
@@ -359,6 +365,108 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       try {
         const payload = await sessionResult(ctx, sessionId, requestId, { detail: detail ?? state.config.defaultDetail })
         return out(JSON.stringify(payload, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // ── 审批控制面(默认只读; approvalControl=fallback|exclusive 时才能真正回答) ──
+
+  mcp.registerTool(
+    'approval_list',
+    {
+      title: 'List pending approvals',
+      description: '列出一个或多个会话当前挂起的审批(来自会话日志的 approval/asked/decided 折叠): approvalId、toolName、callId、reason、answerable、policy。answerable=true 表示该审批被本插件扣住、可用 approval_answer 回答; false 表示归界面/其他 answerer，或部署的 approvalControl=off。只读，不推进 turn。',
+      inputSchema: {
+        sessionIds: z.array(z.string()).min(1).max(20).describe('要检查的会话 id(1-20 个)'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionIds }) => {
+      try {
+        return out(JSON.stringify(await approvalListFor(ctx, sessionIds), null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  mcp.registerTool(
+    'approval_answer',
+    {
+      title: 'Answer an approval',
+      description: '回答一个被本插件扣住的审批(仅当 approval_list 里 answerable=true): decision=allow 返回 allowed-once(只授权这一次), reject 返回 rejected; 两者都会失败关闭地结束本次审批。部署需把 approvalControl 设为 fallback(界面答不了时才交给 MCP)或 exclusive(直接交给 MCP)并重载插件。审批 id 取 approval_list 的 approvalId, 或用 callId 定位。',
+      inputSchema: {
+        sessionId: z.string().describe('审批所属的会话 id'),
+        approvalId: z.string().optional().describe('approval_list 返回的 approvalId(与 callId 二选一)'),
+        callId: z.string().optional().describe('工具调用 id(与 approvalId 二选一; 更适合与 session_history 的工具调用对齐)'),
+        decision: z.enum(['allow', 'reject']).describe('allow=允许这一次(allowed-once); reject=拒绝'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, approvalId, callId, decision }) => {
+      try {
+        const r = state.approvals.answer({ sessionId, approvalId, callId, decision })
+        const payload = JSON.stringify({ sessionId, ...r }, null, 2)
+        return r.ok ? out(payload) : outError(payload)
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  mcp.registerTool(
+    'approval_policy',
+    {
+      title: 'Get or set approval policy',
+      description: '读取或切换一个会话的审批策略(宿主 approval/policy): ask=需要时走审批; never=需审批的操作直接拒绝(无人值守推荐)。get 对 live 与冷会话都可读(冷会话从日志折叠); set 需要会话 live(新建时可用 session_create 的 approvalPolicy 直接设定)。策略切换由宿主写入会话日志并通知模型。',
+      inputSchema: {
+        sessionId: z.string().describe('目标会话 id'),
+        action: z.enum(['get', 'set']).describe('get=读取当前生效策略; set=切换策略'),
+        policy: z.enum(['ask', 'never']).optional().describe('action=set 时的目标策略'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, action, policy }) => {
+      try {
+        const live = ctx.agents.get(asSessionId(sessionId)) as
+          | { session: unknown }
+          | undefined
+        if (action === 'get') {
+          if (live !== undefined) {
+            const effective = effectiveApprovalPolicy(ctx, live.session)
+            return out(JSON.stringify({
+              sessionId,
+              live: true,
+              policy: effective ?? null,
+              note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
+            }, null, 2))
+          }
+          try {
+            const events = await inspectSessionEvents(ctx, asSessionId(sessionId))
+            const effective = approvalPolicyOfEvents(events)
+            return out(JSON.stringify({
+              sessionId,
+              live: false,
+              policy: effective ?? null,
+              note: 'cold session: policy folded from the persisted log; the host default may differ',
+            }, null, 2))
+          } catch (e) {
+            return outError(JSON.stringify({ error: `session "${sessionId}" is not readable: ${(e as Error)?.message ?? String(e)}` }))
+          }
+        }
+        if (policy === undefined) return outError(JSON.stringify({ error: 'action "set" requires policy (ask|never)' }))
+        if (live === undefined) {
+          return outError(JSON.stringify({
+            error: `session "${sessionId}" is not live; set approvalPolicy at session_create, or prompt/submit once to activate it, then retry`,
+          }))
+        }
+        if (!setApprovalPolicy(ctx, live, policy)) {
+          return outError(JSON.stringify({ error: 'the host approval service is unavailable (setPolicy); policy was not changed' }))
+        }
+        state.hooks.notifySessionActivity(sessionId)
+        return out(JSON.stringify({ ok: true, sessionId, policy }))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }

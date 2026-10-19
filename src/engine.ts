@@ -19,9 +19,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from './state.js'
-import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult } from './types.js'
+import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult, ApprovalPolicy } from './types.js'
 import { canonicalCwd, canonicalWorkdir } from './paths.js'
 import { recordRequest, requestOf } from './requests.js'
+import { setApprovalPolicy } from './approvals.js'
 import { buildTurnResult, findRequestTurn, type TurnRange } from './turn.js'
 import {
   asSessionId,
@@ -168,14 +169,23 @@ export interface CreateSessionOptions {
   preset: string
   /** 会话标题(缺省由宿主 title 服务在首轮后自动生成) */
   title?: string
+  /** 创建后立即设置的审批策略(可选; ask/never; 服务缺席时静默降级) */
+  approvalPolicy?: ApprovalPolicy
 }
 
 /**
  * 新建会话(界面"新会话"按钮的服务端语义): 空白会话, 绑定 cwd 对应的工作区, 挂载 preset 与
  * 显式指定的模型。创建后 agent 常驻(无淘汰), 会话立即出现在界面会话树里。
  */
-export async function createSession(opts: CreateSessionOptions): Promise<{ sessionId: string; cwd: string; selection: ModelSelection; preset: string }> {
-  const { ctx, cwd, selection, title } = opts
+export async function createSession(opts: CreateSessionOptions): Promise<{
+  sessionId: string
+  cwd: string
+  selection: ModelSelection
+  preset: string
+  approvalPolicy?: ApprovalPolicy
+  approvalPolicyApplied?: boolean
+}> {
+  const { ctx, cwd, selection, title, approvalPolicy } = opts
   const presetName = await resolvePreset(ctx, opts.preset)
   const canonical = await canonicalWorkdir(cwd)
   const newSessionId = asSessionId(randomUUID())
@@ -191,13 +201,24 @@ export async function createSession(opts: CreateSessionOptions): Promise<{ sessi
   })
   const rec: SessionRecord = { sessionId: newSessionId, cwd: canonical, selection, preset: presetName }
   state.sessionRecords.set(String(newSessionId), rec)
+  // 审批策略: 创建后立刻切换(宿主会写 approval/policy 并通知模型); 服务缺席时只降级不阻断建会话
+  const approvalPolicyApplied = approvalPolicy !== undefined
+    ? setApprovalPolicy(ctx, handle.agent, approvalPolicy)
+    : undefined
   // 分组: 把会话归属到 cwd 对应的工作区(resolveByPath ?? create + attachSession; 可选依赖; headless 环境自动跳过)
   void attachToWorkspace(ctx, canonical, newSessionId)
   // title 命名(可选): 创建会话后立即命名; 不传则由宿主 title 服务在首轮后自动生成
   if (title) renameSessionTitle(ctx, handle.agent.session, title)
   // 会话清单(资源面 dsh://sessions)成员变化 → 合并广播
   state.hooks.notifyListChanged()
-  return { sessionId: String(newSessionId), cwd: canonical, selection, preset: presetName }
+  return {
+    sessionId: String(newSessionId),
+    cwd: canonical,
+    selection,
+    preset: presetName,
+    ...(approvalPolicy !== undefined ? { approvalPolicy } : {}),
+    ...(approvalPolicyApplied !== undefined ? { approvalPolicyApplied } : {}),
+  }
 }
 
 /** prompt 的会话解析结果 */
@@ -224,12 +245,24 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
   const live = ctx.agents.get(sid)
   if (live) {
     await attachSessionCwd(ctx, sid, live.session.header.cwd)
-    const rec = state.sessionRecords.get(sessionId)
+    let rec = state.sessionRecords.get(sessionId)
+    if (rec === undefined) {
+      // 接管即纳入插件管理面: 审批接管/结果回报靠这条记录识别"本插件驱动过的会话"。
+      // cwd 只用于展示/归组; 取规范化值, 失败也保留原值。
+      const cwd = live.session.header.cwd === undefined ? '' : await canonicalCwd(live.session.header.cwd)
+      rec = {
+        sessionId: sid,
+        cwd,
+        selection: selectionOfAgent(live),
+        preset: live.session.header.agentPreset ?? presetOfAgent(ctx, live),
+      }
+      state.sessionRecords.set(sessionId, rec)
+    }
     return {
       sessionId: sid,
       handle: { agent: live, dispose: () => Promise.resolve() },
-      selection: rec?.selection ?? selectionOfAgent(live),
-      preset: rec?.preset ?? live.session.header.agentPreset ?? presetOfAgent(ctx, live),
+      selection: rec.selection,
+      preset: rec.preset,
     }
   }
 

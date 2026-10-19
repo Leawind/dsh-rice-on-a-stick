@@ -44,6 +44,7 @@ import { resUri, collectModelCatalog } from './data.js'
 import { createNotifyHub } from './notify.js'
 import { serverInstructions } from './onboarding.js'
 import { serviceOf } from './host.js'
+import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './approvals.js'
 
 /** Cordis 插件名 */
 export const name = PLUGIN_NAME
@@ -286,6 +287,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   state.hooks.notifySessionHistory = (sessionId) => hub.updated(resUri.sessionHistory(sessionId))
   state.hooks.notifyListChanged = () => hub.listChanged()
 
+  // 审批接管: 默认 off(只读展示)。fallback/exclusive 才挂 waterfall 监听器;
+  // 只接管 state.sessionRecords 里的会话, 不劫持界面手开会话。
+  const approvalBridge = installApprovalBridge({
+    ctx,
+    mode: state.config.approvalControl,
+    timeoutMs: state.config.approvalTimeoutMs,
+  })
+  state.approvals = approvalBridge.bridge.runtime
+
   const port = config.port ?? 8090
   // 安全默认: 仅监听本机。暴露公网/局域网前必须自行加认证+反代+TLS(见 README 警告)
   const host = config.host ?? '127.0.0.1'
@@ -316,6 +326,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       state.sessionRecords.clear()
       state.sessionRequests.clear()
       state.latestRequestBySession.clear()
+      state.approvals = NOOP_APPROVAL_RUNTIME
+      approvalBridge.dispose()
       hub.dispose()
     }
   }, PLUGIN_NAME)
@@ -388,6 +400,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         defaultDetail: state.config.defaultDetail,
         authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
+        approvalControl: state.config.approvalControl,
+        approvalTimeoutMs: state.config.approvalTimeoutMs,
       },
       stats: {
         connections: connections.size,
