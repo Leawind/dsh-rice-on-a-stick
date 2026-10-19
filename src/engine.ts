@@ -11,14 +11,18 @@
  * agents.create/resume 不做默认解析, {{model}} 变量在组装期就要值); 续接沿用会话原模型
  * (冷恢复时尽量从持久化日志恢复最近一次选择, 与界面打开旧会话的行为一致); 换模型走 session_select_model。
  * allowedModels 启用且非空时是允许清单: 新建/换模型指定的模型不在清单内明确拒绝(开关可暂时关闭)。
+ *
+ * 两种投递形态: submitSession 只做 admission(异步控制面的入口); promptSession 提交后等本轮收敛
+ * (同步便捷入口)。MCP 取消只停止等待, 绝不 cancel turn——停 turn 只走 cancelSession 的显式路径。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from './state.js'
-import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionTurnResult } from './types.js'
+import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult } from './types.js'
 import { canonicalCwd, canonicalWorkdir } from './paths.js'
-import { extractTexts, parseSummary } from './projection.js'
+import { recordRequest, requestOf } from './requests.js'
+import { buildTurnResult, findRequestTurn, type TurnRange } from './turn.js'
 import {
   asSessionId,
   attachSessionCwd,
@@ -261,26 +265,30 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
 }
 
 /**
- * 等待 agent 收敛到 idle; abort 信号触发时走官方 `agent.cancel(..., {keepInbox:true})`
- * (与界面停止按钮一致: 中止当前 turn、保留未开工的排队消息), 再等 whenIdle 收敛。
- * 取消原因由 getCause 现取(外部取消 = user)。宿主缺 cancel(旧版本)时退化为不可取消。
+ * 等 agent 收敛到 idle; abort 只停止等待, 不停止 turn。
+ *
+ * MCP 的 notifications/cancelled 与客户端超时表达的是“调用方不等了”, 不是“停止工作”。
+ * 停止工作必须显式走 session_cancel(agent.cancel)。返回 true = 客户端放弃了等待,
+ * turn 仍在 dsh 里继续; 调用方之后可用 session_poll / session_result 取回结果。
  */
-async function awaitIdleCancellable(agent: AgentHandle['agent'], pending: Promise<void>, signal?: AbortSignal, getCause: () => unknown = () => ({ kind: 'user' })): Promise<void> {
-  const cancel = () => (agent as { cancel?: (cause: unknown, options?: unknown) => void }).cancel?.(getCause(), { keepInbox: true })
-  if (!signal) return pending
-  if (signal.aborted) {
-    cancel()
-    return pending
+async function awaitIdleOrAbort(pending: Promise<void>, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await pending
+    return false
   }
-  let onAbort: () => void = () => {}
-  const aborted = new Promise<void>((resolveAborted) => { onAbort = () => { cancel(); resolveAborted() } })
-  signal.addEventListener('abort', onAbort, { once: true })
-  try {
-    await Promise.race([pending, aborted])
-    if (signal.aborted) await pending // cancel 已触发: 等真正收敛(而非半路返回)
-  } finally {
-    signal.removeEventListener('abort', onAbort)
-  }
+  if (signal.aborted) return true
+  return await new Promise<boolean>((resolve) => {
+    let settled = false
+    const finish = (aborted: boolean) => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', onAbort)
+      resolve(aborted)
+    }
+    const onAbort = () => finish(true)
+    signal.addEventListener('abort', onAbort, { once: true })
+    pending.then(() => finish(false), () => finish(false))
+  })
 }
 
 /** 组装完整任务文本: 记忆上下文 + 任务 + 执行环境合同 + 结构化输出要求 */
@@ -294,6 +302,107 @@ function assembleTask(task: string, context?: string): string {
   ].filter(Boolean).join('\n')
 }
 
+/** submit/prompt 的公共输入 */
+export interface SubmitOptions {
+  ctx: Context
+  sessionId: string
+  task: string
+  /** 调用方记忆/上下文, 注入给 agent 参考 */
+  context?: string
+  /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
+  mode?: 'queue' | 'steer'
+  /**
+   * 调用方自带的请求 id(幂等键)。重复提交同一个 requestId 不会再次投递,
+   * 而是返回首次提交的回执; 省略时插件生成 UUID。
+   */
+  requestId?: string
+  /** 内部来源标记(prompt = 同步工具, submit = 异步工具) */
+  source?: 'prompt' | 'submit'
+}
+
+/** 一次已投递的提交(内部) */
+interface SubmittedTurn {
+  requestId: string
+  messageId: string
+  handle: AgentHandle
+  record: SessionRequestRecord
+  selection: ModelSelection
+  preset: string
+}
+
+/**
+ * 解析会话 → 登记请求 → 投递消息。不等待 turn; 会话缺失时按官方冷恢复路径处理。
+ * requestId 同时写进 user 消息的 source.rpcId, 会话日志因此能持久定位这次提交。
+ */
+async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
+  const { ctx, sessionId, task, context, mode = 'queue' } = opts
+  const resolved = await resolveSessionForPrompt(ctx, sessionId)
+  const requestId = opts.requestId?.trim() || randomUUID()
+  const existing = requestOf(requestId)
+  if (existing) {
+    if (existing.sessionId !== sessionId) {
+      throw new Error(`requestId "${requestId}" already belongs to session "${existing.sessionId}"`)
+    }
+    // 幂等回执: 不再投递第二次
+    return { requestId, messageId: existing.messageId, handle: resolved.handle, record: existing, selection: resolved.selection, preset: resolved.preset }
+  }
+
+  // 事件基线: 只读本轮新增事件(公开 API snapshotEvents; 旧宿主回退 log 字段)
+  const baseline = eventsOf(resolved.handle.agent.session).length
+  const message = userMessage(assembleTask(task, context), requestId)
+  const record: SessionRequestRecord = {
+    requestId,
+    sessionId,
+    messageId: String(message.id),
+    startSeq: baseline,
+    submittedAt: Date.now(),
+    mode,
+    source: opts.source ?? 'submit',
+  }
+  recordRequest(record)
+  state.hooks.notifySessionActivity(sessionId)
+  try {
+    if (mode === 'steer') resolved.handle.agent.steer(message)
+    else resolved.handle.agent.followup(message)
+  } catch (e) {
+    // 投递失败: 撤回索引, 避免 session_result 对着一条不存在于日志的消息永远 pending
+    state.sessionRequests.delete(record.requestId)
+    if (state.latestRequestBySession.get(sessionId) === record.requestId) state.latestRequestBySession.delete(sessionId)
+    throw e
+  }
+  return { requestId, messageId: record.messageId, handle: resolved.handle, record, selection: resolved.selection, preset: resolved.preset }
+}
+
+/** session_submit 的回执(admission, 不是结果) */
+export interface SubmitSessionResult {
+  sessionId: string
+  requestId: string
+  messageId: string
+  accepted: true
+  /** 投递后 agent 的即时状态; 结果仍要用 session_poll / session_result 取 */
+  state: 'idle' | 'running'
+  model: ModelSelection
+  preset: string
+}
+
+/**
+ * 异步提交: 只做 admission, 立即返回 requestId/messageId。
+ * 这是 MCP-only 控制面的核心入口——客户端拿回执后自己 poll, 不依赖服务端唤醒。
+ */
+export async function submitSession(opts: SubmitOptions): Promise<SubmitSessionResult> {
+  const submitted = await submitTurn({ ...opts, source: 'submit' })
+  const status = (submitted.handle.agent as { status?: string }).status
+  return {
+    sessionId: opts.sessionId,
+    requestId: submitted.requestId,
+    messageId: submitted.messageId,
+    accepted: true,
+    state: status === 'running' ? 'running' : 'idle',
+    model: submitted.selection,
+    preset: submitted.preset,
+  }
+}
+
 export interface PromptOptions {
   ctx: Context
   sessionId: string
@@ -302,28 +411,30 @@ export interface PromptOptions {
   context?: string
   /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
   mode?: 'queue' | 'steer'
-  /** 外部取消信号(MCP notifications/cancelled; 触发官方 agent.cancel, 保留排队) */
+  /** 调用方自带的幂等键; 响应丢失时可用它调 session_result 取回结果 */
+  requestId?: string
+  /** MCP 客户端取消等待(只停止等待, 不停止 turn; 停 turn 用 session_cancel) */
   signal?: AbortSignal
 }
 
-/** 发消息(prompt): 会话解析 → followup/steer → 等 turn 收敛 → 读结构化结果 */
+/**
+ * 同步便捷入口: 提交后等 turn 收敛, 返回结构化结果。
+ * 客户端取消等待时返回 pending 结果(turn 继续跑), 而不是 cancel turn——这样网络抖动/超时
+ * 不会杀掉正在工作的 agent; 要停 turn 请显式调 session_cancel。
+ */
 export async function promptSession(opts: PromptOptions): Promise<SessionTurnResult> {
   const { ctx, sessionId, task, context, mode = 'queue', signal } = opts
-  const { handle, selection: initialSelection, preset } = await resolveSessionForPrompt(ctx, sessionId)
-  // 事件基线: 只读本轮新增事件(公开 API snapshotEvents; 旧宿主回退 log 字段)
-  const baseline = eventsOf(handle.agent.session).length
-  state.hooks.notifySessionActivity(sessionId)
-
-  const fullTask = assembleTask(task, context)
-  const turnStartedAt = Date.now()
-  if (mode === 'steer') handle.agent.steer(userMessage(fullTask))
-  else handle.agent.followup(userMessage(fullTask))
+  // 还没 admission 就被取消: 不投递。已 admission 后的取消只停止等待(见 awaitIdleOrAbort)。
+  if (signal?.aborted) throw new Error('cancelled before submission; no task was sent')
+  const submitted = await submitTurn({ ctx, sessionId, task, context, mode, requestId: opts.requestId, source: 'prompt' })
+  const { handle, record } = submitted
   // 活动窗口订阅推送: 固定 1s 尾沿节流(hub 侧), 无人订阅时零开销
   const activityTimer = setInterval(() => {
     try { state.hooks.notifySessionActivity(sessionId) } catch { /* 忽略单次失败 */ }
   }, 1000)
+  let aborted = false
   try {
-    await awaitIdleCancellable(handle.agent, handle.agent.whenIdle(), signal)
+    aborted = await awaitIdleOrAbort(handle.agent.whenIdle(), signal)
   } finally {
     clearInterval(activityTimer)
     state.hooks.notifySessionActivity(sessionId)
@@ -332,90 +443,20 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
 
   // 结构化读输出。模型回报以本轮实际写入日志的 request/header 为准(冷恢复时 agent.options
   // 是宿主的部署默认, 不一定是会话实际使用的模型), 日志头缺席才退回解析阶段的选择。
+  const events = eventsOf(handle.agent.session)
+  const range: TurnRange = findRequestTurn(events, record.requestId, record.messageId, record.startSeq)
+    ?? { start: record.startSeq, userIndex: record.startSeq, open: true }
   const effectiveSelection = selectionOfAgent(handle.agent)
-  const selection = effectiveSelection.provider && effectiveSelection.model ? effectiveSelection : initialSelection
-  const result: SessionTurnResult = {
-    sessionId, model: selection, preset, durationMs: Date.now() - turnStartedAt,
-    assistantText: '', toolCalls: [], toolResults: [],
-    changes: '', verification: '', leftovers: '', error: '',
-  }
-  let observedEvents = 0
-  try {
-    const events = eventsOf(handle.agent.session).slice(baseline)
-    observedEvents = events.length
-    for (const e of events) {
-      const ev = e as { type?: string; data?: unknown }
-      if (ev.type === 'assistant/message') {
-        const d = ev.data as {
-          message?: { content?: { type?: string; text?: string }[]; usage?: { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown } }
-          /** 0.1.7+ 的 usage 挂在事件载荷上(不再随 message); 两处都试 */
-          usage?: { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown }
-        } | undefined
-        const content = d?.message?.content
-        if (content) {
-          const texts = content.filter((c) => c.type === 'text' && c.text).map((c) => c.text)
-          if (texts.length) result.assistantText += texts.join('\n') + '\n'
-        }
-        // token 用量(机会式): 0.1.7+ 在事件载荷, 更早宿主在 message.usage; 都没有就省略字段
-        const u = d?.usage ?? d?.message?.usage
-        if (u && typeof u === 'object') {
-          const inTok = Number(u.inputTokens)
-          const outTok = Number(u.outputTokens)
-          if (Number.isFinite(inTok) || Number.isFinite(outTok)) {
-            result.usage = result.usage ?? { inputTokens: 0, outputTokens: 0 }
-            result.usage.inputTokens += Number.isFinite(inTok) ? inTok : 0
-            result.usage.outputTokens += Number.isFinite(outTok) ? outTok : 0
-            const total = Number(u.totalTokens)
-            if (Number.isFinite(total)) result.usage.totalTokens = (result.usage.totalTokens ?? 0) + total
-          }
-        }
-      } else if (ev.type === 'tool/call') {
-        const d = ev.data as { name?: string; arguments?: string; input?: unknown } | undefined
-        result.toolCalls.push({
-          name: d?.name ?? '?',
-          args: (d?.arguments ?? JSON.stringify(d?.input ?? null) ?? '').slice(0, 2000),
-        })
-      } else if (ev.type === 'tool/result') {
-        const texts = extractTexts(ev.data ?? ev)
-        if (texts.length) result.toolResults.push(texts.join('\n').slice(0, 3000))
-      } else if (ev.type === 'turn/end') {
-        // 失败透出: turn/end 的非 completed 收场(LlmError/取消/blocked/max-tokens)进 error 字段。
-        // E2E 实测教训: 模型调用失败时没有任何 assistant 输出, 不透出的话调用方只拿到"成功"的空结果。
-        const d = ev.data as {
-          turn?: number
-          reason?: { kind?: string; error?: { message?: string; code?: string }; reason?: unknown }
-        } | undefined
-        const r = d?.reason
-        if (r && r.kind && r.kind !== 'completed') {
-          const bits = [`turn ${d?.turn ?? '?'} ended: ${r.kind}`]
-          if (r.error) bits.push(`${r.error.code ?? 'ERROR'}: ${r.error.message ?? ''}`)
-          else if (r.reason !== undefined) bits.push(String(r.reason))
-          let msg = bits.join(' — ')
-          // blocked 收场通常是宿主在等交互式审批/输入: 无人值守的调用方拿不到它, 给出可执行的下一步
-          if (r.kind === 'blocked') {
-            msg += ' (host is waiting for interactive input/approval that an unattended run cannot grant; '
-              + 'arrange approval or relax the host approval policy, then continue via session_prompt with this sessionId)'
-          }
-          result.error = (result.error ? `${result.error} | ` : '') + msg
-        }
-      }
-    }
-  } catch (e) {
-    // 追加而非覆盖: 读输出中途异常时, 之前已解析出的 assistantText 不丢失
-    result.assistantText = `${result.assistantText}[读输出异常] ${String(e)}`.trim()
-  }
-  // 完全无产出且无错误事件时给出可诊断的兜底(而不是一份"成功"的空结果)
-  if (!result.assistantText && !result.error) {
-    result.error = observedEvents === 0
-      ? 'no new session events observed (turn may not have started)'
-      : `turn produced no assistant output (observed ${observedEvents} events, none assistant/message)`
-  }
-
-  // 解析结构化 summary
-  const summary = parseSummary(result.assistantText)
-  result.changes = summary.changes
-  result.verification = summary.verification
-  result.leftovers = summary.leftovers
+  const selection = effectiveSelection.provider && effectiveSelection.model ? effectiveSelection : submitted.selection
+  const result = buildTurnResult(events, range, {
+    sessionId,
+    requestId: record.requestId,
+    selection,
+    preset: submitted.preset,
+    submittedAt: record.submittedAt,
+  })
+  // 客户端放弃等待且 turn 仍未收敛: 标记 pending(不能伪造 error)
+  if (aborted && range.end === undefined) result.pending = true
 
   // 持久化同步: 尽力 flush(官方 whenIdle 注释: 消费者自读存储需自行 flush;
   // 不 flush 的话 durable log 只有 header, 进程重启后的续接会丢历史)。失败不阻断结果返回。

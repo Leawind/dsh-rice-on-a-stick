@@ -1,14 +1,16 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
- *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝)
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 17 工具)/版本协商
+ *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 20 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
- *   D. session_cancel / session_queue(list/edit/remove/未知 itemId)
- *   E. session_select_model / session_rename / session_search / session_fork / session_archive
- *   F. session_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
- *   G. allowedModels 允许清单(独立 ctx)
- *   I. resourceFirst 形态(独立 ctx)——只读面下线, prompt 默认 uri 档
+ *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
+ *      索引丢失后从 rpcId 重建)/客户端取消只停等待
+ *   E. session_cancel / session_queue(list/edit/remove/未知 itemId)
+ *   F. session_select_model / session_rename / session_search / session_fork / session_archive
+ *   G. session_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
+ *   H. allowedModels 允许清单(独立 ctx)
+ *   I. resourceFirst 形态(独立 ctx)——只读面下线, 控制面工具保留, prompt 默认 uri 档
  *   J. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
  *   K. GUI 控制面路由: status/models/config-update/stop-start 同源
  *
@@ -17,9 +19,12 @@
  */
 import { EventEmitter } from 'node:events'
 import { apply } from '../lib/index.js'
+import { cancelSession, promptSession } from '../lib/engine.js'
 import { serviceOf } from '../lib/host.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
+import { state } from '../lib/state.js'
+import { pendingApprovalsOf } from '../lib/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { Config as ConfigSchema } from '../lib/config.js'
 import {
@@ -50,6 +55,8 @@ import {
   selectModelCalls,
   slowAgents,
   slowLiveAgent,
+  slowLiveAgent2,
+  slowLiveAgent3,
   steered,
   waitFor,
 } from './smoke-harness.ts'
@@ -77,9 +84,10 @@ try {
   const toolsList = await rpc(init.sid, { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} })
   const toolsArr: any[] = parsePayload(toolsList.text).result?.tools ?? []
   const toolNames = toolsArr.map((t) => t.name)
-  const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_cancel', 'session_queue', 'session_select_model',
-    'session_rename', 'session_list', 'session_history', 'session_search', 'session_fork', 'session_archive']
-  checks['tools/list: 精确 17 个工具(会话中心工具面)'] = toolNames.length === 17
+  const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
+    'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_list', 'session_history',
+    'session_search', 'session_fork', 'session_archive']
+  checks['tools/list: 精确 20 个工具(会话中心 + 异步控制面)'] = toolNames.length === 20
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -159,12 +167,85 @@ try {
   checks['session_prompt 冷恢复被宿主拒绝时透出原因'] = String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '')
     .includes('cannot resume session') && String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '').includes('not found')
 
+  // ── 异步控制面: session_submit / session_poll / session_result ──
+  const beforeIdem = followups.length
+  const submitIdem1 = await rpc(init.sid, { jsonrpc: '2.0', id: 25, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-live', task: 'idem task', requestId: 'smoke-req-idem' } } })
+  const idem1 = innerOf(submitIdem1)
+  const submitIdem2 = await rpc(init.sid, { jsonrpc: '2.0', id: 26, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-live', task: 'idem task again', requestId: 'smoke-req-idem' } } })
+  const idem2 = innerOf(submitIdem2)
+  checks['session_submit 返回回执(requestId/messageId)'] = idem1.accepted === true && idem1.requestId === 'smoke-req-idem'
+    && typeof idem1.messageId === 'string' && ['idle', 'running'].includes(idem1.state)
+  checks['session_submit requestId 幂等(重复不投递)'] = idem2.messageId === idem1.messageId && followups.length === beforeIdem + 1
+
+  const resIdem = await rpc(init.sid, { jsonrpc: '2.0', id: 27, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } } })
+  const resIdemInner = innerOf(resIdem)
+  checks['session_result 按 requestId 取回结果'] = resIdemInner.status === 'completed'
+    && resIdemInner.pending !== true && resIdemInner.changes === 'c1' && resIdemInner.requestId === 'smoke-req-idem'
+  // 索引丢失(模拟插件重启/TTL 淘汰): requestId 写进了 user 消息的 source.rpcId, 应从日志重建
+  state.sessionRequests.delete('smoke-req-idem')
+  const resRecovered = await rpc(init.sid, { jsonrpc: '2.0', id: 271, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } } })
+  checks['session_result 索引丢失后从日志 rpcId 重建'] = innerOf(resRecovered).status === 'completed'
+    && innerOf(resRecovered).changes === 'c1'
+
+  // session_prompt 也接受调用方 requestId: 响应丢失时可再用 session_result 取回
+  const promptWithId = await rpc(init.sid, { jsonrpc: '2.0', id: 272, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'prompt id probe', requestId: 'smoke-prompt-req' } } })
+  checks['session_prompt 支持调用方 requestId'] = innerOf(promptWithId).requestId === 'smoke-prompt-req'
+    && innerOf(promptWithId).status === 'completed'
+
+  const poll = await rpc(init.sid, { jsonrpc: '2.0', id: 28, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-live', 'sess-live2', 'sess-nope'], waitMs: 0 } } })
+  const pollInner = innerOf(poll)
+  const pollLive = pollInner.sessions?.find((s: any) => s.sessionId === 'sess-live')
+  const pollInactive = pollInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
+  const pollMissing = pollInner.sessions?.find((s: any) => s.sessionId === 'sess-nope')
+  checks['session_poll 批量返回状态/游标/最后 turn'] = pollLive?.state === 'idle'
+    && typeof pollLive?.cursor === 'number' && pollLive?.lastTurn?.reason === 'completed'
+  checks['session_poll 冷/不存在会话区分'] = pollInactive?.state === 'inactive'
+    && pollInactive?.parentSession === 'sess-live' && pollInactive?.origin === 'subagent' && pollInactive?.delegationDepth === 1
+    && pollMissing?.state === 'not-found'
+  const pollTimeout = await rpc(init.sid, { jsonrpc: '2.0', id: 29, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-live2'], waitMs: 150 } } })
+  checks['session_poll waitMs 超时返回 timedOut/retryAfterMs'] = innerOf(pollTimeout).timedOut === true
+    && innerOf(pollTimeout).changed === false && typeof innerOf(pollTimeout).retryAfterMs === 'number'
+
+  const unknownRes = await rpc(init.sid, { jsonrpc: '2.0', id: 291, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'no-such-request' } } })
+  checks['session_result 未知 requestId 明确报错'] = String(innerOf(unknownRes).error ?? '').includes('unknown requestId')
+
+  // 慢会话: 提交后未收敛 → pending/running; 显式 cancel 后 → cancelled
+  const slowSubmit = await rpc(init.sid, { jsonrpc: '2.0', id: 292, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-slow3', task: 'async slow', requestId: 'smoke-req-slow' } } })
+  checks['session_submit 慢会话返回 accepted'] = innerOf(slowSubmit).accepted === true && innerOf(slowSubmit).state === 'running'
+  const slowPending = await rpc(init.sid, { jsonrpc: '2.0', id: 293, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } } })
+  checks['session_result 未收敛 → running/pending'] = innerOf(slowPending).status === 'running' && innerOf(slowPending).pending === true
+  const slowPollBefore = await rpc(init.sid, { jsonrpc: '2.0', id: 294, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow3'], waitMs: 0 } } })
+  checks['session_poll 慢会话 state=running'] = innerOf(slowPollBefore).sessions?.[0]?.state === 'running'
+  const slowCancel = await cancelSession(ctx, 'sess-slow3')
+  checks['session_cancel 停止异步提交的 turn'] = slowCancel.cancelled === true
+  const slowSettled = await rpc(init.sid, { jsonrpc: '2.0', id: 295, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } } })
+  checks['session_result 取消后 → cancelled(非工具错误)'] = innerOf(slowSettled).status === 'cancelled' && slowSettled.status === 200
+
+  // 客户端取消等待: 只停止等待, 不 cancel turn(用独立慢 agent, 避免和上面的 turn 交错)
+  const aborted = new AbortController()
+  const beforeClientCancel = slowLiveAgent2.cancelCalls.length
+  const pendingPromptPromise = promptSession({ ctx, sessionId: 'sess-slow2', task: 'client-cancel probe', signal: aborted.signal })
+  await waitFor(() => followups.some((f) => f.id === 'sess-slow2'), 5000)
+  aborted.abort()
+  const pendingPrompt = await pendingPromptPromise
+  checks['session_prompt 客户端取消只停止等待, 不 cancel turn'] = pendingPrompt.pending === true
+    && typeof pendingPrompt.requestId === 'string' && slowLiveAgent2.cancelCalls.length === beforeClientCancel
+  const explicitCancel = await cancelSession(ctx, 'sess-slow2')
+  checks['session_cancel 仍是显式停止路径'] = explicitCancel.cancelled === true && slowLiveAgent2.cancelCalls.length > beforeClientCancel
+  const clientCancelSettled = await rpc(init.sid, { jsonrpc: '2.0', id: 296, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow2', requestId: pendingPrompt.requestId } } })
+  checks['session_result 客户端取消后仍可取回 cancelled 结果'] = innerOf(clientCancelSettled).status === 'cancelled'
+
   // ── session_cancel / session_queue(慢 agent: whenIdle 挂起, 仅 cancel 收敛) ──
   const slowPrompt = rpc(init.sid, { jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-slow', task: 'long job' } } })
   await waitFor(() => followups.some((f) => f.id === 'sess-slow'), 5000)
+  // 有界 long-poll: 先挂起一个 poll, 再从另一个请求 cancel, poll 应观察到状态变化
+  const slowPoll = rpc(init.sid, { jsonrpc: '2.0', id: 301, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow'], waitMs: 5000 } } })
+  await new Promise((r) => setTimeout(r, 250))
   const cancelRun = await rpc(init.sid, { jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'session_cancel', arguments: { sessionId: 'sess-slow' } } })
   checks['session_cancel 停止运行中的会话(官方 agent.cancel)'] = innerOf(cancelRun).cancelled === true
     && slowLiveAgent.cancelCalls.length > 0
+  const slowPollInner = innerOf(await slowPoll)
+  checks['session_poll waitMs 观察到状态变化'] = slowPollInner.changed === true && slowPollInner.sessions?.[0]?.state === 'idle'
   await waitFor(() => slowAgents.find((a) => a.session.id === 'sess-slow')?.status === 'idle', 5000)
   await slowPrompt
 
@@ -221,6 +302,9 @@ try {
   const slInner = sl.status === 200 ? innerOf(sl) : { sessions: [] }
   checks['session_list 合并 live+持久化'] = slInner.total >= 3
     && slInner.sessions?.some((s: any) => s.sessionId === 'sess-live') && slInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted')
+  const live2Row = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
+  checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live'
+    && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
   const sh = await rpc(init.sid, { jsonrpc: '2.0', id: 51, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'] } } })
   checks['session_history 按 roles 取轮次'] = JSON.stringify(innerOf(sh)).includes('"role":"assistant"')
     && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
@@ -300,8 +384,9 @@ try {
     const phase = await startPhase(8091, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { resourceFirst: true })
     const names = await phase.toolNames()
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_history', 'session_search']
-    const KEPT = ['session_create', 'session_prompt', 'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'echo']
-    checks['resourceFirst: 只读工具下线/会话写工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
+    const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
+      'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'echo']
+    checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
@@ -453,6 +538,14 @@ try {
     const service = { marker: 1 }
     const ctx = { get: (name: string) => (name === 'sessionController' ? service : undefined) }
     return serviceOf(ctx as any, 'sessionController') === service
+  })()
+  checks['pendingApprovalsOf: asked/decided 折叠'] = (() => {
+    const pending = pendingApprovalsOf([
+      { type: 'approval/asked', data: { id: 'a1', toolName: 'bash', reason: 'rm' } },
+      { type: 'approval/asked', data: { id: 'a2', toolName: 'pwsh' } },
+      { type: 'approval/decided', data: { id: 'a1', outcome: 'allowed-once' } },
+    ])
+    return pending.length === 1 && pending[0].requestId === 'a2' && pending[0].toolName === 'pwsh'
   })()
 }
 

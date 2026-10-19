@@ -24,6 +24,25 @@ export interface SessionRecord {
   preset: string
 }
 
+/** 一次异步提交的请求状态(由会话日志的 turn 边界派生; pending = 尚未被任何一个 turn 认领) */
+export type RequestStatus = 'pending' | 'running' | 'completed' | 'blocked' | 'errored' | 'cancelled'
+
+/**
+ * 一次 submit/prompt 的登记记录(进程内, TTL + 上限淘汰)。
+ * requestId 同时写进 user 消息的 source.rpcId, 所以插件重启后仍能从会话日志里按它找到对应 turn;
+ * 这里只是当前进程的加速索引。
+ */
+export interface SessionRequestRecord {
+  requestId: string
+  sessionId: string
+  messageId: string
+  /** 提交时的事件下标基线(找不到 rpcId 时的回退定位) */
+  startSeq: number
+  submittedAt: number
+  mode: 'queue' | 'steer'
+  source: 'prompt' | 'submit'
+}
+
 /** 一轮 prompt 的结构化结果 */
 export interface SessionTurnResult {
   sessionId: string
@@ -46,6 +65,14 @@ export interface SessionTurnResult {
    * E2E 实测教训: 模型调用失败时没有 assistant 输出, 不透出错误的话调用方只拿到一份"成功"的空结果。
    */
   error: string
+  /** 本次提交的请求 id(session_result 用它取回结果) */
+  requestId?: string
+  /** 请求状态(completed / blocked / errored / cancelled; pending = 未收敛) */
+  status?: RequestStatus
+  /** 对应 turn 序号(未开始则为空) */
+  turn?: number
+  /** 客户端停止等待(或 turn 尚未收敛)时为 true; turn 本身仍在 dsh 里继续跑 */
+  pending?: boolean
 }
 
 /** 结果详略级别 */

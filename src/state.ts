@@ -7,7 +7,7 @@
  * 本插件持有的 sessionRecords 只起"记住创建参数"的作用, 生命周期归宿主 registry。
  */
 import { DEFAULTS, type RuntimeConfig } from './config.js'
-import type { SessionRecord } from './types.js'
+import type { SessionRecord, SessionRequestRecord } from './types.js'
 
 /**
  * apply 绑定的通知钩子(缺省 no-op, 使数据层/引擎在无 MCP 面的部署形态下零通知开销)。
@@ -28,12 +28,21 @@ interface RuntimeState {
   config: RuntimeConfig
   /** 本插件创建/续接过的会话记录(常驻, 不淘汰——与界面行为一致; 生命周期归宿主 registry) */
   sessionRecords: Map<string, SessionRecord>
+  /**
+   * 异步请求索引(requestId → 记录): 只做当前进程的加速定位, TTL/上限淘汰。
+   * requestId 本身写进 user 消息的 source.rpcId, 所以日志才是持久事实。
+   */
+  sessionRequests: Map<string, SessionRequestRecord>
+  /** 每个会话最近一次请求(省略 requestId 时 session_result 用它) */
+  latestRequestBySession: Map<string, string>
   hooks: StateHooks
 }
 
 export const state: RuntimeState = {
   config: { ...DEFAULTS },
   sessionRecords: new Map(),
+  sessionRequests: new Map(),
+  latestRequestBySession: new Map(),
   hooks: {
     notifySessionActivity: () => {},
     notifySessionHistory: () => {},

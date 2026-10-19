@@ -1,24 +1,26 @@
 /**
- * MCP 工具注册(17 个 = 16 个会话/目录工具 + echo; resourceFirst 部署形态下只读面 8 个下线, 数据一律走 resources 面)。
+ * MCP 工具注册(20 个 = 会话中心 11 + 异步控制面 3 + 目录/状态 5 + echo;
+ * resourceFirst 部署形态下只读面 8 个下线, 数据走 resources 面, 但控制面工具必须保留)。
  *
- * 工具面 = dsh web 界面的操作清单(sessionController 的服务端语义), 会话是唯一操作单元:
- *   session_create(新建会话) / session_prompt(发消息, 含界面"忙碌时发送行为"的 queue|steer 两模式) /
- *   session_cancel(停止) / session_queue(排队管理 QueueDock) / session_select_model(模型选择器) /
- *   session_rename(重命名) / session_search(搜索) / session_fork(分叉) / session_archive(归档) /
- *   session_list / session_history, 加目录与状态类(model_list/workspace_list/dsh_status/dsh_list_tools/
- *   dsh_get_started/echo)。
- * 没有任务队列/agent 池——界面没有的概念这里也没有。
+ * 工具面 = dsh web 界面的操作清单(sessionController 的服务端语义)+ MCP-only 的异步控制面:
+ *   session_create(新建会话) / session_prompt(阻塞式发消息, queue|steer) /
+ *   session_submit(异步 admission, 返回 requestId) / session_poll(批量有界 long-poll) /
+ *   session_result(按 requestId 取结果) / session_cancel(停止) / session_queue(QueueDock) /
+ *   session_select_model(模型选择器) / session_rename / session_search / session_fork /
+ *   session_archive / session_list / session_history, 加目录与状态类
+ *   (model_list/workspace_list/dsh_status/dsh_list_tools/dsh_get_started/echo)。
  *
  * 用 registerTool(而非 tool): 带 title 与 annotations(2025-06-18 协议新增字段)。
  * annotations 是给调用方/模型的行为提示, 不影响执行:
- *   readOnlyHint=true     → 纯查询(session_list/session_history/session_search/model_list/…)
- *   destructiveHint=false → 有写副作用但不具破坏性(prompt/cancel/queue/select_model: 历史保留)
+ *   readOnlyHint=true     → 纯查询(session_list/session_history/session_poll/session_result/…)
+ *   destructiveHint=false → 有写副作用但不具破坏性(prompt/submit/cancel/queue/select_model: 历史保留)
  *
  * 数据与资源面同源(data.ts): 同 collectSessions/sessionHistoryPayload 等实现、
- * 同一数据边界。读实现归 data.ts, 本模块只保留协议注册与行为语义。
+ * 同一数据边界。读实现归 data.ts, 异步状态/结果归 control.ts, 本模块只保留协议注册与行为语义。
  *
  * resourceFirst(config): 资源优先形态——只读工具不再注册, 客户端经 resources 面取数据;
- * session_prompt 的默认 detail 变为 'uri'(只回引用)。默认 false: 工具与资源并存。
+ * session_prompt 的默认 detail 变为 'uri'(只回引用)。session_submit/session_poll/session_result
+ * 不受影响: 不支持 resources 的客户端仍必须能完成编排。默认 false: 工具与资源并存。
  *
  * 变更通知: 会话/清单的每个变更点就地调 state.hooks.notify*(hub 未挂载时为 no-op)。
  */
@@ -28,7 +30,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { state } from './state.js'
 import type { ModelSelection } from './types.js'
 import { DETAIL_ARG, projectModel, renderResult } from './projection.js'
-import { cancelSession, createSession, promptSession, queueManage, selectionOf } from './engine.js'
+import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from './engine.js'
+import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from './control.js'
 import { asSessionId, serviceOf } from './host.js'
 import { guideSectionDoc, type GuideSection } from './onboarding.js'
 import {
@@ -72,6 +75,9 @@ const sessionListOut = z.object({
     title: z.string().optional(),
     cwd: z.string().optional(),
     agentPreset: z.string().optional(),
+    parentSession: z.string().optional(),
+    origin: z.string().optional(),
+    delegationDepth: z.number().optional(),
     model: z.object({
       provider: z.string().optional(),
       model: z.string().optional(),
@@ -81,10 +87,21 @@ const sessionListOut = z.object({
 })
 
 /** resourceFirst 的 uri 投影: 只回引用与簿记字段, 数据本体让调用方按 resource URI 直读/订阅 */
-function renderUriResult(result: { sessionId: string; model: ModelSelection }, historyUri: string): Record<string, unknown> {
+function renderUriResult(result: {
+  sessionId: string
+  model: ModelSelection
+  requestId?: string
+  status?: string
+  turn?: number
+  pending?: boolean
+}, historyUri: string): Record<string, unknown> {
   return {
     detail: 'uri',
     sessionId: result.sessionId,
+    ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
+    ...(result.status !== undefined ? { status: result.status } : {}),
+    ...(result.turn !== undefined ? { turn: result.turn } : {}),
+    ...(result.pending === true ? { pending: true } : {}),
     model: projectModel(result.model),
     resource: historyUri,
     ...uriNote(),
@@ -222,7 +239,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
           cwd: r.cwd,
           model: projectModel(r.selection),
           preset: r.preset,
-          note: 'blank session created; send work via session_prompt(sessionId)',
+          note: 'blank session created; send work via session_submit (async) or session_prompt (blocking)',
         }, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
@@ -234,27 +251,114 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
     'session_prompt',
     {
       title: 'Prompt session',
-      description: '在会话里发一条消息并等本轮完成, 返回结构化结果(界面"发送")。mode 对应界面的"忙碌时发送行为": queue = 会话忙时排进它的 inbox(宿主持久, 会话空闲自动继续); steer = 打断当前 step 立即消化(空闲时两者等价)。长轮次请耐心等返回; 期间可从另一个请求调 session_cancel 停止(排队保留), 或订阅会话资源观察进度。',
+      description: '在会话里发一条消息并等本轮完成, 返回结构化结果(界面"发送")。mode 对应界面的"忙碌时发送行为": queue = 会话忙时排进它的 inbox(宿主持久, 会话空闲自动继续); steer = 打断当前 step 立即消化(空闲时两者等价)。注意: MCP 客户端取消等待(超时/notifications/cancelled)只停止等待, 不会停止 dsh 里的 turn; 此时结果带 pending=true 与 requestId, 用 session_poll/session_result 继续取, 或用 session_cancel 显式停止。响应可能在网络中断时丢失——传 requestId 即可用 session_result 取回。需要并发编排多个会话时请直接用 session_submit + session_poll + session_result, 不要让一个工具调用长时间阻塞。',
       inputSchema: {
         sessionId: z.string().describe('目标会话 id(session_create 返回; 或 session_list 里白名单内的会话——续接沿用其原模型)'),
         task: z.string().describe('要 Harness 执行的自然语言任务'),
         context: z.string().optional().describe('调用方记忆/上下文, 注入给 agent 参考(续接同一会话时建议只发增量)'),
         mode: z.enum(['queue', 'steer']).optional().describe('发送模式(缺省 queue): queue=忙时排队(宿主 inbox 持久); steer=打断当前 step 消化'),
+        requestId: z.string().min(1).max(200).optional().describe('幂等键(响应丢失时用 session_result 取回; 省略时插件生成 UUID)'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`结果详略: uri=只回引用(resource 指向会话纪要资源, 数据直读/订阅); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, context, mode, detail }, extra) => {
+    async ({ sessionId, task, context, mode, requestId, detail }, extra) => {
       try {
-        const result = await promptSession({ ctx, sessionId, task, context, mode, signal: extra.signal })
+        const result = await promptSession({ ctx, sessionId, task, context, mode, requestId, signal: extra.signal })
         const effDetail = detail ?? (resourceFirst ? 'uri' : state.config.defaultDetail)
+        const pendingNote = result.pending === true
+          ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
+          : undefined
         if (effDetail === 'uri') {
-          const rendered = renderUriResult(result, resUri.sessionHistory(sessionId))
+          const uri = renderUriResult(result, resUri.sessionHistory(sessionId))
+          const rendered = pendingNote !== undefined
+            ? { ...uri, note: `${String(uri.note ?? '')} ${pendingNote}`.trim() }
+            : uri
           const text = JSON.stringify(rendered, null, 2)
-          return result.error ? outError(text) : out(text)
+          return result.error && result.pending !== true ? outError(text) : out(text)
         }
-        const rendered = JSON.stringify({ ...renderResult(result, effDetail), resource: resUri.sessionHistory(sessionId) }, null, 2)
-        return result.error ? outError(rendered) : out(rendered)
+        const rendered = JSON.stringify({
+          ...renderResult(result, effDetail),
+          resource: resUri.sessionHistory(sessionId),
+          ...(pendingNote !== undefined ? { note: pendingNote } : {}),
+        }, null, 2)
+        return result.error && result.pending !== true ? outError(rendered) : out(rendered)
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 异步提交: 只 admission, 立即返回 requestId; 客户端用 session_poll / session_result 取结果。
+  // 这是 MCP-only 编排的核心——发送与等待分离, 客户端超时不会杀掉 dsh 里的 turn。
+  mcp.registerTool(
+    'session_submit',
+    {
+      title: 'Submit session task',
+      description: '把任务异步投递进会话, 立即返回 requestId/messageId(不等待 turn)。之后用 session_poll 观察状态、session_result 取结构化结果; 需要停止 turn 用 session_cancel。mode 与 session_prompt 相同(queue 忙时排队 / steer 打断当前 step)。重复传同一个 requestId 是幂等的: 不会重复投递, 返回首次回执。适合并发开多个 worker 后统一轮询。',
+      inputSchema: {
+        sessionId: z.string().describe('目标会话 id(session_create 返回; 续接沿用其原模型)'),
+        task: z.string().describe('要 Harness 执行的自然语言任务'),
+        context: z.string().optional().describe('调用方记忆/上下文, 注入给 agent 参考(续接同一会话时建议只发增量)'),
+        mode: z.enum(['queue', 'steer']).optional().describe('发送模式(缺省 queue): queue=忙时排队(宿主 inbox 持久); steer=打断当前 step 消化'),
+        requestId: z.string().min(1).max(200).optional().describe('幂等键(调用方自带; 省略时插件生成 UUID)。重复提交同 id 返回首次回执'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, task, context, mode, requestId }) => {
+      try {
+        const r = await submitSession({ ctx, sessionId, task, context, mode, requestId })
+        return out(JSON.stringify({
+          ...r,
+          resource: resUri.sessionHistory(sessionId),
+          note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
+        }, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 批量状态观察: 有界 long-poll, 返回状态/最后 turn/排队数/pending 审批/最后一条消息。
+  mcp.registerTool(
+    'session_poll',
+    {
+      title: 'Poll sessions',
+      description: '批量观察会话状态(异步控制面的等待原语): 一次传多个 sessionIds, 返回每个会话的 state(idle/running/waiting-approval/inactive/not-found)、lastTurn、queued、pendingApprovals、cursor 和最后一条 assistant 消息。waitMs>0 时最多等 30 秒, 任一被观察会话变化就返回(changed=true), 超时返回 timedOut=true + retryAfterMs; 客户端按需继续调用。只读, 不推进 turn, 不依赖服务端推送。',
+      inputSchema: {
+        sessionIds: z.array(z.string()).min(1).max(20).describe('要观察的会话 id(1-20 个)'),
+        waitMs: z.number().int().min(0).max(POLL_MAX_WAIT_MS).optional().describe(`最长等待毫秒数(0-${POLL_MAX_WAIT_MS}; 缺省 0 = 立即返回)`),
+        detail: z.enum(['summary', 'normal', 'full']).optional().describe('lastMessage 的截断档位(缺省 summary)'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionIds, waitMs, detail }, extra) => {
+      try {
+        const payload = await pollSessions(ctx, sessionIds, { waitMs, detail, signal: extra.signal })
+        return out(JSON.stringify(payload, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 按 requestId 取回异步结果(从会话日志投影; 索引只是加速)。
+  mcp.registerTool(
+    'session_result',
+    {
+      title: 'Get session task result',
+      description: '按 requestId 取回一次 session_submit / session_prompt 的结构化结果: status 为 completed/blocked/errored/cancelled, 尚未收敛时 status=running 且 pending=true(返回当前可见的部分结果), 请求还没被 turn 认领时 status=pending。省略 requestId 时取该会话最近一次提交。结果按 detail 投影; 工具调用本身成功不代表 turn 成功——看 status/error。',
+      inputSchema: {
+        sessionId: z.string().describe('提交任务时使用的会话 id'),
+        requestId: z.string().min(1).max(200).optional().describe('session_submit/session_prompt 返回的请求 id; 省略 = 该会话最近一次提交'),
+        detail: z.enum(['summary', 'normal', 'full']).optional().describe(`结果详略: ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId, requestId, detail }) => {
+      try {
+        const payload = await sessionResult(ctx, sessionId, requestId, { detail: detail ?? state.config.defaultDetail })
+        return out(JSON.stringify(payload, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }

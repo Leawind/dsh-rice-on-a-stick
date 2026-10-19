@@ -78,6 +78,10 @@ export function renderResult(result: SessionTurnResult, detail: DetailLevel): Re
   const base = {
     detail,
     sessionId: result.sessionId,
+    ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
+    ...(result.status !== undefined ? { status: result.status } : {}),
+    ...(result.turn !== undefined ? { turn: result.turn } : {}),
+    ...(result.pending === true ? { pending: true } : {}),
     model: projectModel(result.model),
     ...(result.preset ? { preset: result.preset } : {}),
     durationMs: result.durationMs,

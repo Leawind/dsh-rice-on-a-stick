@@ -110,13 +110,14 @@ try {
   const sid = init.sid
   await rpc(sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
-  // ── 工具面(会话中心 16+echo) ──
+  // ── 工具面(会话中心 11 + 异步控制面 3 + 目录/状态 5 + echo) ──
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
-    'session_create', 'session_prompt', 'session_cancel', 'session_queue', 'session_select_model',
+    'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
+    'session_cancel', 'session_queue', 'session_select_model',
     'session_rename', 'session_list', 'session_history', 'session_search', 'session_fork', 'session_archive']
-  report('tools/list 会话中心工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
+  report('tools/list 会话中心 + 异步控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
   report('echo 往返', echo.resp.status === 200 && echo.resp.text.includes('e2e-ping'))
@@ -145,6 +146,19 @@ try {
   const sessionItems = sessions.inner?.sessions ?? []
   report('session_list 返回清单', Number.isInteger(sessions.inner?.total) && Array.isArray(sessionItems),
     `total=${sessions.inner?.total ?? '?'}`)
+
+  // ── 异步控制面(零 token): 不存在会话的批量状态 + 未知 requestId ──
+  const pollMissing = await callTool(sid, 91, 'session_poll', { sessionIds: ['e2e-nonexistent-session'], waitMs: 0 })
+  report('session_poll 批量状态(不存在会话 → not-found)', pollMissing.inner.sessions?.[0]?.state === 'not-found',
+    JSON.stringify(pollMissing.inner.sessions ?? pollMissing.inner.error))
+  const knownSession = sessionItems[0]?.sessionId
+  if (knownSession) {
+    const resultMissing = await callTool(sid, 92, 'session_result', { sessionId: knownSession, requestId: 'e2e-nonexistent-request' })
+    report('session_result 未知 requestId 明确报错', String(resultMissing.inner.error ?? '').includes('unknown requestId'),
+      String(resultMissing.inner.error ?? '').slice(0, 160))
+  } else {
+    console.log('  SKIP  session_result 未知 requestId — 当前没有可读会话')
+  }
 
   // ── 冷会话历史: 经宿主 sessionController.inspect 非激活读取 ──
   // 首轮(宿主刚启动、还没有历史会话)没有 persisted-only 会话可测; 重启后第二轮才可测。

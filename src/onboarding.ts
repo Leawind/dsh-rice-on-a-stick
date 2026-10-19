@@ -20,21 +20,25 @@ dsh-carrot-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) proce
 Your MCP client is the commander; dsh is the executor — sessions here are the same
 sessions the dsh web UI shows (session-centric, one conversation = one agent).
 
-This deployment is resource-first: all read data lives on MCP resources —
-dsh://status[/config|/stats|/connections], dsh://guide[/section], dsh://tools,
-dsh://models[/{provider}], dsh://presets, dsh://workspaces[/{id}], dsh://sessions[/{id}],
-dsh://sessions/{id}/history[/before], dsh://sessions/{id}/events[/after],
-dsh://sessions/{id}/activity.
+This deployment is resource-first for ROSTER/READ data: dsh://status[/config|/stats|/connections],
+dsh://guide[/section], dsh://tools, dsh://models[/{provider}], dsh://presets,
+dsh://workspaces[/{id}], dsh://sessions[/{id}], dsh://sessions/{id}/history[/before],
+dsh://sessions/{id}/events[/after], dsh://sessions/{id}/activity.
 Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
+Control-plane tools stay available: session_submit / session_poll / session_result
+(async fan-out) plus session_create / session_cancel / session_select_model.
 
 Quick start:
 - Read dsh://models before picking a model and dsh://presets for valid preset ids;
   create a session with session_create (cwd, provider+model pair, preset are all
   explicit — no defaults are backfilled).
-- session_prompt sends a message into a session and waits for the turn to finish,
+- For one task, session_prompt sends a message and waits for the turn to finish,
   returning a uri-level result pointing at dsh://sessions/{id}/history
   (pass detail=summary|normal|full to inline the payload).
+- For fan-out, session_submit returns a requestId immediately, session_poll observes
+  many sessions at once with a bounded waitMs, and session_result fetches the
+  structured result. Cancelling a wait never cancels the dsh turn; use session_cancel.
 - session_cancel stops the current turn (queued messages are kept);
   session_select_model switches the session's model in place.
 - Rosters: dsh://sessions, dsh://presets, dsh://models, dsh://workspaces.
@@ -57,6 +61,11 @@ Quick start:
 - While a session is busy, another session_prompt queues into the host inbox (durable)
   or interrupts the current step with mode=steer; session_cancel stops the current turn
   and keeps the queue; session_queue inspects/edits/removes queued messages.
+- For fan-out, do not block on one session at a time: session_submit admits a task and
+  returns requestId immediately; session_poll observes many sessions at once (bounded
+  waitMs, returns changed/timedOut); session_result fetches the structured result by
+  requestId. Cancelling a wait (client timeout / notifications/cancelled) only stops the
+  wait — the dsh turn keeps running; use session_cancel to stop it.
 - session_select_model switches a session's model in place (history preserved);
   session_list / session_history let you find and inspect sessions.
 - Results are projected by the detail argument to save your context budget — default
@@ -103,10 +112,15 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 - **preset** — the persona mounted at session creation (an id from \`model_list\`'s
   \`presets\` field or the \`dsh://presets\` resource). Required explicitly at creation,
   like the model; continuing an existing session keeps its original preset.
-- **send modes** — \`session_prompt\` mode mirrors the UI's "busy send behavior":
-  \`queue\` (default) appends to the session's durable inbox while the agent is busy
-  (it runs after the current turn); \`steer\` redirects the running turn at the next
+- **send modes** — \`session_prompt\` / \`session_submit\` mode mirrors the UI's "busy send
+  behavior": \`queue\` (default) appends to the session's durable inbox while the agent is
+  busy (it runs after the current turn); \`steer\` redirects the running turn at the next
   step boundary. When the session is idle both simply start a turn.
+- **async request** — \`session_submit\` admits a task and returns \`requestId\` immediately;
+  \`session_poll\` observes one or many sessions (bounded \`waitMs\`, returns
+  \`changed\`/\`timedOut\`); \`session_result\` fetches the structured result by \`requestId\`.
+  The id is persisted on the user message, so it survives a plugin restart. \`session_prompt\`
+  is the blocking convenience wrapper: cancelling its wait never cancels the dsh turn.
 - **turn vs step** — a *turn* is one full run ending in a structured result. *Steps* are
   the model rounds inside it. \`steer\` is consumed at the next step boundary;
   \`session_select_model\` takes effect on the next step.
@@ -144,6 +158,13 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
    \`dsh://sessions[/{id}[/history[/before]|/events[/after]|/activity]]\`.
    Subscribe with \`resources/subscribe\`: \`dsh://sessions/{id}/activity\` streams what a
    running session is doing right now, and history updates push on turn completion.
+7. **Fan-out / parallel workers** — create N sessions with \`session_create\`, then
+   \`session_submit\` one task per session (optionally with your own idempotent
+   \`requestId\`). Loop \`session_poll\` with \`sessionIds: [...]\` and \`waitMs: 20000\`:
+   it returns when any watched session changes or the wait times out, so do not poll
+   faster than that. Once a session reports \`lastTurn.reason\`, call \`session_result\`
+   with its \`requestId\`; \`status\` tells you completed/blocked/errored/cancelled.
+   \`session_cancel\` stops one worker; \`session_archive\` retires it.
 `,
   errors: `\
 ## Error → alternative path
@@ -154,8 +175,11 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 | "unknown preset" | pick an id from \`model_list\`'s \`presets\` field (or the \`dsh://presets\` resource) — new sessions always need an explicit preset |
 | "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check \`session_list\` / open it in the dsh UI once, then retry \`session_prompt\` |
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from \`model_list\` that appears there |
-| "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` first |
+| "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` / \`session_submit\` first |
 | turn ends \`blocked\` | the host waits for interactive approval an unattended run cannot grant — arrange approval host-side, then continue via \`session_prompt\` |
+| "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same \`requestId\` again (it is persisted in the session log) or inspect with \`session_history\` |
+| \`status: "pending"\` / \`pending: true\` | the request is queued or the turn is still running; \`session_poll\` again, or \`session_cancel\` to stop it |
+| \`status: "cancelled"\` | the turn was stopped (explicitly or by client cancellation); read \`error\` for the cause and decide whether to resubmit |
 `,
   results: `\
 ## Reading results without blowing your context
@@ -165,6 +189,12 @@ changes/verification/leftovers summary + answer tail), \`normal\` (~2k, adds tru
 calls), \`full\` (everything, for debugging). Tool-level failures return \`isError: true\`
 with the reason in the payload. Every result also names the session and the
 model/preset that actually answered.
+
+Async results carry \`requestId\`, \`status\` (completed / blocked / errored / cancelled;
+running/pending while not settled), \`turn\`, and \`pending\`. A \`session_result\` call that
+succeeds with \`status: "errored"\` is still a successful tool call — inspect the payload,
+not only \`isError\`. \`session_prompt\` keeps the blocking convenience shape and marks a
+client-cancelled wait with \`pending: true\` plus the \`requestId\` to fetch later.
 `,
   limits: `\
 ## Deployment-imposed limits (visible via \`dsh_status\` / \`model_list\`)
@@ -175,6 +205,13 @@ model/preset that actually answered.
   \`model_list\`) and a \`preset\` (from \`model_list\`'s \`presets\` / \`dsh://presets\`);
   resuming a sessionId keeps that session's model and preset. The result tells you
   which model/preset actually answered (\`model\` / \`preset\` fields).
+- Async request index: the last 200 requests are kept for 6 hours in memory. The
+  \`requestId\` is also persisted on the user message, so an explicit \`session_result\`
+  can rebuild its position from the session log after a restart.
+- \`session_poll\` reports live sessions from memory; a persisted-only session returns
+  \`state: "inactive"\` (its log is still readable with \`session_history\`).
+- Pending approvals are exposed read-only in \`session_poll\` (\`pendingApprovals\`);
+  answering them is not part of this version — the host/UI remains the decision surface.
 `,
 }
 

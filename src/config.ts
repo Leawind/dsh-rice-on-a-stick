@@ -21,7 +21,7 @@ export function authTokenHint(token: string): string {
   return token.length >= 12 ? `${token.slice(0, 4)}...${token.slice(-4)}` : '••••••'
 }
 
-/** 插件版本(MCP server 握手时上报; 发布版本号发布时再定, 开发期间保持 0.1.0) */
+/** 插件版本(MCP server 握手时上报; 与 package.json 的 version 同步) */
 export const PLUGIN_VERSION = '0.1.0'
 
 /**

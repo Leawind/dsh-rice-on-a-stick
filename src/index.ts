@@ -314,6 +314,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   ctx.effect(() => {
     return () => {
       state.sessionRecords.clear()
+      state.sessionRequests.clear()
+      state.latestRequestBySession.clear()
       hub.dispose()
     }
   }, PLUGIN_NAME)

@@ -88,13 +88,20 @@ function makeAgent(id, cwd, options) {
         type: 'assistant/message',
         data: { message: { content: [{ type: 'text', text: 'extra' }], usage: { inputTokens: 20, outputTokens: 15, totalTokens: 35 } } },
       })
+      // 真实宿主每个 turn 都有 turn/end; session_result/poll 靠它判定收敛
+      events.push({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
     },
     whenIdle: async () => {},
   }
 }
 
 const liveAgent = makeAgent('sess-live', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
-const liveSession2 = { id: 'sess-live2', title: 'Live Two', header: { version: 0, id: 'sess-live2', createdAt: 1, cwd: FAKE_CWD } }
+// liveSession2 带原生子代理谱系字段: 验证 session_list 投影 parentSession/origin/delegationDepth
+const liveSession2 = {
+  id: 'sess-live2',
+  title: 'Live Two',
+  header: { version: 0, id: 'sess-live2', createdAt: 1, cwd: FAKE_CWD, parentSession: 'sess-live', origin: 'subagent', delegationDepth: 1 },
+}
 
 // 慢 agent: whenIdle 挂起直到 cancel(模拟宿主 cancel 中止 turn 后收敛), 验证取消链路
 const slowCancelCalls = []
@@ -151,11 +158,16 @@ function makeSlowAgent(id, cwd, options) {
   return agent
 }
 export const slowLiveAgent = makeSlowAgent('sess-slow', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+// 第二/第三个慢 agent: 异步控制面测试(session_poll/session_result)与客户端取消测试各自独立,
+// 不与既有 session_prompt 取消用例、也不与彼此互相污染
+export const slowLiveAgent2 = makeSlowAgent('sess-slow2', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+export const slowLiveAgent3 = makeSlowAgent('sess-slow3', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 
 // 失败路径: 只产出 turn/end{reason: error} 的 live 会话(模型调用失败的样子)
 const errAgent = (() => {
   const events = []
   return {
+    get status() { return 'idle' },
     session: { id: 'sess-err', header: { version: 0, id: 'sess-err', createdAt: 1, cwd: FAKE_CWD }, snapshotEvents: (from = 0) => events.slice(from) },
     followup: (message) => {
       followups.push({ id: 'sess-err' })
@@ -292,9 +304,11 @@ export function makeCtx(opts: {
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
   const fakeSessions = {
     get: (id) => liveCreatedSessions.get(id)
-      ?? (id === 'sess-live' ? liveAgent.session : id === 'sess-live2' ? liveSession2 : id === 'sess-err' ? errAgent.session : undefined)
+      ?? (id === 'sess-live' ? liveAgent.session : id === 'sess-live2' ? liveSession2 : id === 'sess-err' ? errAgent.session
+        : id === 'sess-slow' ? slowLiveAgent.session : id === 'sess-slow2' ? slowLiveAgent2.session
+          : id === 'sess-slow3' ? slowLiveAgent3.session : undefined)
       ?? extraAgents.get(id)?.session,
-    list: () => [liveSession2, liveAgent.session, ...[...extraAgents.values()].map((a) => a.session)],
+    list: () => [liveSession2, liveAgent.session, slowLiveAgent.session, slowLiveAgent2.session, slowLiveAgent3.session, ...[...extraAgents.values()].map((a) => a.session)],
     flush: async (session) => { flushed.push(session.id); return true },
   }
   // 0.1.5+ 的 SessionPersistenceSnapshot(header 在 .header) + 一条旧版裸 header 形状(+ phase 注入的额外持久化会话)
@@ -317,7 +331,8 @@ export function makeCtx(opts: {
     llm,
     sessionController,
     agents: {
-      get: (id) => (id === 'sess-live' ? liveAgent : id === 'sess-err' ? errAgent : id === 'sess-slow' ? slowLiveAgent : undefined)
+      get: (id) => (id === 'sess-live' ? liveAgent : id === 'sess-err' ? errAgent : id === 'sess-slow' ? slowLiveAgent
+        : id === 'sess-slow2' ? slowLiveAgent2 : id === 'sess-slow3' ? slowLiveAgent3 : undefined)
         ?? extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {
         const id = String(sessionId)

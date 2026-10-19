@@ -202,6 +202,10 @@ export async function collectSessions(ctx: Context, cwd?: string): Promise<{ tot
         ...(liveTitles.get(h.id) ? { title: liveTitles.get(h.id) } : {}),
         ...(h.cwd ? { cwd: h.cwd } : {}),
         ...(h.agentPreset ? { agentPreset: h.agentPreset } : {}),
+        // 原生子代理/分叉的持久谱系字段(SessionHeader 自带; 之前没投影, 外部调用方看不到树)
+        ...(h.parentSession !== undefined ? { parentSession: String(h.parentSession) } : {}),
+        ...(h.origin !== undefined ? { origin: h.origin } : {}),
+        ...(h.delegationDepth !== undefined ? { delegationDepth: h.delegationDepth } : {}),
         ...(model ? { model: projectModel(model) } : {}),
       }
     })

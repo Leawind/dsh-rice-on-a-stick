@@ -36,13 +36,15 @@ function deepFreeze<T>(value: T): T {
 /** 等价 dsh-llm 的 createUserMessage: {id, role:'user', content, source} 深冻结的 user 消息(纯数据, 无宿主符号)。
  * source 用规范 user kind——0.1.7 起共享 plugin kind 已从 MessageSourceMap 移除(各生产者自声明 kind),
  * user 消息上的未知 kind 运行时虽被透传, 但已脱契约, 溯源标注也会退化。
+ * 传入 requestId 时写成 user-rpc 形状({kind:'user', rpcId}): rpcId 随消息持久化进会话日志,
+ * 插件重启后 session_result 仍能按它定位提交对应的 turn(进程内 requests 索引只是加速)。
  * id 是宿主品牌类型(MessageId), 纯数据构造经 unknown 转换。 */
-export function userMessage(text: string): UserMessage {
+export function userMessage(text: string, requestId?: string): UserMessage {
   return deepFreeze({
     id: randomUUID(),
     role: 'user',
     content: [{ type: 'text', text }],
-    source: { kind: 'user' },
+    source: requestId === undefined ? { kind: 'user' } : { kind: 'user', rpcId: requestId },
   }) as unknown as UserMessage
 }
 
