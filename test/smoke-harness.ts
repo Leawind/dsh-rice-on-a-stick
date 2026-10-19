@@ -375,6 +375,18 @@ export function makeCtx(opts: {
       : Promise.resolve(list[i](request, () => run(i + 1)))
     return run(0)
   }
+  // 原生子代理发现桩: sess-live 有一个 continuable 子级; 递归时带 parentId/depth
+  const fakeSubagents = {
+    listChildren: async (parentId) => parentId === 'sess-live'
+      ? [{ id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', kind: 'child', activity: 'running', hasChildren: true }]
+      : [],
+    listDescendants: async (rootId) => rootId === 'sess-live'
+      ? [
+        { id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', parentId: 'sess-live', depth: 1, kind: 'child', activity: 'running', hasChildren: true },
+        { id: 'sess-grandchild', createdAt: 6, mode: 'one-shot', parentId: 'sess-child', depth: 2, kind: 'child', activity: 'inactive', hasChildren: false },
+      ]
+      : [],
+  }
   const ctx = {
     tools,
     llm,
@@ -405,6 +417,7 @@ export function makeCtx(opts: {
     sessionPersistence: fakePersistence,
     workspaceRegistry: wsRegistry,
     approval: approvalService,
+    subagents: fakeSubagents,
     on,
     __fireApproval: fireApproval,
     effect: (fn) => { const d = fn(); disposers.push(d); return d },
@@ -419,6 +432,7 @@ export function makeCtx(opts: {
       : name === 'sessions' ? fakeSessions
         : name === 'sessionPersistence' ? fakePersistence
           : name === 'approval' ? approvalService
+            : name === 'subagents' ? fakeSubagents
 : name === 'tools' ? tools
             : name === 'agentDefaultModel' ? fakeAgentDefaultModel
               : name === 'sessionTitle' ? sessionTitle

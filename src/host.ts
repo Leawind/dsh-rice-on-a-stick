@@ -115,6 +115,32 @@ export interface SessionInspectionView {
   events?: readonly unknown[]
 }
 
+/** 原生子代理目录条目(宿主 subagents.listChildren/listDescendants 的公共字段) */
+export interface SubagentCatalogEntryView {
+  id: string
+  createdAt: number
+  mode: 'one-shot' | 'external' | 'continuable' | 'unknown'
+  label?: string
+  /** listDescendants 追加字段 */
+  parentId?: string
+  depth?: number
+  kind?: 'child' | 'diagnostic'
+  activity?: 'running' | 'inactive'
+  hasChildren?: boolean
+  reason?: 'corrupt' | 'unsupported' | 'unavailable'
+}
+
+/** 原生子代理发现面(可选服务; 缺席 = headless/旧宿主, 工具明确报不可用) */
+export interface SubagentServiceView {
+  listChildren?: (parentSessionId: SessionId, signal?: AbortSignal) => Promise<readonly SubagentCatalogEntryView[]>
+  listDescendants?: (rootSessionId: SessionId, signal?: AbortSignal) => Promise<readonly SubagentCatalogEntryView[]>
+}
+
+/** 取原生子代理服务(可选依赖; 不加入 inject, 缺席不影响其他能力) */
+export function subagentsOf(ctx: Context): SubagentServiceView | undefined {
+  return serviceOf<SubagentServiceView>(ctx, 'subagents')
+}
+
 /**
  * sessionController 的会话读/恢复入口(可选依赖, web profile 提供):
  *   inspect      非激活读取一个 live 或 persisted 会话的完整事件日志

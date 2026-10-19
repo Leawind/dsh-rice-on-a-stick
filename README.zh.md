@@ -159,6 +159,12 @@ http://127.0.0.1:8090/mcp
 | `approval_answer` | 回答一个被插件扣住的审批：`decision: "allow"` → `allowed-once`，`"reject"` → `rejected`；可用 `approvalId` 或 `callId` 定位。仅在 `approvalControl` 为 `fallback` / `exclusive` 时生效 |
 | `approval_policy` | 读取（`action: "get"`）或切换（`"set"`，策略 `ask` / `never`）会话审批策略；`set` 要求会话 live，冷会话可在 `session_create` 时直接指定 |
 
+### 原生子代理
+
+| 工具 | 用途 |
+| --- | --- |
+| `subagent_list` | 读取一个会话的原生子代理目录（`recursive: true` 时递归后代并带 `parentId` / `depth`）；只读，不加载或恢复子代理。拿到 child `sessionId` 后用 `session_prompt` / `session_poll` / `session_result` 继续驱动；发起子代理仍由宿主/模型侧工具负责 |
+
 ## 资源
 
 支持 resources 的客户端可以零 token 读取同样的数据，并用订阅替代轮询：
@@ -286,6 +292,7 @@ Auth Token 行是开关加密码式只读输入框：开启时若没有令牌，
 -   `session_poll` 对 live 会话读内存状态；只有持久化日志的冷会话返回 `state: "inactive"`（日志仍可用 `session_history` 读），不会为了 poll 去激活 agent。
 -   `session_prompt` 仍是阻塞式便捷入口；MCP 客户端超时/取消只会停止等待，不会取消 dsh 的 turn。要停止工作请显式 `session_cancel`。
 -   `session_search` / `session_fork` / `session_archive` 依赖宿主的 `sessionController` / `workspaceController`；缺席部署会明确报不可用。
+-   `subagent_list` 只做**发现**：读取宿主子代理目录，child 仍用普通会话工具驱动；发起原生子代理仍由宿主/模型侧的 subagent 工具负责。
 -   `dsh_list_tools` 只列宿主全局注册表；按 agent 实际可见范围列出需要宿主侧 API。
 
 ## 开发

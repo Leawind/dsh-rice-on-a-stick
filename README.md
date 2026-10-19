@@ -159,6 +159,12 @@ Once connected, call `dsh_get_started` first if the client is an agent — it co
 | `approval_answer` | Answer a held approval: `decision: "allow"` → `allowed-once`, `"reject"` → `rejected`; target it by `approvalId` or `callId`. Only works with `approvalControl: fallback \| exclusive` |
 | `approval_policy` | Read (`action: "get"`) or switch (`"set"`, policy `ask` / `never`) a session's approval policy; `set` needs a live session, cold sessions can set it in `session_create` |
 
+### Native subagents
+
+| Tool | Purpose |
+| --- | --- |
+| `subagent_list` | Read a session's native child catalog (`recursive: true` adds descendants with `parentId` / `depth`); read-only, never loads or resumes a child. Once you have a child `sessionId`, drive it with `session_prompt` / `session_poll` / `session_result`; starting children stays with the host/model-side subagent tools |
+
 ## Resources
 
 Resource-capable clients can read the same data without spending tokens and subscribe to changes instead of polling:
@@ -286,6 +292,7 @@ Sessions created through this plugin follow the host/preset **approval policy**.
 -   `session_poll` reads live sessions from memory; a persisted-only session returns `state: "inactive"` (its log is still readable with `session_history`) and is not activated just to poll it.
 -   `session_prompt` remains the blocking convenience path; an MCP client timeout/cancellation only stops the wait, never the dsh turn. Stop work explicitly with `session_cancel`.
 -   `session_search` / `session_fork` / `session_archive` need the host's `sessionController` / `workspaceController`; deployments without them report the tool as unavailable.
+-   `subagent_list` is **discovery only**: it reads the host's child catalog and treats each child as a normal session; starting native children remains a host/model-side subagent tool.
 -   `dsh_list_tools` only lists the host-global registry; per-agent tool visibility needs a host-side API.
 
 ## Development

@@ -120,7 +120,7 @@ try {
     'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_select_model',
     'session_rename', 'session_list', 'session_history', 'session_search', 'session_fork', 'session_archive',
-    'approval_list', 'approval_answer', 'approval_policy']
+    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
   report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
@@ -267,6 +267,10 @@ try {
         && approvalList.inner?.sessions?.[0]?.state !== 'not-found'
         && (approvalList.inner?.sessions?.[0]?.approvals?.length ?? -1) === 0,
         `control=${approvalList.inner?.control ?? '?'} state=${approvalList.inner?.sessions?.[0]?.state ?? '?'}`)
+      const subagents = await callTool(sid, 38, 'subagent_list', { parentSessionId: sessionId })
+      report('subagent_list 读到空的原生子代理目录', Array.isArray(subagents.inner?.subagents)
+        && subagents.inner?.total === 0,
+        subagents.inner?.error ? String(subagents.inner.error).slice(0, 180) : `total=${subagents.inner?.total ?? '?'}`)
       const hist = await callTool(sid, 32, 'session_history', { sessionId, roles: ['assistant'], limit: 5 })
       report('session_history 读到刚完成的轮次', !hist.inner.error && (hist.inner.turns?.length ?? 0) > 0,
         hist.inner.error ? String(hist.inner.error).slice(0, 160) : `turns=${hist.inner.turns?.length} source=${hist.inner.source ?? '?'}`)

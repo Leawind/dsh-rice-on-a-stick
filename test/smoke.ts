@@ -89,8 +89,8 @@ try {
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_list', 'session_history',
-    'session_search', 'session_fork', 'session_archive', 'approval_list', 'approval_answer', 'approval_policy']
-  checks['tools/list: 精确 23 个工具(会话中心 + 异步/审批控制面)'] = toolNames.length === 23
+    'session_search', 'session_fork', 'session_archive', 'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
+  checks['tools/list: 精确 24 个工具(会话中心 + 异步/审批/子代理)'] = toolNames.length === 24
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -99,6 +99,17 @@ try {
   })()
   const echoTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'echo')
   checks['工具带 title + annotations(2025-06-18 协议字段)'] = echoTool?.title === 'Echo' && echoTool?.annotations?.readOnlyHint === true
+
+  // 原生子代理发现: 只读目录(不激活 child)
+  const subList = await rpc(init.sid, { jsonrpc: '2.0', id: 95, method: 'tools/call', params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live' } } })
+  const subInner = subList.status === 200 ? innerOf(subList) : { error: 'bad' }
+  checks['subagent_list: 直接子级目录'] = subInner.total === 1 && subInner.subagents?.[0]?.sessionId === 'sess-child'
+    && subInner.subagents?.[0]?.mode === 'continuable' && subInner.subagents?.[0]?.activity === 'running'
+  const subTree = await rpc(init.sid, { jsonrpc: '2.0', id: 96, method: 'tools/call', params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live', recursive: true } } })
+  const subTreeInner = subTree.status === 200 ? innerOf(subTree) : { error: 'bad' }
+  checks['subagent_list: 递归后代带 parentId/depth'] = subTreeInner.total === 2
+    && subTreeInner.subagents?.[1]?.sessionId === 'sess-grandchild'
+    && subTreeInner.subagents?.[1]?.parentId === 'sess-child' && subTreeInner.subagents?.[1]?.depth === 2
 
   // 协议版本协商: 旧版(2025-03-26 主流程已验) + 新版均可接入
   for (const [pv, pid] of [['2025-06-18', 93], ['2025-11-25', 94]]) {
@@ -392,7 +403,7 @@ try {
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive',
-      'approval_list', 'approval_answer', 'approval_policy', 'echo']
+      'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'

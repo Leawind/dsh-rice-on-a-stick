@@ -28,7 +28,7 @@ Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
 Control-plane tools stay available: session_submit / session_poll / session_result
 (async fan-out), approval_list / approval_answer / approval_policy (approval gate),
-plus session_create / session_cancel / session_select_model.
+subagent_list (native child catalog), plus session_create / session_cancel / session_select_model.
 
 Quick start:
 - Read dsh://models before picking a model and dsh://presets for valid preset ids;
@@ -74,6 +74,9 @@ Quick start:
   toolName, callId, reason, answerable). approval_answer allows/rejects one; this only
   works when the deployment set approvalControl=fallback|exclusive, and only for
   entries marked answerable. approval_policy reads or switches ask|never.
+- Native subagents: subagent_list reads a session's child catalog (recursive=true adds
+  descendants). Once you have a child sessionId, drive it with the same session tools;
+  spawning stays with the host/model-side subagent tools.
 - session_select_model switches a session's model in place (history preserved);
   session_list / session_history let you find and inspect sessions.
 - Results are projected by the detail argument to save your context budget — default
@@ -135,6 +138,10 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 - **Session lifecycle** — sessions live until the host process ends or the session is
   archived (\`session_archive\`, the UI's only "delete"). A cold (not-in-memory) session
   is transparently resumed on the next prompt with its history intact.
+- **Native subagent** — the host can delegate work into child sessions (one-shot,
+  continuable, or external). \`subagent_list\` reads that catalog without activating
+  anything; each child is a normal session id for \`session_prompt\` / \`session_poll\` /
+  \`session_result\`. Starting a child stays with the host/model-side subagent tools.
 - **Approval policy** — the host may ask for confirmation before a sensitive operation
   (\`ask\`) or reject it deterministically (\`never\`). With the default
   \`approvalControl=off\`, this plugin only reports pending approvals
@@ -181,6 +188,10 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
    \`approval_answer\` (allow/reject) and keep polling; otherwise the UI/host owns it.
    To avoid gates up front, create the session with \`approvalPolicy: "never"\` or call
    \`approval_policy\` on a live session.
+9. **Native subagents** — \`subagent_list({ parentSessionId })\` returns direct children
+   (recursive=true adds descendants). Then treat each child id like any other session:
+   \`session_poll\`, \`session_result\`, \`session_prompt\`. The catalog read is passive;
+   it does not load or resume the child.
 `,
   errors: `\
 ## Error → alternative path
@@ -230,6 +241,8 @@ client-cancelled wait with \`pending: true\` plus the \`requestId\` to fetch lat
   and \`approval_list\`. Answering requires the deployment to set
   \`approvalControl=fallback|exclusive\`; only entries marked \`answerable=true\` can be
   answered, and the default \`off\` leaves every decision to the host/UI.
+- \`subagent_list\` is discovery only: it reads the host's child catalog and treats each
+  child as a normal session. Starting native children remains a host/model-side tool.
 `,
 }
 

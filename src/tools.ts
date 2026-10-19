@@ -1,6 +1,7 @@
 /**
- * MCP 工具注册(23 个 = 会话中心 11 + 异步控制面 3 + 审批控制面 3 + 目录/状态 5 + echo;
- * resourceFirst 部署形态下只读面 8 个下线, 数据走 resources 面, 但控制面工具必须保留)。
+ * MCP 工具注册(24 个 = 会话中心 11 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
+ * + 目录/状态 5 + echo; resourceFirst 部署形态下只读面 8 个下线, 数据走 resources 面,
+ * 但控制面工具必须保留)。
  *
  * 工具面 = dsh web 界面的操作清单(sessionController 的服务端语义)+ MCP-only 的异步/审批控制面:
  *   session_create(新建会话) / session_prompt(阻塞式发消息, queue|steer) /
@@ -8,7 +9,7 @@
  *   session_result(按 requestId 取结果) / session_cancel(停止) / session_queue(QueueDock) /
  *   session_select_model(模型选择器) / session_rename / session_search / session_fork /
  *   session_archive / session_list / session_history, 加审批控制面
- *   (approval_list/approval_answer/approval_policy) 与目录/状态类
+ *   (approval_list/approval_answer/approval_policy)、原生子代理发现(subagent_list)与目录/状态类
  *   (model_list/workspace_list/dsh_status/dsh_list_tools/dsh_get_started/echo)。
  *
  * 用 registerTool(而非 tool): 带 title 与 annotations(2025-06-18 协议新增字段)。
@@ -36,7 +37,7 @@ import { DETAIL_ARG, projectModel, renderResult } from './projection.js'
 import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from './engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from './control.js'
 import { approvalListFor, approvalPolicyOfEvents, effectiveApprovalPolicy, setApprovalPolicy } from './approvals.js'
-import { asSessionId, inspectSessionEvents, serviceOf } from './host.js'
+import { asSessionId, inspectSessionEvents, serviceOf, subagentsOf } from './host.js'
 import { guideSectionDoc, type GuideSection } from './onboarding.js'
 import {
   basicStatusSnapshot,
@@ -469,6 +470,53 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
         return out(JSON.stringify({ ok: true, sessionId, policy }))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  mcp.registerTool(
+    'subagent_list',
+    {
+      title: 'List native subagents',
+      description: '读取一个会话的原生子代理目录(宿主 subagents.listChildren/listDescendants): 返回 child sessionId、创建时间、mode(one-shot/continuable/external/unknown)、label; recursive=true 时递归列出后代并带 parentId/depth。只读，不加载也不恢复子代理 Agent。子代理拿到 sessionId 后可直接用 session_prompt / session_poll / session_result / session_cancel 继续驱动。原生派生的发起仍由宿主/模型侧的 subagent 工具负责，本工具只把目录接进 MCP 控制面。',
+      inputSchema: {
+        parentSessionId: z.string().describe('父会话 id(其 subagent 目录的根)'),
+        recursive: z.boolean().optional().describe('true=递归列出所有可达后代(listDescendants); 缺省只列直接子级'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ parentSessionId, recursive }, extra) => {
+      const svc = subagentsOf(ctx)
+      if (svc === undefined) {
+        return outError(JSON.stringify({ error: 'the host subagent service is unavailable (subagent_list needs the web profile subagent service)' }))
+      }
+      try {
+        const root = asSessionId(parentSessionId)
+        const rows = recursive === true
+          ? await svc.listDescendants?.(root, extra?.signal)
+          : await svc.listChildren?.(root, extra?.signal)
+        if (rows === undefined) {
+          return outError(JSON.stringify({ error: `the host subagent service does not expose ${recursive === true ? 'listDescendants' : 'listChildren'}` }))
+        }
+        return out(JSON.stringify({
+          parentSessionId,
+          recursive: recursive === true,
+          total: rows.length,
+          subagents: rows.map((row) => ({
+            sessionId: String(row.id),
+            createdAt: row.createdAt,
+            mode: row.mode,
+            ...(row.label !== undefined ? { label: row.label } : {}),
+            ...(row.parentId !== undefined ? { parentId: String(row.parentId) } : {}),
+            ...(row.depth !== undefined ? { depth: row.depth } : {}),
+            ...(row.kind !== undefined ? { kind: row.kind } : {}),
+            ...(row.activity !== undefined ? { activity: row.activity } : {}),
+            ...(row.hasChildren !== undefined ? { hasChildren: row.hasChildren } : {}),
+            ...(row.reason !== undefined ? { reason: row.reason } : {}),
+          })),
+        }, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: `subagent_list failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )
