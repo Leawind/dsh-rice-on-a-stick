@@ -337,6 +337,23 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase E2: 认证开关关闭 = 暂不校验(令牌保留, 重新开启即恢复) ──
+  {
+    const phase = await startPhase(8086, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', authEnabled: false })
+    // 不带 Authorization 头直接握手: 开关关闭时不应再被令牌拦下
+    const noHeader = await rawRequest(8086, {
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-auth-off', version: '1.0' } } }),
+    })
+    checks['安全: 认证开关关闭时无 Authorization 头可握手'] = noHeader.status === 200
+    const open = await phase.call('echo', { text: 'open' }, { noToken: true })
+    checks['安全: 认证开关关闭时错令牌也放行'] = open.status === 200 && open.text.includes('open')
+    const stOff = await phase.call('dsh_status', {})
+    const cfgOff = stOff.status === 200 ? innerOf(stOff).config ?? {} : {}
+    checks['安全: 关闭态 status 报 authEnabled=false 且令牌仍保留'] = cfgOff.authEnabled === false && cfgOff.authTokenHint === 'secr...oken'
+    await phase.dispose()
+  }
+
   // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──
   {
     const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})

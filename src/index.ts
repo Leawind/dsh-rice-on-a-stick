@@ -253,9 +253,9 @@ function jsonrpcError(code: number, message: string): string {
 /** MCP POST 请求体上限(字节): 正常任务/上下文远小于此, 413 拒绝失控载荷防进程内存被打爆 */
 const MAX_BODY_BYTES = 10 * 1024 * 1024
 
-/** Bearer token 常数时间比较(长度不等直接拒, 相等走 timingSafeEqual) */
+/** Bearer token 常数时间比较(认证未启用或未配令牌时放行; 长度不等直接拒, 相等走 timingSafeEqual) */
 function bearerOk(req: http.IncomingMessage): boolean {
-  if (!state.config.authToken) return true
+  if (!state.config.authEnabled || !state.config.authToken) return true
   const got = Buffer.from(String(req.headers['authorization'] ?? ''), 'utf8')
   const want = Buffer.from(`Bearer ${state.config.authToken}`, 'utf8')
   return got.length === want.length && timingSafeEqual(got, want)
@@ -531,7 +531,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
 
   server = http.createServer(async (req, res) => {
-    // Bearer token 认证(配置了 authToken 时强制所有请求校验, 常数时间比较; 401 带 WWW-Authenticate 挑战)
+    // Bearer token 认证(认证启用时所有请求强制校验, 常数时间比较; 401 带 WWW-Authenticate 挑战;
+    // 开关关闭 = 不校验但仍保留令牌, 与面板/配置文档的语义一致)
     if (!bearerOk(req)) {
       res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="dsh-carrot-on-a-stick"' })
       res.end(jsonrpcError(-32001, 'Unauthorized'))

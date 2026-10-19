@@ -17,8 +17,8 @@ const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.
 const startedAt = Date.now()
 const now = () => Date.now()
 const DEFAULT_CONNS = () => [
-  { sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90', userAgent: 'smoke-driver/1.0 (chromium)', connectedAt: now() - 125_000, lastActivity: now() - 4_000, requests: 42 },
-  { sessionId: '0f9e8d7c6b5a4321fedcba9876543210', userAgent: 'claude-cli/1.0.33', connectedAt: now() - 60_000, lastActivity: now() - 45_000, requests: 7 },
+  { sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90', userAgent: 'claude-code/2.1.0 (Windows)', connectedAt: now() - 125_000, lastActivity: now() - 4_000, requests: 42 },
+  { sessionId: '0f9e8d7c6b5a4321fedcba9876543210', userAgent: 'cursor/1.99.3', connectedAt: now() - 60_000, lastActivity: now() - 45_000, requests: 7 },
 ]
 const state = {
   name: 'dsh-carrot-on-a-stick',
@@ -71,6 +71,11 @@ const PAGE = `<!doctype html>
 <style>
 /* 宿主 --dsw-* 主题 token stub(取自官方 dsh-client-ui-theme 实测值): 面板样式直接引用这些变量,
    这里提供亮/暗两套并可用右下角按钮切换(body[data-ds-dark-theme]), 模拟宿主的真实取值路径 */
+/* 与宿主 ui-theme 的 corner-shape.css 同款: 所有元素默认超椭圆(方角感), 胶囊/圆点必须自己写 round */
+@supports (corner-shape:superellipse(1.5)){
+  :root{--dsw-corner-shape:superellipse(1.5)}
+  *,:before,:after{corner-shape:var(--dsw-corner-shape)}
+}
 body{
   --dsw-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   --ds-font-family-code:"SF Mono","JetBrains Mono","Fira Code",Consolas,monospace;
@@ -133,6 +138,8 @@ body[data-ds-dark-theme]{
 #nav-preview button.active{background:rgba(38,49,72,.10);}
 #nav-preview button > svg{flex:none;}
 #nav-preview .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* 文档截图模式: ?clean=1 只保留面板本身(见下方脚本) */
+body.clean #nav-preview,body.clean #theme-toggle{display:none;}
 </style>
 </head>
 <body>
@@ -153,6 +160,13 @@ body[data-ds-dark-theme]{
 </div>
 <div id="root"></div>
 <button id="theme-toggle" onclick="document.body.toggleAttribute('data-ds-dark-theme')">切换深浅主题</button>
+<script>
+// 文档截图用: ?clean=1 隐藏假对话框与主题切换, 页面只剩面板(README 截图由此生成; 上下留白由裁剪脚本补)
+if (new URLSearchParams(location.search).has('clean')) {
+  document.body.classList.add('clean');
+  document.body.style.margin = '0 16px';
+}
+<\/script>
 <script src="/vendor/react.js"><\/script>
 <script src="/vendor/react-dom.js"><\/script>
 <script>
