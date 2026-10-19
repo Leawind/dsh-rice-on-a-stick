@@ -35,7 +35,7 @@ const fakeWs = {
   title: 'fake',
   path: FAKE_CWD,
   sessionIds: [],
-  // 真实跟踪花名册: attach_session 的幂等分支(已挂会话返回 attached:false)才有意义
+  // 真实跟踪花名册: session_create 的工作区归组断言(attach 只发生一次)靠它验证
   attachSession: async (id) => { fakeWs.sessionIds.push(id); attachedIds.push(id) },
 }
 const wsRegistry = {
