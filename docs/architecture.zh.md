@@ -11,17 +11,22 @@ src/
 │                 (认证/Host/Origin/体上限/会话路由/TTL)、GUI 控制面路由(_dsh/...)
 ├── config.ts     Config 接口(公开 API) + Schemastery schema(装载期校验/宿主配置视图) + DEFAULTS
 ├── types.ts      跨模块纯数据类型(ModelSelection/SessionRecord/SessionTurnResult/DetailLevel)
-├── state.ts      进程内可变状态单例(config/会话记录/hooks)+ 资源订阅钩子的接驳点
+├── state.ts      进程内可变状态单例(config/会话记录/请求索引/hooks)+ 资源订阅钩子的接驳点
 ├── paths.ts      cwd realpath 规范化与跨平台 isWithin(工作区分组/过滤)
 ├── projection.ts 结果投影(detail 分级)、会话纪要投影、summary 解析(纯函数)
 ├── host.ts       零宿主副本桥接：类型声明合并、本地等价实现、可选服务视图、工作区归组/会话查找
-├── engine.ts     执行引擎：新建会话(显式模型+preset)、prompt 两级接管(live/冷恢复)、cancel/queue、
-│                 结构化结果提取(含窗口内用法)
+├── turn.ts       会话事件 → turn 结果(纯函数)：按 requestId/rpcId 定位提交、turn 窗口、
+│                 状态/最后消息/pending 审批折叠；engine 与 control 共用
+├── requests.ts   异步请求索引(requestId → 提交记录；TTL 6h + 200 条上限)
+├── engine.ts     执行引擎：新建会话(显式模型+preset)、prompt 两级接管(live/冷恢复)、
+│                 submit(admission)/prompt(有界等待, 客户端取消不杀 turn)、cancel/queue
+├── control.ts    异步控制面：session_poll(批量有界 long-poll)、session_result(按 requestId
+│                 从日志投影; 索引丢失时按 rpcId 重建)
 ├── data.ts       数据层：工具面与资源面共享的读实现(session_list/history/events/activity、
 │                 模型目录、preset 花名册、工作区、资源 URI 构造)
 ├── notify.ts     资源订阅枢纽(per-connection 订阅、updated 定向推送、list_changed 合并)
-├── tools.ts      17 个 MCP 工具注册(会话中心 16 + echo；readOnly/destructive 注解、
-│                 session_list 的 zod outputSchema + structuredContent)
+├── tools.ts      20 个 MCP 工具注册(会话中心 11 + 异步控制面 3 + 目录/状态 5 + echo 1；
+│                 readOnly/destructive 注解、session_list 的 zod outputSchema + structuredContent)
 ├── resources.ts  资源面(dsh://...、模板、订阅、completion、annotations)
 └── onboarding.ts initialize instructions 与 dsh_get_started 文档(agent 认知面)
 ```
@@ -30,10 +35,12 @@ src/
 
 ```
 index → {tools, resources, data, notify, onboarding, host, state, config}
-tools → {engine, host, onboarding, projection, state, types}
+tools → {engine, control, host, onboarding, projection, state, types}
 resources → {data, notify, onboarding}
 data → {engine(默认选择/已知选择), host, paths, projection, state, types, config}
-engine → {host, paths, projection, state, types}
+engine → {host, paths, requests, turn, state, types}
+control → {engine(已知选择), host, requests, turn, projection, state, types}
+turn → {projection, types}     requests → {state, types}
 host → {paths, types}          projection → types          state → {config, types}
 ```
 
@@ -64,10 +71,16 @@ host → {paths, types}          projection → types          state → {config
   `ctx.agents.create`(显式 `agentOptions` + `meta.cwd/agentPreset` + `setup` 里
   `agentPresets.mount`) → 工作区归组(可选) → `sessionTitle.rename`(可选)。
 - **发消息**：`session_prompt`(tools) → `resolveSessionForPrompt`(live → 记录 → `resolveAgent`) →
-  `followup` / `steer` → `whenIdle`（可被 `session_cancel` 经官方 `agent.cancel(keepInbox)` 中止）→
-  读本轮新增事件(`snapshotEvents`) → summary 解析 → `renderResult` 投影。
+  `submitTurn`（user 消息带 `source.rpcId=requestId`，登记请求索引）→ `followup` / `steer` →
+  有界等待：MCP 取消只停止等待（返回 `pending`），停 turn 只经 `session_cancel` 的官方
+  `agent.cancel(keepInbox)` → `findRequestTurn` 定位本轮 → summary 解析 → `renderResult` 投影。
+- **异步编排**：`session_submit` → `submitSession`（只 admission，立即回 `requestId`/`messageId`）→
+  `session_poll`（control：live agent 状态 + 事件折叠出 `lastTurn`/`pendingApprovals`/`queued`，
+  有界 long-poll）→ `session_result`（按 `requestId` 从日志定位 turn 并投影；索引丢失时按
+  user 消息的 `source.rpcId` 重建）。这是 MCP-only 的 pull 模型：服务端不假设客户端会被唤醒。
 - **历史与观测**：live 会话直接读内存日志；persisted-only 会话经 `sessionController.inspect`
   非激活读取。`dsh://sessions/{id}/activity` 只对 live 会话有意义；事件流资源按 `after` 下标翻页。
+  `session_poll` 对 persisted-only 会话只报 `inactive`，不为 poll 激活 agent。
 - **资源订阅**：per-connection 一个 `McpServer`；`notify.ts` 汇总 `state.hooks` 的
   sessionActivity(1s 节流)/sessionHistory/listChanged，向订阅者推 `notifications/resources/updated`。
 - **GUI 控制面**：`/_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}`；
@@ -81,10 +94,11 @@ host → {paths, types}          projection → types          state → {config
 
 ## 测试布局
 
--   `test/smoke.ts`：会话中心契约的行为断言(98 项)，按 Phase 组织(协议/创建/prompt/取消/队列/
-    模型切换/搜索/分叉/归档/历史/资源/白名单/GUI/纯函数)。假宿主(桩 Cordis 服务 + 桩 agent +
-    可观测记录数组)与真 HTTP 的 RPC 小工具在 `test/smoke-harness.ts`——桩的形状必须对齐真机
-    契约(例如 `sessionController.inspect` / `resolveAgent`)，不要为了省事造一套自洽但假的 API。
+-   `test/smoke.ts`：会话中心与异步控制面的行为断言(121 项)，按 Phase 组织(协议/创建/prompt/
+    取消/队列/异步 submit-poll-result/客户端取消语义/请求索引重建/模型切换/搜索/分叉/归档/历史/
+    资源/白名单/GUI/纯函数)。假宿主(桩 Cordis 服务 + 桩 agent + 可观测记录数组)与真 HTTP 的
+    RPC 小工具在 `test/smoke-harness.ts`——桩的形状必须对齐真机契约(例如
+    `sessionController.inspect` / `resolveAgent`、`turn/end` 收场)，不要为了省事造一套自洽但假的 API。
 -   测试是普通 TypeScript，`node test/smoke.ts` 直跑(Node 原生 type stripping，开发机需
     Node ≥ 23.6；发布产物 `lib/` 仍支持 Node ≥ 18)；`npm run typecheck` 对测试做类型检查。
 -   `npm test` = 先 build 再跑(smoke + 端口冲突专项 `test/smoke-port.ts`)。
