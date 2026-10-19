@@ -16,7 +16,7 @@ import { state } from './state.js'
 import type { ModelSelection, ModelSelectionOverride } from './types.js'
 import { canonicalCwd, isWithin } from './paths.js'
 import { historyTurnsOf, projectModel, type HistoryRole } from './projection.js'
-import { eventsOf, headerOfSnapshot, serviceOf } from './host.js'
+import { eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './host.js'
 import { hostDefaultSelection, knownSelectionOf } from './engine.js'
 import { resolve } from 'node:path'
 
@@ -54,8 +54,8 @@ export interface SessionControllerView {
   selectModel?: (
     request: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string },
   ) => Promise<{ selected?: ModelSelection } | undefined>
-  /** 按字面短语搜索会话内容(界面搜索框同源) */
-  search?: (request: { query: string }) => Promise<{
+  /** 按字面短语搜索会话内容(界面搜索框同源; 0.2.x Remote 必须带取消信号) */
+  search?: (request: { query: string }, signal: AbortSignal) => Promise<{
     items?: readonly { sessionId?: unknown; snippet?: string; title?: string }[]
     hasMore?: boolean
   } | undefined>
@@ -164,16 +164,6 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
   }
 }
 
-// ── 队列(task_list / dsh://queue[/taskId]) ──
-
-/**
- * 取消窗口期标记(abort 已送达但任务尚未收敛): task_list/task_result/资源面共用同一判定。
- * signal 一并可选: 持久化恢复的任务 controller 是 JSON 回述的残缺对象({}), 不能假定 signal 存在。
- */
-export function cancelRequestedOf(item: { controller?: { signal?: { aborted: boolean } }; status: string }): boolean {
-  return item.controller?.signal?.aborted === true && (item.status === 'queued' || item.status === 'running')
-}
-
 // ── 会话(session_list / session_history / dsh://sessions[/…]) ──
 
 /**
@@ -226,18 +216,33 @@ export async function sessionMetaPayload(ctx: Context, sessionId: string): Promi
     throw new Error(`session not found: ${sessionId}`)
   }
   const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
-  return { ...item, historyReadable: live !== undefined }
+  // 冷会话经宿主 sessionController.inspect 非激活读取事件日志, 与界面打开旧会话同一数据面
+  const readable = live !== undefined || typeof sessionControllerOf(ctx)?.inspect === 'function'
+  return { ...item, historyReadable: readable }
 }
 
-/** session_history / dsh://sessions/{id}/history 的共享实现(工具与资源同数据同边界)。不可读时抛错。 */
+/**
+ * session_history / dsh://sessions/{id}/history 的共享实现(工具与资源同数据同边界)。
+ * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
+ * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
+ */
 export async function sessionHistoryPayload(ctx: Context, sessionId: string, limit: number, beforeIndex?: number, roles?: HistoryRole[]): Promise<Record<string, unknown>> {
   const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
   const session = sessions?.get?.(sessionId)
-  if (!session) {
-    throw new Error(`session not live: ${sessionId} (persisted-only sessions cannot be read back; host does not expose a full-log load API — use agent_run with this sessionId to resume)`)
+  const live = session !== undefined
+  let events: readonly unknown[]
+  if (live) {
+    events = eventsOf(session)
+  } else {
+    try {
+      events = await inspectSessionEvents(ctx, sessionId as SessionId)
+    } catch (e) {
+      // 透出宿主原因(不存在 / 格式迁移待完成 / 无 sessionController), 不给"只支持 live"的误导
+      throw new Error(`session not readable: ${sessionId} (${(e as Error)?.message ?? String(e)}); `
+        + 'open the session in the dsh UI, or continue it with session_prompt first')
+    }
   }
-  const events = eventsOf(session)
-  return { sessionId, totalEvents: events.length, turns: historyTurnsOf(events, limit, beforeIndex, roles) }
+  return { sessionId, source: live ? 'live' : 'persisted', totalEvents: events.length, turns: historyTurnsOf(events, limit, beforeIndex, roles) }
 }
 
 /** 活动/事件流面的公共前置: live 校验, 返回 live 会话对象。不可读时抛错。 */
@@ -312,9 +317,9 @@ export async function sessionEventsPayload(ctx: Context, sessionId: string, afte
   }
 }
 
-// ── 池 / preset / 工作区 / 宿主工具(纯新增数据能力) ──
+// ── preset / 工作区 / 宿主工具(补充数据能力) ──
 
-/** preset 花名册(dsh://presets): agent_run/task_inbox 的 preset 参数的合法取值来源 */
+/** preset 花名册(dsh://presets): session_create 的 preset 参数的合法取值来源 */
 export async function presetsPayload(ctx: Context): Promise<Record<string, unknown>> {
   const presets = serviceOf<{ list?: () => Promise<readonly { id?: string; name?: string; description?: string; order?: number }[]> }>(ctx, 'agentPresets')
   if (typeof presets?.list !== 'function') {
@@ -370,7 +375,7 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   }
   return {
     source: 'global-registry',
-    note: '0.1.5+ 的模型工具挂在 preset/agent 作用域, 此全局表通常为空; agent 实际可用的工具以 agent_run 结果里的 toolCalls 为准(想确认某能力是否可用, 直接跑个小任务看 toolCalls)',
+    note: '0.1.5+ 的模型工具挂在 preset/agent 作用域, 此全局表通常为空; agent 实际可用的工具以 session_prompt 结果里的 toolCalls 为准(想确认某能力是否可用, 直接跑个小任务看 toolCalls)',
     tools: list,
   }
 }

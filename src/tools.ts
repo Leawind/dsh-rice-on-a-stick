@@ -400,9 +400,9 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
       'session_history',
       {
         title: 'Session history',
-        description: '读取一个 live 会话的对话纪要(user/assistant/tool_call/tool_result/turn_end 轮次, 从最新往回取, 文本截断)。roles 可只取指定类型(如只看回答传 ["assistant"], 排查问题再取 tool_call/tool_result); 支持 beforeIndex 向更早翻页。只支持内存中的 live 会话; 已持久化但不在内存的会话, 宿主未暴露整日志加载 API, 无法读取。',
+        description: '读取一个会话的对话纪要(user/assistant/tool_call/tool_result/turn_end 轮次, 从最新往回取, 文本截断)。live 会话直接读内存日志; 已持久化但不在内存的会话经宿主 sessionController.inspect 非激活读取(不创建 agent, 与界面打开旧会话同一数据面)。roles 可只取指定类型(如只看回答传 ["assistant"], 排查问题再取 tool_call/tool_result); 支持 beforeIndex 向更早翻页。',
         inputSchema: {
-          sessionId: z.string().describe('会话 id(live; 来自 session_prompt 结果或 session_list)'),
+          sessionId: z.string().describe('会话 id(来自 session_prompt 结果或 session_list; live 与已持久化会话都可读)'),
           limit: z.number().int().min(1).max(50).optional().describe('最多返回轮数(默认 10)'),
           roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).optional().describe('只返回这些类型的轮次; 缺省 = 全部类型'),
           beforeIndex: z.number().int().min(0).optional().describe('从该事件序号之前往回取(翻页: 传上次结果最早的 index)'),
@@ -429,13 +429,15 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
         },
         annotations: { readOnlyHint: true },
       },
-      async ({ query }) => {
+      async ({ query }, extra) => {
         const sc = serviceOf<SessionControllerView>(ctx, 'sessionController')
         if (typeof sc?.search !== 'function') {
           return outError(JSON.stringify({ error: 'sessionController service unavailable (session_search needs the web profile session controller)' }))
         }
         try {
-          const res = await sc.search({ query })
+          // 0.2.x 的 Remote search(request, signal) 必须带取消信号(宿主入口直接 throwIfAborted)
+          const signal = extra?.signal ?? new AbortController().signal
+          const res = await sc.search({ query }, signal)
           return out(JSON.stringify({ query, results: res?.items ?? [], hasMore: res?.hasMore === true }, null, 2))
         } catch (e) {
           return outError(JSON.stringify({ error: `session_search failed: ${(e as Error)?.message ?? String(e)}` }))

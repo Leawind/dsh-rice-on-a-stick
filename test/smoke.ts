@@ -3,7 +3,7 @@
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝)
  *   A. 协议: initialize(instructions)/echo/tools_list(精确 17 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
- *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(日志恢复模型)/无法恢复报错
+ *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. session_cancel / session_queue(list/edit/remove/未知 itemId)
  *   E. session_select_model / session_rename / session_search / session_fork / session_archive
  *   F. session_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
@@ -17,6 +17,7 @@
  */
 import { EventEmitter } from 'node:events'
 import { apply } from '../lib/index.js'
+import { serviceOf } from '../lib/host.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
 import { Config as ConfigSchema } from '../lib/config.js'
@@ -34,15 +35,17 @@ import {
   followups,
   FAKE_CWD,
   innerOf,
+  inspectedSessions,
   makeCtx,
   mounted,
   openSse,
   parsePayload,
   PORT,
   rawRequest,
-  resumed,
+  resolvedAgents,
   rpc,
   searched,
+  searchSignals,
   selectModelCalls,
   slowAgents,
   slowLiveAgent,
@@ -141,19 +144,19 @@ try {
   checks['session_prompt turn 失败透出(isError)'] = parsePayload(runErr.text).result?.isError === true
     && String(innerOf(runErr).error ?? '').includes('AUTH') && String(innerOf(runErr).error ?? '').includes('invalid api key')
 
-  // ── session_prompt: 持久化冷恢复(模型选择从日志恢复, 与界面打开旧会话一致) ──
+  // ── session_prompt: 持久化冷恢复(宿主 sessionController.resolveAgent, 与界面打开旧会话同一路径) ──
   const runResumed = await rpc(init.sid, { jsonrpc: '2.0', id: 23, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-persisted', task: 'continue' } } })
   const runResumedInner = runResumed.status === 200 ? innerOf(runResumed) : { error: 'bad' }
-  checks['session_prompt 冷恢复走 resume 且用日志里的模型选择'] = resumed.some((r) => r.id === 'sess-persisted')
-    && resumed.find((r) => r.id === 'sess-persisted')?.agentOptions?.provider === 'p1'
-    && resumed.find((r) => r.id === 'sess-persisted')?.agentOptions?.model === 'm1'
+  checks['session_prompt 冷恢复走官方 resolveAgent'] = resolvedAgents.includes('sess-persisted')
+  checks['session_prompt 冷恢复结果用日志头里的模型'] = runResumedInner.model?.provider === 'p1'
+    && runResumedInner.model?.model === 'm1'
   checks['session_prompt 冷恢复沿用会话原 preset'] = runResumedInner.preset === 'reviewer'
   checks['session_prompt 冷恢复结果正常返回'] = Boolean(runResumedInner.sessionId) && runResumedInner.error === undefined
 
-  // 无法恢复模型的持久化会话: 明确报错并指向 session_select_model
+  // 宿主拒绝冷恢复(未知会话): 透出宿主错误
   const runNoModel = await rpc(init.sid, { jsonrpc: '2.0', id: 24, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-legacy', task: 'x' } } })
-  checks['session_prompt 冷恢复无法定模型时报错并指路'] = String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '')
-    .includes('cannot determine the model') && String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '').includes('session_select_model')
+  checks['session_prompt 冷恢复被宿主拒绝时透出原因'] = String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '')
+    .includes('cannot resume session') && String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '').includes('not found')
 
   // ── session_cancel / session_queue(慢 agent: whenIdle 挂起, 仅 cancel 收敛) ──
   const slowPrompt = rpc(init.sid, { jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-slow', task: 'long job' } } })
@@ -200,6 +203,7 @@ try {
   const search = await rpc(init.sid, { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle' } } })
   checks['session_search 走宿主 search'] = searched.includes('needle')
     && search.status === 200 && JSON.stringify(innerOf(search)).includes('hit for needle')
+  checks['session_search 传取消信号(0.2.x Remote 契约)'] = searchSignals.length > 0 && searchSignals.every(Boolean)
 
   const fork = await rpc(init.sid, { jsonrpc: '2.0', id: 44, method: 'tools/call', params: { name: 'session_fork', arguments: { sessionId: 'sess-live', atSeq: 7 } } })
   checks['session_fork 走宿主 fork 返回新会话'] = innerOf(fork).sessionId === 'sess-forked'
@@ -219,6 +223,10 @@ try {
   const sh = await rpc(init.sid, { jsonrpc: '2.0', id: 51, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'] } } })
   checks['session_history 按 roles 取轮次'] = JSON.stringify(innerOf(sh)).includes('"role":"assistant"')
     && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
+  // 冷会话: 经宿主 sessionController.inspect 非激活读取(不激活 agent)
+  const shCold = await rpc(init.sid, { jsonrpc: '2.0', id: 52, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'] } } })
+  checks['session_history 冷会话经官方 inspect 读取'] = innerOf(shCold).source === 'persisted'
+    && JSON.stringify(innerOf(shCold)).includes('earlier answer') && inspectedSessions.includes('sess-persisted')
 
   // ── 资源面: 会话/模型/预设/工作区/status + 订阅 ──
   const sse = openSse(init.sid)
@@ -233,6 +241,11 @@ try {
   checks['资源 dsh://presets 花名册'] = readPresets.status === 200 && JSON.stringify(parsePayload(readPresets.text)).includes('standard')
   const readSessions = await rpc(init.sid, { jsonrpc: '2.0', id: 64, method: 'resources/read', params: { uri: 'dsh://sessions' } })
   checks['资源 dsh://sessions 清单'] = readSessions.status === 200 && JSON.stringify(parsePayload(readSessions.text)).includes('sess-live')
+  const readPersistedMeta = await rpc(init.sid, { jsonrpc: '2.0', id: 641, method: 'resources/read', params: { uri: 'dsh://sessions/sess-persisted' } })
+  const persistedMeta = readPersistedMeta.status === 200
+    ? JSON.parse(parsePayload(readPersistedMeta.text).result?.contents?.[0]?.text ?? '{}')
+    : {}
+  checks['资源 dsh://sessions/{id} 冷会话 historyReadable'] = persistedMeta.historyReadable === true
   const readStatus = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'resources/read', params: { uri: 'dsh://status' } })
   checks['资源 dsh://status 总览'] = readStatus.status === 200
   // 资源不存在 → McpError(-32602), 不返回空 contents
@@ -378,6 +391,20 @@ try {
   checks['Config schema: ~standard.validate 合法配置通过并填默认'] = (() => {
     const r = ConfigSchema['~standard'].validate({ allowedModels: ['a/b'] }) as { value: any }
     return r.value.allowedModels.length === 1 && r.value.defaultDetail === 'summary'
+  })()
+  checks['serviceOf: 未注入服务的属性访问抛错时返回 undefined'] = (() => {
+    const ctx = new Proxy({}, {
+      get(_target, prop) {
+        if (prop === 'get') return () => undefined
+        throw new Error(`cannot get property "${String(prop)}" without inject`)
+      },
+    })
+    return serviceOf(ctx as any, 'sessionController') === undefined
+  })()
+  checks['serviceOf: ctx.get 命中时直接返回服务'] = (() => {
+    const service = { marker: 1 }
+    const ctx = { get: (name: string) => (name === 'sessionController' ? service : undefined) }
+    return serviceOf(ctx as any, 'sessionController') === service
   })()
 }
 

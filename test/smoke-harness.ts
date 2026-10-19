@@ -7,7 +7,6 @@ import { request as httpRequest } from 'node:http'
 // ── 可观测记录数组(跨 Phase 累积, 断言按需读取) ──
 export const attachedIds = []
 export const created = []
-export const resumed = []
 export const disposed = []
 export const flushed = []
 export const mounted = []
@@ -15,10 +14,16 @@ export const selectModelCalls = []
 export const disposers = []
 export const steered = []
 export const injected = []
+// 冷恢复: 走宿主 sessionController.resolveAgent 的会话 id(0.2.x 的真实冷恢复入口)
+export const resolvedAgents = []
+// 非激活读取: 走宿主 sessionController.inspect 的会话 id(冷会话历史)
+export const inspectedSessions = []
 // 每次 followup 一条(按 agent id): 断言"任务实际执行了几次"
 export const followups = []
 // 会话中心新增面的记录: 搜索/分叉/归档
 export const searched = []
+// 每次 search 是否带上了取消信号(0.2.x 的 Remote search(request, signal) 契约)
+export const searchSignals = []
 export const forked = []
 export const archived = []
 
@@ -197,15 +202,40 @@ export const fakeSessionController = {
     if (request.model === 'boom') throw new Error('model boom is not routable')
     return { selected: { ...request, sessionId: undefined } }
   },
-  // 历史分页(界面打开旧会话同一条路): 冷恢复的模型选择从日志里的 model/selection 事件恢复。
-  // sess-persisted 的日志里有一份 p1/m1 的选择; 其它会话日志为空(恢复不了的路径)。
-  page: async ({ sessionId }) => ({
-    events: sessionId === 'sess-persisted'
-      ? [{ type: 'model/selection', data: { provider: 'p1', model: 'm1' } }]
-      : [],
-  }),
-  search: async ({ query }) => {
+  // 非激活读取(0.2.x 的 SessionInspection 形状: meta/inheritedEventCount/events)。
+  // sess-persisted 的日志里有 request/header(模型 p1/m1)与完整轮次; sess-legacy 日志为空。
+  inspect: async (sessionId) => {
+    inspectedSessions.push(String(sessionId))
+    if (sessionId === 'sess-persisted') {
+      return {
+        meta: { version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' },
+        inheritedEventCount: 0,
+        events: [
+          { type: 'request/header', data: { header: { config: { provider: 'p1', model: 'm1' } }, reason: 'initial' } },
+          { type: 'user/message', data: { message: { id: 'u-old', role: 'user', content: [{ type: 'text', text: 'earlier question' }] } } },
+          { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'earlier answer' }] } } },
+          { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+        ],
+      }
+    }
+    if (sessionId === 'sess-legacy') {
+      return { meta: { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD }, inheritedEventCount: 0, events: [] }
+    }
+    throw new Error(`session "${sessionId}" not found`)
+  },
+  // 官方冷恢复(界面打开旧会话同一路径): 返回活体或稳定错误。
+  // 活体的日志头给出会话真实模型(p1/m1), 与 agent.options(部署默认)不同——结果回报取日志头。
+  resolveAgent: async (sessionId) => {
+    resolvedAgents.push(String(sessionId))
+    if (sessionId !== 'sess-persisted') return { error: { code: 'session/not-found', message: `session "${sessionId}" not found` } }
+    const agent = makeAgent('sess-persisted', FAKE_CWD, { provider: 'default-p', model: 'default-m' }) as any
+    agent.session.header.agentPreset = 'reviewer'
+    agent.session.requestHeader = () => ({ config: { provider: 'p1', model: 'm1' } })
+    return { agent }
+  },
+  search: async ({ query }, signal) => {
     searched.push(query)
+    searchSignals.push(signal !== undefined && typeof signal.throwIfAborted === 'function')
     if (query === 'no-hit') return { items: [], hasMore: false }
     return { items: [{ sessionId: 'sess-live', snippet: `hit for ${query}` }], hasMore: false }
   },
@@ -297,14 +327,6 @@ export function makeCtx(opts: {
           ? makeSlowAgent(id, meta?.cwd, agentOptions)
           : makeAgent(id, meta?.cwd, agentOptions)
         liveCreatedSessions.set(id, agent.session)
-        if (setup) await setup({}, agent)
-        return { agent, dispose: async () => { disposed.push(id) } }
-      },
-      resume: async ({ resumeSessionId, agentOptions, setup }) => {
-        const id = String(resumeSessionId)
-        if (id !== 'sess-persisted') throw new Error(`no persisted session "${id}"`)
-        resumed.push({ id, agentOptions })
-        const agent = makeAgent(id, FAKE_CWD, agentOptions)
         if (setup) await setup({}, agent)
         return { agent, dispose: async () => { disposed.push(id) } }
       },

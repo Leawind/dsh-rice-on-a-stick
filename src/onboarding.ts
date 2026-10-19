@@ -152,7 +152,7 @@ export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> 
 |---|---|
 | "provider + model are required" | call \`model_list\` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
 | "unknown preset" | pick an id from \`model_list\`'s \`presets\` field (or the \`dsh://presets\` resource) — new sessions always need an explicit preset |
-| "cannot determine the model of persisted session" | call \`session_select_model\` on it once (the host cold-resumes and remembers), then retry \`session_prompt\` |
+| "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check \`session_list\` / open it in the dsh UI once, then retry \`session_prompt\` |
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from \`model_list\` that appears there |
 | "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` first |
 | turn ends \`blocked\` | the host waits for interactive approval an unattended run cannot grant — arrange approval host-side, then continue via \`session_prompt\` |

@@ -25,7 +25,10 @@ import {
   attachToWorkspace,
   eventsOf,
   findSessionHeader,
+  presetOfAgent,
+  selectionOfSession,
   serviceOf,
+  sessionControllerOf,
   userMessage,
 } from './host.js'
 /** setup 挂载 preset(含 bash/fs/todo/web 等完整工具)。
@@ -115,8 +118,11 @@ export function knownSelectionOf(ctx: Context, sessionId: string): ModelSelectio
   return undefined
 }
 
-/** 读 live 会话自己的模型选择(接管时结果回报用; 读不到就全空) */
+/** 读 live 会话自己的模型选择(接管时结果回报用; 优先日志里最后一条 request/header 的 config,
+ * 没有请求头时退回建 agent 的 options; 都读不到就全空) */
 function selectionOfAgent(agent: unknown): ModelSelection {
+  const effective = selectionOfSession((agent as { session?: unknown } | undefined)?.session)
+  if (effective) return effective
   const opts = (agent as { options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } } | undefined)?.options
   const s = (v: unknown) => (typeof v === 'string' ? v : '')
   const provider = s(opts?.provider)
@@ -204,7 +210,8 @@ interface ResolvedSession {
  * prompt 前的会话解析(三级):
  *   1. live 接管: ctx.agents.get(UI 手开的、插件建的和别的插件持有的会话), 沿用其原模型;
  *   2. 本插件记录: 自己创建过的会话 handle 直接用(防 live 查询失败的边角);
- *   3. 持久化冷恢复: 与界面打开旧会话一致——resume 重建 agent, 模型选择尽量从持久化日志恢复。
+ *   3. 冷恢复: 走宿主 sessionController.resolveAgent(界面打开旧会话的同一路径——按会话日志
+ *      组装 preset、恢复模型选择、校验子代理归属/写入占用/格式迁移), 插件不再自己 resume + 猜模型。
  */
 async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise<ResolvedSession> {
   const sid = asSessionId(sessionId)
@@ -214,7 +221,12 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
   if (live) {
     await attachSessionCwd(ctx, sid, live.session.header.cwd)
     const rec = state.sessionRecords.get(sessionId)
-    return { sessionId: sid, handle: { agent: live, dispose: () => Promise.resolve() }, selection: rec?.selection ?? selectionOfAgent(live), preset: rec?.preset ?? '' }
+    return {
+      sessionId: sid,
+      handle: { agent: live, dispose: () => Promise.resolve() },
+      selection: rec?.selection ?? selectionOfAgent(live),
+      preset: rec?.preset ?? live.session.header.agentPreset ?? presetOfAgent(ctx, live),
+    }
   }
 
   // 2. 本插件记录(创建过; live 查询没拿到时的兜底)
@@ -223,80 +235,35 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
     return { sessionId: sid, handle: rec.handle, selection: rec.selection, preset: rec.preset }
   }
 
-  // 3. 持久化冷恢复(与界面打开旧会话一致): resume 重建 agent,
-  //    模型选择尽量从持久化日志恢复(界面建的会话模型选择在日志里, 与界面同源)。
-  const header = await findSessionHeader(ctx, sid)
-  const selection = await recoverSelectionFromLog(ctx, sessionId)
-  if (!selection) {
-    throw new Error(`cannot determine the model of persisted session "${sessionId}" (no selection found in session log); `
-      + `call session_select_model on it once (the host cold-resumes the session and remembers the choice), then retry session_prompt`)
+  // 3. 官方冷恢复(界面打开旧会话同一条路): 模型选择、preset 组装与格式迁移都由宿主完成
+  const controller = sessionControllerOf(ctx)
+  if (typeof controller?.resolveAgent !== 'function') {
+    throw new Error(`cannot resume session "${sessionId}": the host session controller is unavailable `
+      + '(continuing a persisted session needs the web profile session controller)')
   }
-  let handle: AgentHandle
+  let resolved: Awaited<ReturnType<NonNullable<typeof controller.resolveAgent>>> | undefined
   try {
-    handle = await ctx.agents.resume({
-      resumeSessionId: sid,
-      agentOptions: agentOptionsOf(selection),
-      setup: async (agentCtx) => {
-        // preset 无默认可回填: 会话 header 里记录了创建时的 preset 就恢复它;
-        // mount 失败或 header 无记录时不再猜一个默认, 交给宿主 resume 的自身语义并留下告警。
-        const originalPreset = header?.agentPreset
-        if (!originalPreset) {
-          console.warn(`[dsh-carrot-on-a-stick] resume: session "${sessionId}" has no agentPreset in its header, mounting nothing`)
-          return
-        }
-        try {
-          await mountPreset(ctx, agentCtx, originalPreset)
-        } catch (e) {
-          console.warn(`[dsh-carrot-on-a-stick] resume: original preset "${originalPreset}" mount failed, mounting nothing:`, String(e))
-        }
-      },
-    })
+    resolved = await controller.resolveAgent(sid)
   } catch (e) {
-    // 恢复失败返回明确错误(沿用上游错误风格): 不是 live、持久化里也没有(或 resume 失败)
-    throw new Error(`session not found for resume: ${sessionId} (not live and not persisted; ${(e as Error)?.message ?? e})`)
+    throw new Error(`cannot resume session "${sessionId}": ${(e as Error)?.message ?? String(e)}`)
   }
-  const resumedCwd = header?.cwd !== undefined ? await canonicalCwd(header.cwd) : ''
-  const resumed: SessionRecord = {
+  const agent = resolved?.agent
+  if (!agent) {
+    const err = resolved?.error
+    throw new Error(`cannot resume session "${sessionId}": ${err?.message ?? err?.code ?? 'host returned no agent'}`)
+  }
+  const resolvedCwd = agent.session.header.cwd === undefined ? '' : await canonicalCwd(agent.session.header.cwd)
+  const resolvedRec: SessionRecord = {
     sessionId: sid,
-    handle,
-    cwd: resumedCwd,
-    selection,
-    preset: header?.agentPreset ?? '',
+    // resolveAgent 的活体由宿主持有, 插件只借用: dispose 是空操作, 会话生命周期归宿主(与 live 接管一致)
+    handle: { agent: agent as unknown as AgentHandle['agent'], dispose: () => Promise.resolve() },
+    cwd: resolvedCwd,
+    selection: selectionOfAgent(agent),
+    preset: agent.session.header.agentPreset ?? presetOfAgent(ctx, agent),
   }
-  state.sessionRecords.set(sessionId, resumed)
-  await attachSessionCwd(ctx, sid, handle.agent.session.header.cwd)
-  return { sessionId: sid, handle, selection, preset: resumed.preset }
-}
-
-/**
- * 从持久化日志恢复最近一次模型选择(与界面冷恢复同源: 日志里的 model/selection 事件 +
- * 建 agent 的选项)。走 sessionController.page(UI 历史分页同一条路); 服务缺席/读不到返回
- * undefined, 由调用方给出可执行的下一步错误。
- */
-async function recoverSelectionFromLog(ctx: Context, sessionId: string): Promise<ModelSelection | undefined> {
-  const sc = serviceOf<{ page?: (args: unknown) => Promise<unknown> }>(ctx, 'sessionController')
-  if (typeof sc?.page !== 'function') return undefined
-  try {
-    const res = (await sc.page({ sessionId: asSessionId(sessionId) })) as {
-      events?: readonly { type?: string; data?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown; options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } } }[]
-    } | undefined
-    const events = res?.events ?? []
-    let found: ModelSelection | undefined
-    for (const e of events) {
-      const d = e.data as { provider?: unknown; model?: unknown; reasoningEffort?: unknown; options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } } | undefined
-      const src = (e.type ?? '').includes('model') ? d : d?.options
-      const provider = typeof src?.provider === 'string' ? src.provider : undefined
-      const model = typeof src?.model === 'string' ? src.model : undefined
-      if (provider && model) {
-        found = { provider, model }
-        const effort = typeof src?.reasoningEffort === 'string' ? src.reasoningEffort : undefined
-        if (effort) found.reasoningEffort = effort
-      }
-    }
-    return found
-  } catch {
-    return undefined
-  }
+  state.sessionRecords.set(sessionId, resolvedRec)
+  await attachSessionCwd(ctx, sid, agent.session.header.cwd)
+  return { sessionId: sid, handle: resolvedRec.handle, selection: resolvedRec.selection, preset: resolvedRec.preset }
 }
 
 /**
@@ -348,7 +315,7 @@ export interface PromptOptions {
 /** 发消息(prompt): 会话解析 → followup/steer → 等 turn 收敛 → 读结构化结果 */
 export async function promptSession(opts: PromptOptions): Promise<SessionTurnResult> {
   const { ctx, sessionId, task, context, mode = 'queue', signal } = opts
-  const { handle, selection, preset } = await resolveSessionForPrompt(ctx, sessionId)
+  const { handle, selection: initialSelection, preset } = await resolveSessionForPrompt(ctx, sessionId)
   // 事件基线: 只读本轮新增事件(公开 API snapshotEvents; 旧宿主回退 log 字段)
   const baseline = eventsOf(handle.agent.session).length
   state.hooks.notifySessionActivity(sessionId)
@@ -369,7 +336,10 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
     state.hooks.notifySessionHistory(sessionId)
   }
 
-  // 结构化读输出
+  // 结构化读输出。模型回报以本轮实际写入日志的 request/header 为准(冷恢复时 agent.options
+  // 是宿主的部署默认, 不一定是会话实际使用的模型), 日志头缺席才退回解析阶段的选择。
+  const effectiveSelection = selectionOfAgent(handle.agent)
+  const selection = effectiveSelection.provider && effectiveSelection.model ? effectiveSelection : initialSelection
   const result: SessionTurnResult = {
     sessionId, model: selection, preset, durationMs: Date.now() - turnStartedAt,
     assistantText: '', toolCalls: [], toolResults: [],

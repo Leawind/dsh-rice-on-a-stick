@@ -14,6 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { randomUUID } from 'node:crypto'
 import { canonicalCwd } from './paths.js'
+import type { ModelSelection } from './types.js'
 
 /** SessionId 品牌转换: 宿主实现同样只是编译期 cast, 运行时原样返回字符串 */
 export function asSessionId(id: string): SessionId {
@@ -52,11 +53,110 @@ export function eventsOf(session: unknown): readonly unknown[] {
   return Array.isArray(s.log) ? s.log : []
 }
 
-/** 取宿主服务: 优先 ctx.get(可选依赖的官方姿势), 回退同名属性(最小假 ctx / 旧宿主) */
+/**
+ * 取宿主服务: 优先 ctx.get(可选依赖的官方姿势), 回退同名属性(最小假 ctx / 旧宿主)。
+ * 真机 cordis 上下文对**未在 module 级 inject 声明**的服务, 属性访问直接抛错
+ * ("cannot get property ... without inject"), HMR 重载窗口里 ctx.get 也可能暂时返回 undefined——
+ * 两条路都必须兜住, 可选依赖读不到时返回 undefined 而不是把整个调用打崩。
+ */
 export function serviceOf<T>(ctx: Context, name: string): T | undefined {
-  const viaGet = (ctx as { get?: (n: string) => unknown }).get?.(name)
-  if (viaGet !== undefined) return viaGet as T
-  return (ctx as unknown as Record<string, unknown>)[name] as T | undefined
+  const viaGet = (ctx as { get?: (n: string) => unknown }).get
+  if (typeof viaGet === 'function') {
+    try {
+      const service = viaGet.call(ctx, name)
+      if (service !== undefined) return service as T
+    } catch {
+      // get 本身在未注入时也可能抛错; 继续走属性回退
+    }
+  }
+  try {
+    return (ctx as unknown as Record<string, unknown>)[name] as T | undefined
+  } catch {
+    return undefined
+  }
+}
+
+// ── 会话冷读与官方冷恢复(sessionController; web profile 提供) ──
+
+/** 会话对象的读面: header 是持久化元数据, requestHeader 折叠最后一条 request/header 事件 */
+export interface SessionReadView {
+  readonly header: SessionHeader
+  requestHeader?: () => { config?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } } | undefined
+}
+
+/** live agent 的读面(resolveAgent 返回的活体; options 是建 agent 时的初始选择) */
+export interface LiveAgentView {
+  readonly session: SessionReadView
+  readonly options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+  readonly ctx?: Context
+}
+
+/** sessionController.inspect 的返回(宿主 SessionInspection 形状; 非激活读取) */
+export interface SessionInspectionView {
+  meta?: SessionHeader
+  inheritedEventCount?: number
+  events?: readonly unknown[]
+}
+
+/**
+ * sessionController 的会话读/恢复入口(可选依赖, web profile 提供):
+ *   inspect      非激活读取一个 live 或 persisted 会话的完整事件日志
+ *   resolveAgent 界面打开旧会话的官方冷恢复(组装 preset + 从日志恢复模型选择 + 迁移/归属校验)
+ * 两个方法在 0.2.x 的 SessionController 上都是 Host 公共方法(非 Remote)。
+ */
+export interface SessionControllerHostView {
+  inspect?: (sessionId: SessionId) => Promise<SessionInspectionView | undefined>
+  resolveAgent?: (sessionId: SessionId) => Promise<{
+    agent?: LiveAgentView
+    error?: { code?: string; message?: string }
+  } | undefined>
+}
+
+/** 取 sessionController 视图(可选依赖; 缺席 = headless 等无 Web 会话控制器的部署) */
+export function sessionControllerOf(ctx: Context): SessionControllerHostView | undefined {
+  return serviceOf<SessionControllerHostView>(ctx, 'sessionController')
+}
+
+/** 从 requestHeader 折叠出的会话有效模型(界面续接用的同一来源); 尚未产生请求时返回 undefined */
+export function selectionOfSession(session: unknown): ModelSelection | undefined {
+  const read = session as { requestHeader?: () => { config?: Record<string, unknown> } | undefined } | undefined
+  if (typeof read?.requestHeader !== 'function') return undefined
+  let header: { config?: Record<string, unknown> } | undefined
+  try {
+    header = read.requestHeader.call(session)
+  } catch {
+    return undefined
+  }
+  const config = header?.config
+  const provider = typeof config?.provider === 'string' ? config.provider : ''
+  const model = typeof config?.model === 'string' ? config.model : ''
+  if (!provider || !model) return undefined
+  const selection: ModelSelection = { provider, model }
+  if (typeof config?.reasoningEffort === 'string' && config.reasoningEffort) selection.reasoningEffort = config.reasoningEffort
+  return selection
+}
+
+/** agent 当前绑定的 preset(经 agentPresets.composedPreset; 无 registry/未绑定时空串) */
+export function presetOfAgent(ctx: Context, agent: unknown): string {
+  const agentCtx = (agent as { ctx?: Context } | undefined)?.ctx
+  if (agentCtx === undefined) return ''
+  const presets = serviceOf<{ composedPreset?: (ctx: Context) => string | undefined }>(ctx, 'agentPresets')
+  if (typeof presets?.composedPreset !== 'function') return ''
+  try {
+    return presets.composedPreset(agentCtx) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** 非激活读取一个会话的事件日志(冷会话经官方 inspect); 服务缺席或读取失败时抛错(带宿主原因)。 */
+export async function inspectSessionEvents(ctx: Context, sessionId: SessionId): Promise<readonly unknown[]> {
+  const controller = sessionControllerOf(ctx)
+  if (typeof controller?.inspect !== 'function') {
+    throw new Error('the host session controller does not expose inspect (a web profile is required to read persisted sessions)')
+  }
+  const inspection = await controller.inspect(sessionId)
+  return inspection?.events ?? []
 }
 
 // ── 工作区归组 ──
