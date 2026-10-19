@@ -95,6 +95,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'nav': 'MCP 服务',
       'uptime': '已运行 {d}',
       'processing': '处理中…',
+      'state.running': '运行中',
+      'state.stopped': '已停止',
+      'state.listeningOff': '监听关闭',
       'stop': '停止',
       'start': '启动',
       'stop.confirm': '停止后所有已连接的 MCP 客户端会被切断。确认停止？',
@@ -143,6 +146,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'nav': 'MCP Service',
       'uptime': 'Up {d}',
       'processing': 'Working…',
+      'state.running': 'Running',
+      'state.stopped': 'Stopped',
+      'state.listeningOff': 'Listener off',
       'stop': 'Stop',
       'start': 'Start',
       'stop.confirm': 'Stopping disconnects every connected MCP client. Stop?',
@@ -289,7 +295,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // 状态徽章: 运行中(绿)/已停止(琥珀)/监听关闭(红); title 带运行时长
   function Badge(props) {
     const cls = props.ok ? 'dcs-tag dcs-tag-ok' : props.warn ? 'dcs-tag dcs-tag-warn' : 'dcs-tag dcs-tag-err';
-    const text = props.ok ? '运行中' : props.warn ? '已停止' : '监听关闭';
+    const text = t(props.ok ? 'state.running' : props.warn ? 'state.stopped' : 'state.listeningOff');
     return React.createElement('span', { className: cls, title: props.title },
       React.createElement('span', { className: 'dcs-dot' }), text);
   }
