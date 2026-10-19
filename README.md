@@ -113,7 +113,7 @@ Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP 
 
 Panel copy follows the DSH language setting (Chinese/English) and switches immediately; it falls back to Chinese when the host offers no locale service.
 
-The bundle adds a **Settings → MCP Service** section to the dsh web UI, in four blocks, styled directly with the host's global `--dsw-*` theme tokens (light/dark follows automatically). The settings navigation entry carries the plugin's own outline carrot-on-a-stick mark instead of the host's fallback gear: the host's section contract has no icon field, so the mark is claimed on the rendered row (the same approach `dshmarket` uses). The package also exports a 36px colored version of the same geometry as `./icon`, so the Plugin Manager shows the plugin's own artwork instead of the default.
+The bundle adds a **Settings → MCP Service** section to the dsh web UI, in four blocks, styled directly with the host's global `--dsw-*` theme tokens (light/dark follows automatically). The settings navigation entry carries the plugin's own monochrome outline carrot-on-a-stick mark instead of the host's fallback gear: the host's section contract has no icon field, so the mark is claimed on the rendered row (the same approach `dshmarket` uses). The same outline is exported as the package `icon` / `./icon`, so the Plugin Manager shows the plugin's own artwork instead of the default.
 
 -   **Status header** — live badge (running / stopped / listener off; hover for uptime) plus start/stop buttons. Stopping asks for confirmation — it cuts every connected MCP client. State polls every 10 seconds.
 -   **Endpoint card** — just the MCP endpoint URL (monospace, one-click copy).

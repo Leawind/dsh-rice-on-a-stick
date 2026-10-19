@@ -1,10 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" role="img" aria-labelledby="title desc">
   <title id="title">DSH Carrot on a Stick</title>
-  <desc id="desc">An outline carrot hanging from the tip of a fishing rod, in the DeepSeek blue, carrot orange, and mint green palette.</desc>
-  <g transform="scale(1.5)" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#5878FF" stroke-width="1.75"/>
-    <path d="M18.2 3.4v3.5" stroke="#5878FF" stroke-width="1.2"/>
-    <path d="M18.2 6.9 C15.45 6.9 15.1 7.9 15.1 8.9 C15.1 13.24 16.71 17.72 17.15 19.44 C17.7 20.5 18.7 20.5 19.25 19.44 C19.69 17.72 21.3 13.24 21.3 8.9 C21.3 7.9 20.95 6.9 18.2 6.9 Z" stroke="#FF963D" stroke-width="1.65"/>
-    <path d="M18 6.8C16.6 5.1 15.2 4.2 13.3 3.8M18.7 6.7C19.9 5 21.2 4 22.9 3.6" stroke="#6FCF97" stroke-width="1.4"/>
-  </g>
+  <desc id="desc">A single-color outline of a carrot hanging from the tip of a fishing rod.</desc>
+  <path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#7C8798" stroke-width="1.55" stroke-linecap="round"/>
+  <path d="M18.2 3.4v3.5" stroke="#7C8798" stroke-width="1.15" stroke-linecap="round"/>
+  <path d="M18.2 6.9 C15.25 6.9 14.9 7.9 14.9 8.9 C14.9 13.24 16.62 17.72 17.08 19.44 C17.67 20.5 18.73 20.5 19.32 19.44 C19.78 17.72 21.5 13.24 21.5 8.9 C21.5 7.9 21.15 6.9 18.2 6.9 Z" stroke="#7C8798" stroke-width="1.45" stroke-linejoin="round"/>
+  <path d="M18 6.8C16.6 5.1 15.2 4.2 13.3 3.8M18.7 6.7C19.9 5 21.2 4 22.9 3.6" stroke="#7C8798" stroke-width="1.2" stroke-linecap="round"/>
 </svg>
