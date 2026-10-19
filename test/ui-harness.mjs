@@ -38,6 +38,7 @@ const rpcCounts = { status: 0, stop: 0, start: 0, 'config-update': 0 }
 const configCalls = []
 const boot = { errors: [] }
 const mode = { statusError: false, actionDelayMs: 0 }
+let navReport = null
 
 function snapshot() {
   // 与 src/index.ts 的 statusSnapshot() 同形: stats 只含 connections 与 subscriptions 观测
@@ -121,9 +122,35 @@ body[data-ds-dark-theme]{
 }
 #theme-toggle{position:fixed;right:16px;bottom:16px;padding:6px 12px;cursor:pointer;border-radius:8px;
   border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+/* 假设置对话框: 只用于观察设置侧栏图标认领(真机槽只投影 id/order/label, 第三方分区默认齿轮) */
+#nav-preview{margin:0 0 28px;}
+#nav-preview .caption{font-size:12px;color:var(--dsw-alias-label-tertiary);margin:0 0 8px;}
+#nav-preview nav{display:flex;flex-direction:column;gap:4px;width:188px;}
+#nav-preview button{box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,12px);height:40px;
+  display:flex;align-items:center;gap:8px;width:100%;padding:9px 16px 9px 12px;background:transparent;
+  color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer;}
+#nav-preview button:hover{background:var(--dsw-alias-interactive-bg-hover);}
+#nav-preview button.active{background:rgba(38,49,72,.10);}
+#nav-preview button > svg{flex:none;}
+#nav-preview .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 </style>
 </head>
 <body>
+<div id="nav-preview">
+  <div class="caption">设置侧栏图标（假对话框；第三方分区默认齿轮，本插件认领后换成胡萝卜钓竿）</div>
+  <div role="dialog" aria-label="设置">
+    <nav>
+      <button type="button">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2"/></svg>
+        <span class="label" id="nav-general-label">通用设置</span>
+      </button>
+      <button type="button" class="active">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2"/></svg>
+        <span class="label" id="nav-mcp-label">MCP 服务</span>
+      </button>
+    </nav>
+  </div>
+</div>
 <div id="root"></div>
 <button id="theme-toggle" onclick="document.body.toggleAttribute('data-ds-dark-theme')">切换深浅主题</button>
 <script src="/vendor/react.js"><\/script>
@@ -208,12 +235,30 @@ function renderPanel() {
 window.__localeSeen = null;
 setInterval(function () {
   fetch('/__test/locale').then(function (r) { return r.json(); }).then(function (j) {
+    var en = j.locale === 'en';
+    var general = document.getElementById('nav-general-label');
+    var mcp = document.getElementById('nav-mcp-label');
+    // 假对话框跟随语言: 面板换文案后, 图标认领也要能重新匹配(验证 locale 切换路径)
+    if (general && general.textContent !== (en ? 'General' : '通用设置')) general.textContent = en ? 'General' : '通用设置';
+    if (mcp && mcp.textContent !== (en ? 'MCP Service' : 'MCP 服务')) mcp.textContent = en ? 'MCP Service' : 'MCP 服务';
     if (j.locale && j.locale !== window.__localeSeen) {
       window.__localeSeen = j.locale;
       window.__localeSvc.__setActive(j.locale);
     }
   }).catch(function () { /* 首轮可能早于服务就绪 */ });
 }, 400);
+// 把假对话框的认领结果回传给测试控制面, 供 curl / __test/state 断言
+setInterval(function () {
+  var rows = [];
+  document.querySelectorAll('[role="dialog"] nav button').forEach(function (row) {
+    rows.push({ text: row.textContent.trim(), marked: row.hasAttribute('data-dsh-carrot-nav-icon') });
+  });
+  fetch('/__test/nav', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows: rows }),
+  }).catch(function () { /* 控制面未就绪时忽略 */ });
+}, 800);
 <\/script>
 <script src="/client.js"><\/script>
 </body>
@@ -300,7 +345,11 @@ const server = createServer(async (req, res) => {
       return json(res, 404, { error: 'unknown method ' + method })
     }
     if (url.pathname === '/__test/state') {
-      return json(res, 200, { state: snapshot(), rpcCounts, configCalls, boot })
+      return json(res, 200, { state: snapshot(), rpcCounts, configCalls, boot, navReport })
+    }
+    if (req.method === 'POST' && url.pathname === '/__test/nav') {
+      navReport = await readBody(req)
+      return json(res, 200, { ok: true })
     }
     if (url.pathname === '/__test/locale') {
       return json(res, 200, { locale: mode.locale ?? 'zh' })

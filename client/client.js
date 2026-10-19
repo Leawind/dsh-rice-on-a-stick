@@ -4,6 +4,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
   // - 注册 settings.section 设置页面板: 状态头 / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
   //   configEditor 写 profile patch 后热重载生效) / 软停启 / MCP 客户端连接列表
+  // - 设置侧栏图标: 宿主的 settings.section 只投影 id/order/label(没有 icon 字段), 第三方分区
+  //   一律显示齿轮; 与 dshmarket 同法认领本分区行, 用 mask 换上胡萝卜钓竿标记
   // - React 由模块系统种子提供; 不依赖其它 client 包
   // - 视觉直接引用宿主全局 --dsw-* 主题 token(与宿主同文档, 深浅主题自动跟随), 每处 var() 带中性
   //   fallback 兜底; 控件规格对齐官方 primitives(输入 32px/radius-md, 按钮 sm 28/md 36, 开关 36×20,
@@ -675,6 +677,89 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     );
   }
 
+  // ── 设置侧栏图标 ──
+  // 宿主的 settings.section 槽只投影 id/order/label, 没有 icon 字段; 除官方分区外一律回退齿轮。
+  // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS mask
+  // 把宿主注入的齿轮换成自己的标记. 只读 DOM, 不改 React 管理的节点, 语言切换时重新认领.
+  //
+  // 图形是 24 网格上的“斜竿 + 胡萝卜”剪影(与 assets/nav-icon.svg 同一几何): 16px 下竿身
+  // 仍需明显粗于缨子, 胡萝卜才不会被读成一根带长柄的叶子; 3 根缨子在小尺寸会糊成一团, 只留左右两根.
+  var NAV_ICON_MARKER = 'data-dsh-carrot-nav-icon';
+  var NAV_ICON_SIZE = 16;
+  var NAV_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
+    + '<path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#000" stroke-width="2" stroke-linecap="round"/>'
+    + '<path d="M18.2 3.4v3.5" stroke="#000" stroke-width="1.25" stroke-linecap="round"/>'
+    + '<path d="M18.2 6.9 C15.35 6.9 15 7.9 15 8.9 C15 13.24 16.66 17.72 17.11 19.44 C17.69 20.5 18.71 20.5 19.29 19.44 C19.74 17.72 21.4 13.24 21.4 8.9 C21.4 7.9 21.05 6.9 18.2 6.9 Z" fill="#000"/>'
+    + '<path d="M18 6.8C16.6 5.1 15.2 4.2 13.3 3.8M18.7 6.7C19.9 5 21.2 4 22.9 3.6" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>'
+    + '</svg>';
+
+  function navIconCss() {
+    var url = 'data:image/svg+xml,' + encodeURIComponent(NAV_ICON_SVG);
+    return [
+      '[' + NAV_ICON_MARKER + '] > svg { display: none; }',
+      '[' + NAV_ICON_MARKER + ']::before {',
+      "  content: '';",
+      '  flex: none;',
+      '  width: ' + NAV_ICON_SIZE + 'px;',
+      '  height: ' + NAV_ICON_SIZE + 'px;',
+      '  background-color: currentColor;',
+      '  -webkit-mask-image: url("' + url + '");',
+      '  mask-image: url("' + url + '");',
+      '  -webkit-mask-repeat: no-repeat;',
+      '  mask-repeat: no-repeat;',
+      '  -webkit-mask-position: center;',
+      '  mask-position: center;',
+      '  -webkit-mask-size: ' + NAV_ICON_SIZE + 'px ' + NAV_ICON_SIZE + 'px;',
+      '  mask-size: ' + NAV_ICON_SIZE + 'px ' + NAV_ICON_SIZE + 'px;',
+      '}',
+    ].join('\n');
+  }
+
+  function installSettingsNavIcon(ctx) {
+    if (typeof document === 'undefined') return;
+    ctx.effect(function () {
+      var tag = document.createElement('style');
+      tag.dataset.plugin = 'dsh-carrot-on-a-stick';
+      tag.dataset.pluginCss = 'dsh-carrot-on-a-stick/settings-nav-icon';
+      tag.textContent = navIconCss();
+      (document.head || document.documentElement).appendChild(tag);
+
+      var disposed = false;
+      var scheduled = false;
+      function sync() {
+        if (disposed) return;
+        var wanted = String(t('nav') || '').trim();
+        var rows = document.querySelectorAll('[role="dialog"] nav button');
+        for (var i = 0; i < rows.length; i++) {
+          var row = rows[i];
+          if (wanted && String(row.textContent || '').trim() === wanted) row.setAttribute(NAV_ICON_MARKER, '');
+          else row.removeAttribute(NAV_ICON_MARKER);
+        }
+      }
+      function schedule() {
+        if (scheduled || disposed) return;
+        scheduled = true;
+        var run = function () { scheduled = false; sync(); };
+        if (typeof queueMicrotask === 'function') queueMicrotask(run);
+        else Promise.resolve().then(run);
+      }
+
+      sync();
+      var observer = null;
+      if (typeof MutationObserver === 'function') {
+        observer = new MutationObserver(schedule);
+        observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
+      }
+      return function () {
+        disposed = true;
+        if (observer) observer.disconnect();
+        var marked = document.querySelectorAll('[' + NAV_ICON_MARKER + ']');
+        for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(NAV_ICON_MARKER);
+        if (tag.parentNode) tag.parentNode.removeChild(tag);
+      };
+    }, 'dsh-carrot-on-a-stick: settings nav icon');
+  }
+
   module.exports = {
     // locale 必须显式声明 inject: 真机 cordis 上下文对未声明服务的属性访问直接抛错
     // (cannot get property ... without inject), 没有软获取一说; 能跑 dshmarket 的宿主必有 locale。
@@ -701,6 +786,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           function () { return React.createElement(StatusPanel); },
         );
       });
+      installSettingsNavIcon(ctx);
     },
   };
   return module.exports;
