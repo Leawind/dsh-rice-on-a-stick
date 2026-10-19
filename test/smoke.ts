@@ -344,6 +344,18 @@ try {
       && modelsRoute.body.includes('Provider One')
     const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { port: 9999 } }) })
     checks['GUI 路由: config-update 白名单外字段 400'] = cfgBadField.status === 400
+    // 桌面 shell: 页面 origin 是 dsh-app://, 与 HTTP Host 不同; Fetch Metadata 同源时必须放行
+    const badBody = JSON.stringify({ values: { port: 9999 } })
+    const cfgDesktop = await phase.gui('config-update', { headers: { origin: 'dsh-app://dsh', 'sec-fetch-site': 'same-origin' }, body: badBody })
+    checks['GUI 路由: 桌面 dsh-app origin + same-origin 放行'] = cfgDesktop.status === 400
+    const cfgDesktopNoMeta = await phase.gui('config-update', { headers: { origin: 'dsh-app://dsh' }, body: badBody })
+    checks['GUI 路由: dsh-app origin(无 Fetch Metadata)放行'] = cfgDesktopNoMeta.status === 400
+    const cfgNullOrigin = await phase.gui('config-update', { headers: { origin: 'null', 'sec-fetch-site': 'same-origin' }, body: badBody })
+    checks['GUI 路由: Origin null + Fetch Metadata 同源放行'] = cfgNullOrigin.status === 400
+    const cfgAlias = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087', origin: 'http://localhost:8087', 'sec-fetch-site': 'same-site' }, body: badBody })
+    checks['GUI 路由: localhost/127 回环别名视为同源'] = cfgAlias.status === 400
+    const cfgCross = await phase.gui('config-update', { headers: { origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'cross-site' }, body: badBody })
+    checks['GUI 路由: Fetch Metadata cross-site 即使 Origin 匹配也拒'] = cfgCross.status === 403
     const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')

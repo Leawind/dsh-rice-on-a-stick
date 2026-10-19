@@ -110,20 +110,50 @@ function webRespond(res: http.ServerResponse, status: number, payload: unknown):
   res.end(body)
 }
 
-/** 变更类 GUI 路由的同源校验(sec-fetch-site / origin 对 host; curl 等无 Origin 客户端放行读) */
+/** 本机回环主机名: 桌面 shell / 浏览器用 localhost 与 127.0.0.1 两种拼写访问同一服务时视为同源 */
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
+}
+
+/**
+ * 变更类 GUI 路由的同源校验(CSRF 门禁)。判定顺序:
+ *   1. Fetch Metadata(`Sec-Fetch-Site`)由浏览器写入、页面 JS 无法伪造: `cross-site` 直接拒,
+ *      `same-origin` 直接放行。桌面客户端用 `dsh-app://` 自定义 scheme 承载页面, 其 Origin 与
+ *      HTTP Host 天然不同——只看 Origin/Host 会把真机面板的全部写操作误杀。
+ *   2. 没有 Fetch Metadata 时退回 Origin/Host 比对: `dsh-app:` Origin 只可能来自桌面 shell, 放行;
+ *      http(s) Origin 要求 host 相同(或同端口的回环别名)。
+ *   3. 两者都缺(非浏览器客户端)一律拒绝, 需要时自行带 Origin 或 `Sec-Fetch-Site: same-origin`。
+ */
 function sameOrigin(req: http.IncomingMessage): boolean {
   const fetchSite = req.headers['sec-fetch-site']
-  if (fetchSite === 'cross-site') return false
   const origin = req.headers.origin
-  if (origin === undefined) return fetchSite === 'same-origin' || fetchSite === 'same-site'
+  // 桌面 shell 的页面 origin(dsh-app://)与 HTTP Host 天然不同; 远端网页无法伪造该 origin
+  if (origin !== undefined) {
+    try {
+      if (new URL(origin).protocol === 'dsh-app:') return true
+    } catch {
+      // Origin: null 等无法解析的值留给下面的 Fetch Metadata / 默认拒绝
+    }
+  }
+  // Fetch Metadata 由浏览器写入、页面 JS 无法伪造
+  if (fetchSite === 'cross-site') return false
+  if (fetchSite === 'same-origin') return true
+  if (origin === undefined) return fetchSite === 'same-site'
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false // 普通网页不可能产生无法解析的 Origin; 视为不可信
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
   const host = req.headers.host
   if (host === undefined) return false
-  try {
-    const parsed = new URL(origin)
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.host === host
-  } catch {
-    return false
-  }
+  if (parsed.host === host) return true
+  // 回环别名: Origin 用 localhost、Host 用 127.0.0.1(或反向)时端口相同即视为同源
+  const hostUrl = new URL(`http://${host}`)
+  return parsed.port === hostUrl.port
+    && isLoopbackHostname(parsed.hostname)
+    && isLoopbackHostname(hostUrl.hostname)
 }
 
 /** 读 GUI 路由请求体(限字节; 超限 413) */
@@ -456,7 +486,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             }
             // 变更类方法要求同源(GUI 按钮发起; 防 CSRF 式启停/改配置)
             if (WEB_MUTATING.has(method) && !sameOrigin(req)) {
-              webRespond(res, 403, { error: 'cross-origin request rejected' })
+              // 带上判定输入: 桌面 shell / 反代换了 origin 拼写时, 面板上的报错要能直接定位
+              const site = req.headers['sec-fetch-site'] ?? '-'
+              const origin = req.headers.origin ?? '-'
+              const host = req.headers.host ?? '-'
+              webRespond(res, 403, { error: `cross-origin request rejected (site=${site}, origin=${origin}, host=${host})` })
               return
             }
             // 读 body(限 64k 防滥用): config-update 需要 JSON 载荷, 其余方法仅消费流

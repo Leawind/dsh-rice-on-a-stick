@@ -53,7 +53,9 @@ host → {paths, types}          projection → types          state → {config
 4. **投影省上下文(projection.ts)**：内部 `SessionTurnResult` 恒为全量，出口按 `detail`
    (`uri`/`summary`/`normal`/`full`)裁剪；新字段想透出给调用方时，先想清楚它进哪一档、占多少预算。
 5. **安全边界(index.ts)**：默认只监听本机；Bearer 常数时间比较；Host/Origin 白名单防 DNS
-   rebinding；请求体上限 10MB；MCP 面只留 `/mcp`。GUI 路由另有同源校验(`sec-fetch-site`/Origin)。
+   rebinding；请求体上限 10MB；MCP 面只留 `/mcp`。GUI 写路由另有 CSRF 门禁：以浏览器写入、
+   页面无法伪造的 `Sec-Fetch-Site` 为主（same-origin 放行、cross-site 拒绝），接受桌面壳的
+   `dsh-app:` origin（其 Origin 与 HTTP Host 不同），无 Fetch Metadata 时退回 Origin/Host 比对。
 
 ## 关键流程速查
 
