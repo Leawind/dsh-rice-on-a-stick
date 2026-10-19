@@ -115,6 +115,15 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
 }
 
+/** Host 头是否是本机回环 authority(127.0.0.1:64223 / localhost:3000 / [::1]:8080) */
+function isLoopbackAuthority(authority: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(`http://${authority}`).hostname)
+  } catch {
+    return false
+  }
+}
+
 /**
  * 变更类 GUI 路由的同源校验(CSRF 门禁)。判定顺序:
  *   1. Fetch Metadata(`Sec-Fetch-Site`)由浏览器写入、页面 JS 无法伪造: `cross-site` 直接拒,
@@ -122,7 +131,10 @@ function isLoopbackHostname(hostname: string): boolean {
  *      HTTP Host 天然不同——只看 Origin/Host 会把真机面板的全部写操作误杀。
  *   2. 没有 Fetch Metadata 时退回 Origin/Host 比对: `dsh-app:` Origin 只可能来自桌面 shell, 放行;
  *      http(s) Origin 要求 host 相同(或同端口的回环别名)。
- *   3. 两者都缺(非浏览器客户端)一律拒绝, 需要时自行带 Origin 或 `Sec-Fetch-Site: same-origin`。
+ *   3. Origin 与 Fetch Metadata 都缺: 桌面壳的自定义 scheme 处理器转发请求时会丢掉浏览器的
+ *      这两个头(真机实测 site=-, origin=-, host=127.0.0.1:64223), 此时按"本机非浏览器客户端"
+ *      处理——Host 必须是回环地址。浏览器发起的跨站写请求必带 Origin(且 JSON 还要过 CORS
+ *      预检), 不会走到这个分支, CSRF 面不扩大。
  */
 function sameOrigin(req: http.IncomingMessage): boolean {
   const fetchSite = req.headers['sec-fetch-site']
@@ -138,7 +150,12 @@ function sameOrigin(req: http.IncomingMessage): boolean {
   // Fetch Metadata 由浏览器写入、页面 JS 无法伪造
   if (fetchSite === 'cross-site') return false
   if (fetchSite === 'same-origin') return true
-  if (origin === undefined) return fetchSite === 'same-site'
+  const host = req.headers.host
+  if (origin === undefined) {
+    // 无 Origin: 浏览器同站请求(same-site)或本机客户端; 其余只接受回环 Host
+    if (fetchSite === 'same-site') return true
+    return host !== undefined && isLoopbackAuthority(host)
+  }
   let parsed: URL
   try {
     parsed = new URL(origin)
@@ -146,7 +163,6 @@ function sameOrigin(req: http.IncomingMessage): boolean {
     return false // 普通网页不可能产生无法解析的 Origin; 视为不可信
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-  const host = req.headers.host
   if (host === undefined) return false
   if (parsed.host === host) return true
   // 回环别名: Origin 用 localhost、Host 用 127.0.0.1(或反向)时端口相同即视为同源

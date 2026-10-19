@@ -356,6 +356,11 @@ try {
     checks['GUI 路由: localhost/127 回环别名视为同源'] = cfgAlias.status === 400
     const cfgCross = await phase.gui('config-update', { headers: { origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'cross-site' }, body: badBody })
     checks['GUI 路由: Fetch Metadata cross-site 即使 Origin 匹配也拒'] = cfgCross.status === 403
+    // 桌面壳的 scheme 处理器转发时会丢掉 Origin 与 Sec-Fetch-*(真机 site=-, origin=-)
+    const cfgNoMeta = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087' }, body: badBody })
+    checks['GUI 路由: 无 Origin/Fetch Metadata + 回环 Host 放行'] = cfgNoMeta.status === 400
+    const cfgNoMetaPublic = await phase.gui('config-update', { headers: { host: 'evil.example.com' }, body: badBody })
+    checks['GUI 路由: 无 Origin/Fetch Metadata + 非回环 Host 仍拒'] = cfgNoMetaPublic.status === 403
     const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
