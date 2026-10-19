@@ -185,7 +185,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<{ sessi
       await mountPreset(ctx, agentCtx, presetName)
     },
   })
-  const rec: SessionRecord = { sessionId: newSessionId, handle, cwd: canonical, selection, preset: presetName }
+  const rec: SessionRecord = { sessionId: newSessionId, cwd: canonical, selection, preset: presetName }
   state.sessionRecords.set(String(newSessionId), rec)
   // 分组: 把会话归属到 cwd 对应的工作区(resolveByPath ?? create + attachSession; 可选依赖; headless 环境自动跳过)
   void attachToWorkspace(ctx, canonical, newSessionId)
@@ -207,11 +207,11 @@ interface ResolvedSession {
 }
 
 /**
- * prompt 前的会话解析(三级):
+ * prompt 前的会话解析(两级):
  *   1. live 接管: ctx.agents.get(UI 手开的、插件建的和别的插件持有的会话), 沿用其原模型;
- *   2. 本插件记录: 自己创建过的会话 handle 直接用(防 live 查询失败的边角);
- *   3. 冷恢复: 走宿主 sessionController.resolveAgent(界面打开旧会话的同一路径——按会话日志
- *      组装 preset、恢复模型选择、校验子代理归属/写入占用/格式迁移), 插件不再自己 resume + 猜模型。
+ *   2. 冷恢复: 走宿主 sessionController.resolveAgent(界面打开旧会话的同一路径——按会话日志
+ *      组装 preset、恢复模型选择、校验子代理归属/写入占用/格式迁移), 插件不自己 resume + 猜模型。
+ * 插件记录只保存 cwd/模型/preset 供结果回报, 不持有 agent handle: 会话生命周期归宿主。
  */
 async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise<ResolvedSession> {
   const sid = asSessionId(sessionId)
@@ -229,13 +229,7 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
     }
   }
 
-  // 2. 本插件记录(创建过; live 查询没拿到时的兜底)
-  const rec = state.sessionRecords.get(sessionId)
-  if (rec) {
-    return { sessionId: sid, handle: rec.handle, selection: rec.selection, preset: rec.preset }
-  }
-
-  // 3. 官方冷恢复(界面打开旧会话同一条路): 模型选择、preset 组装与格式迁移都由宿主完成
+  // 2. 官方冷恢复(界面打开旧会话同一条路): 模型选择、preset 组装与格式迁移都由宿主完成
   const controller = sessionControllerOf(ctx)
   if (typeof controller?.resolveAgent !== 'function') {
     throw new Error(`cannot resume session "${sessionId}": the host session controller is unavailable `
@@ -255,15 +249,15 @@ async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise
   const resolvedCwd = agent.session.header.cwd === undefined ? '' : await canonicalCwd(agent.session.header.cwd)
   const resolvedRec: SessionRecord = {
     sessionId: sid,
-    // resolveAgent 的活体由宿主持有, 插件只借用: dispose 是空操作, 会话生命周期归宿主(与 live 接管一致)
-    handle: { agent: agent as unknown as AgentHandle['agent'], dispose: () => Promise.resolve() },
     cwd: resolvedCwd,
     selection: selectionOfAgent(agent),
     preset: agent.session.header.agentPreset ?? presetOfAgent(ctx, agent),
   }
   state.sessionRecords.set(sessionId, resolvedRec)
   await attachSessionCwd(ctx, sid, agent.session.header.cwd)
-  return { sessionId: sid, handle: resolvedRec.handle, selection: resolvedRec.selection, preset: resolvedRec.preset }
+  // 活体由宿主持有, 插件只借用: dispose 是空操作(与 live 接管一致)
+  const handle: AgentHandle = { agent: agent as unknown as AgentHandle['agent'], dispose: () => Promise.resolve() }
+  return { sessionId: sid, handle, selection: resolvedRec.selection, preset: resolvedRec.preset }
 }
 
 /**

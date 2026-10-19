@@ -1,7 +1,6 @@
 /**
  * 跨模块共享的纯数据类型(无行为、无宿主服务依赖)。
  */
-import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** 一次模型选择: provider+model 必成对; reasoningEffort 可选 */
@@ -14,10 +13,9 @@ export interface ModelSelection {
 /** 不完整的选择(模型目录的缺省选择/调用参数等场景; 不做任何补全) */
 export type ModelSelectionOverride = Partial<ModelSelection>
 
-/** 会话与其 agent 的绑定记录(创建/续接时登记, 常驻直至进程结束——与界面行为一致) */
+/** 会话的元数据记录(创建/冷恢复时登记; agent 本身与生命周期归宿主, 这里不持有 handle) */
 export interface SessionRecord {
   sessionId: SessionId
-  handle: AgentHandle
   /** realpath 规范化后的 cwd */
   cwd: string
   /** 会话的模型选择(创建时显式指定; 续接沿用) */
