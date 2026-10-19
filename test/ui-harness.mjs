@@ -37,7 +37,7 @@ const initialConfig = JSON.parse(JSON.stringify(state.config))
 const rpcCounts = { status: 0, stop: 0, start: 0, 'config-update': 0 }
 const configCalls = []
 const boot = { errors: [] }
-const mode = { statusError: false, actionDelayMs: 0 }
+const mode = { statusError: false, actionDelayMs: 0, configDelayMs: 0 }
 let navReport = null
 
 function snapshot() {
@@ -307,6 +307,11 @@ const server = createServer(async (req, res) => {
       }
       if (method === 'config-update') {
         rpcCounts['config-update']++
+        // 模拟慢写: 验证保存期间面板不被阻塞、连续改动按序落盘
+        if (mode.configDelayMs > 0) {
+          await new Promise((r) => setTimeout(r, mode.configDelayMs))
+          if (res.writableEnded) return
+        }
         let payload
         try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
         configCalls.push(payload)
@@ -358,6 +363,7 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req)
       if (typeof body.statusError === 'boolean') mode.statusError = body.statusError
       if (typeof body.actionDelayMs === 'number') mode.actionDelayMs = body.actionDelayMs
+      if (typeof body.configDelayMs === 'number') mode.configDelayMs = body.configDelayMs
       if (typeof body.listening === 'boolean') state.listening = body.listening
       if (typeof body.httpEnabled === 'boolean') state.httpEnabled = body.httpEnabled
       if (Array.isArray(body.connections)) state.connections = body.connections

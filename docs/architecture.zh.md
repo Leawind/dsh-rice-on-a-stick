@@ -71,7 +71,9 @@ host → {paths, types}          projection → types          state → {config
 - **资源订阅**：per-connection 一个 `McpServer`；`notify.ts` 汇总 `state.hooks` 的
   sessionActivity(1s 节流)/sessionHistory/listChanged，向订阅者推 `notifications/resources/updated`。
 - **GUI 控制面**：`/_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}`；
-  变更类方法校验同源；配置写入经宿主 `configEditor.edit` 落到 profile patch 并热重载。
+  变更类方法校验同源；配置写入经宿主 `configEditor.edit` 落到 profile patch。界面可改的五个字段
+  (白名单及其开关、默认详略、auth 开关与令牌)在 schema 上标 `volatile`：Loader 只就地提交引用、
+  不重启插件，`bindRuntimeConfig` 的 getter 让 `state.config` 立即读到新值；其余字段改动仍走重载。
 - **传输**：所有 MCP 流量走 `/mcp`：Bearer → Host 白名单 → Origin 校验 → 体上限 →
   按 `Mcp-Session-Id` 路由到 SDK transport；空闲会话由 TTL sweeper 回收。
 - **热重载**：每次 apply 重建 `state.config` 并重绑 hooks；卸载经 `ctx.effect` 断开连接、
@@ -79,7 +81,7 @@ host → {paths, types}          projection → types          state → {config
 
 ## 测试布局
 
--   `test/smoke.ts`：会话中心契约的行为断言(89 项)，按 Phase 组织(协议/创建/prompt/取消/队列/
+-   `test/smoke.ts`：会话中心契约的行为断言(98 项)，按 Phase 组织(协议/创建/prompt/取消/队列/
     模型切换/搜索/分叉/归档/历史/资源/白名单/GUI/纯函数)。假宿主(桩 Cordis 服务 + 桩 agent +
     可观测记录数组)与真 HTTP 的 RPC 小工具在 `test/smoke-harness.ts`——桩的形状必须对齐真机
     契约(例如 `sessionController.inspect` / `resolveAgent`)，不要为了省事造一套自洽但假的 API。

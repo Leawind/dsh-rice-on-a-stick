@@ -321,18 +321,22 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   function StatusPanel() {
     const [state, setState] = React.useState(null);
     const [error, setError] = React.useState('');
-    const [busy, setBusyState] = React.useState(false);
-    // busy 的 ref 镜像: 轮询刷新回调里判断"提交在途则不吃掉乐观草稿"(闭包里读 state 会过期)
-    const busyRef = React.useRef(false);
-    function setBusy(v) { busyRef.current = v; setBusyState(v); }
+    // busy 只表示 MCP 服务启停(会短暂切断监听); 配置保存不再禁用界面, 另用保存队列跟踪
+    const [busy, setBusy] = React.useState(false);
     // 语言切换 → 整面板重渲染: 订阅宿主 locale 快照(t 每次调用都走当前语言, 只需触发重渲染)
     const [, localeTick] = React.useReducer(function (x) { return x + 1; }, 0);
     React.useEffect(function () {
       return LOCALE ? LOCALE.subscribe(localeTick) : undefined;
     }, []);
     const [copied, setCopied] = React.useState(false);
-    // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。未脏时跟随轮询刷新, 脏后不再覆盖。
+    // 表单: null = 尚未初始化; {draft, base} = 当前草稿与基准。保存排空后跟随轮询刷新。
     const [form, setForm] = React.useState(null);
+    // 草稿的同步镜像: 连续改动时下一次提交以它为准(render 闭包里的 form 还是上一帧)
+    const draftRef = React.useRef(null);
+    // 保存队列: 变更即入队, 串行提交, 界面不受在途请求阻塞
+    const queueRef = React.useRef({ running: false, items: [] });
+    // 有保存排队/在途: 轮询刷新不覆盖乐观草稿
+    const savingRef = React.useRef(false);
     const [cfgError, setCfgError] = React.useState('');
     // 令牌复制反馈(独立于端点复制, 各自 1.5s 复位)
     const [tokenCopied, setTokenCopied] = React.useState(false);
@@ -342,22 +346,16 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     const [adding, setAdding] = React.useState(null);
     // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
     const [cat, setCat] = React.useState(null);
-    // config-update 成功后置位: 下一次 status 到达无条件重置草稿(以服务端生效值为准)
-    const rebaseRef = React.useRef(false);
-
     const refresh = React.useCallback(function () {
       return rpc('status').then(function (s) {
         setState(s);
         setError('');
-        const force = rebaseRef.current;
-        rebaseRef.current = false;
         const fresh = draftFromStatus(s);
         setForm(function (prev) {
-          // 实时保存下没有"未保存修改"; 只避让提交在途的乐观草稿(成功路径 force 无条件 rebase)
-          if (prev === null || force || !busyRef.current) {
-            return { draft: fresh, base: fresh };
-          }
-          return prev;
+          // 保存排队/在途时保留乐观草稿; 排空后以服务端生效值为准(含服务端整形/掩码)
+          if (prev !== null && savingRef.current) return prev;
+          draftRef.current = fresh;
+          return { draft: fresh, base: fresh };
         });
       }).catch(function (e) { setError(String((e && e.message) || e)); });
     }, []);
@@ -405,18 +403,24 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       }
     }
 
-    function setDraft(patch) {
+    function setDraft(next) {
+      draftRef.current = next;
       setForm(function (prev) {
-        return prev === null ? prev : { draft: Object.assign({}, prev.draft, patch), base: prev.base };
+        return prev === null ? prev : { draft: next, base: prev.base };
       });
     }
 
-    // 变更即保存: 控件改动 = 乐观更新草稿 + 立即 config-update(宿主写盘热重载)。
-    // 提交失败显示在保存栏, 草稿随下次刷新回到服务端生效值。
+    // 变更即保存: 控件改动 = 乐观更新草稿 + 入队提交。
+    // 界面可改的字段都是宿主 volatile 字段: Loader 就地更新引用, 不重载插件, 所以提交只有毫秒级,
+    // 不阻塞后续操作(此前每次改动都会重启插件, 面板被禁用约 0.8s)。
+    // 提交失败显示在保存栏, 草稿随刷新回到服务端生效值。
     // authToken 形参存在时一并提交该只写字段(仅"重新生成令牌"替换令牌, 开关不回传令牌)。
+    // patch 可以是对象, 也可以是 (当前草稿) => 对象: 清单类的增删必须基于最新草稿,
+    // 否则连续两次点击会用上一帧的清单覆盖第一次的结果。
     function change(patch, authToken) {
       if (!form) return;
-      const next = Object.assign({}, form.draft, patch);
+      const base = draftRef.current || form.draft;
+      const next = Object.assign({}, base, typeof patch === 'function' ? patch(base) : patch);
       setDraft(next);
       const values = {
         allowedModelsEnabled: next.whitelistOn === true,
@@ -425,31 +429,45 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         authEnabled: next.authOn === true,
       };
       if (arguments.length > 1) values.authToken = authToken;
-      submitConfig({ values: values });
+      enqueue({ values: values });
     }
 
-    // 保存/恢复默认共用: config-update → 以服务端值为准重置草稿 → 立即刷新 + 2.5s 后再刷(等重载稳定)。
-    function submitConfig(payload) {
-      setBusy(true);
-      setCfgError('');
-      rpc('config-update', payload)
-        .then(function () {
-          rebaseRef.current = true;
-          return refresh();
-        })
-        .catch(function (e) {
-          setCfgError(String((e && e.message) || e));
-          rebaseRef.current = true; // 失败也放弃乐观草稿: 以服务端生效值为准
-          return refresh();
-        })
-        .finally(function () {
-          setBusy(false);
-          window.setTimeout(function () { refresh(); }, 2500);
-        });
+    function enqueue(payload) {
+      queueRef.current.items.push(payload);
+      void pumpQueue();
     }
+
+    // 串行排空保存队列: 保证最后发出的载荷就是界面最终状态; 排空后刷新一次采纳服务端值。
+    // 失败时清空队列并回到服务端生效值, 不把失败状态留在草稿里。
+    async function pumpQueue() {
+      const queue = queueRef.current;
+      if (queue.running) return;
+      queue.running = true;
+      savingRef.current = true;
+      try {
+        while (queue.items.length > 0) {
+          const payload = queue.items.shift();
+          try {
+            await rpc('config-update', payload);
+            setCfgError('');
+          } catch (e) {
+            queue.items.length = 0;
+            setCfgError(String((e && e.message) || e));
+            break;
+          }
+        }
+      } finally {
+        queue.running = false;
+        savingRef.current = queue.items.length > 0;
+      }
+      if (savingRef.current) { void pumpQueue(); return; }
+      await refresh();
+    }
+
     function resetConfig() {
       if (!window.confirm(t('save.resetConfirm'))) return;
-      submitConfig({ reset: true });
+      // 重置排进同一队列: 在途保存先落盘, 其后的重置才能覆盖它
+      enqueue({ reset: true });
     }
 
     if (!state) {
@@ -511,14 +529,13 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
         ),
       ),
-      // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘 + 热重载
+      // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
           label: t('whitelist.title'),
           hint: t('whitelist.hint'),
           control: React.createElement(Switch, {
             checked: d.whitelistOn,
-            disabled: busy,
             onChange: function (v) { change({ whitelistOn: v }); },
           }),
         }),
@@ -533,15 +550,15 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                         React.createElement('span', null, pair,
                           nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
                         React.createElement('button', {
-                          type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }), disabled: busy,
-                          onClick: function () { change({ allowedModels: d.allowedModels.filter(function (x) { return x !== pair; }) }); },
+                          type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }),
+                          onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.filter(function (x) { return x !== pair; }) }; }); },
                         }, '✕'),
                       );
                     })),
               // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
               adding === null
                 ? React.createElement('div', null,
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', disabled: busy, onClick: function () { setAdding(''); } }, t('whitelist.add')))
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(''); } }, t('whitelist.add')))
                 : React.createElement('div', { className: 'dcs-addrow' },
                     React.createElement('input', {
                       className: 'dcs-input',
@@ -549,7 +566,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                       value: adding,
                       placeholder: t('whitelist.filter'),
                       spellCheck: false,
-                      disabled: busy,
                       onChange: function (e) { setAdding(e.target.value); },
                     }),
                     React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, t('whitelist.done')),
@@ -564,8 +580,8 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                             ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.none'))
                             : candidates.slice(0, CAND_CAP).map(function (e) {
                                 return React.createElement('button', {
-                                  key: e.pair, type: 'button', className: 'dcs-cand', disabled: busy,
-                                  onClick: function () { change({ allowedModels: d.allowedModels.concat([e.pair]) }); },
+                                  key: e.pair, type: 'button', className: 'dcs-cand',
+                                  onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.concat([e.pair]) }; }); },
                                 },
                                   e.pair,
                                   e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
@@ -582,7 +598,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           control: React.createElement('select', {
             className: 'dcs-input',
             value: d.defaultDetail,
-            disabled: busy,
             onChange: function (e) { change({ defaultDetail: e.target.value }); },
           },
             React.createElement('option', { value: 'summary' }, t('detail.summary')),
@@ -594,7 +609,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           hint: t('auth.hint'),
           control: React.createElement(Switch, {
             checked: d.authOn,
-            disabled: busy,
             onChange: function (v) {
               // 开启: 已有令牌(服务端持久化或在途)只开开关; 没有令牌才生成并一并提交。
               // 关闭: 只关开关, 令牌原样保留——重新开启即恢复校验, 不换令牌;
@@ -613,7 +627,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
           ? React.createElement('div', { className: 'dcs-listwrap' },
               React.createElement('div', { className: 'dcs-tokenrow' },
                 React.createElement('button', {
-                  type: 'button', className: 'dcs-btn', disabled: busy,
+                  type: 'button', className: 'dcs-btn',
                   onClick: function () { const token = generateToken(); change({ authToken: token }, token); },
                 }, t('auth.regen')),
                 React.createElement('input', {
@@ -622,7 +636,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                   value: d.authToken || cfg.authToken || '',
                   readOnly: true,
                   spellCheck: false,
-                  disabled: busy,
                   onFocus: function (e) { e.target.select(); },
                 }),
                 React.createElement('button', {
@@ -630,7 +643,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
                   onClick: function () { setTokenShown(!tokenShown); },
                 }, tokenShown ? t('auth.hide') : t('auth.show')),
                 React.createElement('button', {
-                  type: 'button', className: 'dcs-btn', disabled: busy || !(d.authToken || cfg.authToken),
+                  type: 'button', className: 'dcs-btn', disabled: !(d.authToken || cfg.authToken),
                   onClick: function () {
                     const tokenNow = d.authToken || cfg.authToken || '';
                     if (!tokenNow || !navigator.clipboard) return;
@@ -646,7 +659,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         React.createElement('div', { className: 'dcs-savebar' },
           cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
           React.createElement('div', { className: 'dcs-savebtns' },
-            React.createElement('button', { className: 'dcs-btn', onClick: resetConfig, disabled: busy }, t('save.reset')),
+            React.createElement('button', { className: 'dcs-btn', onClick: resetConfig }, t('save.reset')),
           ),
         ),
       ) : null,

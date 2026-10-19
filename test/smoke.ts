@@ -20,6 +20,7 @@ import { apply } from '../lib/index.js'
 import { serviceOf } from '../lib/host.js'
 import { isWithin } from '../lib/paths.js'
 import { parseSummary } from '../lib/projection.js'
+import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { Config as ConfigSchema } from '../lib/config.js'
 import {
   archived,
@@ -275,6 +276,12 @@ try {
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
     checks['allowedModels: select_model 清单外被拒'] = String(innerOf(selOut).error ?? '').includes('not in allowedModels')
+    // 模拟宿主 Loader 的就地提交(不重载): 引用更新后运行时视图立即读到新值
+    const live = ConfigSchema({ allowedModels: ['p1/m1', 'p1/m2'], allowedModelsEnabled: true }) as any
+    updateVolatile(phase.config.allowedModels, live.allowedModels)
+    updateVolatile(phase.config.allowedModelsEnabled, live.allowedModelsEnabled)
+    const mkLive = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm2', preset: 'standard' })
+    checks['volatile: 白名单就地更新后立即生效(不重载)'] = typeof innerOf(mkLive).sessionId === 'string'
     await phase.dispose()
   }
 
@@ -396,8 +403,15 @@ try {
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {
     const c = ConfigSchema(null) as any
-    return c.allowedModels.length === 0 && c.defaultDetail === 'summary' && c.resourceFirst === false
+    return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst === false
+      && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
       && !('preset' in c) && !('allowPresetOverride' in c)
+  })()
+  checks['Config schema: 界面字段是 volatile 引用(写入不重载插件)'] = (() => {
+    const c = ConfigSchema(null) as any
+    return ['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled']
+      .every((key) => typeof c[key]?.get === 'function')
+      && typeof c.sessionTtlMs.get !== 'function' && typeof c.resourceFirst.get !== 'function'
   })()
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
     try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }
@@ -407,7 +421,7 @@ try {
   })()
   checks['Config schema: ~standard.validate 合法配置通过并填默认'] = (() => {
     const r = ConfigSchema['~standard'].validate({ allowedModels: ['a/b'] }) as { value: any }
-    return r.value.allowedModels.length === 1 && r.value.defaultDetail === 'summary'
+    return r.value.allowedModels.get().length === 1 && r.value.defaultDetail.get() === 'summary'
   })()
   checks['serviceOf: 未注入服务的属性访问抛错时返回 undefined'] = (() => {
     const ctx = new Proxy({}, {
@@ -433,7 +447,9 @@ if (failed.length > 0) process.exitCode = 1
 
 // ── Phase 脚手架: 独立端口独立 ctx 的 apply + call/raw/gui 小工具 ──
 async function startPhase(port: number, ctx: any, config: Record<string, unknown>) {
-  await apply(ctx, { port, host: '127.0.0.1', ...config })
+  // 与 Loader 一致: 配置先过 Config schema(界面字段成为 volatile 引用), 再交给 apply
+  const parsed = ConfigSchema({ port, host: '127.0.0.1', ...config }) as any
+  await apply(ctx, parsed)
   await new Promise((r) => setTimeout(r, 200))
   const base = `http://127.0.0.1:${port}/mcp`
   const initialize = async () => {
@@ -456,6 +472,7 @@ async function startPhase(port: number, ctx: any, config: Record<string, unknown
   const initialize2 = initialize
   return {
     call,
+    config: parsed,
     initialize: initialize2,
     async callAfter(ms: number, name: string, args: Record<string, unknown>) {
       await new Promise((r) => setTimeout(r, ms))

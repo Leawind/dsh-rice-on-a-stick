@@ -36,7 +36,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { DEFAULTS, PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, type Config } from './config.js'
+import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './config.js'
 import { state } from './state.js'
 import { registerTools } from './tools.js'
 import { registerResources } from './resources.js'
@@ -275,19 +275,10 @@ function hostnameOf(hostHeader: string): string {
  * 插件入口: 启动 MCP server(StreamableHTTP, 跨网), 通过 ctx 桥接 dsh 能力。
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  const models = (config.allowedModels ?? []).map((s) => String(s).trim()).filter(Boolean)
-  const token = config.authToken ?? DEFAULTS.authToken
-  state.config = {
-    allowedModels: models,
-    // 开关缺省按旧语义推导(清单非空即限制 / 已配令牌即启用): 老配置升级零行为变化, 开关又能在
-    // 不丢清单/令牌的前提下暂时关闭
-    allowedModelsEnabled: config.allowedModelsEnabled ?? models.length > 0,
-    defaultDetail: config.defaultDetail ?? DEFAULTS.defaultDetail,
-    sessionTtlMs: Math.max(0, config.sessionTtlMs ?? DEFAULTS.sessionTtlMs),
-    authToken: token,
-    authEnabled: config.authEnabled ?? token !== '',
-    resourceFirst: config.resourceFirst ?? DEFAULTS.resourceFirst,
-  }
+  // 界面可改的字段解析后是 volatile 引用; 运行时视图每次读取都取当前快照,
+  // 所以面板写配置只更新引用, 不会重载插件(也不会中断 MCP 连接)。
+  const parsed = parseConfig(config)
+  state.config = bindRuntimeConfig(parsed)
 
   // ── 资源订阅枢纽: 每连接一个 McpServer 实例的架构让订阅按连接隔离; 变更点经 state.hooks 汇入 ──
   const hub = createNotifyHub({ activityThrottleMs: 1000 })
@@ -440,7 +431,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-carrot-on-a-stick/<method>(设置页面板的数据/操作后端) ──
 
   /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
-   * 字段保持非 volatile——写入经 Loader 正常重载本插件(apply 重跑, state.config 重建), 与手改配置文件同语义;
+   * 界面可改的五个字段在 Config schema 上标了 volatile: 只改这些字段时 Loader 就地提交引用,
+   * 本插件不重载(MCP 连接不断、设置面板不阻塞); 改到其它字段(如 sessionTtlMs)才会走正常重载。
    * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
   async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean }> {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
