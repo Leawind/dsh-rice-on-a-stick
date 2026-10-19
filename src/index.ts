@@ -11,7 +11,7 @@
  *   paths      cwd 规范化与路径包含判定
  *   projection 结果投影(token 预算)与会话纪要投影
  *   host       宿主服务桥接(零宿主副本原则) + 工作区归组/会话查找
- *   engine     执行引擎(显式模型/preset 契约/三级接管/取消/结构化结果)
+ *   engine     执行引擎(显式模型/preset 契约/live 接管与官方冷恢复/取消/结构化结果)
  *   data       数据层: 工具面与资源面共享的读实现 + 资源 URI 构造器
  *   notify     资源订阅枢纽(per-connection 订阅登记/updated 定向推送/list_changed 合并广播)
  *   tools      16 个 MCP 工具注册(resourceFirst 形态下只读面 8 个下线)

@@ -15,7 +15,7 @@ src/
 ├── paths.ts      cwd realpath 规范化与跨平台 isWithin(工作区分组/过滤)
 ├── projection.ts 结果投影(detail 分级)、会话纪要投影、summary 解析(纯函数)
 ├── host.ts       零宿主副本桥接：类型声明合并、本地等价实现、可选服务视图、工作区归组/会话查找
-├── engine.ts     执行引擎：新建会话(显式模型+preset)、prompt 三级接管、cancel/queue、
+├── engine.ts     执行引擎：新建会话(显式模型+preset)、prompt 两级接管(live/冷恢复)、cancel/queue、
 │                 结构化结果提取(含窗口内用法)
 ├── data.ts       数据层：工具面与资源面共享的读实现(session_list/history/events/activity、
 │                 模型目录、preset 花名册、工作区、资源 URI 构造)
@@ -44,9 +44,9 @@ host → {paths, types}          projection → types          state → {config
    依赖副本与宿主进程内的私有 Symbol 错位（上游 0.1.x `scopeOf` 事故的根因）。
    *推论*：宿主没暴露的 API 就是已知限制，不要用“顺手加一个 devDependency”来破解。
 2. **会话生命周期归宿主(engine.ts)**：没有池 / LRU / 队列 / 超时旋钮——会话创建即常驻，
-   冷会话交给宿主恢复。prompt 的三级接管是：live agent → 本插件记录 → 官方冷恢复
-   (`sessionController.resolveAgent`，与界面打开旧会话同一路径)；模型选择从会话日志的
-   `request/header` 读，不自己维护。
+   冷会话交给宿主恢复。prompt 的两级接管是：live agent → 官方冷恢复
+   (`sessionController.resolveAgent`，与界面打开旧会话同一路径)；插件只记录 cwd/模型/preset，
+   不持有 agent handle；模型选择从会话日志的 `request/header` 读，不自己维护。
 3. **模型与 preset 契约(engine.ts/config.ts)**：新建会话必须按调用显式成对指定
    `provider`+`model` 与 `preset`，插件不做任何默认回填；续接沿用会话原模型/preset
    （换模型走 `session_select_model`）。`allowedModels` 允许清单只约束调用方能选的范围。
