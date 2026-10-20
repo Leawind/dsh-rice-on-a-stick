@@ -45,11 +45,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Leawind/dsh-carrot-on-a-stick.git"
+    "url": "git+https://github.com/Leawind/dsh-rice-on-a-stick.git"
   },
-  "homepage": "https://github.com/Leawind/dsh-carrot-on-a-stick#readme",
+  "homepage": "https://github.com/Leawind/dsh-rice-on-a-stick#readme",
   "bugs": {
-    "url": "https://github.com/Leawind/dsh-carrot-on-a-stick/issues"
+    "url": "https://github.com/Leawind/dsh-rice-on-a-stick/issues"
   },
   "dsh": {
     "bundle": {

@@ -42,8 +42,8 @@ Claude Code / Cursor / Cline / 你的 agent
 包尚未发布到 npm，从构建好的 checkout 安装：
 
 ```sh
-git clone https://github.com/Leawind/dsh-carrot-on-a-stick.git
-cd dsh-carrot-on-a-stick
+git clone https://github.com/Leawind/dsh-rice-on-a-stick.git
+cd dsh-rice-on-a-stick
 npm install
 npm run build
 dsh plugin --profile web add link:"$(pwd)"

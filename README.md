@@ -42,8 +42,8 @@ The exact tool and resource surfaces are defined in `src/mcp/tools/` and `src/mc
 The package is not published on npm; install from a built checkout:
 
 ```sh
-git clone https://github.com/Leawind/dsh-carrot-on-a-stick.git
-cd dsh-carrot-on-a-stick
+git clone https://github.com/Leawind/dsh-rice-on-a-stick.git
+cd dsh-rice-on-a-stick
 npm install
 npm run build
 dsh plugin --profile web add link:"$(pwd)"
