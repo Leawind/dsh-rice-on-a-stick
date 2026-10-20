@@ -206,7 +206,8 @@ async function coldTitleOf(ctx: Context, sessionId: string): Promise<string | un
 /**
  * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd 过滤
  * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
- * 标题过滤只匹配已知标题: live 会话的标题在内存里, 冷会话默认不参与(见 includeCold)。
+ * 标题过滤: live 会话的标题走内存(会话对象字段优先, 缺失时折内存日志), 零 I/O;
+ * 冷会话默认不参与匹配, 显式 includeCold 才读日志。
  */
 export async function collectSessions(ctx: Context, query: SessionQuery = {}): Promise<{
   total: number
@@ -216,16 +217,44 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
   // live 优先合并: live 优先, 持久化侧兼容快照/裸 header 两种形状
   const headers = new Map<string, SessionHeader>()
   const liveTitles = new Map<string, string>()
-  const sessions = ctx.get('sessions') as { list?: () => { header: SessionHeader; title?: unknown }[] } | undefined
+  const liveById = new Map<string, unknown>()
+  const sessions = ctx.get('sessions') as {
+    list?: () => { header: SessionHeader; title?: unknown }[]
+    get?: (id: string) => unknown
+  } | undefined
   for (const session of sessions?.list?.() ?? []) {
     headers.set(session.header.id, session.header)
-    // live 会话对象可能带 title(sessionTitle 服务维护); 机会式读取, 没有就省略字段
+    liveById.set(session.header.id, session)
+    // live 会话对象可能带 title(sessionTitle 服务维护); 机会式读取
     if (typeof session.title === 'string' && session.title) liveTitles.set(session.header.id, session.title)
   }
   const persistence = ctx.get('sessionPersistence') as { list?: () => Promise<readonly unknown[]> } | undefined
   for (const snap of (await persistence?.list?.()) ?? []) {
     const header = headerOfSnapshot(snap)
     if (header && !headers.has(header.id)) headers.set(header.id, header)
+  }
+  /**
+   * live 会话的标题: 会话对象不一定带 title(实测 0.2.x 只在日志里写 session/title),
+   * 缺时折内存日志(零 I/O, 与冷会话读盘的成本无关)。事件源优先 sessions.get(id)
+   * (与 session_meta/activity 同源, 取到的是可折事件的真会话), 回退清单项本身。
+   * 折叠结果记进本表, 同次调用内不重复折; 冷会话(get 不到)不折。
+   */
+  const knownLiveTitle = (sessionId: string): string | undefined => {
+    const cached = liveTitles.get(sessionId)
+    if (cached !== undefined) return cached
+    const listed = liveById.get(sessionId)
+    if (listed === undefined) return undefined
+    let title: string | undefined
+    for (const candidate of [sessions?.get?.(sessionId), listed]) {
+      try {
+        title = latestTitleOf(eventsOf(candidate))
+      } catch {
+        title = undefined
+      }
+      if (title !== undefined) break
+    }
+    if (title !== undefined) liveTitles.set(sessionId, title)
+    return title
   }
   // cwd 过滤参数: 只列该目录(含子目录)下的会话
   const filterRoot = query.cwd ? await canonicalCwd(resolve(query.cwd)) : undefined
@@ -238,10 +267,11 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
     .sort((a, b) => b.createdAt - a.createdAt)
     .map((h) => {
       const model = knownSelectionOf(ctx, h.id)
+      const title = knownLiveTitle(h.id)
       return {
         sessionId: h.id,
         createdAt: h.createdAt,
-        ...(liveTitles.get(h.id) ? { title: liveTitles.get(h.id) } : {}),
+        ...(title !== undefined ? { title } : {}),
         ...(h.cwd ? { cwd: h.cwd } : {}),
         ...(h.agentPreset ? { agentPreset: h.agentPreset } : {}),
         // 原生子代理/分叉的持久谱系字段(SessionHeader 自带; 之前没投影, 外部调用方看不到树)

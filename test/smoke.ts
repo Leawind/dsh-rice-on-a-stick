@@ -400,6 +400,15 @@ try {
   checks['session_list: title 过滤大小写不敏感且不扫冷会话'] = slTitleInner.total === 1
     && slTitleInner.sessions?.[0]?.sessionId === 'sess-live2'
     && slTitleInner.titleSearch?.coldScanned === 0
+  // 真实 0.2.x 形态: live 会话对象不带 title, 标题只在日志里 → 清单行与过滤都折内存日志(零 I/O)
+  checks['session_list: 清单行折叠 live 日志标题'] =
+    slInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.title === 'Live One'
+  const slFolded = await rpc(init.sid, { jsonrpc: '2.0', id: 532, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live one' } } })
+  const slFoldedInner = innerOf(slFolded)
+  checks['session_list: title 过滤折叠 live 日志标题(不扫冷会话)'] = slFoldedInner.total === 1
+    && slFoldedInner.sessions?.[0]?.sessionId === 'sess-live'
+    && slFoldedInner.sessions?.[0]?.title === 'Live One'
+    && slFoldedInner.titleSearch?.coldScanned === 0
   const slColdOff = await rpc(init.sid, { jsonrpc: '2.0', id: 54, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older' } } })
   checks['session_list: 默认不为标题读冷日志'] = innerOf(slColdOff).total === 0
   const slColdOn = await rpc(init.sid, { jsonrpc: '2.0', id: 55, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true } } })

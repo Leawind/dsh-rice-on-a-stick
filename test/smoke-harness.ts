@@ -64,6 +64,8 @@ function makeAgent(id, cwd, options) {
   return {
     options,
     inbox,
+    /** 测试用: 直接往日志里追加事件(如 session/title), 模拟宿主自己写的日志 */
+    __events: events,
     // 状态桩: 普通 agent 的 turn 立即收敛, 观测窗口里恒为 idle
     get status() { return 'idle' },
     steer: (message) => { steered.push({ id, message }) },
@@ -101,6 +103,9 @@ function makeAgent(id, cwd, options) {
 }
 
 export const liveAgent = makeAgent('sess-live', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+// 真实宿主 0.2.x 的 live 会话对象不带 title(标题只落在日志的 session/title 事件里):
+// sess-live 有日志标题而无对象字段, 验证标题检索/清单投影走内存日志折叠(零 I/O)
+liveAgent.__events.push({ type: 'session/title', data: { title: 'Live One' } })
 // liveSession2 带原生子代理谱系字段: 验证 session_list 投影 parentSession/origin/delegationDepth
 const liveSession2 = {
   id: 'sess-live2',
