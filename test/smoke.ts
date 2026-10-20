@@ -71,6 +71,30 @@ try {
   await apply(ctx, { port: PORT, host: '127.0.0.1' })
   await new Promise((r) => setTimeout(r, 300))
 
+  // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 carrot_, 默认开启 ──
+  const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('carrot_'))
+  checks['原生自用工具: 默认注册全部 24 个(carrot_ 前缀)'] = nativeSchemas.length === 24
+    && ['carrot_echo', 'carrot_session_create', 'carrot_session_prompt', 'carrot_dsh_status', 'carrot_session_archive']
+      .every((n) => nativeSchemas.some((s: any) => s.name === n))
+  checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
+    const description = ctx.tools.get('carrot_session_prompt')?.description ?? ''
+    return description.includes('carrot_session_poll')
+      && !/(?<!carrot_)session_poll/.test(description)
+  })()
+  const nativeListDef = ctx.tools.get('carrot_session_list')
+  const nativeListValue = await nativeListDef.execute({}, { signal: new AbortController().signal } as any)
+  const nativeListText = nativeListDef.output.render({}, nativeListValue)[0]?.text ?? ''
+  checks['原生自用工具: 直调 session_list 走同一实现'] = nativeListText.includes('sess-live')
+  const nativeStatusDef = ctx.tools.get('carrot_dsh_status')
+  const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
+  const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
+  checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
+    && nativeStatusJson.stats?.selfTools === 24
+  const nativeGuideDef = ctx.tools.get('carrot_dsh_get_started')
+  const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
+  const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
+  checks['原生自用工具: 入门指南补前缀提示'] = nativeGuideText.includes('carrot_') && nativeGuideText.includes('carrot_session_prompt')
+
   const init = await rpc(undefined, {
     jsonrpc: '2.0', id: 1, method: 'initialize',
     params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } },
@@ -396,15 +420,32 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase B3: 原生自用工具开关(默认开/关闭/volatile 实时切换) ──
+  {
+    const phaseCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle })
+    const phase = await startPhase(8093, phaseCtx, { selfToolsEnabled: false })
+    checks['原生自用工具: selfToolsEnabled=false 不注册'] = phaseCtx.tools.get('carrot_session_create') === undefined
+    updateVolatile(phase.config.selfToolsEnabled, (ConfigSchema({ selfToolsEnabled: true }) as any).selfToolsEnabled)
+    phaseCtx.__fireVolatile([['selfToolsEnabled']])
+    checks['原生自用工具: volatile 开启后立即注册'] = phaseCtx.tools.get('carrot_session_create') !== undefined
+    updateVolatile(phase.config.selfToolsEnabled, (ConfigSchema({ selfToolsEnabled: false }) as any).selfToolsEnabled)
+    phaseCtx.__fireVolatile([['selfToolsEnabled']])
+    checks['原生自用工具: volatile 关闭后立即撤销'] = phaseCtx.tools.get('carrot_session_create') === undefined
+    await phase.dispose()
+  }
+
   // ── Phase C: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
   {
-    const phase = await startPhase(8091, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { resourceFirst: true })
+    const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
+    const phase = await startPhase(8091, resourceCtx, { resourceFirst: true })
     const names = await phase.toolNames()
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive',
       'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
+    checks['原生自用工具: resourceFirst 不影响原生 24 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('carrot_')).length === 24
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
@@ -523,13 +564,20 @@ try {
       && typeof stBody.listening === 'boolean' && Array.isArray(stBody.config?.allowedModels)
       && typeof stBody.config?.defaultDetail === 'string'
       && typeof stBody.stats?.connections === 'number' && Array.isArray(stBody.connections)
+    checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === 8087
     const modelsRoute = await phase.gui('models')
     checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200
       && modelsRoute.body.includes('Provider One')
-    const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { port: 9999 } }) })
+    const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { allowedHosts: ['x'] } }) })
     checks['GUI 路由: config-update 白名单外字段 400'] = cfgBadField.status === 400
+    const cfgBadHost = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { host: '   ' } }) })
+    checks['GUI 路由: host 空值 400'] = cfgBadHost.status === 400
+    const cfgBadPort = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { port: 70000 } }) })
+    checks['GUI 路由: port 越界 400'] = cfgBadPort.status === 400
+    const cfgBadPortZero = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { port: 0 } }) })
+    checks['GUI 路由: port 0 被拒'] = cfgBadPortZero.status === 400
     // 桌面 shell: 页面 origin 是 dsh-app://, 与 HTTP Host 不同; Fetch Metadata 同源时必须放行
-    const badBody = JSON.stringify({ values: { port: 9999 } })
+    const badBody = JSON.stringify({ values: { allowedHosts: ['x'] } })
     const cfgDesktop = await phase.gui('config-update', { headers: { origin: 'dsh-app://dsh', 'sec-fetch-site': 'same-origin' }, body: badBody })
     checks['GUI 路由: 桌面 dsh-app origin + same-origin 放行'] = cfgDesktop.status === 400
     const cfgDesktopNoMeta = await phase.gui('config-update', { headers: { origin: 'dsh-app://dsh' }, body: badBody })
@@ -566,6 +614,30 @@ try {
     await afterStart.text()
     await phase.dispose()
   }
+
+  // ── Phase F2: host/port 写入(需要 configEditor 桩; 端口预检通过后标记重载) ──
+  {
+    const edits: Record<string, unknown>[] = []
+    const editorCtx = makeCtx({
+      sessionController: fakeSessionController,
+      llm: fakeLlm,
+      configEditor: {
+        edit: async (_entry: unknown, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>) => {
+          edits.push(change({}, {}))
+        },
+      },
+    })
+    const phase = await startPhase(8095, editorCtx, {})
+    const cfgListen = await phase.gui('config-update', {
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { host: '0.0.0.0', port: 8096 } }),
+    })
+    checks['GUI 路由: host/port 写入并标记重载'] = cfgListen.status === 200
+      && JSON.parse(cfgListen.body).reloading === true
+    checks['GUI 路由: host/port 写入值正确'] = edits.length === 1
+      && edits[0].host === '0.0.0.0' && edits[0].port === 8096
+    await phase.dispose()
+  }
 } catch (e) {
   checks['smoke 全程无未捕获异常'] = false
   console.error('SMOKE ABORT:', e)
@@ -582,13 +654,15 @@ try {
     const c = ConfigSchema(null) as any
     return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst === false
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
+      && c.selfToolsEnabled.get() === true && c.host === '127.0.0.1' && c.port === 8090
       && !('preset' in c) && !('allowPresetOverride' in c)
   })()
   checks['Config schema: 界面字段是 volatile 引用(写入不重载插件)'] = (() => {
     const c = ConfigSchema(null) as any
-    return ['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled']
+    return ['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled']
       .every((key) => typeof c[key]?.get === 'function')
       && typeof c.sessionTtlMs.get !== 'function' && typeof c.resourceFirst.get !== 'function'
+      && typeof c.host?.get !== 'function' && typeof c.port?.get !== 'function'
   })()
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
     try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }

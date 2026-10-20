@@ -74,6 +74,9 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
       authOn: c.authEnabled === true,
       authToken: '',        // 在途令牌(只写): 重新生成的乐观值, rebase 后清空
+      selfToolsOn: c.selfToolsEnabled !== false,
+      host: typeof c.host === 'string' && c.host ? c.host : '127.0.0.1',
+      port: typeof c.port === 'number' ? c.port : 8090,
     };
   }
 
@@ -98,6 +101,17 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'state.stopped': '已停止',
       'state.listeningOff': '监听关闭',
       'server.title': 'MCP 服务',
+      'service.title': '提供MCP服务以供外部访问',
+      'service.hint': '关闭会切断已连接的 MCP 客户端；不影响“将工具注册到本dsh实例”。',
+      'service.offHint': '配置 http:false 已禁用外部 MCP。',
+      'self.title': '将工具注册到本dsh实例',
+      'self.hint': '注册后，本实例的所有会话都能直接调用全部 24 个工具（carrot_ 前缀），无需 MCP 客户端。',
+      'listen.title': '监听地址与端口',
+      'listen.hint': '修改后重载插件并重建 MCP 服务，现有连接会断开。非回环地址会暴露到局域网/公网，请配合认证与防火墙。',
+      'listen.apply': '应用',
+      'listen.reloading': '正在应用并重载插件…',
+      'listen.hostRequired': '监听地址不能为空。',
+      'listen.portInvalid': '端口必须是 1-65535 的整数。',
       'stop.confirm': '停止后所有已连接的 MCP 客户端会被切断。确认停止？',
       'copy': '复制',
       'copied': '已复制',
@@ -147,6 +161,17 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'state.stopped': 'Stopped',
       'state.listeningOff': 'Listener off',
       'server.title': 'MCP server',
+      'service.title': 'Provide the MCP service for external access',
+      'service.hint': 'Off disconnects connected MCP clients; native self-use tools are unaffected.',
+      'service.offHint': 'External MCP is disabled by config (http: false).',
+      'self.title': 'Register tools into this dsh instance',
+      'self.hint': 'Registers all 24 tools natively (carrot_ prefix) so every session in this instance can call them without an MCP client.',
+      'listen.title': 'Listen address and port',
+      'listen.hint': 'Applying reloads the plugin and rebuilds the MCP server, disconnecting clients. A non-loopback address exposes the service; use auth and a firewall.',
+      'listen.apply': 'Apply',
+      'listen.reloading': 'Applying and reloading…',
+      'listen.hostRequired': 'Listen address must not be empty.',
+      'listen.portInvalid': 'Port must be an integer between 1 and 65535.',
       'stop.confirm': 'Stopping disconnects every connected MCP client. Stop?',
       'copy': 'Copy',
       'copied': 'Copied',
@@ -228,6 +253,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     '.dcs-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l3,rgba(0,0,0,.12)));}',
     '.dcs-urlrow{display:flex;align-items:center;gap:8px;}',
     '.dcs-url{flex:1;min-width:0;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;word-break:break-all;}',
+    // 监听地址/端口: 两个输入 + 应用按钮, 在设置行右侧不换行; 窄屏时允许换行
+    '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}',
+    '.dcs-input-host{width:180px;}',
+    '.dcs-input-port{width:92px;}',
     '.dcs-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-warn{color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 错误行
@@ -342,6 +371,10 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // 有保存排队/在途: 轮询刷新不覆盖乐观草稿
     const savingRef = React.useRef(false);
     const [cfgError, setCfgError] = React.useState('');
+    // 监听地址/端口: 结构性保存的局部反馈与"正在重载"状态
+    const [listenError, setListenError] = React.useState('');
+    const [listenNotice, setListenNotice] = React.useState('');
+    const [listenBusy, setListenBusy] = React.useState(false);
     // 令牌复制反馈(独立于端点复制, 各自 1.5s 复位)
     const [tokenCopied, setTokenCopied] = React.useState(false);
     // 令牌明文展示(默认密码式隐藏; 点击"显示"切换, 输入框只读可选可复制)
@@ -431,32 +464,48 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         allowedModels: (next.allowedModels || []).slice(),
         defaultDetail: next.defaultDetail,
         authEnabled: next.authOn === true,
+        selfToolsEnabled: next.selfToolsOn === true,
       };
       if (arguments.length > 1) values.authToken = authToken;
       enqueue({ values: values });
     }
 
-    function enqueue(payload) {
-      queueRef.current.items.push(payload);
+    function enqueue(payload, reloading) {
+      queueRef.current.items.push({ payload: payload, reloading: reloading === true });
       void pumpQueue();
     }
 
     // 串行排空保存队列: 保证最后发出的载荷就是界面最终状态; 排空后刷新一次采纳服务端值。
     // 失败时清空队列并回到服务端生效值, 不把失败状态留在草稿里。
+    // reloading 项(host/port)会重载插件, 响应可能被切断: 按"已写入、正在重载"处理并稍后刷新。
     async function pumpQueue() {
       const queue = queueRef.current;
       if (queue.running) return;
       queue.running = true;
       savingRef.current = true;
+      let reloading = false;
       try {
         while (queue.items.length > 0) {
-          const payload = queue.items.shift();
+          const item = queue.items.shift();
           try {
-            await rpc('config-update', payload);
+            const res = await rpc('config-update', item.payload);
             setCfgError('');
+            if (item.reloading || (res && res.reloading === true)) {
+              reloading = true;
+              setListenNotice(t('listen.reloading'));
+            }
           } catch (e) {
+            const msg = String((e && e.message) || e);
+            // 插件重载会先卸下 GUI 路由再重新挂上: fetch 失败/404/空响应都按写入成功处理
+            if (item.reloading && /^(Failed to fetch|NetworkError|HTTP (?:404|5\d\d)|响应解析失败)/i.test(msg)) {
+              setCfgError('');
+              setListenNotice(t('listen.reloading'));
+              reloading = true;
+              continue;
+            }
             queue.items.length = 0;
-            setCfgError(String((e && e.message) || e));
+            setCfgError(msg);
+            if (item.reloading) { setListenError(msg); setListenBusy(false); }
             break;
           }
         }
@@ -465,13 +514,45 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         savingRef.current = queue.items.length > 0;
       }
       if (savingRef.current) { void pumpQueue(); return; }
+      if (reloading) {
+        savingRef.current = true;
+        setListenBusy(true);
+        await new Promise(function (resolve) { window.setTimeout(resolve, 1200); });
+        savingRef.current = false;
+        setListenBusy(false);
+        setListenNotice('');
+      }
       await refresh();
+      setListenBusy(false);
+    }
+
+    /** 监听地址/端口: 只改草稿, 点"应用"才写(结构性字段会重载插件) */
+    function setListen(patch) {
+      if (!form) return;
+      const base = draftRef.current || form.draft;
+      setDraft(Object.assign({}, base, patch));
+      setListenError('');
+      setListenNotice('');
+    }
+
+    function applyListen() {
+      if (!form || listenBusy) return;
+      const base = draftRef.current || form.draft;
+      const host = String(base.host || '').trim();
+      const port = Number(base.port);
+      if (!host) { setListenError(t('listen.hostRequired')); return; }
+      if (!Number.isInteger(port) || port < 1 || port > 65535) { setListenError(t('listen.portInvalid')); return; }
+      setListenError('');
+      setListenNotice('');
+      setListenBusy(true);
+      enqueue({ values: { host: host, port: port } }, true);
     }
 
     function resetConfig() {
       if (!window.confirm(t('save.resetConfirm'))) return;
-      // 重置排进同一队列: 在途保存先落盘, 其后的重置才能覆盖它
-      enqueue({ reset: true });
+      // 重置排进同一队列: 在途保存先落盘, 其后的重置才能覆盖它。
+      // 重置可能删掉 host/port 覆盖而触发重载, 按 reloading 处理(响应可能被切断)。
+      enqueue({ reset: true }, true);
     }
 
     if (!state) {
@@ -509,7 +590,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
 
     return React.createElement('div', { className: 'dcs-root' },
       React.createElement('style', null, PANEL_CSS),
-      // 头部: 状态徽章 + 标题/版本 + 启停
+      // 头部: 状态徽章 + 标题/版本(服务启停已下移到设置表单)
       React.createElement('div', { className: 'dcs-head' },
         React.createElement(Badge, {
           ok: !!state.listening,
@@ -518,14 +599,6 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
         }),
         React.createElement('span', { className: 'dcs-title' }, 'dsh-carrot-on-a-stick'),
         React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
-        React.createElement('span', { className: 'dcs-spacer' }),
-        // MCP 服务开关: 与设置行同一个控件(官方 Switch); 停止会切断已连接客户端, 仍保留确认
-        React.createElement(Switch, {
-          checked: !!state.listening,
-          disabled: busy || httpOff,
-          label: t('server.title'),
-          onChange: toggleServer,
-        }),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
       // 端点卡: 只有 URL + 复制
@@ -537,6 +610,55 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       ),
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
       d ? React.createElement('div', { className: 'dcs-form' },
+        React.createElement(Row, {
+          label: t('self.title'),
+          hint: t('self.hint'),
+          control: React.createElement(Switch, {
+            checked: d.selfToolsOn,
+            onChange: function (v) { change({ selfToolsOn: v }); },
+          }),
+        }),
+        React.createElement(Row, {
+          label: t('service.title'),
+          hint: httpOff ? t('service.hint') + ' ' + t('service.offHint') : t('service.hint'),
+          control: React.createElement(Switch, {
+            checked: !!state.listening,
+            disabled: busy || httpOff,
+            label: t('service.title'),
+            onChange: toggleServer,
+          }),
+        }),
+        React.createElement(Row, {
+          label: t('listen.title'),
+          hint: t('listen.hint'),
+          control: React.createElement('div', { className: 'dcs-listenrow' },
+            React.createElement('input', {
+              className: 'dcs-input dcs-input-host',
+              type: 'text',
+              value: d.host,
+              spellCheck: false,
+              disabled: listenBusy,
+              onChange: function (e) { setListen({ host: e.target.value }); },
+            }),
+            React.createElement('input', {
+              className: 'dcs-input dcs-input-port',
+              type: 'number',
+              min: 1,
+              max: 65535,
+              value: d.port,
+              disabled: listenBusy,
+              onChange: function (e) { setListen({ port: e.target.value }); },
+            }),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dcs-btn',
+              disabled: listenBusy,
+              onClick: applyListen,
+            }, listenBusy ? t('listen.reloading') : t('listen.apply')),
+          ),
+        }),
+        listenError ? React.createElement('div', { className: 'dcs-listwrap' }, React.createElement('div', { className: 'dcs-err' }, '⚠ ', listenError)) : null,
+        listenNotice ? React.createElement('div', { className: 'dcs-listwrap' }, React.createElement('div', { className: 'dcs-hint' }, listenNotice)) : null,
         React.createElement(Row, {
           label: t('whitelist.title'),
           hint: t('whitelist.hint'),

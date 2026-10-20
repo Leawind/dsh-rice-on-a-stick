@@ -29,6 +29,8 @@ src/
 ├── notify.ts     资源订阅枢纽(per-connection 订阅、updated 定向推送、list_changed 合并)
 ├── tools.ts      24 个 MCP 工具注册(会话中心 11 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
 │                 + 目录/状态 5 + echo 1；readOnly/destructive 注解、session_list 的 zod outputSchema + structuredContent)
+├── self-tools.ts 本实例自用面：录制式 McpServer 复用 tools.ts 的注册，加 carrot_ 前缀后
+│                 注册到 ctx.tools(原生工具)；默认开启，volatile 开关可即时注册/撤销
 ├── resources.ts  资源面(dsh://...、模板、订阅、completion、annotations)
 └── onboarding.ts initialize instructions 与 dsh_get_started 文档(agent 认知面)
 ```
@@ -36,8 +38,9 @@ src/
 内部依赖边(改代码时保持无环)：
 
 ```
-index → {tools, resources, data, notify, onboarding, host, state, config, approvals}
+index → {tools, self-tools, resources, data, notify, onboarding, host, state, config, approvals}
 tools → {engine, control, approvals, host, onboarding, projection, state, types}
+self-tools → {tools, data}
 resources → {data, notify, onboarding}
 data → {engine(默认选择/已知选择), host, paths, projection, state, types, config}
 engine → {host, paths, requests, turn, approvals, state, types}
@@ -97,10 +100,15 @@ host → {paths, types}          projection → types          state → {config
   `session_poll` 对 persisted-only 会话只报 `inactive`，不为 poll 激活 agent。
 - **资源订阅**：per-connection 一个 `McpServer`；`notify.ts` 汇总 `state.hooks` 的
   sessionActivity(1s 节流)/sessionHistory/listChanged，向订阅者推 `notifications/resources/updated`。
+- **本实例自用工具**：`installSelfTools` 用一个录制式 McpServer 跑 `registerTools`（固定
+  `resourceFirst:false`），把捕获到的 24 个注册包装成 `ToolDefinition` 并以 `carrot_` 前缀注册到
+  `ctx.tools`。原生面没有传输/认证；`selfToolsEnabled` 是 volatile，开关经
+  `loader/volatile-update` 或 GUI 路由即时注册/撤销。所有工具默认注册，宿主已有同名工具时跳过并告警。
 - **GUI 控制面**：`/_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}`；
-  变更类方法校验同源；配置写入经宿主 `configEditor.edit` 落到 profile patch。界面可改的五个字段
-  (白名单及其开关、默认详略、auth 开关与令牌)在 schema 上标 `volatile`：Loader 只就地提交引用、
-  不重启插件，`bindRuntimeConfig` 的 getter 让 `state.config` 立即读到新值；其余字段改动仍走重载。
+  变更类方法校验同源；配置写入经宿主 `configEditor.edit` 落到 profile patch。界面可改的六个字段
+  (白名单及其开关、默认详略、auth 开关与令牌、本实例自用工具)在 schema 上标 `volatile`：Loader
+  只就地提交引用、不重启插件，`bindRuntimeConfig` 的 getter 让 `state.config` 立即读到新值。
+  host/port 是结构性字段：面板点“应用”时先探测新端口，再写入并重载插件。
 - **传输**：所有 MCP 流量走 `/mcp`：Bearer → Host 白名单 → Origin 校验 → 体上限 →
   按 `Mcp-Session-Id` 路由到 SDK transport；空闲会话由 TTL sweeper 回收。
 - **热重载**：每次 apply 重建 `state.config` 并重绑 hooks；卸载经 `ctx.effect` 断开连接、
@@ -108,11 +116,11 @@ host → {paths, types}          projection → types          state → {config
 
 ## 测试布局
 
--   `test/smoke.ts`：会话中心、异步控制面、审批接管与原生子代理发现的**行为断言(143 项)**，按 Phase 组织(协议/创建/prompt/
+-   `test/smoke.ts`：会话中心、异步控制面、审批接管、原生子代理发现与本实例自用工具的**行为断言(158 项)**，按 Phase 组织(协议/创建/prompt/
     取消/队列/异步 submit-poll-result/客户端取消语义/请求索引重建/审批扣住与回答/子代理目录/模型切换/搜索/分叉/归档/历史/
-    资源/白名单/GUI/纯函数)。假宿主(桩 Cordis 服务 + 桩 agent + 可观测记录数组)与真 HTTP 的
+    资源/白名单/GUI/host-port/原生工具开关/纯函数)。假宿主(桩 Cordis 服务 + 桩 agent + 可观测记录数组)与真 HTTP 的
     RPC 小工具在 `test/smoke-harness.ts`——桩的形状必须对齐真机契约(例如
-    `sessionController.inspect` / `resolveAgent`、`turn/end` 收场、`approval/request` waterfall、`subagents.listChildren`)，不要为了省事造一套自洽但假的 API。
+    `sessionController.inspect` / `resolveAgent`、`turn/end` 收场、`approval/request` waterfall、`subagents.listChildren`、`tools.register/get/schemas`)，不要为了省事造一套自洽但假的 API。
 -   测试是普通 TypeScript，`node test/smoke.ts` 直跑(Node 原生 type stripping，开发机需
     Node ≥ 23.6；发布产物 `lib/` 仍支持 Node ≥ 18)；`npm run typecheck` 对测试做类型检查。
 -   `npm test` = 先 build 再跑(smoke + 端口冲突专项 `test/smoke-port.ts`)。

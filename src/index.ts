@@ -34,6 +34,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
+import net from 'node:net'
+import os from 'node:os'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './config.js'
@@ -45,6 +47,7 @@ import { createNotifyHub } from './notify.js'
 import { serverInstructions } from './onboarding.js'
 import { serviceOf } from './host.js'
 import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './approvals.js'
+import { installSelfTools, type SelfToolsController } from './self-tools.js'
 
 /** Cordis 插件名 */
 export const name = PLUGIN_NAME
@@ -109,6 +112,18 @@ function webRespond(res: http.ServerResponse, status: number, payload: unknown):
     'Cache-Control': 'no-store',
   })
   res.end(body)
+}
+
+/** 绑定通配地址时, Host 头会是本机实际网卡地址/主机名, 需要一并放进白名单 */
+function wildcardHostAliases(bindHost: string): string[] {
+  if (bindHost !== '0.0.0.0' && bindHost !== '::') return []
+  const aliases = [os.hostname()]
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const address of list ?? []) {
+      if (!address.internal) aliases.push(address.address)
+    }
+  }
+  return aliases
 }
 
 /** 本机回环主机名: 桌面 shell / 浏览器用 localhost 与 127.0.0.1 两种拼写访问同一服务时视为同源 */
@@ -196,14 +211,21 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 // ── GUI 配置编辑(config-update 路由)的字段面 ──
 
-/** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token) */
-const GUI_STRING_FIELDS = new Set(['authToken'])
-/** 布尔字段(模型白名单/认证的开关; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled'])
+/** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是结构性字段, 写入后重载) */
+const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
+/** 布尔字段(模型白名单/认证/本实例自用工具的开关; 关闭均不清除对应值) */
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
-const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0 }
+const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
 const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
+
+/** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
+function isValidListenHost(host: string): boolean {
+  if (host.length === 0 || host.length > 253) return false
+  if (/[\s/]/.test(host)) return false
+  return net.isIP(host) !== 0 || /^[A-Za-z0-9._:-]+$/.test(host)
+}
 
 /** 校验并整形 GUI 提交的配置值: 只放行白名单字段, 类型/枚举/下限不对一律 400(逐字段报因)。 */
 function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
@@ -214,7 +236,13 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (GUI_STRING_FIELDS.has(key)) {
       if (typeof value !== 'string') throw httpError(400, `${key} 必须是字符串`)
-      out[key] = value
+      if (key === 'host') {
+        const host = value.trim().replace(/^\[(.*)\]$/, '$1')
+        if (!isValidListenHost(host)) throw httpError(400, 'host 必须是合法的监听地址')
+        out[key] = host
+      } else {
+        out[key] = value
+      }
     } else if (GUI_BOOL_FIELDS.has(key)) {
       if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
       out[key] = value
@@ -222,6 +250,7 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const n = typeof value === 'number' ? value : Number(value)
       const min = GUI_NUMBER_MIN[key]
       if (!Number.isFinite(n) || n < min) throw httpError(400, `${key} 必须是不小于 ${min} 的数字`)
+      if (key === 'port' && (!Number.isInteger(n) || n > 65535)) throw httpError(400, 'port 必须是 1-65535 的整数')
       out[key] = n
     } else if (key === 'defaultDetail') {
       if (typeof value !== 'string' || !GUI_DETAIL_VALUES.has(value)) {
@@ -281,6 +310,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const parsed = parseConfig(config)
   state.config = bindRuntimeConfig(parsed)
 
+  // 本实例自用工具控制器: 在 statusSnapshot 定义后安装(工具里的 dsh_status 要读同一份快照)
+  let selfToolsController: SelfToolsController | undefined
+
   // ── 资源订阅枢纽: 每连接一个 McpServer 实例的架构让订阅按连接隔离; 变更点经 state.hooks 汇入 ──
   const hub = createNotifyHub({ activityThrottleMs: 1000 })
   state.hooks.notifySessionActivity = (sessionId) => hub.updatedThrottled(resUri.sessionActivity(sessionId))
@@ -296,14 +328,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })
   state.approvals = approvalBridge.bridge.runtime
 
-  const port = config.port ?? 8090
+  const port = state.config.port
   // 安全默认: 仅监听本机。暴露公网/局域网前必须自行加认证+反代+TLS(见 README 警告)
-  const host = config.host ?? '127.0.0.1'
+  const host = state.config.host
 
-  // Host 头白名单: 绑定地址 + loopback 别名 + 显式 allowedHosts(防 DNS rebinding: 恶意网页把
-  // 自己域名 rebinding 到 127.0.0.1 后, Host 头仍是该域名 → 拒)
+  // Host 头白名单: 绑定地址 + loopback 别名 + 通配绑定的实际网卡地址 + 显式 allowedHosts
+  // (防 DNS rebinding: 恶意网页把自己域名 rebinding 到 127.0.0.1 后, Host 头仍是该域名 → 拒)
   const allowedHostSet = new Set<string>()
-  for (const h of [host, 'localhost', '127.0.0.1', '::1', ...(config.allowedHosts ?? [])]) {
+  for (const h of [host, ...wildcardHostAliases(host), 'localhost', '127.0.0.1', '::1', ...(config.allowedHosts ?? [])]) {
     allowedHostSet.add(h.toLowerCase())
   }
 
@@ -395,11 +427,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       startedAt,
       uptimeMs: Date.now() - startedAt,
       config: {
+        host,
+        port,
         allowedModels: state.config.allowedModels,
         allowedModelsEnabled: state.config.allowedModelsEnabled,
         defaultDetail: state.config.defaultDetail,
         authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
+        selfToolsEnabled: state.config.selfToolsEnabled,
         approvalControl: state.config.approvalControl,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
       },
@@ -407,10 +442,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         connections: connections.size,
         // 资源订阅面观测: 绑定连接数 / 订阅总数(跨连接)
         subscriptions: hub.stats(),
+        // 本实例自用工具: 已注册的原生工具数(关闭时为 0)
+        selfTools: selfToolsController?.names().length ?? 0,
       },
       connections: Array.from(connections.values(), (c) => ({ ...c })),
     }
   }
+
+  // ── 本实例自用工具: 同一份 MCP 工具面再注册到 ctx.tools, 不走 HTTP/认证 ──
+  // 原生工具是会话内直调能力; 对外 MCP 服务仍是独立的可选面。默认开启, 面板/配置可关。
+  selfToolsController = installSelfTools(ctx, { statusSnapshot })
+  selfToolsController.sync(state.config.selfToolsEnabled)
+  ctx.effect(() => {
+    return () => { selfToolsController?.dispose() }
+  }, `${PLUGIN_NAME}: self-tools`)
+  // Loader 只改 volatile 字段时不重载插件: 监听就地提交后同步注册/撤销, 已连接的 MCP 客户端不受影响
+  ctx.effect(() => {
+    const off = ctx.on('loader/volatile-update', (paths) => {
+      if (paths.some((path) => path[0] === 'selfToolsEnabled')) {
+        selfToolsController?.sync(state.config.selfToolsEnabled)
+      }
+    })
+    return () => { off() }
+  }, `${PLUGIN_NAME}: self-tools config`)
 
   /** 软停止: 关监听 + 切断全部连接/transport。等 close 完成再返回, 软启动 re-listen 才可靠 */
   async function stopMcpServer(): Promise<{ stopped: boolean }> {
@@ -447,10 +501,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-carrot-on-a-stick/<method>(设置页面板的数据/操作后端) ──
 
   /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
-   * 界面可改的五个字段在 Config schema 上标了 volatile: 只改这些字段时 Loader 就地提交引用,
+   * 界面可改的六个字段在 Config schema 上标了 volatile: 只改这些字段时 Loader 就地提交引用,
    * 本插件不重载(MCP 连接不断、设置面板不阻塞); 改到其它字段(如 sessionTtlMs)才会走正常重载。
    * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
-  async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean }> {
+  async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean; reloading?: boolean }> {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       throw httpError(400, '请求体必须是 { values, reset? } 对象')
     }
@@ -461,6 +515,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     if (editor === undefined || entry === undefined || typeof editor.edit !== 'function') {
       throw httpError(409, '配置编辑通道不可用(宿主未提供 configEditor), 请直接编辑 cordis.patch.yml')
     }
+    // host/port 是结构性字段, 写入会重载插件。先探测新端口, 避免写入一个必然启动失败的值;
+    // 只改 host、端口不变时跳过探测(当前 server 正占着该端口, 重载会先释放)。
+    const wantsListen = nextValues !== undefined && ('host' in nextValues || 'port' in nextValues)
+    if (nextValues !== undefined && wantsListen) {
+      const nextHost = typeof nextValues.host === 'string' ? nextValues.host : host
+      const nextPort = typeof nextValues.port === 'number' ? nextValues.port : port
+      if (nextPort !== port) {
+        await new Promise<void>((resolveProbe, rejectProbe) => {
+          const probe = net.createServer()
+          const fail = (e: Error) => {
+            try { probe.close() } catch { /* 未监听时忽略 */ }
+            rejectProbe(httpError(409, `无法监听 ${nextHost}:${nextPort}: ${e.message}`))
+          }
+          probe.once('error', fail)
+          probe.once('listening', () => { probe.close(() => resolveProbe()) })
+          try {
+            probe.listen(nextPort, nextHost)
+          } catch (e) {
+            fail(e as Error)
+          }
+        })
+      }
+    }
     try {
       await editor.edit(entry, (_current, inherited) =>
         // reset: 写回继承层值 → configEditor 对"等于继承层"的写入自动删除覆盖行, 即恢复默认
@@ -468,7 +545,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     } catch (e) {
       throw httpError(400, `配置写入被拒绝: ${(e as Error)?.message ?? String(e)}`)
     }
-    return { updated: true }
+    // selfToolsEnabled 是 volatile: Loader 不重载插件, 这里立即同步原生工具注册。
+    // 事件监听也覆盖手工编辑配置的路径; 显式再 call 一次让面板点击没有轮询延迟。
+    if (nextValues === undefined) selfToolsController?.sync(state.config.selfToolsEnabled)
+    else if (typeof nextValues.selfToolsEnabled === 'boolean') selfToolsController?.sync(nextValues.selfToolsEnabled)
+    return wantsListen ? { updated: true, reloading: true } : { updated: true }
   }
 
   const WEB_ROUTES: Record<string, (body: unknown) => unknown> = {

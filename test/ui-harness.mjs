@@ -28,8 +28,9 @@ const state = {
   endpoint: `http://127.0.0.1:8090/mcp`,
   startedAt,
   config: {
+    host: '127.0.0.1', port: 8090,
     allowedModels: [], allowedModelsEnabled: false, defaultDetail: 'summary',
-    authEnabled: false, authToken: '',
+    authEnabled: false, authToken: '', selfToolsEnabled: true,
   },
   connections: DEFAULT_CONNS(),
 }
@@ -342,6 +343,10 @@ const server = createServer(async (req, res) => {
                   ? payload.values.authToken.slice(0, 4) + '...' + payload.values.authToken.slice(-4)
                   : '••••••')
               : undefined
+          }
+          if ('host' in payload.values || 'port' in payload.values) {
+            state.endpoint = 'http://' + state.config.host + ':' + state.config.port + '/mcp'
+            return json(res, 200, { updated: true, reloading: true })
           }
         } else {
           return json(res, 400, { error: 'values 必须是对象' })

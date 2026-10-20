@@ -379,7 +379,7 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   }
   return {
     source: 'global-registry',
-    note: '0.1.5+ 的模型工具挂在 preset/agent 作用域, 此全局表通常为空; agent 实际可用的工具以 session_prompt 结果里的 toolCalls 为准(想确认某能力是否可用, 直接跑个小任务看 toolCalls)',
+    note: '全局注册表会包含本插件注册的本实例自用工具(selfToolsEnabled=true 时)与其它宿主/插件全局工具; 模型工具也可能挂在 preset/agent 作用域, 会话实际可用的工具以 session_prompt 结果里的 toolCalls 为准(想确认某能力是否可用, 直接跑个小任务看 toolCalls)',
     tools: list,
   }
 }
@@ -398,10 +398,13 @@ export function basicStatusSnapshot(): Record<string, unknown> {
     name: 'dsh-carrot-on-a-stick',
     version: PLUGIN_VERSION,
     config: {
+      host: state.config.host,
+      port: state.config.port,
       allowedModels: state.config.allowedModels,
       allowedModelsEnabled: state.config.allowedModelsEnabled,
       defaultDetail: state.config.defaultDetail,
       authEnabled: state.config.authEnabled,
+      selfToolsEnabled: state.config.selfToolsEnabled,
       ...(state.config.authToken !== '' ? { authTokenHint: authTokenHint(state.config.authToken) } : {}),
     },
   }

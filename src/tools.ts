@@ -124,10 +124,16 @@ interface WorkspaceControllerView {
   archiveSession?: (request: { sessionId: string; stopActivity?: boolean }) => Promise<unknown>
 }
 
+/** 工具注册选项(原生自用面需要覆盖 MCP resources 形态) */
+export interface RegisterToolsOptions {
+  /** 覆盖 state.config.resourceFirst; 原生面固定 false——它没有 MCP resources 面, 只读工具必须保留 */
+  resourceFirst?: boolean
+}
+
 /** 在给定 McpServer 上注册全部工具 */
-export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): void {
+export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, options?: RegisterToolsOptions): void {
   // resourceFirst: 只读面下线开关(部署形态; 默认 false = 工具+资源并存)
-  const resourceFirst = state.config.resourceFirst
+  const resourceFirst = options?.resourceFirst ?? state.config.resourceFirst
   // echo(连通性探针)在任何形态都注册
   mcp.registerTool(
     'echo',

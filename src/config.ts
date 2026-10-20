@@ -26,8 +26,9 @@ export const PLUGIN_VERSION = '0.1.0'
 
 /**
  * 插件配置(文件形态的普通值)。
- * 其中界面可改的五个字段(allowedModels / allowedModelsEnabled / defaultDetail / authToken /
- * authEnabled)在 schema 上带 volatile 标记: 解析后是稳定引用, 宿主写配置时就地更新, 插件不重载。
+ * 其中界面可改的六个字段(allowedModels / allowedModelsEnabled / defaultDetail / authToken /
+ * authEnabled / selfToolsEnabled)在 schema 上带 volatile 标记: 解析后是稳定引用,
+ * 宿主写配置时就地更新, 插件不重载。
  */
 export interface Config {
   /** 是否启动 HTTP MCP server(默认 true; 显式 false 时不监听, 仅保留生命周期钩子) */
@@ -54,6 +55,12 @@ export interface Config {
    * 重新开启即恢复校验, 不必重新生成令牌; 令牌只在面板"重新生成令牌"时才被替换。
    */
   authEnabled?: boolean
+  /**
+   * 本实例自用工具(默认 true)。开启时把同一套 MCP 工具面注册为宿主原生工具
+   * (`ctx.tools.register`), 本 dsh 的会话无需 MCP 客户端即可直接调用; 关闭 = 只保留对外 MCP 服务。
+   * 原生工具在进程内直调, 不经过 HTTP/认证; 想彻底关闭外部访问时把 `http` 设为 false。
+   */
+  selfToolsEnabled?: boolean
   /** Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名; 对外暴露时按需配置) */
   allowedHosts?: string[]
   /**
@@ -89,25 +96,29 @@ export interface Config {
  */
 export interface ParsedConfig extends Omit<
   Config,
-  'allowedModels' | 'allowedModelsEnabled' | 'defaultDetail' | 'authToken' | 'authEnabled'
+  'allowedModels' | 'allowedModelsEnabled' | 'defaultDetail' | 'authToken' | 'authEnabled' | 'selfToolsEnabled'
 > {
   allowedModels: Volatile<string[]>
   allowedModelsEnabled: Volatile<boolean | undefined>
   defaultDetail: Volatile<NonNullable<Config['defaultDetail']>>
   authToken: Volatile<string>
   authEnabled: Volatile<boolean | undefined>
+  selfToolsEnabled: Volatile<boolean>
 }
 
 /** 运行时配置默认值 */
 export const DEFAULTS = {
   // 模型与 preset 都不做任何默认: 调用必须显式指定(与 web 界面一致: 新会话先选模型与预设),
   // allowedModels 只约束"能选哪些", 不提供默认。
+  host: '127.0.0.1' as string,
+  port: 8090 as number,
   allowedModels: [] as string[],
   allowedModelsEnabled: false as boolean,
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
   sessionTtlMs: 24 * 60 * 60 * 1000,
   authToken: '',
   authEnabled: false as boolean,
+  selfToolsEnabled: true as boolean,
   resourceFirst: false,
   approvalControl: 'off' as 'off' | 'fallback' | 'exclusive',
   approvalTimeoutMs: 120_000,
@@ -137,12 +148,15 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
   // 与旧 apply 口径一致: 去空白、丢空串(界面写入口已 trim/去重, 这里兜住手改配置)
   const readModels = () => parsed.allowedModels.get().map((s) => String(s).trim()).filter(Boolean)
   const runtime: RuntimeConfig = {
+    host: parsed.host ?? DEFAULTS.host,
+    port: Math.max(1, Math.min(65535, parsed.port ?? DEFAULTS.port)),
     allowedModels: [],
     allowedModelsEnabled: false,
     defaultDetail: DEFAULTS.defaultDetail,
     sessionTtlMs: Math.max(0, parsed.sessionTtlMs ?? DEFAULTS.sessionTtlMs),
     authToken: '',
     authEnabled: false,
+    selfToolsEnabled: true,
     resourceFirst: parsed.resourceFirst ?? DEFAULTS.resourceFirst,
     approvalControl: parsed.approvalControl ?? DEFAULTS.approvalControl,
     approvalTimeoutMs: Math.max(1000, Math.min(600_000, parsed.approvalTimeoutMs ?? DEFAULTS.approvalTimeoutMs)),
@@ -161,6 +175,7 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       configurable: true,
       get: () => parsed.authEnabled.get() ?? parsed.authToken.get() !== '',
     },
+    selfToolsEnabled: { enumerable: true, configurable: true, get: () => parsed.selfToolsEnabled.get() },
   })
   return runtime
 }
@@ -173,12 +188,13 @@ export const Config = Schema.object({
   http: Schema.boolean().default(true).description('是否启动 HTTP MCP server(显式 false 时不监听, 仅保留生命周期钩子)'),
   port: Schema.number().default(8090).description('MCP 监听端口'),
   host: Schema.string().default('127.0.0.1').description('MCP 监听地址(安全默认仅本机; 暴露公网/局域网前必须自行加认证+反代+TLS)'),
-  // 以下五个界面可改的字段标 volatile: 写配置时 Loader 就地提交引用, 不重载插件(界面改动零阻塞)
+  // 以下六个界面可改的字段标 volatile: 写配置时 Loader 就地提交引用, 不重载插件(界面改动零阻塞)
   allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).volatile().description('模型白名单(provider/model 形式)。启用(allowedModelsEnabled)且非空时: session_create/session_select_model 指定的模型不在名单内, 请求会被明确拒绝'),
   allowedModelsEnabled: Schema.boolean().volatile().description('模型白名单开关。关闭 = 暂时不限制, 清单原样保留(重新开启即恢复约束); 缺省按"清单非空即启用"推导'),
   defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).volatile().description('结果默认详略级别(单次调用可用 detail 参数覆盖)'),
   authToken: Schema.string().default(DEFAULTS.authToken).role('secret').volatile().description('Bearer token(启用认证时所有请求必须带 Authorization: Bearer <token>)'),
   authEnabled: Schema.boolean().volatile().description('认证开关。关闭 = 暂不校验, 令牌原样保留(重新开启即恢复校验); 缺省按"已配置令牌即启用"推导'),
+  selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('本实例自用工具: 把同一工具面注册为宿主原生工具, 本 dsh 的会话无需 MCP 客户端即可直接调用; 关闭 = 只保留对外 MCP 服务(原生工具不经 HTTP/认证)'),
   allowedHosts: Schema.array(Schema.string()).default([]).description('Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名)'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('MCP 传输会话空闲 TTL 毫秒数(0 = 永不淘汰; 超时会话被关闭, 客户端按规范重新 initialize)'),
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('资源优先形态(true 时只读工具面下线, 数据一律经 MCP resources 面读取)'),

@@ -10,14 +10,15 @@ English | [中文](README.zh.md)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 
-Operate a running **DeepSeek Harness (`dsh`)** from any MCP client. This plugin exposes dsh's session center, model/preset catalog, workspaces, and live activity as an MCP server, so Claude Code, Claude Desktop, Cursor, Cline, or your own agent can create and steer real dsh sessions — the same sessions the dsh UI shows.
+Operate a running **DeepSeek Harness (`dsh`)** from any MCP client. This plugin exposes dsh's session center, model/preset catalog, workspaces, and live activity as an MCP server, so Claude Code, Claude Desktop, Cursor, Cline, or your own agent can create and steer real dsh sessions — the same sessions the dsh UI shows. The same tool surface is also registered as native tools in this instance, so dsh's own sessions can operate themselves.
 
-[Install](#install) · [Connect an MCP client](#connect-an-mcp-client) · [Tools](#tools) · [Configuration](#configuration) · [Security](#security) · [Development](#development)
+[Install](#install) · [Connect an MCP client](#connect-an-mcp-client) · [Native self-use](#native-self-use) · [Tools](#tools) · [Configuration](#configuration) · [Security](#security) · [Development](#development)
 
 
 ## What you get
 
 -   **Real sessions, not a shell wrapper** — `session_create` and `session_prompt` map to the UI's new-session and send actions; history, forks, archives, model switches, and queue operations go through the host's session controller.
+-   **Usable from this instance too** — the same tool surface is registered as native dsh tools (with a `carrot_` prefix), so sessions in this instance can call it without configuring an MCP client. A settings switch turns it off independently. Set `http: false` for a self-use-only deployment.
 -   **Async orchestration without blocking the client** — `session_submit` only admits and returns a `requestId`; `session_poll` watches many sessions at once (bounded long-poll, returns `changed` / `timedOut`); `session_result` fetches the structured result by id. A client timeout or cancelled wait never kills the dsh turn; stopping work always goes through `session_cancel`.
 -   **Steer a busy session** — a second message queues into the durable host inbox by default, or use `mode: "steer"` to interrupt the current step.
 -   **Approvals: visible, optionally answerable** — `approval_list` always reports pending approvals. Set `approvalControl` to `fallback` (UI first, MCP when nobody can answer) or `exclusive` (MCP only) to grant/reject with `approval_answer`, and switch a session between `ask` / `never` with `approval_policy`. The default `off` leaves host/UI behavior untouched.
@@ -118,6 +119,16 @@ Once connected, call `dsh_get_started` first if the client is an agent — it co
 ```
 
 `model_list` returns the routable providers/models, their reasoning efforts, and the preset roster (`presets`). Continuing with the returned `sessionId` reuses that session's directory, model, and preset; pass only the delta in `context`. For a single task the blocking `session_prompt` (submit + wait for the turn) still works; for fan-out use submit / poll / result instead of letting one tool call block.
+
+## Native self-use
+
+By default the plugin also registers the same tool surface as native dsh tools (`ctx.tools.register`) under a `carrot_` prefix, for example `carrot_session_create`, `carrot_session_poll`, and `carrot_dsh_status`. Sessions in this instance can call them directly — no MCP client, no `8090` connection, no Bearer/Host checks.
+
+-   Switch: the first settings row, "Register tools into this dsh instance"; on by default.
+-   All 24 tools are registered. `resourceFirst` only shapes the external MCP surface; the native surface always keeps every tool.
+-   Native and MCP tools share the same handlers and parameter schemas in `src/tools.ts`; a tool change is made once.
+-   Native tools bypass MCP auth: every session in this instance (including subagents) can call them. Turn the switch off when you do not want that.
+-   For a self-use-only deployment, set `http: false`; the MCP listener stays off and the native tools remain available.
 
 ## Tools
 
@@ -230,9 +241,10 @@ That block is the bundle's own patch (`cordis.yml`). To override a field in your
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `http` | `true` | Start the HTTP MCP server; `false` keeps only the lifecycle hooks |
-| `host` / `port` | `127.0.0.1` / `8090` | MCP server bind address; a listen failure fails plugin startup |
+| `host` / `port` | `127.0.0.1` / `8090` | MCP server bind address; editable in the settings panel, which reloads the plugin and rebuilds the MCP server. A listen failure fails plugin startup |
 | `authToken` | — | Bearer token; enforced on every request while auth is enabled |
 | `authEnabled` | enabled when a token is set | Auth switch. Off = skip validation but keep the token; the token is only replaced by "Regenerate token" in the panel |
+| `selfToolsEnabled` | `true` | Register tools into this dsh instance: registers the same tool surface as native host tools (`carrot_` prefix), so sessions here can call it without an MCP client. Off = external MCP only. Native tools bypass HTTP/auth |
 | `allowedModelsEnabled` | enabled when the list is non-empty | Model-whitelist switch. Off = temporarily unrestricted while the list is kept (turn back on to restore) |
 | `allowedHosts` | — | Extra allowed Host-header values (bind host and loopback always allowed) |
 | `allowedModels` | `[]` | Allowlist of models callers may pick (`provider/model`). When enabled and non-empty, a per-call model outside the list is rejected cleanly. The plugin never backfills defaults — new sessions get the model and preset the caller passes |
@@ -248,12 +260,12 @@ Panel copy follows the DSH language setting (Chinese/English) and switches immed
 
 | Block | What it shows |
 | --- | --- |
-| **Status header** | Live badge (running / stopped / listener off; hover for uptime) and the service switch on the right — the same pill control as the settings rows. Turning it off cuts every connected MCP client and asks first. State polls every 10 seconds |
+| **Status header** | Live badge (running / stopped / listener off; hover for uptime); state polls every 10 seconds |
 | **Endpoint card** | The MCP endpoint URL (monospace, one-click copy) |
-| **Settings form** | Model whitelist (switch + chosen list; "Add model…" opens a searchable catalog), default detail, and auth token |
+| **Settings form** | Register tools into this dsh instance (switch), provide the MCP service for external access (switch; turning it off cuts every connected MCP client and asks first), listen address and port (inputs + Apply; applying reloads the plugin), model whitelist (switch + chosen list; "Add model…" opens a searchable catalog), default detail, and auth token |
 | **Client connections** | Connected clients with client / connected at / last activity / requests; hover for the transport session id |
 
-**Every change saves immediately** through the host `configEditor` into this plugin's profile entry. The editable fields are `volatile`, so the host commits them into the running plugin in place: MCP clients stay connected, running turns are untouched, and the panel stays interactive while writes queue serially (no save button). A failed write shows the error in place and the draft falls back to the server's effective value. **Restore defaults** removes the plugin's override row (including hand-edited non-form fields) and asks first. Writes are pre-checked against a field allowlist plus type validation, and the host write path validates against the `Config` schema again. Structural fields such as the HTTP port remain file-only in `cordis.yml`.
+**Every change saves immediately** through the host `configEditor` into this plugin's profile entry. The ordinary form fields are `volatile`, so the host commits them into the running plugin in place: MCP clients stay connected, running turns are untouched, and the panel stays interactive while writes queue serially (no save button). The listen address and port are structural: **Apply** writes them and reloads the plugin, disconnecting current MCP clients; the new port is probed first. A failed write shows the error in place and the draft falls back to the server's effective value. **Restore defaults** removes the plugin's override row (including hand-edited non-form fields) and asks first. Writes are pre-checked against a field allowlist plus type validation, and the host write path validates against the `Config` schema again.
 
 The auth token row is a switch plus a password-style read-only input: turning auth on generates and saves a 256-bit token if none exists; turning it off skips validation but keeps the token, and only **Regenerate token** replaces it. **Show** reveals the value; select-to-copy and a copy button are available.
 
@@ -269,6 +281,8 @@ When enabling:
 3.  There is no directory whitelist in this plugin — sessions may work in any `cwd` the caller specifies; assess exposure yourself.
 
 Built-in guards: Host- and Origin-header allowlists (DNS-rebinding guard), HTTP surface limited to `/mcp`, `401` answers with a Bearer challenge, and idle transport sessions reaped after `sessionTtlMs`.
+
+Native self-use tools are registered in-process and **bypass HTTP / Bearer / Host checks**; every session in this instance (including subagents) can call them. Turn off "Register tools into this dsh instance" when you do not want that. Binding `0.0.0.0` / `::` or a LAN IP exposes the service to the network; the panel warns, and a wildcard bind automatically adds the machine's interface addresses to the Host allowlist so LAN clients are not rejected with 403.
 
 Sessions created through this plugin follow the host/preset **approval policy**. With the default `approvalControl: off`, the host/UI still answers every approval. Only when you explicitly enable `fallback` / `exclusive` can an MCP caller grant or reject with `approval_answer`; `exclusive` removes that approval from the UI, so use it only for trusted unattended deployments and keep `approvalTimeoutMs` bounded (timeout fails closed).
 

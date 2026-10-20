@@ -10,14 +10,15 @@
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 
-从任意 MCP 客户端操作正在运行的 **DeepSeek Harness（dsh）**。本插件把 dsh 的会话中心、模型与 preset 目录、工作区和实时活动暴露为 MCP server——Claude Code、Claude Desktop、Cursor、Cline 或你自己的 agent 都能创建并操纵真实的 dsh 会话，与 dsh 界面看到的是同一批会话。
+从任意 MCP 客户端操作正在运行的 **DeepSeek Harness（dsh）**。本插件把 dsh 的会话中心、模型与 preset 目录、工作区和实时活动暴露为 MCP server——Claude Code、Claude Desktop、Cursor、Cline 或你自己的 agent 都能创建并操纵真实的 dsh 会话，与 dsh 界面看到的是同一批会话。同一套工具面也会注册为本实例的原生工具，所以 dsh 自己的会话也能直接操作自己。
 
-[安装](#安装) · [接入 MCP 客户端](#接入-mcp-客户端) · [工具](#工具) · [配置](#配置) · [安全](#安全) · [开发](#开发)
+[安装](#安装) · [接入 MCP 客户端](#接入-mcp-客户端) · [本实例自用](#本实例自用) · [工具](#工具) · [配置](#配置) · [安全](#安全) · [开发](#开发)
 
 
 ## 能做什么
 
 -   **真实会话，不是 shell 包装**——`session_create` / `session_prompt` 对应界面的“新会话”和“发送”；历史、分叉、归档、切换模型与排队操作走的是宿主自己的 session controller。
+-   **本实例也能直接用**——同一套工具面默认注册为 dsh 原生工具（`carrot_` 前缀），本实例的会话无需配置 MCP 客户端即可调用；设置面板可单独关闭。不需要对外 MCP 时把 `http` 设为 `false`，就是纯自用模式。
 -   **异步编排，不阻塞客户端**——`session_submit` 只做 admission，立刻返回 `requestId`；`session_poll` 批量观察多个会话（有界 long-poll，返回 `changed` / `timedOut`）；`session_result` 按 id 取回结构化结果。客户端超时/取消等待不会杀掉 dsh 里的 turn，停止工作必须显式调 `session_cancel`。
 -   **忙时也能干预**——会话忙时再发消息默认排进宿主持久 inbox，空闲后自动继续；用 `mode: "steer"` 可打断当前 step 立即纠偏。
 -   **审批可读，也可接管**——`approval_list` 始终可读出挂起审批；部署时把 `approvalControl` 设为 `fallback`（界面优先，无人可答时交给 MCP）或 `exclusive`（直接交给 MCP），就能用 `approval_answer` 允许/拒绝，`approval_policy` 在 `ask` / `never` 间切换。默认 `off` 不改变宿主/界面的审批行为。
@@ -118,6 +119,16 @@ http://127.0.0.1:8090/mcp
 ```
 
 `model_list` 返回可路由的 provider / 模型 / 推理档，以及 preset 花名册（`presets` 字段）。用返回的 `sessionId` 续接，会沿用该会话的目录、模型与 preset；`context` 只发增量。单次任务也可以用阻塞式的 `session_prompt`（提交 + 等本轮结束）；要并发编排多个会话时用 submit / poll / result，不要让一个工具调用长时间阻塞。
+
+## 本实例自用
+
+本插件默认把同一套工具面注册为 dsh 原生工具（`ctx.tools.register`），工具名统一加 `carrot_` 前缀，例如 `carrot_session_create`、`carrot_session_poll`、`carrot_dsh_status`。本实例里的会话可以直接调用它们，不需要配置 MCP 客户端，也不经过 8090 / Bearer 认证 / Host 校验。
+
+-   开关：设置面板第一项“将工具注册到本dsh实例”，默认开启。
+-   全部 24 个工具都会注册；即使外部 MCP 开了 `resourceFirst`，原生面仍保留全部工具。
+-   原生工具与 MCP 工具共用 `src/tools.ts` 的同一份实现和参数 schema；改工具只需要改一处。
+-   原生工具绕过 MCP 认证，任何本实例会话都能调用；不需要这种能力时关掉开关。
+-   只想自用、不开放外部访问：把 `http` 设为 `false`，MCP 监听不会启动，原生工具仍然可用。
 
 ## 工具
 
@@ -230,9 +241,10 @@ http://127.0.0.1:8090/mcp
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `http` | `true` | 是否启动 HTTP MCP server；`false` 时只保留生命周期钩子 |
-| `host` / `port` | `127.0.0.1` / `8090` | MCP server 监听地址；监听失败会让插件启动显式失败 |
+| `host` / `port` | `127.0.0.1` / `8090` | MCP server 监听地址；设置面板可改，写入后重载插件并重建 MCP 服务。监听失败会让插件启动显式失败 |
 | `authToken` | — | Bearer token；认证启用时所有请求强制校验 |
 | `authEnabled` | 已配令牌即启用 | 认证开关。关闭 = 暂不校验，令牌原样保留；令牌只在面板“重新生成令牌”时被替换 |
+| `selfToolsEnabled` | `true` | 将工具注册到本dsh实例：把同一套工具面注册为宿主原生工具（`carrot_` 前缀），本实例会话无需 MCP 客户端即可调用；关闭 = 只保留对外 MCP 服务。原生工具不经 HTTP/认证 |
 | `allowedModelsEnabled` | 有清单即启用 | 模型白名单开关。关闭 = 暂时不限制，清单原样保留（重新开启即恢复约束） |
 | `allowedHosts` | — | Host 头白名单追加项（绑定地址与 loopback 始终放行） |
 | `allowedModels` | `[]` | 模型白名单（`provider/model`）。启用且非空时，调用指定的模型不在名单内会被明确拒绝。插件不做默认回填——新建会话的模型与 preset 都由调用方显式指定 |
@@ -248,12 +260,12 @@ http://127.0.0.1:8090/mcp
 
 | 区块 | 内容 |
 | --- | --- |
-| **状态头** | 实时徽章（运行中 / 已停止 / 监听关闭，悬停显示运行时长）与右侧的服务开关（与设置行同款胶囊控件）——关闭会切断全部已连接的 MCP 客户端，操作前需确认；状态每 10 秒轮询刷新 |
+| **状态头** | 实时徽章（运行中 / 已停止 / 监听关闭，悬停显示运行时长）；状态每 10 秒轮询刷新 |
 | **端点卡** | MCP 端点 URL（等宽字体，一键复制） |
-| **设置表单** | 模型白名单（开关 + 已选清单；“添加模型…”展开可搜索的候选列表）、默认详略与 Auth Token |
+| **设置表单** | 将工具注册到本dsh实例（开关）、提供MCP服务以供外部访问（开关；关闭会切断全部已连接的 MCP 客户端，操作前需确认）、监听地址与端口（输入框 + 应用；写入后重载插件）、模型白名单（开关 + 已选清单；“添加模型…”展开可搜索的候选列表）、默认详略与 Auth Token |
 | **客户端连接** | 已连接客户端列表（客户端 / 连接于 / 最近活跃 / 请求数，悬停显示传输会话 id） |
 
-**改动即保存**：每次变更立即经宿主 `configEditor` 写入 profile 配置文件的本插件条目。可编辑字段是 `volatile` 字段，宿主就地提交给运行中的插件而不重载——MCP 客户端连接不断、正在跑的 turn 不受影响，保存排队串行落盘，期间面板照常可操作（没有保存按钮）。提交失败时错误就地显示，草稿回到服务端生效值。**恢复默认**删除本插件的覆盖行（含手动编辑的非表单字段），需确认。写前做字段白名单与类型校验，宿主侧写路径再过一遍 `Config` schema。http 端口等结构性字段仍请编辑 `cordis.yml`。
+**改动即保存**：设置表单里的普通字段是 `volatile`，每次变更立即经宿主 `configEditor` 写入 profile 配置文件的本插件条目；宿主就地提交给运行中的插件而不重载——MCP 客户端连接不断、正在跑的 turn 不受影响，保存排队串行落盘，期间面板照常可操作（没有保存按钮）。监听地址与端口是结构性字段，点“应用”后写入并重载插件，现有 MCP 连接会断开；应用前会先探测新端口是否可监听。提交失败时错误就地显示，草稿回到服务端生效值。**恢复默认**删除本插件的覆盖行（含手动编辑的非表单字段），需确认。写前做字段白名单与类型校验，宿主侧写路径再过一遍 `Config` schema。
 
 Auth Token 行是开关加密码式只读输入框：开启时若没有令牌，自动生成并保存 256 位令牌；关闭只是暂不校验，令牌保留；只有 **重新生成令牌** 会替换它。**显示** 切换明文，支持选中复制与一键复制。
 
@@ -269,6 +281,8 @@ Auth Token 行是开关加密码式只读输入框：开启时若没有令牌，
 3.  本插件没有目录白名单——会话可在调用方指定的任意 `cwd` 工作，暴露面请自行评估。
 
 内置防护：Host / Origin 头白名单（防 DNS rebinding）、HTTP 入口只服务 `/mcp`、401 带 Bearer 挑战、空闲传输会话按 `sessionTtlMs` 自动回收。
+
+本实例自用工具是进程内注册，**不经过 HTTP / Bearer / Host 校验**；本实例的任何会话（包括子代理）都能调用。不需要这种能力时，在设置面板关闭“将工具注册到本dsh实例”。把监听地址改成 `0.0.0.0` / `::` 或局域网 IP 会把服务暴露给网络；面板会提示，并且绑定通配地址时会自动把本机实际网卡地址加入 Host 白名单，避免局域网客户端被 403。
 
 插件创建的会话遵循宿主 / preset 的**审批策略**。默认 `approvalControl: off` 时审批仍由宿主/界面回答；显式开启 `fallback` / `exclusive` 后，MCP 调用方才能用 `approval_answer` 授权或拒绝。`exclusive` 会让界面不再显示被接管的审批，务必只给可信的无人值守部署使用，并设置合理的 `approvalTimeoutMs`（超时失败关闭）。
 

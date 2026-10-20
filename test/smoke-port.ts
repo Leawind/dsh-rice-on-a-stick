@@ -2,10 +2,17 @@
 import net from 'node:net'
 import { apply } from '../lib/index.js'
 
-// 假 ctx 不是真 cordis(webServer 类可选依赖不出现), 假宿主边界不做结构校验
+// 假 ctx 不是真 cordis(webServer 类可选依赖不出现), 假宿主边界不做结构校验。
+// tools/on 是自用工具安装路径需要的最小面: 本用例只验证端口冲突时 apply 必须显式 reject。
 const ctx: any = {
+  tools: {
+    get: () => undefined,
+    register: () => () => {},
+    schemas: () => [],
+  },
   effect: (fn) => fn(),
   inject: () => undefined,
+  on: () => () => {},
   get: () => undefined,
 }
 

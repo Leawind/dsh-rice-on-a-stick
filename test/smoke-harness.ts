@@ -198,12 +198,28 @@ const errAgent = (() => {
 /** 池新建会话的注册表(模拟真实宿主: create 的会话即进入 sessions 服务) */
 const liveCreatedSessions = new Map()
 
-const fakeTools = {
-  // 0.1.5+ 面: schemas(); 有意不提供 keys() 以证明不再依赖它
-  schemas: () => [
-    { name: 'bash', description: 'run a shell command' },
-    { name: 'read', description: 'read a file' },
-  ],
+const STATIC_TOOLS = [
+  { name: 'bash', description: 'run a shell command' },
+  { name: 'read', description: 'read a file' },
+]
+
+/** 每个 ctx 一份独立的全局工具注册表: 原生自用工具注册/撤销不会泄漏到其它 phase */
+function makeFakeTools() {
+  const registered = new Map<string, any>()
+  return {
+    // 0.1.5+ 面: schemas(); 有意不提供 keys() 以证明不再依赖它
+    schemas: () => [
+      ...STATIC_TOOLS,
+      ...Array.from(registered.values(), (d: any) => ({ name: d.name, description: d.description, parameters: d.parameters })),
+    ],
+    get: (name: string) => registered.get(name) ?? STATIC_TOOLS.find((t) => t.name === name),
+    register: (definition: any) => {
+      if (registered.has(definition.name)) throw new Error(`tool already registered: ${definition.name}`)
+      registered.set(definition.name, definition)
+      return () => { registered.delete(definition.name) }
+    },
+    __registered: registered,
+  }
 }
 
 // ── 模型目录假服务(sessionController = 官方口径; llm = 回退口径) ──
@@ -313,10 +329,11 @@ export function makeCtx(opts: {
   sessionTitle?: any
   tools?: any
   workspaceController?: any
+  configEditor?: any
   extraSessions?: { id: string; cwd?: string }[]
   extraPersisted?: { id: string; cwd?: string }[]
 } = {}): any {
-  const { sessionController, llm = {}, sessionTitle, tools = fakeTools, workspaceController = fakeWorkspaceController, extraSessions = [], extraPersisted = [] } = opts
+  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, extraSessions = [], extraPersisted = [] } = opts
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
   const fakeSessions = {
@@ -391,6 +408,9 @@ export function makeCtx(opts: {
     tools,
     llm,
     sessionController,
+    configEditor,
+    // GUI 配置写入需要 fiber.entry; 只有提供 configEditor 的测试才模拟出条目
+    fiber: configEditor ? { entry: {} } : undefined,
     agents: {
       get: (id) => (id === 'sess-live' ? liveAgent : id === 'sess-err' ? errAgent : id === 'sess-slow' ? slowLiveAgent
         : id === 'sess-slow2' ? slowLiveAgent2 : id === 'sess-slow3' ? slowLiveAgent3
@@ -420,6 +440,9 @@ export function makeCtx(opts: {
     subagents: fakeSubagents,
     on,
     __fireApproval: fireApproval,
+    __fireVolatile: (paths) => {
+      for (const listener of eventListeners.get('loader/volatile-update') ?? []) listener(paths)
+    },
     effect: (fn) => { const d = fn(); disposers.push(d); return d },
     inject: (deps, fn) => {
       if (deps.includes('webServer')) {
@@ -437,7 +460,8 @@ export function makeCtx(opts: {
             : name === 'agentDefaultModel' ? fakeAgentDefaultModel
               : name === 'sessionTitle' ? sessionTitle
                 : name === 'workspaceController' ? workspaceController
-                  : undefined),
+                  : name === 'configEditor' ? configEditor
+                    : undefined),
   }
   return ctx
 }
