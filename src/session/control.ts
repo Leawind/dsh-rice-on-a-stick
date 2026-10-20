@@ -10,10 +10,10 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
-import { asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from './host.js'
+import { asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from '../host/bridge.js'
 import { knownSelectionOf } from './engine.js'
 import { latestRequestFor, requestOf } from './requests.js'
-import { state } from './state.js'
+import { state } from '../core/state.js'
 import {
   buildTurnResult,
   clipText,
@@ -26,7 +26,7 @@ import {
   selectionOfEvents,
 } from './turn.js'
 import { renderResult } from './projection.js'
-import type { DetailLevel, ModelSelection } from './types.js'
+import type { DetailLevel, ModelSelection } from '../core/types.js'
 
 /** session_poll 一次等待的上限(毫秒): 有界 long-poll, 不是无限阻塞 */
 export const POLL_MAX_WAIT_MS = 30_000

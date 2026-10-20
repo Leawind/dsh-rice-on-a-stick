@@ -38,16 +38,16 @@ import net from 'node:net'
 import os from 'node:os'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './config.js'
-import { state } from './state.js'
-import { registerTools } from './tools.js'
-import { registerResources } from './resources.js'
-import { resUri, collectModelCatalog } from './data.js'
-import { createNotifyHub } from './notify.js'
-import { serverInstructions } from './onboarding.js'
-import { serviceOf } from './host.js'
-import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './approvals.js'
-import { installSelfTools, type SelfToolsController } from './self-tools.js'
+import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './core/config.js'
+import { state } from './core/state.js'
+import { registerTools } from './mcp/tools/index.js'
+import { registerResources } from './mcp/resources.js'
+import { resUri, collectModelCatalog } from './host/data.js'
+import { createNotifyHub } from './mcp/notify.js'
+import { serverInstructions } from './mcp/onboarding.js'
+import { serviceOf } from './host/bridge.js'
+import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './session/approvals.js'
+import { installSelfTools, type SelfToolsController } from './session/self-tools.js'
 
 /** Cordis 插件名 */
 export const name = PLUGIN_NAME
@@ -61,7 +61,7 @@ export const inject = ['tools', 'llm', 'agents', 'agentPresets', 'workspaceRegis
 
 /** 插件配置类型(从 config.ts 再导出, 供消费方 import type { Config } from 'dsh-carrot-on-a-stick') */
 // Config 以 value+type 同名导出: value(schema)供 cordis 装载期校验与宿主配置视图渲染, type 供 apply 签名
-export { Config } from './config.js'
+export { Config } from './core/config.js'
 
 // ── GUI 控制面(webServer 路由) ──
 

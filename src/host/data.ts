@@ -11,13 +11,13 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import { PLUGIN_VERSION, authTokenHint } from './config.js'
-import { state } from './state.js'
-import type { ModelSelection, ModelSelectionOverride } from './types.js'
-import { canonicalCwd, isWithin } from './paths.js'
-import { historyTurnsOf, projectModel, type HistoryRole } from './projection.js'
-import { eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './host.js'
-import { hostDefaultSelection, knownSelectionOf } from './engine.js'
+import { PLUGIN_VERSION, authTokenHint } from '../core/config.js'
+import { state } from '../core/state.js'
+import type { ModelSelection, ModelSelectionOverride } from '../core/types.js'
+import { canonicalCwd, isWithin } from '../core/paths.js'
+import { historyTurnsOf, projectModel, type HistoryRole } from '../session/projection.js'
+import { eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
+import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
 import { resolve } from 'node:path'
 
 // ── 规范 URI 构造器(资源面注册 / 订阅 / 通知 / 工具结果的 HATEOAS 引用同一来源) ──

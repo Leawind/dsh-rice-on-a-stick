@@ -13,8 +13,8 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { randomUUID } from 'node:crypto'
-import { canonicalCwd } from './paths.js'
-import type { ApprovalAnswer, ApprovalRequestView, ApprovalServiceView, ModelSelection } from './types.js'
+import { canonicalCwd } from '../core/paths.js'
+import type { ApprovalAnswer, ApprovalRequestView, ApprovalServiceView, ModelSelection } from '../core/types.js'
 
 /** SessionId 品牌转换: 宿主实现同样只是编译期 cast, 运行时原样返回字符串 */
 export function asSessionId(id: string): SessionId {

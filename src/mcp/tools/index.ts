@@ -31,14 +31,14 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
-import { state } from './state.js'
-import type { ModelSelection } from './types.js'
-import { DETAIL_ARG, projectModel, renderResult } from './projection.js'
-import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from './engine.js'
-import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from './control.js'
-import { approvalListFor, approvalPolicyOfEvents, effectiveApprovalPolicy, setApprovalPolicy } from './approvals.js'
-import { asSessionId, inspectSessionEvents, serviceOf, subagentsOf } from './host.js'
-import { guideSectionDoc, type GuideSection } from './onboarding.js'
+import { state } from '../../core/state.js'
+import type { ModelSelection } from '../../core/types.js'
+import { DETAIL_ARG, projectModel, renderResult } from '../../session/projection.js'
+import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from '../../session/engine.js'
+import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
+import { approvalListFor, approvalPolicyOfEvents, effectiveApprovalPolicy, setApprovalPolicy } from '../../session/approvals.js'
+import { asSessionId, inspectSessionEvents, serviceOf, subagentsOf } from '../../host/bridge.js'
+import { guideSectionDoc, type GuideSection } from '../onboarding.js'
 import {
   basicStatusSnapshot,
   collectModelCatalog,
@@ -50,7 +50,7 @@ import {
   workspacesPayload,
   type SessionControllerView,
   type ToolDeps,
-} from './data.js'
+} from '../../host/data.js'
 
 /** 工具回调统一返回 MCP text content */
 function out(content: string) {

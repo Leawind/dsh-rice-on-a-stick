@@ -9,8 +9,8 @@
  *     调用方回退 session_history。
  *   - 不在这里持有 AgentHandle: 生命周期归宿主 registry(与 sessionRecords 同一约束)。
  */
-import { state } from './state.js'
-import type { SessionRequestRecord } from './types.js'
+import { state } from '../core/state.js'
+import type { SessionRequestRecord } from '../core/types.js'
 
 /** 请求索引的存活时间(毫秒); 超过后 session_result 不再按 requestId 解析 */
 export const REQUEST_TTL_MS = 6 * 60 * 60 * 1000

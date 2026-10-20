@@ -37,7 +37,7 @@ import {
   workspaceDetailPayload,
   workspacesPayload,
   type ToolDeps,
-} from './data.js'
+} from '../host/data.js'
 import type { NotifyHub } from './notify.js'
 
 /** 资源面依赖(statusSnapshot 与工具面同源; hub 缺省时订阅面不注册) */

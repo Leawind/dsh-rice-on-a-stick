@@ -18,8 +18,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import { approvalServiceOf, asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from './host.js'
-import { state } from './state.js'
+import { approvalServiceOf, asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from '../host/bridge.js'
+import { state } from '../core/state.js'
 import { pendingApprovalsOf } from './turn.js'
 import type {
   ApprovalAnswer,
@@ -29,7 +29,7 @@ import type {
   ApprovalRequestView,
   ApprovalRuntime,
   ParkedApprovalInfo,
-} from './types.js'
+} from '../core/types.js'
 
 /** 合法审批策略(与宿主 APPROVAL_POLICIES 对齐) */
 export const APPROVAL_POLICIES = ['ask', 'never'] as const

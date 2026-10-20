@@ -6,7 +6,7 @@
  *   normal       ≤ ~9k 字符: 上述 + 截断的工具调用参数与结果
  *   full         旧版行为(assistantText 8k / 50×2k / 20×2k), 仅排查时用
  */
-import type { DetailLevel, ModelSelectionOverride, SessionTurnResult } from './types.js'
+import type { DetailLevel, ModelSelectionOverride, SessionTurnResult } from '../core/types.js'
 
 /** 从 agent 最终回答里解析 changes/verification/leftovers(从后往前找候选, 更可靠) */
 export function parseSummary(assistantText: string): { changes: string; verification: string; leftovers: string } {

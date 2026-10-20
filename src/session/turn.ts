@@ -7,7 +7,7 @@
  *
  * 约束: 这里不持有会话/agent, 也不发通知; 只做读与投影, 便于 engine/control 复用。
  */
-import type { ModelSelection, RequestStatus, SessionTurnResult } from './types.js'
+import type { ModelSelection, RequestStatus, SessionTurnResult } from '../core/types.js'
 import { extractTexts, parseSummary } from './projection.js'
 
 interface RawEvent {

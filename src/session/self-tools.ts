@@ -17,8 +17,8 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { registerTools } from './tools.js'
-import type { ToolDeps } from './data.js'
+import { registerTools } from '../mcp/tools/index.js'
+import type { ToolDeps } from '../host/data.js'
 
 // Loader 的 volatile-only 配置更新事件: 开关切换后立即同步注册/撤销, 不重载插件(不切断 MCP 连接)
 declare module '@deepseek-ai/cordis' {

@@ -18,9 +18,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
-import { state } from './state.js'
-import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult, ApprovalPolicy } from './types.js'
-import { canonicalCwd, canonicalWorkdir } from './paths.js'
+import { state } from '../core/state.js'
+import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult, ApprovalPolicy } from '../core/types.js'
+import { canonicalCwd, canonicalWorkdir } from '../core/paths.js'
 import { recordRequest, requestOf } from './requests.js'
 import { setApprovalPolicy } from './approvals.js'
 import { buildTurnResult, findRequestTurn, type TurnRange } from './turn.js'
@@ -35,7 +35,7 @@ import {
   serviceOf,
   sessionControllerOf,
   userMessage,
-} from './host.js'
+} from '../host/bridge.js'
 /** setup 挂载 preset(含 bash/fs/todo/web 等完整工具)。
  * 直接调用宿主服务 ctx.agentPresets.mount——scope 校验由 mount 自身完成,
  * 不再用插件侧 scopeOf 预检(混装副本的私有 Symbol 不匹配曾让预检恒假, 导致 agent 静默失去全部工具)。 */

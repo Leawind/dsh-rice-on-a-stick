@@ -19,15 +19,15 @@
  */
 import { EventEmitter } from 'node:events'
 import { apply } from '../lib/index.js'
-import { cancelSession, promptSession } from '../lib/engine.js'
-import { serviceOf } from '../lib/host.js'
-import { isWithin } from '../lib/paths.js'
-import { parseSummary } from '../lib/projection.js'
-import { approvalPolicyOfEvents, createApprovalBridge } from '../lib/approvals.js'
-import { state } from '../lib/state.js'
-import { pendingApprovalsOf } from '../lib/turn.js'
+import { cancelSession, promptSession } from '../lib/session/engine.js'
+import { serviceOf } from '../lib/host/bridge.js'
+import { isWithin } from '../lib/core/paths.js'
+import { parseSummary } from '../lib/session/projection.js'
+import { approvalPolicyOfEvents, createApprovalBridge } from '../lib/session/approvals.js'
+import { state } from '../lib/core/state.js'
+import { pendingApprovalsOf } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
-import { Config as ConfigSchema } from '../lib/config.js'
+import { Config as ConfigSchema } from '../lib/core/config.js'
 import {
   approvalAgent,
   approvalPolicyCalls,
