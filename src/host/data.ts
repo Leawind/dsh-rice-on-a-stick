@@ -16,7 +16,8 @@ import { state } from '../core/state.js'
 import type { ModelSelection, ModelSelectionOverride } from '../core/types.js'
 import { canonicalCwd, isWithin } from '../core/paths.js'
 import { historyTurnsOf, projectModel, type HistoryRole } from '../session/projection.js'
-import { eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
+import { asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
+import { latestTitleOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
 import { resolve } from 'node:path'
 
@@ -166,11 +167,52 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
 
 // ── 会话(session_list / session_history / dsh://sessions[/…]) ──
 
+/** 冷会话标题缓存的 TTL / 容量 / 单次搜索扫描上限(冷搜索的成本 = 每会话一次日志读) */
+export const COLD_TITLE_TTL_MS = 60_000
+const COLD_TITLE_CACHE_MAX = 500
+export const COLD_TITLE_SCAN_MAX = 50
+
+/** 会话清单的查询条件(全部可选; 缺省 = 现有行为: 全部 live + 持久化会话) */
+export interface SessionQuery {
+  /** 只列该目录(含子目录)下的会话 */
+  cwd?: string
+  /** 标题子串过滤(大小写不敏感); 无标题的会话不参与匹配 */
+  title?: string
+  /**
+   * 标题过滤时是否把持久化-only 会话也纳入(默认 false)。
+   * 冷会话没有内存标题, 必须读日志折 session/title——每次搜索每个会话付一次读日志成本,
+   * 因此默认关闭; 打开时单次最多扫描 COLD_TITLE_SCAN_MAX 个, 结果带 titleSearch 报告。
+   */
+  includeCold?: boolean
+}
+
+/** 冷会话标题: 读日志折 session/title, TTL 内复用; 读不到(无 sessionController/读取失败)记 undefined */
+async function coldTitleOf(ctx: Context, sessionId: string): Promise<string | undefined> {
+  const now = Date.now()
+  const hit = state.coldTitles.get(sessionId)
+  if (hit !== undefined && now - hit.at < COLD_TITLE_TTL_MS) return hit.title
+  let title: string | undefined
+  try {
+    title = latestTitleOf(await inspectSessionEvents(ctx, asSessionId(sessionId)))
+  } catch {
+    // 无 sessionController / 会话不可读: 当作"没有标题", 让调用方继续
+    title = undefined
+  }
+  if (state.coldTitles.size >= COLD_TITLE_CACHE_MAX) state.coldTitles.clear()
+  state.coldTitles.set(sessionId, { title, at: now })
+  return title
+}
+
 /**
  * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd 过滤
  * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
+ * 标题过滤只匹配已知标题: live 会话的标题在内存里, 冷会话默认不参与(见 includeCold)。
  */
-export async function collectSessions(ctx: Context, cwd?: string): Promise<{ total: number; sessions: Record<string, unknown>[] }> {
+export async function collectSessions(ctx: Context, query: SessionQuery = {}): Promise<{
+  total: number
+  sessions: Record<string, unknown>[]
+  titleSearch?: { coldScanned: number; coldTruncated: boolean }
+}> {
   // live 优先合并: live 优先, 持久化侧兼容快照/裸 header 两种形状
   const headers = new Map<string, SessionHeader>()
   const liveTitles = new Map<string, string>()
@@ -186,7 +228,7 @@ export async function collectSessions(ctx: Context, cwd?: string): Promise<{ tot
     if (header && !headers.has(header.id)) headers.set(header.id, header)
   }
   // cwd 过滤参数: 只列该目录(含子目录)下的会话
-  const filterRoot = cwd ? await canonicalCwd(resolve(cwd)) : undefined
+  const filterRoot = query.cwd ? await canonicalCwd(resolve(query.cwd)) : undefined
   const visible = [...headers.values()]
     .filter((h) => {
       const sessionCwd = h.cwd
@@ -209,20 +251,49 @@ export async function collectSessions(ctx: Context, cwd?: string): Promise<{ tot
         ...(model ? { model: projectModel(model) } : {}),
       }
     })
-  return { total: visible.length, sessions: items }
+
+  const titleQuery = query.title?.trim().toLowerCase() ?? ''
+  if (titleQuery === '') return { total: visible.length, sessions: items }
+
+  const matched: Record<string, unknown>[] = []
+  let coldScanned = 0
+  let coldTruncated = false
+  for (const item of items) {
+    const known = typeof item.title === 'string' ? item.title : ''
+    if (known !== '') {
+      if (known.toLowerCase().includes(titleQuery)) matched.push(item)
+      continue
+    }
+    // 没有内存标题 = 冷会话(或从未生成过标题): 只有显式 includeCold 才为它读一次日志
+    if (query.includeCold !== true) continue
+    if (coldScanned >= COLD_TITLE_SCAN_MAX) {
+      coldTruncated = true
+      continue
+    }
+    coldScanned++
+    const title = await coldTitleOf(ctx, String(item.sessionId))
+    if (title !== undefined && title.toLowerCase().includes(titleQuery)) matched.push({ ...item, title })
+  }
+  return {
+    total: matched.length,
+    sessions: matched,
+    titleSearch: { coldScanned, coldTruncated },
+  }
 }
 
 /** 单会话元数据(dsh://sessions/{id}): 白名单内即可读(persisted-only 也行), 附 historyReadable 指路 */
 export async function sessionMetaPayload(ctx: Context, sessionId: string): Promise<Record<string, unknown>> {
-  const { sessions } = await collectSessions(ctx, undefined)
+  const { sessions } = await collectSessions(ctx)
   const item = sessions.find((s) => String(s.sessionId) === sessionId)
   if (!item) {
     throw new Error(`session not found: ${sessionId}`)
   }
-  const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
   // 冷会话经宿主 sessionController.inspect 非激活读取事件日志, 与界面打开旧会话同一数据面
+  const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
   const readable = live !== undefined || typeof sessionControllerOf(ctx)?.inspect === 'function'
-  return { ...item, historyReadable: readable }
+  // 元信息与活动/历史面同源: 标题/模型/preset + 轮步计数 + 上下文占用(读不到日志时只回清单行)
+  const insight = await sessionInsightPayload(ctx, sessionId, item)
+  return { ...insight, historyReadable: readable }
 }
 
 /**

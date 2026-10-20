@@ -43,7 +43,7 @@ interface McpToolResult {
   isError?: boolean
 }
 
-type McpToolHandler = (args: Record<string, unknown>, extra: { signal?: AbortSignal }) => Promise<McpToolResult>
+type McpToolHandler = (args: Record<string, unknown>, extra: { signal?: AbortSignal; agent?: unknown }) => Promise<McpToolResult>
 
 /** 从 McpServer.registerTool 调用中捕获的配置(只取本插件用到的字段) */
 interface CapturedToolConfig {
@@ -202,7 +202,8 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
         async execute(args, exec) {
           // 与 MCP SDK 的 Zod 校验同源: 原生面再走一次, 保证两种入口的参数约束一致
           const parsed = objectSchema.parse(args)
-          const result = withNativeGuideNote(tool, await tool.handler(parsed as Record<string, unknown>, { signal: exec.signal }))
+          // exec.agent 是宿主 agent 循环给出的调用方: 让省略 sessionId 的工具落到"当前会话"
+          const result = withNativeGuideNote(tool, await tool.handler(parsed as Record<string, unknown>, { signal: exec.signal, agent: exec.agent }))
           if (result?.isError === true) throw new Error(errorText(result))
           return result
         },

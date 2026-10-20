@@ -10,9 +10,9 @@ import type { ModelSelection } from '../../core/types.js'
 import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from '../../session/engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_ARG, projectModel, renderResult } from '../../session/projection.js'
-import { asSessionId, serviceOf } from '../../host/bridge.js'
+import { asSessionId, commandsOf, serviceOf } from '../../host/bridge.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
-import { out, outError, renderUriResult } from './shared.js'
+import { out, outError, renderUriResult, resolveSessionTarget } from './shared.js'
 
 /** workspaceController 视图(归档/取档; 可选依赖) */
 interface WorkspaceControllerView {
@@ -305,6 +305,76 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
         return out(JSON.stringify({ ok: true, sourceSessionId: sessionId, sessionId: newId }, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: `session_fork failed: ${(e as Error)?.message ?? String(e)}` }))
+      }
+    },
+  )
+
+  // 会话命令(list/run): 与界面斜杠输入同源, 走宿主 ctx.commands。
+  // /compact 只是其中一条——插件不硬编码任何具体命令, 宿主新增命令自动可见。
+  mcp.registerTool(
+    'session_command',
+    {
+      title: 'List or run session commands',
+      description: 'List the slash commands a live session can run, or run one — without sending it to the model. Commands come from the host command registry (`ctx.commands`), the same path the UI composer uses; `/compact` is one of them and plugin-registered commands appear automatically. Execution logs `command/run`/`command/done` but creates no turn and never enters model history. Results are the command\'s own human-facing text (for example `/compact` reports busy when the session is not idle).',
+      inputSchema: {
+        sessionId: z.string().optional().describe('Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native carrot_ tools only; an MCP call must pass it.'),
+        action: z.enum(['list', 'run']).describe('list = commands available to this session; run = execute one.'),
+        name: z.string().optional().describe('Command name without the leading slash (required for action=run), e.g. "compact".'),
+        args: z.string().optional().describe('Raw argument text appended after the name; commands that take no arguments reject extra input themselves.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, action, name, args }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      const live = ctx.agents.get(asSessionId(target.sessionId))
+      if (live === undefined) {
+        return outError(JSON.stringify({
+          error: `session "${target.sessionId}" is not live; slash commands are registered per live agent`,
+          hint: 'prompt or submit once to activate the session, then retry',
+        }))
+      }
+      const commands = commandsOf(ctx)
+      if (typeof commands?.list !== 'function' || typeof commands.execute !== 'function') {
+        return outError(JSON.stringify({
+          error: 'the host command registry is unavailable (ctx.commands); this deployment composes no command adapter',
+        }))
+      }
+      try {
+        if (action === 'list') {
+          const rows = commands.list(live) ?? []
+          return out(JSON.stringify({
+            sessionId: target.sessionId,
+            total: rows.length,
+            commands: rows.map((row) => ({
+              name: row.name ?? '',
+              ...(row.description !== undefined ? { description: row.description } : {}),
+              ...(row.input !== undefined ? { input: row.input } : {}),
+            })),
+          }, null, 2))
+        }
+        const command = name?.trim().replace(/^\//, '') ?? ''
+        if (command === '') {
+          return outError(JSON.stringify({ error: 'action "run" requires name (from action=list)' }))
+        }
+        const line = `/${command}${args !== undefined && args !== '' ? ` ${args}` : ''}`
+        const execution = await commands.execute(live, line, [], extra?.signal ?? new AbortController().signal)
+        if (execution === undefined) {
+          return outError(JSON.stringify({
+            error: `unknown command "${line}"`,
+            hint: 'call session_command with action=list to see the commands this session can run',
+          }))
+        }
+        const result = execution.result ?? {}
+        return out(JSON.stringify({
+          sessionId: target.sessionId,
+          line,
+          ...(execution.commandId !== undefined ? { commandId: String(execution.commandId) } : {}),
+          ok: result.kind === 'success',
+          result,
+        }, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: `session_command failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

@@ -150,6 +150,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       state.sessionRecords.clear()
       state.sessionRequests.clear()
       state.latestRequestBySession.clear()
+      state.coldTitles.clear()
       state.approvals = NOOP_APPROVAL_RUNTIME
       approvalBridge.dispose()
       httpServer?.dispose()

@@ -6,8 +6,8 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { serviceOf } from '../../host/bridge.js'
-import { collectSessions, sessionHistoryPayload, type SessionControllerView } from '../../host/data.js'
-import { out, outError, structuredOut } from './shared.js'
+import { collectSessions, sessionHistoryPayload, sessionMetaPayload, type SessionControllerView } from '../../host/data.js'
+import { out, outError, resolveSessionTarget, structuredOut } from './shared.js'
 
 const sessionListOut = z.object({
   total: z.number(),
@@ -26,6 +26,10 @@ const sessionListOut = z.object({
       reasoningEffort: z.string().optional(),
     }).optional(),
   })),
+  titleSearch: z.object({
+    coldScanned: z.number(),
+    coldTruncated: z.boolean(),
+  }).optional(),
 })
 
 export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceFirst: boolean): void {
@@ -39,14 +43,20 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
+        title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
+        includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). Cold sessions are scanned newest first, at most 50 per call; the result reports `titleSearch`.'),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
-    async ({ limit, cwd }) => {
+    async ({ limit, cwd, title, includeCold }) => {
       try {
-        const { total, sessions: items } = await collectSessions(ctx, cwd)
-        return structuredOut({ total, sessions: items.slice(0, limit ?? 20) }, sessionListOut)
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, includeCold })
+        return structuredOut({
+          total,
+          sessions: items.slice(0, limit ?? 20),
+          ...(titleSearch ? { titleSearch } : {}),
+        }, sessionListOut)
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -70,6 +80,28 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     async ({ sessionId, limit, roles, beforeIndex }) => {
       try {
         return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles)))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 单会话元信息(只读): 标题/模型/preset + 轮步计数 + 上下文占用; 冷会话经 inspect 折日志
+  mcp.registerTool(
+    'session_meta',
+    {
+      title: 'Session info',
+      description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model and reasoning effort, live/idle/running/waiting-approval/inactive, turn and step counters (from turn/start|end and step/start|end), and context occupancy (token meter when the host provides it, otherwise the last logged usage; contextWindow from request/context or the model route). Persisted-only sessions are folded from their log via the host inspector; sessions whose log is unreadable return only the list row (eventsReadable=false).',
+      inputSchema: {
+        sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native carrot_ tools only; an MCP call must pass it.'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      try {
+        return out(JSON.stringify(await sessionMetaPayload(ctx, target.sessionId), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }

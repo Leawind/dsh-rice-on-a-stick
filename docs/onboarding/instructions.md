@@ -26,7 +26,16 @@ Quick start:
   descendants). Once you have a child sessionId, drive it with the same session tools;
   spawning stays with the host/model-side subagent tools.
 - session_select_model switches a session's model in place (history preserved);
-  session_list / session_history let you find and inspect sessions.
+  session_list / session_meta / session_history let you find and inspect sessions.
+  session_list takes cwd or title (case-insensitive; includeCold=true also folds
+  persisted-only sessions' titles, otherwise only live titles are searched).
+  session_meta reports model+reasoning effort, preset, live state, turn/step counters
+  and context occupancy (token meter, else the last logged usage).
+- session_command lists the slash commands a live session can run (action=list) and runs
+  one without sending it to the model (action=run, e.g. name=compact). Commands come from
+  the host registry, so /compact and plugin commands appear automatically; /compact is
+  idle-only and reports busy otherwise. Omitting sessionId (session_meta/session_command)
+  targets the calling session, which works only for native carrot_ tools.
 - Results are projected by the detail argument to save your context budget — default
   is summary. Pass detail=full only for debugging.
 

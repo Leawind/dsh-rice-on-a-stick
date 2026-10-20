@@ -141,6 +141,45 @@ export function subagentsOf(ctx: Context): SubagentServiceView | undefined {
   return serviceOf<SubagentServiceView>(ctx, 'subagents')
 }
 
+// ── 人面向命令注册表(ctx.commands) ──
+
+/** 一条可用命令的发现元数据(宿主 CommandDescriptor; 只声明本插件投影的字段) */
+export interface CommandDescriptorView {
+  name?: string
+  description?: string
+  /** 参数提示(命令声明 input 时才有) */
+  input?: { hint?: string; attachments?: boolean }
+  definitionId?: unknown
+}
+
+/** 一次命令执行的结果(宿主 CommandExecution; result 是成功/失败的人面向文本) */
+export interface CommandExecutionView {
+  commandId?: unknown
+  result?: { kind?: string; text?: string; sourceEventSeq?: number }
+}
+
+/**
+ * 宿主命令运行时(ctx.commands): 界面的斜杠命令与 /compact 都走这里。
+ *   list(agent)    → 该 agent 可见的命令(按 agent 作用域分层, 全局定义可被 scoped 覆盖)
+ *   execute(agent, line, attachments, signal) → 解析并执行一条 "/name args"; 不认识的返回 undefined
+ * 执行只写 command/run|done 日志事件, 不产生 turn, 也不进模型历史。
+ */
+export interface CommandServiceView {
+  list?: (agent: unknown) => readonly CommandDescriptorView[]
+  find?: (agent: unknown, name: string) => unknown
+  execute?: (
+    agent: unknown,
+    line: string,
+    attachments: readonly unknown[],
+    signal: AbortSignal,
+  ) => Promise<CommandExecutionView | undefined>
+}
+
+/** 取命令注册表(可选依赖; 缺席 = headless/无 commands 插件的部署) */
+export function commandsOf(ctx: Context): CommandServiceView | undefined {
+  return serviceOf<CommandServiceView>(ctx, 'commands')
+}
+
 /**
  * sessionController 的会话读/恢复入口(可选依赖, web profile 提供):
  *   inspect      非激活读取一个 live 或 persisted 会话的完整事件日志

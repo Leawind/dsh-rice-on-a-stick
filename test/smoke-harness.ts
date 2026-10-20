@@ -79,6 +79,7 @@ function makeAgent(id, cwd, options) {
       followups.push({ id, message })
       events.push({ type: 'user/message', data: { message } })
       events.push({ type: 'turn/start', data: { turn: 1 } })
+      events.push({ type: 'step/start', data: { turn: 1, step: 1 } })
       events.push({ type: 'tool/call', data: { name: 'bash', arguments: '{"command":"ls"}' } })
       events.push({ type: 'tool/result', data: { message: { content: [{ type: 'text', text: 'file-a file-b' }] } } })
       events.push({
@@ -91,6 +92,7 @@ function makeAgent(id, cwd, options) {
         type: 'assistant/message',
         data: { message: { content: [{ type: 'text', text: 'extra' }], usage: { inputTokens: 20, outputTokens: 15, totalTokens: 35 } } },
       })
+      events.push({ type: 'step/end', data: { turn: 1, step: 1 } })
       // 真实宿主每个 turn 都有 turn/end; session_result/poll 靠它判定收敛
       events.push({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
     },
@@ -98,7 +100,7 @@ function makeAgent(id, cwd, options) {
   }
 }
 
-const liveAgent = makeAgent('sess-live', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+export const liveAgent = makeAgent('sess-live', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 // liveSession2 带原生子代理谱系字段: 验证 session_list 投影 parentSession/origin/delegationDepth
 const liveSession2 = {
   id: 'sess-live2',
@@ -258,9 +260,19 @@ export const fakeSessionController = {
         meta: { version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' },
         inheritedEventCount: 0,
         events: [
+          { type: 'session/title', data: { title: 'Persisted Older' } },
           { type: 'request/header', data: { header: { config: { provider: 'p1', model: 'm1' } }, reason: 'initial' } },
+          // 路由容量(日志口径优先于 llm.resolveModelInfo): ratio 断言用
+          { type: 'request/context', data: { provider: 'p1', model: 'm1', contextWindow: 80000 } },
           { type: 'user/message', data: { message: { id: 'u-old', role: 'user', content: [{ type: 'text', text: 'earlier question' }] } } },
-          { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'earlier answer' }] } } },
+          {
+            type: 'assistant/message',
+            data: {
+              message: { content: [{ type: 'text', text: 'earlier answer' }] },
+              // 冷会话没有 tokenMeter(拿不到 session 对象): 上下文占用按这次 usage 估算
+              usage: { inputTokens: 900, cacheReadTokens: 100, outputTokens: 200, totalTokens: 1200 },
+            },
+          },
           { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
         ],
       }
@@ -316,6 +328,40 @@ export const fakeLlm = {
     if (provider === 'p2') throw new Error('catalog unavailable')
     return [{ provider, id: 'm1', name: 'Model One' }]
   },
+  // 路由容量(上下文占用算 ratio 用): 只对 p1/m1 声明, 其余返回空(验证"读不到就省略"分支)
+  resolveModelInfo: async (provider, model) => (provider === 'p1' && model === 'm1' ? { context: { contextWindow: 100000 } } : {}),
+}
+
+// tokenMeter 桩: 宿主测量服务的口径(totalTokens = 请求+回复压力); 记录被测量的会话 id
+export const fakeTokenMeter = {
+  measured: [],
+  measure: (session) => {
+    fakeTokenMeter.measured.push(String(session?.id ?? session?.header?.id ?? ''))
+    return { totalTokens: 12345, surfaceTokens: 12000 }
+  },
+}
+
+// 人面向命令注册表桩(ctx.commands): 与界面斜杠输入同源; execute 记录 line/attachments/signal
+export const commandCalls = []
+export const fakeCommands = {
+  list: () => [
+    { name: 'compact', description: 'Compact older conversation history' },
+    { name: 'goal', description: 'Manage the goal', input: { hint: '<show|create|pause|resume|complete|blocked>' } },
+  ],
+  find: () => undefined,
+  execute: async (agent, line, attachments, signal) => {
+    commandCalls.push({
+      agent: String(agent?.session?.id ?? agent?.id ?? ''),
+      line,
+      attachments: attachments?.length ?? 0,
+      aborted: signal?.aborted === true,
+    })
+    if (line.startsWith('/unknown')) return undefined
+    if (line === '/compact') {
+      return { commandId: 'cmd-compact', result: { kind: 'success', text: 'Compacted 3 history items (~120 tokens).', sourceEventSeq: 42 } }
+    }
+    return { commandId: 'cmd-usage', result: { kind: 'error', text: 'Usage: /compact (no arguments)' } }
+  },
 }
 
 /**
@@ -332,10 +378,12 @@ export function makeCtx(opts: {
   tools?: any
   workspaceController?: any
   configEditor?: any
+  tokenMeter?: any
+  commands?: any
   extraSessions?: { id: string; cwd?: string }[]
   extraPersisted?: { id: string; cwd?: string }[]
 } = {}): any {
-  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, extraSessions = [], extraPersisted = [] } = opts
+  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, tokenMeter = fakeTokenMeter, commands = fakeCommands, extraSessions = [], extraPersisted = [] } = opts
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
   const fakeSessions = {
@@ -409,6 +457,8 @@ export function makeCtx(opts: {
   const ctx = {
     tools,
     llm,
+    tokenMeter,
+    commands,
     sessionController,
     configEditor,
     // GUI 配置写入需要 fiber.entry; 只有提供 configEditor 的测试才模拟出条目
@@ -459,6 +509,8 @@ export function makeCtx(opts: {
           : name === 'approval' ? approvalService
             : name === 'subagents' ? fakeSubagents
 : name === 'tools' ? tools
+            : name === 'tokenMeter' ? tokenMeter
+            : name === 'commands' ? commands
             : name === 'agentDefaultModel' ? fakeAgentDefaultModel
               : name === 'sessionTitle' ? sessionTitle
                 : name === 'workspaceController' ? workspaceController

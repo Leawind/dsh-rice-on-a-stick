@@ -9,14 +9,14 @@ src/
   index.ts          插件导出与生命周期装配(配置、订阅枢纽、审批桥、原生工具、HTTP/GUI 挂载)
   core/             配置、进程内状态、跨模块纯类型、路径工具
   host/             宿主服务桥(bridge)与工具面/资源面共享的数据层(data)
-  session/          执行引擎、异步控制面、审批、投影、请求索引、原生工具注册
+  session/          执行引擎、异步控制面、审批、投影、请求索引、会话洞察(insight)、原生工具注册
   mcp/              Streamable HTTP、GUI 路由、工具/资源面、订阅枢纽、agent 认知面
   client/           设置面板源码(tsc 生成 client/client.js)
 docs/onboarding/    initialize 引导与 dsh_get_started 正文(Markdown，运行时读取)
 test/               冒烟、真机 e2e、UI harness
 ```
 
-依赖方向：`index → mcp / session / host → core`。`host/data` 被 `mcp/tools` 与 `mcp/resources` 共用；`session/projection` 与 `session/turn` 是纯函数，不反向依赖 MCP。工具注册按域拆分，`mcp/tools/index.ts` 只做装配，原生自用工具仍捕获同一份注册。
+依赖方向：`index → mcp / session / host → core`。`host/data` 被 `mcp/tools` 与 `mcp/resources` 共用；`session/projection`、`session/turn` 与 `session/insight` 都是纯函数式读取（insight 只折叠日志与可选测量服务，不激活会话），不反向依赖 MCP。工具注册按域拆分，`mcp/tools/index.ts` 只做装配，原生自用工具仍捕获同一份注册。
 
 ## 源码与构建产物
 

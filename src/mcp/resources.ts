@@ -296,7 +296,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     },
     complete: { sessionId: completeSessionIds(ctx) },
   }), {
-    title: 'Session metadata', description: 'One session\'s metadata (meta plus historyReadable; persisted-only sessions are readable too)',
+    title: 'Session metadata', description: 'One session\'s metadata (model/reasoning effort, preset, live state, turn/step counters, context occupancy, historyReadable; same data as session_meta; persisted-only sessions are readable too)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readSession(uri, vars))
 

@@ -1,14 +1,14 @@
 /**
- * MCP 工具注册入口(24 个 = 会话中心 11 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
- * + 目录/状态 5 + echo; resourceFirst 部署形态下只读面 8 个下线, 数据走 resources 面,
+ * MCP 工具注册入口(26 个 = 会话中心 12 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
+ * + 目录/状态 7(含 echo); resourceFirst 部署形态下只读面 9 个下线, 数据走 resources 面,
  * 但控制面工具必须保留)。
  *
  * 本文件只做装配, 具体工具按域拆分:
  *   catalog.ts         echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list /
  *                      model_list / subagent_list
  *   session-actions.ts session_create / prompt / submit / poll / result / cancel / queue /
- *                      select_model / rename / fork / archive
- *   session-read.ts    session_list / session_history / session_search(resourceFirst 下下线)
+ *                      command / select_model / rename / fork / archive
+ *   session-read.ts    session_list / session_meta / session_history / session_search(resourceFirst 下下线)
  *   approval.ts        approval_list / approval_answer / approval_policy
  *
  * 数据与资源面同源(host/data.ts): 同 collectSessions/sessionHistoryPayload 等实现、同一数据边界。

@@ -66,11 +66,17 @@ you already know.
    with `session_queue`; `session_cancel` stops the current turn and keeps the queue.
 4. **Change course mid-conversation** — `session_select_model` for a different model,
    `session_rename` for housekeeping, `session_fork` to branch a conversation,
-   `session_archive` to retire one (the UI's only "delete").
-5. **Find and inspect sessions** — `session_list` (optionally filtered by cwd),
-   `session_history` for recent turns (pass `roles` to keep only the turn types you
-   need, e.g. `["assistant"]` to skip tool noise), `session_search` to find sessions
-   by content.
+   `session_archive` to retire one (the UI's only "delete"), and `session_command` to
+   list and run the session's slash commands without sending them to the model (for
+   example `name: "compact"` runs `/compact`; it is idle-only and reports busy
+   otherwise). The command list comes from the host registry, so plugin commands appear
+   automatically.
+5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title;
+   `includeCold: true` also folds persisted-only sessions' titles, at the cost of one
+   log read per candidate), `session_meta` for model+reasoning effort, preset, live
+   state, turn/step counters and context occupancy, `session_history` for recent turns
+   (pass `roles` to keep only the turn types you need, e.g. `["assistant"]` to skip tool
+   noise), `session_search` to find sessions by content.
 6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
    `dsh://status[/config|/stats|/connections]`, `dsh://guide[/section]`, `dsh://tools`,
    `dsh://models[/{provider}]`, `dsh://presets`, `dsh://workspaces[/{id}]`,
@@ -144,3 +150,10 @@ client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
   answered, and the default `off` leaves every decision to the host/UI.
 - `subagent_list` is discovery only: it reads the host's child catalog and treats each
   child as a normal session. Starting native children remains a host/model-side tool.
+- `session_command` needs a live agent (`ctx.commands` is per agent): a persisted-only
+  session has no command list until it is prompted once. Execution is logged
+  (`command/run`/`command/done`) but creates no turn and never enters model history.
+- `session_meta` context occupancy prefers the host token meter; a persisted-only session
+  (or a deployment without the meter) falls back to the last logged request usage, and
+  the window comes from the newest `request/context` or the model route. Omit `sessionId`
+  only from native `carrot_` tools — an MCP call has no "current session".

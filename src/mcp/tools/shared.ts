@@ -53,3 +53,34 @@ export function uriNote(): { note: string } {
     note: 'data lives behind the resource uri (read it, or subscribe to be pushed updates); pass detail=summary|normal|full to inline the payload instead',
   }
 }
+
+/** 工具调用上下文(原生自用面额外带调用方 agent; MCP 面只有 signal) */
+export interface ToolCallContext {
+  signal?: AbortSignal
+  /** 宿主 agent 循环派发时给出的调用方 agent(native carrot_ 工具面) */
+  agent?: unknown
+}
+
+/** 从调用上下文读"当前会话": 原生工具面由 exec.agent 直接推出, MCP 面没有这个概念 */
+export function currentSessionIdOf(extra: ToolCallContext | undefined): string | undefined {
+  const agent = extra?.agent as { id?: unknown; session?: { id?: unknown; header?: { id?: unknown } } } | undefined
+  const id = agent?.session?.header?.id ?? agent?.session?.id ?? agent?.id
+  return typeof id === 'string' && id !== '' ? id : undefined
+}
+
+/**
+ * 解析工具的目标会话: 显式 sessionId 优先; 省略时只在原生工具面取调用方自己的会话。
+ * MCP 外部调用没有"当前会话", 省略即报错——不猜、不回落到某个默认会话。
+ */
+export function resolveSessionTarget(
+  sessionId: string | undefined,
+  extra?: ToolCallContext,
+): { sessionId: string } | { error: string } {
+  const explicit = sessionId?.trim()
+  if (explicit !== undefined && explicit !== '') return { sessionId: explicit }
+  const current = currentSessionIdOf(extra)
+  if (current !== undefined) return { sessionId: current }
+  return {
+    error: 'sessionId is required: this call carries no calling dsh session (omitting it works only for the native carrot_ tools running inside a session)',
+  }
+}

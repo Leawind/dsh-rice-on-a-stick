@@ -1,7 +1,7 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 24 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 26 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
@@ -34,6 +34,7 @@ import {
   archived,
   attachedIds,
   checks,
+  commandCalls,
   created,
   disposers,
   fakeLlm,
@@ -45,6 +46,7 @@ import {
   FAKE_CWD,
   innerOf,
   inspectedSessions,
+  liveAgent,
   makeCtx,
   mounted,
   openSse,
@@ -73,7 +75,7 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 carrot_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('carrot_'))
-  checks['原生自用工具: 默认注册全部 24 个(carrot_ 前缀)'] = nativeSchemas.length === 24
+  checks['原生自用工具: 默认注册全部 26 个(carrot_ 前缀)'] = nativeSchemas.length === 26
     && ['carrot_echo', 'carrot_session_create', 'carrot_session_prompt', 'carrot_dsh_status', 'carrot_session_archive']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
@@ -89,11 +91,30 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 24
+    && nativeStatusJson.stats?.selfTools === 26
   const nativeGuideDef = ctx.tools.get('carrot_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
   checks['原生自用工具: 入门指南补前缀提示'] = nativeGuideText.includes('carrot_') && nativeGuideText.includes('carrot_session_prompt')
+  // 原生面"当前会话": exec.agent 由宿主 agent 循环给出, 省略 sessionId 即落到调用方会话
+  const nativeMetaDef = ctx.tools.get('carrot_session_meta')
+  const nativeMetaValue = await nativeMetaDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
+  const nativeMetaJson = JSON.parse(nativeMetaDef.output.render({}, nativeMetaValue)[0]?.text ?? '{}')
+  checks['原生自用工具: session_meta 省略 sessionId 取当前会话'] = nativeMetaJson.sessionId === 'sess-live'
+    && nativeMetaJson.live === true && nativeMetaJson.model?.model === 'live-m'
+  const nativeCmdDef = ctx.tools.get('carrot_session_command')
+  const nativeCmdValue = await nativeCmdDef.execute({ action: 'list' }, { signal: new AbortController().signal, agent: liveAgent } as any)
+  const nativeCmdJson = JSON.parse(nativeCmdDef.output.render({}, nativeCmdValue)[0]?.text ?? '{}')
+  checks['原生自用工具: session_command 省略 sessionId 取当前会话'] = nativeCmdJson.sessionId === 'sess-live'
+    && nativeCmdJson.total === 2
+  // 没有调用方 agent(= MCP 面): 不猜会话, 明确报错
+  let nativeNoAgentError = ''
+  try {
+    await nativeMetaDef.execute({}, { signal: new AbortController().signal } as any)
+  } catch (e) {
+    nativeNoAgentError = String((e as Error)?.message ?? e)
+  }
+  checks['原生自用工具: 无 agent 上下文时省略 sessionId 明确报错'] = nativeNoAgentError.includes('sessionId is required')
 
   const init = await rpc(undefined, {
     jsonrpc: '2.0', id: 1, method: 'initialize',
@@ -112,9 +133,10 @@ try {
   const toolsArr: any[] = parsePayload(toolsList.text).result?.tools ?? []
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-    'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_list', 'session_history',
+    'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_list', 'session_meta',
+    'session_history',
     'session_search', 'session_fork', 'session_archive', 'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
-  checks['tools/list: 精确 24 个工具(会话中心 + 异步/审批/子代理)'] = toolNames.length === 24
+  checks['tools/list: 精确 26 个工具(会话中心 + 异步/审批/子代理)'] = toolNames.length === 26
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -334,6 +356,24 @@ try {
   const search = await rpc(init.sid, { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle' } } })
   checks['session_search 走宿主 search'] = searched.includes('needle')
     && search.status === 200 && JSON.stringify(innerOf(search)).includes('hit for needle')
+
+  // ── session_command(宿主 ctx.commands): list / run / 未知 / 非 live ──
+  const cmdList = await rpc(init.sid, { jsonrpc: '2.0', id: 47, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'list' } } })
+  const cmdListInner = innerOf(cmdList)
+  checks['session_command: 列出会话可用命令'] = cmdListInner.total === 2
+    && cmdListInner.commands?.some((c: any) => c.name === 'compact')
+  const cmdRun = await rpc(init.sid, { jsonrpc: '2.0', id: 48, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'compact' } } })
+  const cmdRunInner = innerOf(cmdRun)
+  checks['session_command: 执行 /compact 走命令注册表'] = cmdRunInner.ok === true
+    && String(cmdRunInner.result?.text ?? '').includes('Compacted')
+    && commandCalls.at(-1)?.line === '/compact' && commandCalls.at(-1)?.attachments === 0
+    && commandCalls.at(-1)?.agent === 'sess-live'
+  const cmdUnknown = await rpc(init.sid, { jsonrpc: '2.0', id: 49, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'unknown' } } })
+  checks['session_command: 未知命令明确报错'] = String(innerOf(cmdUnknown).error ?? '').includes('unknown command')
+  const cmdCold = await rpc(init.sid, { jsonrpc: '2.0', id: 491, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-persisted', action: 'list' } } })
+  checks['session_command: 非 live 会话明确拒绝'] = String(innerOf(cmdCold).error ?? '').includes('not live')
+  const cmdNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 492, method: 'tools/call', params: { name: 'session_command', arguments: { action: 'list' } } })
+  checks['session_command: MCP 面省略 sessionId 明确报错'] = String(innerOf(cmdNoId).error ?? '').includes('sessionId is required')
   checks['session_search 传取消信号(0.2.x Remote 契约)'] = searchSignals.length > 0 && searchSignals.every(Boolean)
 
   const fork = await rpc(init.sid, { jsonrpc: '2.0', id: 44, method: 'tools/call', params: { name: 'session_fork', arguments: { sessionId: 'sess-live', atSeq: 7 } } })
@@ -354,6 +394,43 @@ try {
   const live2Row = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
   checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live'
     && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
+  // 标题检索: live 标题在内存里; 冷会话默认不读日志, includeCold 才折叠
+  const slTitle = await rpc(init.sid, { jsonrpc: '2.0', id: 53, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live two' } } })
+  const slTitleInner = innerOf(slTitle)
+  checks['session_list: title 过滤大小写不敏感且不扫冷会话'] = slTitleInner.total === 1
+    && slTitleInner.sessions?.[0]?.sessionId === 'sess-live2'
+    && slTitleInner.titleSearch?.coldScanned === 0
+  const slColdOff = await rpc(init.sid, { jsonrpc: '2.0', id: 54, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older' } } })
+  checks['session_list: 默认不为标题读冷日志'] = innerOf(slColdOff).total === 0
+  const slColdOn = await rpc(init.sid, { jsonrpc: '2.0', id: 55, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true } } })
+  const slColdInner = innerOf(slColdOn)
+  checks['session_list: includeCold 折叠冷会话标题'] = slColdInner.total === 1
+    && slColdInner.sessions?.[0]?.sessionId === 'sess-persisted'
+    && slColdInner.sessions?.[0]?.title === 'Persisted Older'
+    && slColdInner.titleSearch?.coldScanned >= 1 && slColdInner.titleSearch?.coldTruncated === false
+  // 会话元信息: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志)
+  const metaLive = await rpc(init.sid, { jsonrpc: '2.0', id: 56, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } })
+  const metaLiveInner = innerOf(metaLive)
+  checks['session_meta: live 会话模型/状态/轮步'] = metaLiveInner.live === true && metaLiveInner.state === 'idle'
+    && metaLiveInner.model?.provider === 'live-p' && metaLiveInner.model?.model === 'live-m'
+    && metaLiveInner.turn?.started >= 1 && metaLiveInner.turn?.open === false
+    && metaLiveInner.step?.total >= 1 && metaLiveInner.step?.inCurrentTurn === 1 && metaLiveInner.step?.open === false
+  checks['session_meta: 上下文占用优先 tokenMeter'] = metaLiveInner.context?.tokens === 12345
+    && metaLiveInner.context?.source === 'tokenMeter'
+  const metaCold = await rpc(init.sid, { jsonrpc: '2.0', id: 57, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-persisted' } } })
+  const metaColdInner = innerOf(metaCold)
+  checks['session_meta: 冷会话按日志折标题/模型/轮数/上下文'] = metaColdInner.live === false
+    && metaColdInner.state === 'inactive' && metaColdInner.eventsReadable === true
+    && metaColdInner.title === 'Persisted Older' && metaColdInner.preset === 'reviewer'
+    && metaColdInner.model?.provider === 'p1' && metaColdInner.model?.model === 'm1'
+    && metaColdInner.turn?.completed === 1
+    && metaColdInner.context?.tokens === 1200 && metaColdInner.context?.contextWindow === 80000
+    && metaColdInner.context?.ratio === 0.015 && metaColdInner.context?.source === 'log'
+  const metaMissing = await rpc(init.sid, { jsonrpc: '2.0', id: 58, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-nope' } } })
+  checks['session_meta: 未知会话明确报错'] = String(innerOf(metaMissing).error ?? '').includes('session not found')
+  const metaNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'session_meta', arguments: {} } })
+  checks['session_meta: MCP 面省略 sessionId 明确报错'] = String(innerOf(metaNoId).error ?? '').includes('sessionId is required')
+
   const sh = await rpc(init.sid, { jsonrpc: '2.0', id: 51, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'] } } })
   checks['session_history 按 roles 取轮次'] = JSON.stringify(innerOf(sh)).includes('"role":"assistant"')
     && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
@@ -380,6 +457,8 @@ try {
     ? JSON.parse(parsePayload(readPersistedMeta.text).result?.contents?.[0]?.text ?? '{}')
     : {}
   checks['资源 dsh://sessions/{id} 冷会话 historyReadable'] = persistedMeta.historyReadable === true
+  checks['资源 dsh://sessions/{id} 携带轮数/上下文'] = persistedMeta.turn?.completed === 1
+    && persistedMeta.context?.tokens === 1200
   const readStatus = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'resources/read', params: { uri: 'dsh://status' } })
   checks['资源 dsh://status 总览'] = readStatus.status === 200
   // 资源不存在 → McpError(-32602), 不返回空 contents
@@ -447,13 +526,13 @@ try {
     const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const phase = await startPhase(8091, resourceCtx, { resourceFirst: true })
     const names = await phase.toolNames()
-    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_history', 'session_search']
+    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_meta', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive',
       'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 24 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('carrot_')).length === 24
+    checks['原生自用工具: resourceFirst 不影响原生 26 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('carrot_')).length === 26
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
