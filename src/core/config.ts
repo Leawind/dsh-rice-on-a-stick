@@ -185,19 +185,19 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
  * (ValidationError 直接拒载)。default 一律取自 DEFAULTS/apply 内联默认(单一来源)。
  */
 export const Config = Schema.object({
-  http: Schema.boolean().default(true).description('是否启动 HTTP MCP server(显式 false 时不监听, 仅保留生命周期钩子)'),
-  port: Schema.number().default(8090).description('MCP 监听端口'),
-  host: Schema.string().default('127.0.0.1').description('MCP 监听地址(安全默认仅本机; 暴露公网/局域网前必须自行加认证+反代+TLS)'),
+  http: Schema.boolean().default(true).description('Start the HTTP MCP server (explicit false disables listening; lifecycle hooks remain).'),
+  port: Schema.number().default(8090).description('MCP listen port.'),
+  host: Schema.string().default('127.0.0.1').description('MCP listen address (safe default: loopback only; add auth + reverse proxy + TLS before exposing to LAN/WAN).'),
   // 以下六个界面可改的字段标 volatile: 写配置时 Loader 就地提交引用, 不重载插件(界面改动零阻塞)
-  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).volatile().description('模型白名单(provider/model 形式)。启用(allowedModelsEnabled)且非空时: session_create/session_select_model 指定的模型不在名单内, 请求会被明确拒绝'),
-  allowedModelsEnabled: Schema.boolean().volatile().description('模型白名单开关。关闭 = 暂时不限制, 清单原样保留(重新开启即恢复约束); 缺省按"清单非空即启用"推导'),
-  defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).volatile().description('结果默认详略级别(单次调用可用 detail 参数覆盖)'),
-  authToken: Schema.string().default(DEFAULTS.authToken).role('secret').volatile().description('Bearer token(启用认证时所有请求必须带 Authorization: Bearer <token>)'),
-  authEnabled: Schema.boolean().volatile().description('认证开关。关闭 = 暂不校验, 令牌原样保留(重新开启即恢复校验); 缺省按"已配置令牌即启用"推导'),
-  selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('本实例自用工具: 把同一工具面注册为宿主原生工具, 本 dsh 的会话无需 MCP 客户端即可直接调用; 关闭 = 只保留对外 MCP 服务(原生工具不经 HTTP/认证)'),
-  allowedHosts: Schema.array(Schema.string()).default([]).description('Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名)'),
-  sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('MCP 传输会话空闲 TTL 毫秒数(0 = 永不淘汰; 超时会话被关闭, 客户端按规范重新 initialize)'),
-  resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('资源优先形态(true 时只读工具面下线, 数据一律经 MCP resources 面读取)'),
-  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('审批接管模式: off=只读展示; fallback=界面优先、无人可答时交给 MCP; exclusive=直接扣给 MCP(界面不再显示)'),
-  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('审批被扣住后等待 MCP 回答的上限毫秒数(默认 120000; 超时失败关闭)'),
+  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).volatile().description('Model allowlist in "provider/model" form. When enabled (allowedModelsEnabled) and non-empty, session_create/session_select_model reject models outside the list.'),
+  allowedModelsEnabled: Schema.boolean().volatile().description('Model allowlist switch. Off = temporarily unrestricted, the list is kept (turning it back on restores the constraint); defaults to "enabled when the list is non-empty".'),
+  defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).volatile().description('Default result detail level (per-call detail overrides it).'),
+  authToken: Schema.string().default(DEFAULTS.authToken).role('secret').volatile().description('Bearer token (when auth is enabled, every request must send Authorization: Bearer <token>).'),
+  authEnabled: Schema.boolean().volatile().description('Auth switch. Off = do not verify, the token is kept (turning it back on restores verification); defaults to "enabled when a token is configured".'),
+  selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).'),
+  allowedHosts: Schema.array(Schema.string()).default([]).description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases).'),
+  sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('Idle TTL for MCP transport sessions in milliseconds (0 = never reap; expired sessions are closed and the client re-initializes per spec).'),
+  resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('Resource-first mode (true = read-only tools are not registered; data is read through the MCP resources surface).'),
+  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Approval takeover mode: off = read-only display; fallback = UI first, hand over to MCP when nobody can answer; exclusive = park approvals for MCP only (the UI no longer shows them).'),
+  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('Maximum wait for an MCP answer after an approval is parked, in milliseconds (default 120000; timeout fails closed).'),
 })
