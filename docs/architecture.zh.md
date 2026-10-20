@@ -34,6 +34,7 @@ test/               冒烟、真机 e2e、UI harness
 6.  **审批失败关闭（`src/session/approvals.ts`）**：默认 `off`；`fallback` 仅在宿主 answerer 返回 `unavailable` 后接手，`exclusive` 才直接接管。没有决定绝不放行；只接管本插件创建或续接过的会话。
 7.  **Agent 认知面（`src/mcp/onboarding.ts` + `docs/onboarding/`）**：initialize instructions 与 `dsh_get_started` 正文都是英文产品文本，放在 Markdown；加载器在导入期校验节齐全，缺文件/缺节直接让插件启动失败，不静默下发空指南。
 8.  **语言一致性（`src/mcp/tools/` / `src/mcp/resources.ts`）**：面向 MCP 客户端的 title、description、参数说明与资源说明统一用英语，与 dsh 自带工具一致；smoke 中有反向断言，混入中文会失败。宿主配置 schema 的说明面向部署方，保持中文。
+9.  **设置面板与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、面板控件、GUI 写入白名单（`parseGuiConfigValues`）——否则面板与服务端会静默分叉。结构性字段写入后重载插件并回 `reloading: true`，volatile 字段就地提交。
 
 ## 测试
 

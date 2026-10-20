@@ -87,6 +87,14 @@ interface DshModuleSpec {
       selfToolsOn: c.selfToolsEnabled !== false,
       host: typeof c.host === 'string' && c.host ? c.host : '127.0.0.1',
       port: typeof c.port === 'number' ? c.port : 8090,
+      // 结构性字段(改动会重载插件): 与 Config 一一对应, 面板不得遗漏任何一项
+      httpOn: c.http !== false,
+      resourceFirst: c.resourceFirst === true,
+      approvalControl: c.approvalControl === 'fallback' || c.approvalControl === 'exclusive' ? c.approvalControl : 'off',
+      approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : 120000,
+      sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : 86400000,
+      allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
+      hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
     };
   }
 
@@ -120,6 +128,24 @@ interface DshModuleSpec {
       'service.offHint': '配置 http:false 已禁用外部 MCP。',
       'self.title': '将工具注册到本dsh实例',
       'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
+      'http.title': '外部 MCP 监听',
+      'http.hint': '关闭后不监听端口，仅保留生命周期钩子（改此项会重载插件）',
+      'resource.title': '资源优先形态',
+      'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取（改此项会重载插件）',
+      'approval.title': '审批接管模式',
+      'approval.hint': 'off 只读展示；fallback 界面优先、无人应答时接管；exclusive 直接接管（改此项会重载插件）',
+      'approval.off': '关闭（只读展示）',
+      'approval.fallback': '界面优先，无人应答时接管',
+      'approval.exclusive': '仅由 MCP 接管',
+      'approvalTimeout.title': '审批接管等待上限',
+      'approvalTimeout.hint': '毫秒，1000-600000；被接管后超时按失败关闭处理（改此项会重载插件）',
+      'approvalTimeout.invalid': '等待上限必须是 1000-600000 之间的数字。',
+      'ttl.title': 'MCP 传输会话空闲上限',
+      'ttl.hint': '毫秒，0 表示永不淘汰（改此项会重载插件）',
+      'ttl.invalid': '空闲上限必须是不小于 0 的数字。',
+      'hosts.title': 'Host 头白名单',
+      'hosts.hint': '额外放行的主机名，逗号或空格分隔（改此项会重载插件）',
+      'hosts.invalid': '主机名不合法：{h}',
       'listen.title': '监听地址与端口',
       'listen.apply': '应用',
       'listen.reloading': '正在应用并重载插件…',
@@ -177,6 +203,24 @@ interface DshModuleSpec {
       'service.offHint': 'External MCP is disabled by config (http: false).',
       'self.title': 'Register tools into this dsh instance',
       'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
+      'http.title': 'External MCP listener',
+      'http.hint': 'Off: no listening socket, lifecycle hooks remain (reloads the plugin).',
+      'resource.title': 'Resource-first mode',
+      'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources (reloads the plugin).',
+      'approval.title': 'Approval takeover',
+      'approval.hint': 'off: display only; fallback: UI first, MCP when nobody answers; exclusive: MCP only (reloads the plugin).',
+      'approval.off': 'Off (display only)',
+      'approval.fallback': 'UI first, MCP when nobody answers',
+      'approval.exclusive': 'MCP only',
+      'approvalTimeout.title': 'Approval wait limit',
+      'approvalTimeout.hint': 'Milliseconds, 1000-600000; a parked approval times out as failure-closed (reloads the plugin).',
+      'approvalTimeout.invalid': 'The wait limit must be a number between 1000 and 600000.',
+      'ttl.title': 'MCP transport idle TTL',
+      'ttl.hint': 'Milliseconds, 0 = never reap (reloads the plugin).',
+      'ttl.invalid': 'The idle TTL must be a number >= 0.',
+      'hosts.title': 'Host header allowlist',
+      'hosts.hint': 'Extra hostnames, comma or space separated (reloads the plugin).',
+      'hosts.invalid': 'Invalid hostname: {h}',
       'listen.title': 'Listen address and port',
       'listen.apply': 'Apply',
       'listen.reloading': 'Applying and reloading…',
@@ -380,6 +424,8 @@ interface DshModuleSpec {
     const savingRef = React.useRef(false);
     // 监听地址/端口有未应用的编辑: 轮询刷新也不覆盖, 否则用户输入会被 10 秒轮询重置
     const listenDirtyRef = React.useRef(false);
+    // 其它结构性字段(审批等待上限/TTL/Host 白名单)的未应用编辑: 同样不被轮询覆盖
+    const structDirtyRef = React.useRef(false);
     const [cfgError, setCfgError] = React.useState('');
     // 监听地址/端口: 结构性保存的局部错误与忙碌状态
     const [listenError, setListenError] = React.useState('');
@@ -399,7 +445,7 @@ interface DshModuleSpec {
         const fresh = draftFromStatus(s);
         setForm(function (prev) {
           // 保存排队/在途或监听地址有未应用编辑时保留乐观草稿; 排空后以服务端生效值为准
-          if (prev !== null && (savingRef.current || listenDirtyRef.current)) return prev;
+          if (prev !== null && (savingRef.current || listenDirtyRef.current || structDirtyRef.current)) return prev;
           draftRef.current = fresh;
           return { draft: fresh, base: fresh };
         });
@@ -528,6 +574,7 @@ interface DshModuleSpec {
         savingRef.current = false;
         setListenBusy(false);
         listenDirtyRef.current = false;
+        structDirtyRef.current = false;
       }
       await refresh();
       setListenBusy(false);
@@ -541,6 +588,46 @@ interface DshModuleSpec {
       setDraft(next);
       setListenError('');
       listenDirtyRef.current = String(next.host || '').trim() !== currentHost || Number(next.port) !== currentPort;
+    }
+
+    /** 草稿里其它结构性字段(数字/主机名清单)是否与生效值不同: 用于启用"应用"并按需保留草稿 */
+    function structDirtyOf(draft) {
+      const c = (state && state.config) || {};
+      const hostsText = function (list) {
+        return (Array.isArray(list) ? list : []).map(function (v) { return String(v).trim(); }).filter(Boolean).join(',');
+      };
+      const nowHosts = hostsText(c.allowedHosts);
+      return String(draft.approvalTimeoutMs) !== String(typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : 120000)
+        || String(draft.sessionTtlMs) !== String(typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : 86400000)
+        || hostsText(String(draft.hostsText || '').split(/[\s,]+/)) !== nowHosts;
+    }
+
+    /** 其它结构性字段: 只改草稿, 点"应用"才写(同样会重载插件) */
+    function setStruct(patch) {
+      if (!form) return;
+      const base = draftRef.current || form.draft;
+      const next = Object.assign({}, base, patch);
+      setDraft(next);
+      setListenError('');
+      structDirtyRef.current = structDirtyOf(next);
+    }
+
+    /** 结构性字段提交(会重载插件): 与监听地址走同一条等待重载的路径 */
+    function saveStruct(values) {
+      if (!form || listenBusy) return;
+      setListenError('');
+      setListenBusy(true);
+      structDirtyRef.current = false;
+      enqueue({ values: values }, true);
+    }
+
+    /** 开关/下拉类的结构性字段: 乐观显示 + 立即提交(会重载插件) */
+    function changeStruct(draftPatch, values) {
+      if (!form || listenBusy) return;
+      const base = draftRef.current || form.draft;
+      setDraft(Object.assign({}, base, draftPatch));
+      setListenBusy(true);
+      enqueue({ values: values }, true);
     }
 
     function applyListen() {
@@ -570,6 +657,11 @@ interface DshModuleSpec {
     const currentHost = typeof cfg.host === 'string' && cfg.host ? cfg.host : '127.0.0.1';
     const currentPort = typeof cfg.port === 'number' ? cfg.port : 8090;
     const listenDirty = !!d && (String(d.host || '').trim() !== currentHost || Number(d.port) !== currentPort);
+    // 其它结构性字段的未应用改动(应用按钮的可用态); 生效值缺失时用默认值比较
+    const timeoutDirty = !!d && Number(d.approvalTimeoutMs) !== Number(typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : 120000);
+    const ttlDirty = !!d && Number(d.sessionTtlMs) !== Number(typeof cfg.sessionTtlMs === 'number' ? cfg.sessionTtlMs : 86400000);
+    const hostsDirty = !!d && String(d.hostsText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean).join(',')
+      !== (Array.isArray(cfg.allowedHosts) ? cfg.allowedHosts : []).join(',');
 
     // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
     const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
@@ -612,6 +704,16 @@ interface DshModuleSpec {
           control: React.createElement(Switch, {
             checked: d.selfToolsOn,
             onChange: function (v) { change({ selfToolsOn: v }); },
+          }),
+        }),
+        React.createElement(Row, {
+          label: t('http.title'),
+          hint: t('http.hint'),
+          control: React.createElement(Switch, {
+            checked: d.httpOn,
+            disabled: listenBusy,
+            label: t('http.title'),
+            onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
           }),
         }),
         React.createElement(Row, {
@@ -685,6 +787,16 @@ interface DshModuleSpec {
             React.createElement('option', { value: 'summary' }, t('detail.summary')),
             React.createElement('option', { value: 'normal' }, t('detail.normal')),
             React.createElement('option', { value: 'full' }, t('detail.full'))),
+        }),
+        React.createElement(Row, {
+          label: t('resource.title'),
+          hint: t('resource.hint'),
+          control: React.createElement(Switch, {
+            checked: d.resourceFirst,
+            disabled: listenBusy,
+            label: t('resource.title'),
+            onChange: function (v) { changeStruct({ resourceFirst: v }, { resourceFirst: v }); },
+          }),
         }),
         React.createElement(Row, {
           label: t('service.title'),
@@ -786,6 +898,103 @@ interface DshModuleSpec {
               ),
             )
           : null,
+        React.createElement(Row, {
+          label: t('approval.title'),
+          hint: t('approval.hint'),
+          control: React.createElement('select', {
+            className: 'dcs-input',
+            value: d.approvalControl,
+            disabled: listenBusy,
+            onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
+          },
+            React.createElement('option', { value: 'off' }, t('approval.off')),
+            React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
+            React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
+        }),
+        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
+          React.createElement('div', { className: 'dcs-labels' },
+            React.createElement('span', { className: 'dcs-label' }, t('approvalTimeout.title')),
+            React.createElement('span', { className: 'dcs-sub' }, t('approvalTimeout.hint')),
+          ),
+          React.createElement('div', { className: 'dcs-listenrow' },
+            React.createElement('input', {
+              className: 'dcs-input dcs-input-port',
+              type: 'number',
+              min: 1000,
+              max: 600000,
+              step: 1000,
+              value: d.approvalTimeoutMs,
+              disabled: listenBusy,
+              onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
+            }),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dcs-btn',
+              disabled: listenBusy || !timeoutDirty,
+              onClick: function () {
+                const n = Number((draftRef.current || form.draft).approvalTimeoutMs);
+                if (!Number.isFinite(n) || n < 1000 || n > 600000) { setListenError(t('approvalTimeout.invalid')); return; }
+                saveStruct({ approvalTimeoutMs: Math.round(n) });
+              },
+            }, t('listen.apply')),
+          ),
+        ),
+        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
+          React.createElement('div', { className: 'dcs-labels' },
+            React.createElement('span', { className: 'dcs-label' }, t('ttl.title')),
+            React.createElement('span', { className: 'dcs-sub' }, t('ttl.hint')),
+          ),
+          React.createElement('div', { className: 'dcs-listenrow' },
+            React.createElement('input', {
+              className: 'dcs-input dcs-input-port',
+              type: 'number',
+              min: 0,
+              step: 60000,
+              value: d.sessionTtlMs,
+              disabled: listenBusy,
+              onChange: function (e) { setStruct({ sessionTtlMs: e.target.value }); },
+            }),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dcs-btn',
+              disabled: listenBusy || !ttlDirty,
+              onClick: function () {
+                const n = Number((draftRef.current || form.draft).sessionTtlMs);
+                if (!Number.isFinite(n) || n < 0) { setListenError(t('ttl.invalid')); return; }
+                saveStruct({ sessionTtlMs: Math.round(n) });
+              },
+            }, t('listen.apply')),
+          ),
+        ),
+        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
+          React.createElement('div', { className: 'dcs-labels' },
+            React.createElement('span', { className: 'dcs-label' }, t('hosts.title')),
+            React.createElement('span', { className: 'dcs-sub' }, t('hosts.hint')),
+          ),
+          React.createElement('div', { className: 'dcs-listenrow' },
+            React.createElement('input', {
+              className: 'dcs-input dcs-input-host',
+              type: 'text',
+              value: d.hostsText,
+              placeholder: 'example.com, 192.168.1.5',
+              spellCheck: false,
+              disabled: listenBusy,
+              onChange: function (e) { setStruct({ hostsText: e.target.value }); },
+            }),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dcs-btn',
+              disabled: listenBusy || !hostsDirty,
+              onClick: function () {
+                const text = String((draftRef.current || form.draft).hostsText || '');
+                const entries = text.split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+                const bad = entries.find(function (s) { return !/^[A-Za-z0-9._:-]+$/.test(s); });
+                if (bad) { setListenError(t('hosts.invalid', { h: bad })); return; }
+                saveStruct({ allowedHosts: entries });
+              },
+            }, t('listen.apply')),
+          ),
+        ),
         cfgError ? React.createElement('div', { className: 'dcs-savebar' },
           React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
         ) : null,

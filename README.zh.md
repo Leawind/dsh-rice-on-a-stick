@@ -81,7 +81,7 @@ dsh plugin --profile web add link:"$(pwd)"
 
 ## 配置
 
-字段与默认值声明在 `src/core/config.ts`——唯一事实来源。常用字段可在设置面板编辑（volatile：就地保存、不重载插件，MCP 连接不断）；监听地址与端口是结构性字段，点“应用”后重载插件。传输覆盖写在 profile 的 `cordis.patch.yml`：
+字段与默认值声明在 `src/core/config.ts`——唯一事实来源。设置面板逐项覆盖**全部**配置字段（不允许遗漏）：volatile 字段就地保存、不重载插件，MCP 连接不断；其余结构性字段（监听地址与端口、外部 MCP 开关、资源优先形态、审批接管与等待上限、传输空闲上限、Host 头白名单）点“应用”后重载插件。传输覆盖写在 profile 的 `cordis.patch.yml`：
 
 ```yaml
 - id: dsh-carrot-on-a-stick

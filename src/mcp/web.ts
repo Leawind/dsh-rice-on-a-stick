@@ -151,12 +151,26 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是结构性字段, 写入后重载) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
-/** 布尔字段(模型白名单/认证/本实例自用工具的开关; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled'])
+/** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先; 关闭均不清除对应值) */
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
-const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
+const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1, approvalTimeoutMs: 1000 }
+/** 数字字段 → 上限(与 config.ts / apply 的钳制保持一致) */
+const GUI_NUMBER_MAX: Record<string, number> = { approvalTimeoutMs: 600_000, port: 65535 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
 const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
+/** approvalControl 合法枚举(与 config.ts schema 一致) */
+const GUI_APPROVAL_VALUES = new Set(['off', 'fallback', 'exclusive'])
+/** 字符串数组字段(Host 头白名单) */
+const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
+/**
+ * volatile 字段(Config schema 上带 volatile 标记): 写入后 Loader 就地提交引用, 插件不重载。
+ * 其余字段(engine 级: 监听地址/端口/外部 MCP/资源优先/审批接管/传输 TTL/Host 白名单)会让插件重载,
+ * 面板据此等待重载完成再刷新。
+ */
+const GUI_VOLATILE_FIELDS = new Set([
+  'allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled',
+])
 
 /** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
 function isValidListenHost(host: string): boolean {
@@ -187,14 +201,29 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
     } else if (key in GUI_NUMBER_MIN) {
       const n = typeof value === 'number' ? value : Number(value)
       const min = GUI_NUMBER_MIN[key]
+      const max = GUI_NUMBER_MAX[key]
       if (!Number.isFinite(n) || n < min) throw httpError(400, `${key} 必须是不小于 ${min} 的数字`)
-      if (key === 'port' && (!Number.isInteger(n) || n > 65535)) throw httpError(400, 'port 必须是 1-65535 的整数')
+      if (max !== undefined && n > max) throw httpError(400, `${key} 必须是不大于 ${max} 的数字`)
+      if (key === 'port' && !Number.isInteger(n)) throw httpError(400, 'port 必须是 1-65535 的整数')
       out[key] = n
     } else if (key === 'defaultDetail') {
       if (typeof value !== 'string' || !GUI_DETAIL_VALUES.has(value)) {
         throw httpError(400, 'defaultDetail 必须是 summary/normal/full 之一')
       }
       out[key] = value
+    } else if (key === 'approvalControl') {
+      if (typeof value !== 'string' || !GUI_APPROVAL_VALUES.has(value)) {
+        throw httpError(400, 'approvalControl 必须是 off/fallback/exclusive 之一')
+      }
+      out[key] = value
+    } else if (GUI_STRING_ARRAY_FIELDS.has(key)) {
+      if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+        throw httpError(400, `${key} 必须是字符串数组`)
+      }
+      const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
+      const bad = entries.find((s) => !isValidListenHost(s))
+      if (bad !== undefined) throw httpError(400, `${key} 条目必须是合法主机名: ${bad}`)
+      out[key] = [...new Set(entries)]
     } else if (key === 'allowedModels') {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
         throw httpError(400, 'allowedModels 必须是字符串数组')
@@ -264,7 +293,10 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     // selfToolsEnabled 是 volatile: Loader 不重载插件, 这里立即同步原生工具注册。
     // 事件监听也覆盖手工编辑配置的路径; 显式再 call 一次让面板点击没有轮询延迟。
     deps.onConfigCommitted(nextValues)
-    return wantsListen ? { updated: true, reloading: true } : { updated: true }
+    // 非 volatile 字段(监听地址/端口/外部 MCP/资源优先/审批接管/TTL/Host 白名单)会重载插件:
+    // 面板据此等待重载完成再刷新, 避免读到旧值
+    const reloading = Object.keys(nextValues).some((k) => !GUI_VOLATILE_FIELDS.has(k))
+    return reloading ? { updated: true, reloading: true } : { updated: true }
   }
 
   const WEB_ROUTES: Record<string, (body: unknown) => unknown> = {

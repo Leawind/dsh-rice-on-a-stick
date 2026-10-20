@@ -81,7 +81,7 @@ New sessions require explicit `provider` + `model` + `preset` from `model_list` 
 
 ## Configuration
 
-Fields and defaults live in `src/core/config.ts` — the single source of truth. Common fields are editable in the settings panel (volatile: saved in place without reloading, MCP connections stay up); the listen address and port are structural and reload the plugin via **Apply**. Transport overrides go into the profile's `cordis.patch.yml`:
+Fields and defaults live in `src/core/config.ts` — the single source of truth. The settings panel covers **every** config field (no omissions): volatile fields are saved in place without reloading (MCP connections stay up); the structural ones (listen address and port, external MCP switch, resource-first mode, approval takeover and wait limit, transport idle TTL, Host header allowlist) apply with **Apply** and reload the plugin. Transport overrides go into the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: dsh-carrot-on-a-stick

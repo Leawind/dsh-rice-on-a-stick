@@ -85,12 +85,17 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       config: {
         host,
         port,
+        // 外部 MCP 开关是装载期值(config.http), 其余字段是运行时视图: 与设置面板逐项一一对应
+        http: config.http !== false,
         allowedModels: state.config.allowedModels,
         allowedModelsEnabled: state.config.allowedModelsEnabled,
+        allowedHosts: config.allowedHosts ?? [],
         defaultDetail: state.config.defaultDetail,
         authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
         selfToolsEnabled: state.config.selfToolsEnabled,
+        resourceFirst: state.config.resourceFirst,
+        sessionTtlMs: state.config.sessionTtlMs,
         approvalControl: state.config.approvalControl,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
       },

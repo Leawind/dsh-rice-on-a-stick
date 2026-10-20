@@ -18,6 +18,7 @@
  * 测试是普通 TypeScript, node test/smoke.ts 直跑(Node 原生 type stripping, 需 Node ≥ 23.6)。
  */
 import { EventEmitter } from 'node:events'
+import { createServer } from 'node:net'
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
@@ -671,6 +672,11 @@ try {
       && typeof stBody.config?.defaultDetail === 'string'
       && typeof stBody.stats?.connections === 'number' && Array.isArray(stBody.connections)
     checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === 8087
+    // 面板与 Config 完全对应: status 必须回显每个配置项(令牌只回掩码 hint, 不在此列)
+    checks['GUI 路由: status 配置项覆盖面板全部字段'] = [
+      'http', 'host', 'port', 'allowedModels', 'allowedModelsEnabled', 'allowedHosts', 'defaultDetail',
+      'authEnabled', 'selfToolsEnabled', 'resourceFirst', 'sessionTtlMs', 'approvalControl', 'approvalTimeoutMs',
+    ].every((k) => k in (stBody.config ?? {}))
     // 连接列表: 最新连接排最前(面板与 status/connections 资源同序)
     await new Promise((r) => setTimeout(r, 5))
     const second = await phase.initialize()
@@ -685,7 +691,7 @@ try {
     const modelsRoute = await phase.gui('models')
     checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200
       && modelsRoute.body.includes('Provider One')
-    const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { allowedHosts: ['x'] } }) })
+    const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { bogusKey: 1 } }) })
     checks['GUI 路由: config-update 白名单外字段 400'] = cfgBadField.status === 400
     const cfgBadHost = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { host: '   ' } }) })
     checks['GUI 路由: host 空值 400'] = cfgBadHost.status === 400
@@ -694,7 +700,7 @@ try {
     const cfgBadPortZero = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { port: 0 } }) })
     checks['GUI 路由: port 0 被拒'] = cfgBadPortZero.status === 400
     // 桌面 shell: 页面 origin 是 dsh-app://, 与 HTTP Host 不同; Fetch Metadata 同源时必须放行
-    const badBody = JSON.stringify({ values: { allowedHosts: ['x'] } })
+    const badBody = JSON.stringify({ values: { bogusKey: 1 } })
     const cfgDesktop = await phase.gui('config-update', { headers: { origin: 'dsh-app://dsh', 'sec-fetch-site': 'same-origin' }, body: badBody })
     checks['GUI 路由: 桌面 dsh-app origin + same-origin 放行'] = cfgDesktop.status === 400
     const cfgDesktopNoMeta = await phase.gui('config-update', { headers: { origin: 'dsh-app://dsh' }, body: badBody })
@@ -753,7 +759,71 @@ try {
       && JSON.parse(cfgListen.body).reloading === true
     checks['GUI 路由: host/port 写入值正确'] = edits.length === 1
       && edits[0].host === '0.0.0.0' && edits[0].port === 8096
+    // 面板与 Config 一一对应: 每个结构性字段都必须能写(并标记重载), 且校验与 schema 同向
+    const guiPut = (values: Record<string, unknown>) => phase.gui('config-update', {
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values }),
+    })
+    const before = edits.length
+    const cfgApproval = await guiPut({ approvalControl: 'exclusive' })
+    checks['GUI 路由: approvalControl 写入并标记重载'] = cfgApproval.status === 200
+      && JSON.parse(cfgApproval.body).reloading === true
+      && edits.length === before + 1 && edits[edits.length - 1].approvalControl === 'exclusive'
+    const cfgApprovalBad = await guiPut({ approvalControl: 'sometimes' })
+    checks['GUI 路由: approvalControl 非法枚举 400'] = cfgApprovalBad.status === 400
+    const cfgTimeout = await guiPut({ approvalTimeoutMs: 5000 })
+    checks['GUI 路由: approvalTimeoutMs 写入并标记重载'] = cfgTimeout.status === 200
+      && JSON.parse(cfgTimeout.body).reloading === true
+      && edits[edits.length - 1].approvalTimeoutMs === 5000
+    const cfgTimeoutLow = await guiPut({ approvalTimeoutMs: 500 })
+    checks['GUI 路由: approvalTimeoutMs 低于下限 400'] = cfgTimeoutLow.status === 400
+    const cfgTimeoutHigh = await guiPut({ approvalTimeoutMs: 700000 })
+    checks['GUI 路由: approvalTimeoutMs 高于上限 400'] = cfgTimeoutHigh.status === 400
+    const cfgTtl = await guiPut({ sessionTtlMs: 0 })
+    checks['GUI 路由: sessionTtlMs 写入(0 = 永不淘汰)并标记重载'] = cfgTtl.status === 200
+      && JSON.parse(cfgTtl.body).reloading === true && edits[edits.length - 1].sessionTtlMs === 0
+    const cfgHosts = await guiPut({ allowedHosts: ['example.com', '192.168.1.5', ' example.com '] })
+    checks['GUI 路由: allowedHosts 去重写入并标记重载'] = cfgHosts.status === 200
+      && JSON.parse(cfgHosts.body).reloading === true
+      && JSON.stringify(edits[edits.length - 1].allowedHosts) === JSON.stringify(['example.com', '192.168.1.5'])
+    const cfgHostsBad = await guiPut({ allowedHosts: ['bad host/name'] })
+    checks['GUI 路由: allowedHosts 非法主机名 400'] = cfgHostsBad.status === 400
+    const cfgHttp = await guiPut({ http: false })
+    checks['GUI 路由: http 开关写入并标记重载'] = cfgHttp.status === 200
+      && JSON.parse(cfgHttp.body).reloading === true && edits[edits.length - 1].http === false
+    const cfgResource = await guiPut({ resourceFirst: true })
+    checks['GUI 路由: resourceFirst 写入并标记重载'] = cfgResource.status === 200
+      && JSON.parse(cfgResource.body).reloading === true && edits[edits.length - 1].resourceFirst === true
+    // volatile 字段只就地提交, 不重载(面板据此不做重载等待)
+    const cfgVolatile = await guiPut({ defaultDetail: 'full', selfToolsEnabled: true })
+    checks['GUI 路由: volatile 字段不标记重载'] = cfgVolatile.status === 200
+      && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].defaultDetail === 'full'
     await phase.dispose()
+  }
+
+  // ── Phase F3: http:false(外部 MCP 关闭态)——不监听, 但 GUI 控制面仍可用 ──
+  {
+    const ctx = makeCtx({ llm: fakeLlm })
+    const parsed = ConfigSchema({ port: 8089, host: '127.0.0.1', http: false }) as any
+    await apply(ctx, parsed)
+    await new Promise((r) => setTimeout(r, 150))
+    const st = await guiRequest(ctx, 'status')
+    const body = JSON.parse(st.body)
+    checks['http:false: 不监听, 面板仍可读配置'] = body.httpEnabled === false
+      && body.listening === false && body.config.http === false
+    const start = await guiRequest(ctx, 'start', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
+    checks['http:false: start 明确拒绝并说明原因'] = start.status === 200
+      && JSON.parse(start.body).started === false
+      && String(JSON.parse(start.body).error).includes('http disabled')
+    // 端口确实没有被占用: 用一次性 listen 试探(成功即说明插件没监听)
+    await new Promise<void>((resolveProbe) => {
+      const probe = createServer()
+      probe.once('error', () => { checks['http:false: 端口确实未监听'] = false; resolveProbe() })
+      probe.once('listening', () => { probe.close(() => { checks['http:false: 端口确实未监听'] = true; resolveProbe() }) })
+      probe.listen(8089, '127.0.0.1')
+    })
+    for (const d of disposers.splice(0)) if (typeof d === 'function') d()
+    await new Promise((r) => setTimeout(r, 150))
   }
 } catch (e) {
   checks['smoke 全程无未捕获异常'] = false
@@ -884,6 +954,22 @@ for (const [name] of failed) console.log('  FAIL ' + name)
 console.log(`SMOKE ${failed.length === 0 ? 'PASS' : 'FAIL'} (${Object.keys(checks).length - failed.length}/${Object.keys(checks).length} 项)`)
 if (failed.length > 0) process.exitCode = 1
 
+// ── GUI 控制面请求(宿主 webServer 桩: 直接调 handler, 模拟一次 POST) ──
+async function guiRequest(ctx: any, route: string, opts: { httpMethod?: string; headers?: Record<string, string>; body?: string } = {}) {
+  const handlers = ctx.__webHandlers as Map<string, (req: unknown, res: unknown) => Promise<void>>
+  const handler = handlers.get('gui')
+  const req = new EventEmitter()
+  Object.assign(req, { method: opts.httpMethod ?? 'POST', url: `/_dsh/dsh-carrot-on-a-stick/${route}`, headers: opts.headers ?? {} })
+  const res = { status: 0, headers: {} as Record<string, unknown>, body: '', writeHead(code: number, h: Record<string, unknown>) { this.status = code; Object.assign(this.headers, h) }, end(b?: string) { this.body = String(b ?? '') } }
+  const done = handler(req, res)
+  setImmediate(() => {
+    if (opts.body !== undefined) req.emit('data', Buffer.from(opts.body))
+    req.emit('end')
+  })
+  await done
+  return res
+}
+
 // ── Phase 脚手架: 独立端口独立 ctx 的 apply + call/raw/gui 小工具 ──
 async function startPhase(port: number, ctx: any, config: Record<string, unknown>) {
   // 与 Loader 一致: 配置先过 Config schema(界面字段成为 volatile 引用), 再交给 apply
@@ -922,18 +1008,7 @@ async function startPhase(port: number, ctx: any, config: Record<string, unknown
       return (parsePayload(r.text).result?.tools ?? []).map((t: any) => t.name)
     },
     async gui(route: string, opts: { httpMethod?: string; headers?: Record<string, string>; body?: string } = {}) {
-      const handlers = (ctx as any).__webHandlers as Map<string, (req: unknown, res: unknown) => Promise<void>>
-      const handler = handlers.get('gui')
-      const req = new EventEmitter()
-      Object.assign(req, { method: opts.httpMethod ?? 'POST', url: `/_dsh/dsh-carrot-on-a-stick/${route}`, headers: opts.headers ?? {} })
-      const res = { status: 0, headers: {} as Record<string, unknown>, body: '', writeHead(code: number, h: Record<string, unknown>) { this.status = code; Object.assign(this.headers, h) }, end(b?: string) { this.body = String(b ?? '') } }
-      const done = handler(req, res)
-      setImmediate(() => {
-        if (opts.body !== undefined) req.emit('data', Buffer.from(opts.body))
-        req.emit('end')
-      })
-      await done
-      return res
+      return guiRequest(ctx, route, opts)
     },
     async dispose() {
       for (const d of disposers.splice(0)) if (typeof d === 'function') d()
