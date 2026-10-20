@@ -1,5 +1,7 @@
 node_modules/
-lib/
+/lib/
+/client/
+.acl-repair/
 *.tsbuildinfo
 .npm-tmp/
 commit-msg.txt

@@ -1,5 +1,15 @@
-window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) => {
-  var module = { exports: {} }; var exports = module.exports;
+/**
+ * dsh-carrot-on-a-stick — client half, built to client/client.js and loaded by the host's
+ * browser module loader. The factory receives only the host's `require` seed (React); this file
+ * has no ESM imports, so tsc emits a plain script instead of a module.
+ */
+interface DshModuleSpec {
+  id: string
+  factory: (require: (id: string) => any) => unknown
+}
+
+(window as unknown as { __ModuleLoader__: { load(spec: DshModuleSpec): void } }).__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) => {
+  const module: { exports: Record<string, unknown> } = { exports: {} };
   // dsh-carrot-on-a-stick — client half(浏览器, 静态 bundle 形态)
   // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
   // - 注册 settings.section 设置页面板: 状态头 / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
@@ -15,7 +25,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   const React = require('react');
   const RPC_BASE = '/_dsh/dsh-carrot-on-a-stick';
 
-  function rpc(method, args) {
+  function rpc(method: string, args?: unknown) {
     return fetch(RPC_BASE + '/' + method, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -93,7 +103,11 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
   // 宿主客户端上下文提供 locale 服务(dsh-client-locale): register 字典 + bind 翻译函数 +
   // subscribe/getSnapshot 快照订阅, 经模块级 inject 声明后使用。zh 是键集来源, en 与 zh 键一一对应。
   var NS_I18N = 'dsh-carrot-on-a-stick';
-  var DICT = {
+  interface Dictionary {
+    zh: Record<string, string>;
+    en: Record<string, string>;
+  }
+  var DICT: Dictionary = {
     zh: {
       'nav': 'MCP 服务',
       'uptime': '已运行 {d}',
@@ -209,14 +223,14 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       'loading': 'Loading…',
     },
   };
-  function fillParams(template, params) {
+  function fillParams(template: string, params?: Record<string, unknown>) {
     if (!params) return template;
     return template.replace(/\{(\w+)\}/g, function (m, name) {
       return name in params ? String(params[name]) : m;
     });
   }
   // 翻译函数: apply 里替换为宿主 locale.bind(NS); 下面是同名形状的本地中文回退(服务可用前的极短窗口)
-  var t = function (key, params) {
+  var t = function (key: string, params?: Record<string, unknown>): string {
     return fillParams((DICT.zh[key] !== undefined ? DICT.zh[key] : key), params);
   };
   var LOCALE = null; // locale 服务(订阅语言切换用), apply 里赋值
@@ -450,12 +464,12 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
     // authToken 形参存在时一并提交该只写字段(仅"重新生成"替换令牌, 开关不回传令牌)。
     // patch 可以是对象, 也可以是 (当前草稿) => 对象: 清单类的增删必须基于最新草稿,
     // 否则连续两次点击会用上一帧的清单覆盖第一次的结果。
-    function change(patch, authToken) {
+    function change(patch: unknown, authToken?: string) {
       if (!form) return;
       const base = draftRef.current || form.draft;
       const next = Object.assign({}, base, typeof patch === 'function' ? patch(base) : patch);
       setDraft(next);
-      const values = {
+      const values: Record<string, unknown> = {
         allowedModelsEnabled: next.whitelistOn === true,
         allowedModels: (next.allowedModels || []).slice(),
         defaultDetail: next.defaultDetail,
@@ -466,7 +480,7 @@ window.__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) =
       enqueue({ values: values });
     }
 
-    function enqueue(payload, reloading) {
+    function enqueue(payload: unknown, reloading?: boolean) {
       queueRef.current.items.push({ payload: payload, reloading: reloading === true });
       void pumpQueue();
     }

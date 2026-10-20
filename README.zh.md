@@ -105,13 +105,14 @@ dsh plugin --profile web add link:"$(pwd)"
 
 ```sh
 npm install
-npm run build        # 编译 src/ 到 lib/
+npm run build        # 编译 src/ 到 lib/，编译 src/client/ 到 client/
+npm run dev          # 同时监听两个 TypeScript 工程
 npm test             # build + 冒烟
-npm run typecheck    # 类型检查 src/ 与 test/
+npm run typecheck    # 类型检查 src/、src/client/、test/ 与 scripts/
 npm run smoke:ui     # 设置面板浏览器冒烟
 ```
 
-目录：`src/` 宿主半区（MCP server、工具、资源、引擎）、`client/` 设置面板、`cordis.yml` bundle 补丁、`test/` 冒烟 + e2e + UI harness、`docs/` 架构说明。不易从代码读出的设计约束见 [docs/architecture.zh.md](docs/architecture.zh.md)。`test/e2e.ts` 是独立的真机检查，不在 `npm test` 里。
+目录：`src/` 宿主半区（MCP server、工具、资源、引擎）与 `src/client/` 设置面板源码；`client/` 是构建产物（面板 bundle），`cordis.yml` bundle 补丁，`test/` 冒烟 + e2e + UI harness，`docs/` 架构说明。不易从代码读出的设计约束见 [docs/architecture.zh.md](docs/architecture.zh.md)。`test/e2e.ts` 是独立的真机检查，不在 `npm test` 里。
 
 ## 感谢
 

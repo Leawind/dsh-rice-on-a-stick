@@ -105,13 +105,14 @@ Fields and defaults live in `src/config.ts` — the single source of truth. Comm
 
 ```sh
 npm install
-npm run build        # compile src/ to lib/
+npm run build        # compile src/ to lib/ and src/client/ to client/
+npm run dev          # watch both TypeScript projects
 npm test             # build + smoke
-npm run typecheck    # type-check src/ and test/
+npm run typecheck    # type-check src/, src/client/, test/ and scripts/
 npm run smoke:ui     # browser harness for the settings panel
 ```
 
-Layout: `src/` host half (MCP server, tools, resources, engine), `client/` settings panel, `cordis.yml` bundle patch, `test/` smoke + e2e + UI harness, `docs/` architecture notes. Design constraints that are not obvious from code: [docs/architecture.zh.md](docs/architecture.zh.md) (Chinese). `test/e2e.ts` is a separate real-host check, not part of `npm test`.
+Layout: `src/` host half (MCP server, tools, resources, engine) and `src/client/` settings-panel source; `client/` is the generated panel bundle (build output), `cordis.yml` bundle patch, `test/` smoke + e2e + UI harness, `docs/` architecture notes. Design constraints that are not obvious from code: [docs/architecture.zh.md](docs/architecture.zh.md) (Chinese). `test/e2e.ts` is a separate real-host check, not part of `npm test`.
 
 ## Acknowledgements
 

@@ -18,6 +18,7 @@
     "lib",
     "src",
     "client",
+    "docs",
     "icon.svg",
     "cordis.yml",
     "README.md",
@@ -25,11 +26,11 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p .",
-    "dev": "tsc -p . --watch",
-    "typecheck": "tsc -p tsconfig.test.json",
+    "build": "tsc -p . && tsc -p tsconfig.client.json",
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.client.json --noEmit",
     "smoke": "npm run build && node test/smoke.ts && node test/smoke-port.ts",
-    "smoke:ui": "node test/ui-harness.mjs",
+    "smoke:ui": "npm run build && node test/ui-harness.mjs",
     "test": "npm run smoke",
     "prepublishOnly": "npm run build"
   },

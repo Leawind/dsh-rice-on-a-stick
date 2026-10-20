@@ -1,16 +1,21 @@
-// Dev-only UI smoke harness: 最小宿主桩, 把 client/client.js 注入的面板真实渲染到浏览器。
+// Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的面板真实渲染到浏览器。
 // 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/stop/start/config-update), 状态形状与
-// src/index.ts 的 statusSnapshot() 逐字段对齐。用法:
+// src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
 //   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误
 //   POST /__test/mode    → body JSON: { statusError?, listening?, connections? }
 import { createServer } from 'node:http'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const CLIENT_JS = resolve(ROOT, 'client/client.js')
+if (!existsSync(CLIENT_JS)) {
+  console.error('[ui-harness] client/client.js is missing; run `npm run build` first')
+  process.exit(1)
+}
 const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : 8096)
 
 // ── mock 状态(与 statusSnapshot 同形) ──
@@ -289,7 +294,7 @@ const server = createServer(async (req, res) => {
       return res.end(raw)
     }
     if (req.method === 'GET' && url.pathname === '/client.js') {
-      const raw = readFileSync(resolve(ROOT, 'client/client.js'))
+      const raw = readFileSync(CLIENT_JS)
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
       return res.end(raw)
     }
