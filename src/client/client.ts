@@ -1092,19 +1092,22 @@ interface DshModuleSpec {
 
   // ── 设置侧栏图标 ──
   // 宿主的 settings.section 槽只投影 id/order/label, 没有 icon 字段; 除官方分区外一律回退齿轮。
-  // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS mask
+  // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS
   // 把宿主注入的齿轮换成自己的标记. 只读 DOM, 不改 React 管理的节点, 语言切换时重新认领.
   //
   // 图形由 scripts/inline-icon.mjs 在构建时从根目录 icon.svg 内联, 源码里只留占位符;
-  // 24 网格上的空心线稿“斜竿 + 一碗白米饭”, 与宿主线性图标一致用描边而非填充;
-  // 16px 下竿身仍需明显粗于碗沿, 饭碗才不会被读成一根带长柄的球;
-  // 碗沿、碗身和筷子的线宽按 16px 的可读性分级, 再细就会糊成一团.
+  // 24 网格上的“斜竿 + 一碗白米饭”, 米饭是白色实心, 其余保持线稿.
+  // 这里不能用 mask: mask 只取 alpha, 白米饭会被 currentColor 涂成黑色.
+  // 因此把描边色替换成该行实际 color 后作为 background-image 输出, 米饭保持白色.
   var NAV_ICON_MARKER = 'data-dsh-carrot-nav-icon';
   var NAV_ICON_SIZE = 16;
   var NAV_ICON_SVG = /* @dsh-inline-icon */ '';
 
+  function navIconUrl(color) {
+    return 'data:image/svg+xml,' + encodeURIComponent(NAV_ICON_SVG.replace(/#7C8798/gi, color));
+  }
+
   function navIconCss() {
-    var url = 'data:image/svg+xml,' + encodeURIComponent(NAV_ICON_SVG);
     return [
       '[' + NAV_ICON_MARKER + '] > svg { display: none; }',
       '[' + NAV_ICON_MARKER + ']::before {',
@@ -1112,15 +1115,10 @@ interface DshModuleSpec {
       '  flex: none;',
       '  width: ' + NAV_ICON_SIZE + 'px;',
       '  height: ' + NAV_ICON_SIZE + 'px;',
-      '  background-color: currentColor;',
-      '  -webkit-mask-image: url("' + url + '");',
-      '  mask-image: url("' + url + '");',
-      '  -webkit-mask-repeat: no-repeat;',
-      '  mask-repeat: no-repeat;',
-      '  -webkit-mask-position: center;',
-      '  mask-position: center;',
-      '  -webkit-mask-size: ' + NAV_ICON_SIZE + 'px ' + NAV_ICON_SIZE + 'px;',
-      '  mask-size: ' + NAV_ICON_SIZE + 'px ' + NAV_ICON_SIZE + 'px;',
+      '  background-image: var(--dsh-nav-icon-url);',
+      '  background-repeat: no-repeat;',
+      '  background-position: center;',
+      '  background-size: ' + NAV_ICON_SIZE + 'px ' + NAV_ICON_SIZE + 'px;',
       '}',
     ].join('\n');
   }
@@ -1139,11 +1137,19 @@ interface DshModuleSpec {
       function sync() {
         if (disposed) return;
         var wanted = String(t('nav') || '').trim();
-        var rows = document.querySelectorAll('[role="dialog"] nav button');
+        var rows = document.querySelectorAll<HTMLElement>('[role="dialog"] nav button');
         for (var i = 0; i < rows.length; i++) {
           var row = rows[i];
-          if (wanted && String(row.textContent || '').trim() === wanted) row.setAttribute(NAV_ICON_MARKER, '');
-          else row.removeAttribute(NAV_ICON_MARKER);
+          if (wanted && String(row.textContent || '').trim() === wanted) {
+            row.setAttribute(NAV_ICON_MARKER, '');
+            var color = '';
+            if (typeof getComputedStyle === 'function') color = getComputedStyle(row).color;
+            if (!color) color = '#7C8798';
+            row.style.setProperty('--dsh-nav-icon-url', 'url("' + navIconUrl(color) + '")');
+          } else {
+            row.removeAttribute(NAV_ICON_MARKER);
+            row.style.removeProperty('--dsh-nav-icon-url');
+          }
         }
       }
       function schedule() {
@@ -1160,11 +1166,24 @@ interface DshModuleSpec {
         observer = new MutationObserver(schedule);
         observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
       }
+      // 主题切换通常只改 <html>/<body> 的 class 或 data-theme, 不会触发上面的正文观察.
+      var themeObserver = null;
+      if (typeof MutationObserver === 'function') {
+        themeObserver = new MutationObserver(schedule);
+        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-scheme', 'style'] });
+        if (document.body) {
+          themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-scheme', 'style'] });
+        }
+      }
       return function () {
         disposed = true;
         if (observer) observer.disconnect();
-        var marked = document.querySelectorAll('[' + NAV_ICON_MARKER + ']');
-        for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(NAV_ICON_MARKER);
+        if (themeObserver) themeObserver.disconnect();
+        var marked = document.querySelectorAll<HTMLElement>('[' + NAV_ICON_MARKER + ']');
+        for (var i = 0; i < marked.length; i++) {
+          marked[i].removeAttribute(NAV_ICON_MARKER);
+          marked[i].style.removeProperty('--dsh-nav-icon-url');
+        }
         if (tag.parentNode) tag.parentNode.removeChild(tag);
       };
     }, 'dsh-carrot-on-a-stick: settings nav icon');
