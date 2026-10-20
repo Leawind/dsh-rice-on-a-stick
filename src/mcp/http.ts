@@ -25,6 +25,10 @@ export interface McpConnection {
   lastActivity: number
   userAgent: string
   requests: number
+  /** 最近一次请求的直连对端地址(经反向代理时是代理地址) */
+  remoteAddress?: string
+  /** 最近一次请求的直连对端端口(经反向代理时是代理端口) */
+  remotePort?: number
 }
 
 export interface McpHttpServerOptions {
@@ -81,6 +85,19 @@ function hostnameOf(hostHeader: string): string {
   }
   const colon = hostHeader.indexOf(':')
   return (colon === -1 ? hostHeader : hostHeader.slice(0, colon)).toLowerCase()
+}
+
+/**
+ * 直连对端(远程地址 + 端口)。只读 socket, 不信任 X-Forwarded-*:
+ * 经反向代理时记录的是代理的地址/端口, 这正是"服务端实际看到的客户端"。
+ */
+function remoteOf(req: http.IncomingMessage): { remoteAddress?: string; remotePort?: number } {
+  const address = req.socket.remoteAddress
+  const port = req.socket.remotePort
+  return {
+    ...(address !== undefined ? { remoteAddress: address } : {}),
+    ...(port !== undefined ? { remotePort: port } : {}),
+  }
 }
 
 /** Bearer token 常数时间比较(认证未启用或未配令牌时放行; 长度不等直接拒, 相等走 timingSafeEqual) */
@@ -218,6 +235,9 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         if (c) {
           c.lastActivity = Date.now()
           c.requests++
+          const remote = remoteOf(req)
+          if (remote.remoteAddress !== undefined) c.remoteAddress = remote.remoteAddress
+          if (remote.remotePort !== undefined) c.remotePort = remote.remotePort
           const ua = String(req.headers['user-agent'] ?? '')
           if (ua && !c.userAgent) c.userAgent = ua
         }
@@ -260,6 +280,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
               lastActivity: Date.now(),
               userAgent: initUserAgent,
               requests: 1,
+              ...remoteOf(req),
             })
           },
         })

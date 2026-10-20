@@ -194,7 +194,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.hot,
   }, (uri) => readStatusField('stats')(uri, {}))
   mcp.registerResource('status-connections', resUri.statusConnections, {
-    title: 'MCP connections', description: 'Connected MCP clients (session/UA/last activity/request count)',
+    title: 'MCP connections', description: 'Connected MCP clients (session/UA/direct peer address+port/last activity/request count)',
     mimeType: 'application/json', annotations: ann.doc,
   }, (uri) => readStatusField('connections')(uri, {}))
   mcp.registerResource('guide', resUri.guide, {

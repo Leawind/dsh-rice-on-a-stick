@@ -578,6 +578,8 @@ try {
       && stOrderConns[0]?.sessionId === second.sid
       && stOrderConns[1]?.sessionId === stBody.connections?.[0]?.sessionId
       && stOrderConns[0].connectedAt >= stOrderConns[1].connectedAt
+    checks['GUI 路由: 连接列表带直连地址与端口'] = typeof stOrderConns[0]?.remoteAddress === 'string'
+      && typeof stOrderConns[0]?.remotePort === 'number'
     const modelsRoute = await phase.gui('models')
     checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200
       && modelsRoute.body.includes('Provider One')
