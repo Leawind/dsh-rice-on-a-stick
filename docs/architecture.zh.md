@@ -1,6 +1,6 @@
 # 架构说明
 
-> 面向维护者。模块布局、依赖关系与字段语义以 `src/` 代码为准，本文只记录不易从代码读出的设计约束。配套阅读：README（功能与配置）、`docs/onboarding/`（下发给 agent 的英文引导与指南）。
+> 面向维护者。模块布局、依赖关系与字段语义以 `src/` 代码为准，本文只记录不易从代码读出的设计约束。配套阅读：README（功能与配置）、AGENTS.md（提交与发布规则）、`docs/onboarding/`（下发给 agent 的英文引导与指南）。
 
 ## 模块布局
 
@@ -41,4 +41,4 @@ test/               冒烟、真机 e2e、UI harness
 -   `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
 -   `npm run smoke:ui`：先 build 再跑设置面板浏览器冒烟（`test/ui-harness.mjs`）。
 
-验收线：`npm run build && npm run typecheck && npm test` 全绿；行为变化同步 smoke 断言与 README（中英）。发布元数据在开发过程中绝对冻结：不改 `CHANGELOG.md`，不改版本号（`package.json` 的 `version` 与 `PLUGIN_VERSION`）；变更记录由提交信息承担，解冻与升版只在用户发起发布时进行。
+验收线：`npm run build && npm run typecheck && npm test` 全绿；行为变化同步 smoke 断言与 README（中英）。
