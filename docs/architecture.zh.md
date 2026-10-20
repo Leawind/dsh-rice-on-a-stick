@@ -17,4 +17,4 @@
 -   `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
 -   `npm run smoke:ui`：设置面板浏览器冒烟（`test/ui-harness.mjs`）。
 
-验收线：`npm run build && npm test` 全绿；行为变化同步 smoke 断言、README（中英）与 CHANGELOG 批次。
+验收线：`npm run build && npm test` 全绿；行为变化同步 smoke 断言与 README（中英）。CHANGELOG.md 冻结在 0.1.0-rc.1 发布提交的内容，开发过程中不要修改。
