@@ -38,7 +38,7 @@ const state = {
     http: true, resourceFirst: false,
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
-    approvalControl: 'off', approvalTimeoutMs: 120000, sessionTtlMs: 86400000,
+    approvalControl: 'exclusive', approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
   },
   connections: DEFAULT_CONNS(),
 }

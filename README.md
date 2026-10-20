@@ -27,9 +27,9 @@ Claude Code / Cursor / Cline / your agent
 
 -   **Real sessions, not a shell wrapper** — tools go through the host's session controller: create, prompt, queue, fork, archive, model switch.
 -   **Async orchestration** — `session_submit` / `session_poll` / `session_result`; a client timeout only stops the wait, never the dsh turn; stopping work goes through `session_cancel`.
--   **Approvals** — `approval_list` / `approval_answer` / `approval_policy`, opt-in via `approvalControl: fallback | exclusive`.
+-   **Approvals** — `approval_list` / `approval_answer` / `approval_policy`; `approvalControl: exclusive` by default (MCP answers, the UI no longer shows the same request), `fallback` puts the UI first and takes over when nobody answers, `off` is display-only.
 -   **Self-use** — the same surface registers as native `carrot_` tools inside this instance; `http: false` gives a self-use-only deployment.
--   **Local-first** — binds `127.0.0.1`, optional Bearer auth, Host/Origin allowlists, idle transport-session reaping.
+-   **Tools-first by default** — binds `127.0.0.1`, optional Bearer auth, Host/Origin allowlists, idle transport-session reaping; resource-first mode is opt-in, so clients that only understand tools see no change.
 
 The exact tool and resource surfaces are defined in `src/mcp/tools/` and `src/mcp/resources.ts`; agents should call `dsh_get_started` first — it carries the dsh crash course, recipes, and error recovery.
 
@@ -81,7 +81,7 @@ New sessions require explicit `provider` + `model` + `preset` from `model_list` 
 
 ## Configuration
 
-Fields and defaults live in `src/core/config.ts` — the single source of truth. The settings panel covers **every** config field (no omissions): volatile fields are saved in place without reloading (MCP connections stay up); the structural ones (listen address and port, external MCP switch, resource-first mode, approval takeover and wait limit, transport idle TTL, Host header allowlist) apply with **Apply** and reload the plugin. Transport overrides go into the profile's `cordis.patch.yml`:
+Fields and defaults live in `src/core/config.ts` — the single source of truth. The settings panel covers **every** config field (no omissions): volatile fields are saved in place without reloading (MCP connections stay up); the structural ones (listen address and port, external MCP switch, resource-first mode, approval takeover and wait limit, transport idle TTL, Host header allowlist) apply with **Apply** and reload the plugin. Key defaults: `resourceFirst: false` (tools first), `approvalControl: exclusive` (approvals answered over MCP), `sessionTtlMs: 604800000` (one week). Transport overrides go into the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: dsh-carrot-on-a-stick

@@ -74,7 +74,7 @@ interface DshModuleSpec {
 
   // status 缺字段时的兜底默认(必须与 src/core/config.ts 的 DEFAULTS 一致; 正常情况服务端总会给值)
   const DEFAULT_APPROVAL_TIMEOUT_MS = 120000;
-  const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+  const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const APPROVAL_MODES = ['off', 'fallback', 'exclusive'];
 
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
@@ -96,7 +96,7 @@ interface DshModuleSpec {
       httpOn: c.http !== false,
       // 默认工具优先(false): 只认 tools 的客户端零行为变化, 资源优先需显式开启
       resourceFirst: c.resourceFirst === true,
-      approvalControl: APPROVAL_MODES.indexOf(c.approvalControl) >= 0 ? c.approvalControl : 'off',
+      approvalControl: APPROVAL_MODES.indexOf(c.approvalControl) >= 0 ? c.approvalControl : 'exclusive',
       approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS,
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],

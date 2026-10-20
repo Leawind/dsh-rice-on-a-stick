@@ -29,7 +29,7 @@ import { approvalPolicyOfEvents, createApprovalBridge } from '../lib/session/app
 import { state } from '../lib/core/state.js'
 import { pendingApprovalsOf } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
-import { Config as ConfigSchema } from '../lib/core/config.js'
+import { Config as ConfigSchema, DEFAULTS } from '../lib/core/config.js'
 import {
   approvalAgent,
   approvalPolicyCalls,
@@ -867,6 +867,9 @@ try {
     return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst === false
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
       && c.selfToolsEnabled.get() === true && c.host === '127.0.0.1' && c.port === 8090
+      && c.approvalControl === 'exclusive' && c.approvalTimeoutMs === 120000
+      && c.sessionTtlMs === 7 * 24 * 60 * 60 * 1000
+      && String(c.approvalControl) === DEFAULTS.approvalControl
       && !('preset' in c) && !('allowPresetOverride' in c)
   })()
   checks['Config schema: 界面字段是 volatile 引用(写入不重载插件)'] = (() => {
@@ -886,6 +889,16 @@ try {
     const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>)
       .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
     return missing.length === 0
+  })()
+  // 面板无法 import 宿主配置(独立 bundle), 兜底默认必须与 DEFAULTS 同步: 文本比对常量定义
+  checks['设置面板: 兜底默认值与 DEFAULTS 一致'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return DEFAULTS.sessionTtlMs === 7 * 24 * 60 * 60 * 1000
+      && /DEFAULT_SESSION_TTL_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(clientSrc)
+      && DEFAULTS.approvalTimeoutMs === 120000
+      && /DEFAULT_APPROVAL_TIMEOUT_MS\s*=\s*120000/.test(clientSrc)
+      && DEFAULTS.approvalControl === 'exclusive'
+      && /APPROVAL_MODES\s*=\s*\['off', 'fallback', 'exclusive'\]/.test(clientSrc)
   })()
   checks['Config schema: defaultDetail 非法枚举被拒'] = (() => {
     try { ConfigSchema({ defaultDetail: 'verbose' } as any); return false } catch { return true }

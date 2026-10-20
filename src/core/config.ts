@@ -64,24 +64,24 @@ export interface Config {
   /** Host 头白名单(除绑定地址与 loopback 别名外额外放行的主机名; 对外暴露时按需配置) */
   allowedHosts?: string[]
   /**
-   * MCP 传输会话空闲 TTL 毫秒数(默认 24 小时, 0 = 永不淘汰)。
+   * MCP 传输会话空闲 TTL 毫秒数(默认一周, 0 = 永不淘汰)。
    * 这是 MCP 协议连接层的回收(客户端异常退出时的服务端兜底), 与 dsh 会话/agent 无关;
    * 超时未活动的传输会话被关闭, 客户端下次请求得 404 后按规范重新 initialize。
    */
   sessionTtlMs?: number
   /**
-   * 资源优先形态(默认 false)。true 时只读工具面下线(dsh_get_started/dsh_list_tools/dsh_status/
-   * model_list/workspace_list/session_list/session_history/session_search), 数据一律经 MCP
-   * resources 面读取(dsh://status|guide|tools|models|presets|workspaces|sessions 及各模板),
-   * session_prompt 的默认 detail 变为 'uri'(只回引用)。面向确认支持 resources 的客户端/部署;
-   * 默认 false 时工具与资源并存, 对不知 resources 的客户端零行为变化。
+   * 资源优先形态(默认 false = 工具优先)。true 时只读工具面下线(dsh_get_started/dsh_list_tools/
+   * dsh_status/model_list/workspace_list/session_list/session_history/session_search), 数据一律经
+   * MCP resources 面读取(dsh://status|guide|tools|models|presets|workspaces|sessions 及各模板),
+   * session_prompt 的默认 detail 变为 'uri'(只回引用)。只对确认支持 resources 的客户端有意义;
+   * 默认 false 时工具与资源并存, 对只认 tools 的客户端零行为变化(兼容性优先)。
    */
   resourceFirst?: boolean
   /**
-   * 审批接管模式(默认 off):
+   * 审批接管模式(默认 exclusive):
    *   off       只读展示 pendingApprovals, 审批仍归宿主/界面(零行为变化)
    *   fallback  先让宿主 answerer 链(界面)处理; 只有没人能答时才扣住等 MCP 回答
-   *   exclusive 直接扣住等 MCP 回答(界面不再显示该审批), 仅建议无人值守部署
+   *   exclusive 直接扣住等 MCP 回答(界面不再显示该审批), 适合由 MCP 侧全权接管
    * 只接管本插件创建/续接过的会话, 不劫持用户在界面上手开的会话。
    */
   approvalControl?: 'off' | 'fallback' | 'exclusive'
@@ -115,12 +115,12 @@ export const DEFAULTS = {
   allowedModels: [] as string[],
   allowedModelsEnabled: false as boolean,
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
-  sessionTtlMs: 24 * 60 * 60 * 1000,
+  sessionTtlMs: 7 * 24 * 60 * 60 * 1000,
   authToken: '',
   authEnabled: false as boolean,
   selfToolsEnabled: true as boolean,
   resourceFirst: false,
-  approvalControl: 'off' as 'off' | 'fallback' | 'exclusive',
+  approvalControl: 'exclusive' as 'off' | 'fallback' | 'exclusive',
   approvalTimeoutMs: 120_000,
 }
 
@@ -196,8 +196,8 @@ export const Config = Schema.object({
   authEnabled: Schema.boolean().volatile().description('Auth switch. Off = do not verify, the token is kept (turning it back on restores verification); defaults to "enabled when a token is configured".'),
   selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).'),
   allowedHosts: Schema.array(Schema.string()).default([]).description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases).'),
-  sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('Idle TTL for MCP transport sessions in milliseconds (0 = never reap; expired sessions are closed and the client re-initializes per spec).'),
-  resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('Resource-first mode (true = read-only tools are not registered; data is read through the MCP resources surface).'),
-  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Approval takeover mode: off = read-only display; fallback = UI first, hand over to MCP when nobody can answer; exclusive = park approvals for MCP only (the UI no longer shows them).'),
+  sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec).'),
+  resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface).'),
+  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Approval takeover mode (default exclusive): off = read-only display; fallback = UI first, hand over to MCP when nobody can answer; exclusive = park approvals for MCP only (the UI no longer shows them).'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('Maximum wait for an MCP answer after an approval is parked, in milliseconds (default 120000; timeout fails closed).'),
 })
