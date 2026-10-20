@@ -31,7 +31,7 @@ test/               冒烟、真机 e2e、UI harness
 3.  **模型与 preset 显式契约（`src/session/engine.ts` / `src/core/config.ts`）**：新建会话必须显式指定 `provider` + `model` 与 `preset`，无默认回填；续接沿用会话原值。`allowedModels` 只约束调用方可选范围。
 4.  **投影省上下文（`src/session/projection.ts`）**：内部结果恒为全量，出口按 `detail`（`uri` / `summary` / `normal` / `full`）裁剪。
 5.  **安全边界（`src/mcp/http.ts` / `src/mcp/web.ts`）**：默认只监听本机；Bearer 常数时间比较；Host / Origin 白名单；请求体上限；MCP 面只留 `/mcp`；GUI 写路由以 `Sec-Fetch-Site` 同源门禁为主，兼容桌面壳 origin。
-6.  **审批失败关闭（`src/session/approvals.ts`）**：默认 `exclusive`（审批只由 MCP 侧回答，界面不再显示同一项）；`fallback` 仅在宿主 answerer 返回 `unavailable` 后接手；`off` 只读展示。没有决定绝不放行；只接管本插件创建或续接过的会话。
+6.  **审批失败关闭（`src/session/approvals.ts`）**：默认 `exclusive`（审批一律由调用方经 `approval_answer` 回答，界面不再显示同一项）；`fallback` 仅在宿主 answerer 返回 `unavailable` 后接手；`off` 只读展示。没有决定绝不放行；只作用于本插件创建或续接过的会话。
 7.  **Agent 认知面（`src/mcp/onboarding.ts` + `docs/onboarding/`）**：initialize instructions 与 `dsh_get_started` 正文都是英文产品文本，放在 Markdown；加载器在导入期校验节齐全，缺文件/缺节直接让插件启动失败，不静默下发空指南。
 8.  **语言一致性（`src/mcp/tools/` / `src/mcp/resources.ts`）**：面向 MCP 客户端的 title、description、参数说明与资源说明统一用英语，与 dsh 自带工具一致；smoke 中有反向断言，混入中文会失败。宿主配置 schema 的说明面向部署方，保持中文。
 9.  **设置面板与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、面板控件、GUI 写入白名单（`parseGuiConfigValues`）——否则面板与服务端会静默分叉。结构性字段写入后重载插件并回 `reloading: true`，volatile 字段就地提交。

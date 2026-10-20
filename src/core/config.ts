@@ -78,11 +78,11 @@ export interface Config {
    */
   resourceFirst?: boolean
   /**
-   * 审批接管模式(默认 exclusive):
+   * 审批由谁回答(默认 exclusive):
    *   off       只读展示 pendingApprovals, 审批仍归宿主/界面(零行为变化)
-   *   fallback  先让宿主 answerer 链(界面)处理; 只有没人能答时才扣住等 MCP 回答
-   *   exclusive 直接扣住等 MCP 回答(界面不再显示该审批), 适合由 MCP 侧全权接管
-   * 只接管本插件创建/续接过的会话, 不劫持用户在界面上手开的会话。
+   *   fallback  先让宿主 answerer 链(界面)处理; 只有没人能答时才拦下来等调用方(经 MCP)回答
+   *   exclusive 直接拦下来等调用方回答(界面不再显示该审批)
+   * 只作用于本插件创建/续接过的会话, 不干扰用户在界面上手开的会话。
    */
   approvalControl?: 'off' | 'fallback' | 'exclusive'
   /** 审批被扣住后最多等多久(毫秒; 默认 120s; 超时失败关闭) */
@@ -198,6 +198,6 @@ export const Config = Schema.object({
   allowedHosts: Schema.array(Schema.string()).default([]).description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases).'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec).'),
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface).'),
-  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Approval takeover mode (default exclusive): off = read-only display; fallback = UI first, hand over to MCP when nobody can answer; exclusive = park approvals for MCP only (the UI no longer shows them).'),
+  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Who answers approvals for sessions created by this plugin (default exclusive): off = display only, the UI handles them; fallback = UI first, the caller answers when the UI cannot; exclusive = always the caller, via approval_answer (the UI no longer shows them).'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('Maximum wait for an MCP answer after an approval is parked, in milliseconds (default 120000; timeout fails closed).'),
 })

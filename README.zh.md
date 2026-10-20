@@ -27,7 +27,7 @@ Claude Code / Cursor / Cline / 你的 agent
 
 -   **真实会话，不是 shell 包装**——工具经宿主 session controller 操作：新建、发送、排队、分叉、归档、切换模型。
 -   **异步编排**——`session_submit` / `session_poll` / `session_result`；客户端超时只停止等待，不会杀掉 dsh 的 turn；停止工作必须走 `session_cancel`。
--   **审批**——`approval_list` / `approval_answer` / `approval_policy`；默认 `approvalControl: exclusive`（审批交由 MCP 侧回答，界面不再弹同一项），`fallback` 界面优先、无人应答时接管，`off` 只读展示。
+-   **审批**——`approval_list` / `approval_answer` / `approval_policy`；`approvalControl` 决定本插件创建/续接的会话里审批由谁回答：默认 `exclusive` 只由调用方回答（界面不再显示该审批），`fallback` 界面优先、界面无人应答才交给调用方，`off` 只展示不接管。
 -   **本实例自用**——同一套工具面注册为本实例原生工具（`carrot_` 前缀）；`http: false` 即纯自用部署。
 -   **默认工具优先**——只监听 `127.0.0.1`，可选 Bearer 认证、Host / Origin 白名单、空闲传输会话回收；资源优先形态需显式开启，只认 tools 的客户端零行为变化。
 
@@ -81,7 +81,7 @@ dsh plugin --profile web add link:"$(pwd)"
 
 ## 配置
 
-字段与默认值声明在 `src/core/config.ts`——唯一事实来源。设置面板逐项覆盖**全部**配置字段（不允许遗漏）：volatile 字段就地保存、不重载插件，MCP 连接不断；其余结构性字段（监听地址与端口、外部 MCP 开关、资源优先形态、审批接管与等待上限、传输空闲上限、Host 头白名单）点“应用”后重载插件。关键默认值：`resourceFirst: false`（工具优先）、`approvalControl: exclusive`（审批交 MCP 回答）、`sessionTtlMs: 604800000`（一周）。传输覆盖写在 profile 的 `cordis.patch.yml`：
+字段与默认值声明在 `src/core/config.ts`——唯一事实来源。设置面板逐项覆盖**全部**配置字段（不允许遗漏）：volatile 字段就地保存、不重载插件，MCP 连接不断；其余结构性字段（监听地址与端口、外部 MCP 开关、资源优先形态、审批回答方与等待上限、传输空闲上限、Host 头白名单）在**离开输入框或关闭设置**时自动写入并重载插件——没有“应用”按钮，非法值只就地提示、不写入。关键默认值：`resourceFirst: false`（工具优先）、`approvalControl: exclusive`（审批由调用方回答）、`sessionTtlMs: 604800000`（一周）。传输覆盖写在 profile 的 `cordis.patch.yml`：
 
 ```yaml
 - id: dsh-carrot-on-a-stick

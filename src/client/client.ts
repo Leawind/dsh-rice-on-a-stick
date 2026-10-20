@@ -139,12 +139,12 @@ interface DshModuleSpec {
       'http.hint': '关闭后不监听端口，仅保留生命周期钩子',
       'resource.title': '资源优先形态',
       'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取',
-      'approval.title': '审批接管模式',
-      'approval.hint': 'off 只读展示；fallback 界面优先、无人应答时接管；exclusive 直接接管',
-      'approval.off': '关闭（只读展示）',
-      'approval.fallback': '界面优先，无人应答时接管',
-      'approval.exclusive': '仅由 MCP 接管',
-      'approvalTimeout.title': '审批接管等待上限',
+      'approval.title': '审批由谁回答',
+      'approval.hint': '仅作用于本插件创建或续接的会话；选“只由调用方回答”时界面不再显示该审批',
+      'approval.off': '只展示，不接管',
+      'approval.fallback': '界面优先，其次调用方',
+      'approval.exclusive': '只由调用方回答',
+      'approvalTimeout.title': '审批等待上限',
       'approvalTimeout.hint': '毫秒，1000-600000；超时按失败关闭处理',
       'approvalTimeout.invalid': '等待上限必须是 1000-600000 之间的数字。',
       'ttl.title': 'MCP 传输会话空闲上限',
@@ -154,8 +154,7 @@ interface DshModuleSpec {
       'hosts.hint': '额外放行的主机名，逗号或空格分隔',
       'hosts.invalid': '主机名不合法：{h}',
       'listen.title': '监听地址与端口',
-      'footnote': '带“应用”的项改动后会重启插件，已连接的 MCP 客户端会短暂断开。',
-      'apply': '应用',
+      'footnote': '以上各项在离开输入框或关闭设置时自动生效；生效会重启插件，已连接的 MCP 客户端会短暂断开。',
       'listen.hostRequired': '监听地址不能为空。',
       'listen.portInvalid': '端口必须是 1-65535 的整数。',
       'copy': '复制',
@@ -214,11 +213,11 @@ interface DshModuleSpec {
       'http.hint': 'Off: no listening socket, lifecycle hooks remain.',
       'resource.title': 'Resource-first mode',
       'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources.',
-      'approval.title': 'Approval takeover',
-      'approval.hint': 'off: display only; fallback: UI first, MCP when nobody answers; exclusive: MCP only.',
-      'approval.off': 'Off (display only)',
-      'approval.fallback': 'UI first, MCP when nobody answers',
-      'approval.exclusive': 'MCP only',
+      'approval.title': 'Who answers approvals',
+      'approval.hint': 'Only for sessions this plugin created or resumed; "Caller only" hides the request from the UI.',
+      'approval.off': 'Display only',
+      'approval.fallback': 'UI first, then caller',
+      'approval.exclusive': 'Caller only',
       'approvalTimeout.title': 'Approval wait limit',
       'approvalTimeout.hint': 'Milliseconds, 1000-600000; times out fail-closed.',
       'approvalTimeout.invalid': 'The wait limit must be a number between 1000 and 600000.',
@@ -228,9 +227,8 @@ interface DshModuleSpec {
       'hosts.title': 'Host header allowlist',
       'hosts.hint': 'Extra hostnames, comma or space separated.',
       'hosts.invalid': 'Invalid hostname: {h}',
-      'footnote': 'Items with Apply restart the plugin; connected MCP clients drop briefly.',
+      'footnote': 'These take effect when you leave the field or close settings; applying restarts the plugin, so connected MCP clients drop briefly.',
       'listen.title': 'Listen address and port',
-      'apply': 'Apply',
       'listen.hostRequired': 'Listen address must not be empty.',
       'listen.portInvalid': 'Port must be an integer between 1 and 65535.',
       'copy': 'Copy',
@@ -314,8 +312,10 @@ interface DshModuleSpec {
     // 监听地址/端口: 标签与说明占整行, 输入框和按钮在下一行; 面板窄时按钮可换行。
     // 选择器必须带 .dcs-row(同为 0,1,0 但 .dcs-row 在下方, 单写 .dcs-row-stack 会被它覆盖成 align-items:center,
     // 竖排时就是"标签水平居中"); 标签在竖排里不参与收缩, 否则 flex-basis 会变成高度。
-    '.dcs-row.dcs-row-stack{flex-direction:column;align-items:stretch;gap:10px;}',
+    '.dcs-row.dcs-row-stack{position:relative;flex-direction:column;align-items:stretch;gap:10px;}',
     '.dcs-row.dcs-row-stack > .dcs-labels{flex:none;align-items:flex-start;}',
+    // 竖排行的校验提示放在标题行右侧的空白处: 不占行高, 也不会盖到下面的输入框或端点卡
+    '.dcs-row.dcs-row-stack > .dcs-err{position:absolute;top:12px;right:2px;max-width:60%;text-align:right;}',
     '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;}',
     '.dcs-input-host{flex:1 1 180px;width:auto;min-width:140px;}',
     '.dcs-input-port{flex:0 0 96px;width:96px;}',
@@ -431,6 +431,9 @@ interface DshModuleSpec {
 
   function StatusPanel() {
     const [state, setState] = React.useState(null);
+    // 最新状态镜像: 事件回调与卸载补交都要读到当前生效值(ref 在卸载后仍然有效)
+    const stateRef = React.useRef(null);
+    stateRef.current = state;
     const [error, setError] = React.useState('');
     // busy 只表示 MCP 服务启停(会短暂切断监听); 配置保存不再禁用界面, 另用保存队列跟踪
     const [busy, setBusy] = React.useState(false);
@@ -457,6 +460,8 @@ interface DshModuleSpec {
     const [reloading, setReloading] = React.useState(false);
     // 字段级校验提示: {key, msg}, 只显示在对应控件下方(与插件级状态分开)
     const [fieldErr, setFieldErr] = React.useState({ key: '', msg: '' });
+    // 最近一次提交的结构性字段载荷: 同一编辑的回车+失焦只写一次(窗口内去重)
+    const lastSubmitRef = React.useRef({ stamp: '', at: 0 });
     // 令牌复制反馈(独立于端点复制, 各自 1.5s 复位)
     const [tokenCopied, setTokenCopied] = React.useState(false);
     // 令牌明文展示(默认密码式隐藏; 点击"显示"切换, 输入框只读可选可复制)
@@ -610,49 +615,130 @@ interface DshModuleSpec {
       setReloading(false);
     }
 
-    /** 监听地址/端口: 只改草稿, 点"应用"才写(结构性字段会重载插件) */
-    function setListen(patch) {
-      if (!form) return;
-      const base = draftRef.current || form.draft;
-      const next = Object.assign({}, base, patch);
-      setDraft(next);
-      clearErr();
-      listenDirtyRef.current = String(next.host || '').trim() !== currentHost || Number(next.port) !== currentPort;
+    /** 生效配置(经 ref 读取: 卸载时补交也要能拿到) */
+    function effective() {
+      return (stateRef.current && stateRef.current.config) || {};
+    }
+    function hostsTextOf(list) {
+      return (Array.isArray(list) ? list : []).map(function (v) { return String(v).trim(); }).filter(Boolean).join(',');
     }
 
-    /** 草稿里其它结构性字段(数字/主机名清单)是否与生效值不同: 用于启用"应用"并按需保留草稿 */
+    /** 草稿里的其它结构性字段是否与生效值不同: 用于轮询期间保留草稿 */
     function structDirtyOf(draft) {
-      const c = (state && state.config) || {};
-      const hostsText = function (list) {
-        return (Array.isArray(list) ? list : []).map(function (v) { return String(v).trim(); }).filter(Boolean).join(',');
-      };
-      const nowHosts = hostsText(c.allowedHosts);
+      const c = effective();
       return String(draft.approvalTimeoutMs) !== String(typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS)
         || String(draft.sessionTtlMs) !== String(typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS)
-        || hostsText(String(draft.hostsText || '').split(/[\s,]+/)) !== nowHosts;
+        || hostsTextOf(String(draft.hostsText || '').split(/[\s,]+/)) !== hostsTextOf(c.allowedHosts);
     }
 
-    /** 其它结构性字段: 只改草稿, 点"应用"才写(同样会重载插件) */
-    function setStruct(patch) {
+    /** 草稿里的监听地址/端口是否与生效值不同 */
+    function listenDirtyOf(draft) {
+      const c = effective();
+      const host = typeof c.host === 'string' && c.host ? c.host : '127.0.0.1';
+      const port = typeof c.port === 'number' ? c.port : 8090;
+      return String(draft.host || '').trim() !== host || Number(draft.port) !== port;
+    }
+
+    /** 监听地址/端口: 只改草稿; 失焦/回车/关闭设置时自动提交 */
+    function setListen(patch) {
       if (!form) return;
-      const base = draftRef.current || form.draft;
-      const next = Object.assign({}, base, patch);
+      const next = Object.assign({}, draftRef.current || form.draft, patch);
       setDraft(next);
       clearErr();
+      lastSubmitRef.current = { stamp: '', at: 0 };
+      listenDirtyRef.current = listenDirtyOf(next);
+    }
+
+    /** 其它结构性字段: 只改草稿; 失焦/回车/关闭设置时自动提交 */
+    function setStruct(patch) {
+      if (!form) return;
+      const next = Object.assign({}, draftRef.current || form.draft, patch);
+      setDraft(next);
+      clearErr();
+      lastSubmitRef.current = { stamp: '', at: 0 };
       structDirtyRef.current = structDirtyOf(next);
     }
 
-    /**
-     * 结构性字段提交(会重载插件): 与监听地址走同一条等待重载的路径。
-     * 重载期间不锁控件: 保存队列会继续按序写入, 后续点击只是排在重载项之后。
-     */
-    function saveStruct(values) {
-      if (!form) return;
-      clearErr();
-      setReloading(true);
-      structDirtyRef.current = false;
-      enqueue({ values: values }, true);
+    // ── 结构性字段的自动提交 ──
+    // 没有"应用"按钮: 离开输入框、按回车、或关闭设置面板时自动写入。非法值只提示、不写入。
+    // 这些字段会让插件重载, 所以只在一次编辑结束时提交一次——不会边输入边重启。
+    function readListen(draft) {
+      const c = effective();
+      const host = String(draft.host || '').trim();
+      if (!host) return { error: t('listen.hostRequired') };
+      const port = Number(draft.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: t('listen.portInvalid') };
+      const nowHost = typeof c.host === 'string' && c.host ? c.host : '127.0.0.1';
+      const nowPort = typeof c.port === 'number' ? c.port : 8090;
+      if (host === nowHost && port === nowPort) return {};
+      return { values: { host: host, port: port } };
     }
+
+    function readTimeout(draft) {
+      const n = Number(draft.approvalTimeoutMs);
+      if (!Number.isFinite(n) || n < 1000 || n > 600000) return { error: t('approvalTimeout.invalid') };
+      const now = typeof effective().approvalTimeoutMs === 'number' ? effective().approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS;
+      return Math.round(n) === now ? {} : { values: { approvalTimeoutMs: Math.round(n) } };
+    }
+
+    function readTtl(draft) {
+      const n = Number(draft.sessionTtlMs);
+      if (!Number.isFinite(n) || n < 0) return { error: t('ttl.invalid') };
+      const now = typeof effective().sessionTtlMs === 'number' ? effective().sessionTtlMs : DEFAULT_SESSION_TTL_MS;
+      return Math.round(n) === now ? {} : { values: { sessionTtlMs: Math.round(n) } };
+    }
+
+    function readHosts(draft) {
+      const entries = String(draft.hostsText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      const bad = entries.find(function (s) { return !/^[A-Za-z0-9._:-]+$/.test(s); });
+      if (bad) return { error: t('hosts.invalid', { h: bad }) };
+      return hostsTextOf(entries) === hostsTextOf(effective().allowedHosts) ? {} : { values: { allowedHosts: entries } };
+    }
+
+    const STRUCT_READERS = {
+      listen: readListen,
+      approvalTimeoutMs: readTimeout,
+      sessionTtlMs: readTtl,
+      allowedHosts: readHosts,
+    };
+
+    /** 失焦/回车提交一个结构性字段: 非法则就地提示, 与生效值相同则什么都不做 */
+    function commitStruct(key) {
+      if (!form) return;
+      const draft = draftRef.current || form.draft;
+      const r = STRUCT_READERS[key](draft);
+      if (r.error) { setErr(key, r.error); return; }
+      clearErr();
+      if (!r.values) return;
+      // 同一次编辑可能连续触发(回车 + 随后失焦): 相同载荷在短时间内只提交一次, 避免重复重载
+      const stamp = JSON.stringify(r.values);
+      if (lastSubmitRef.current.stamp === stamp && Date.now() - lastSubmitRef.current.at < 5000) return;
+      lastSubmitRef.current = { stamp: stamp, at: Date.now() };
+      if (key === 'listen') listenDirtyRef.current = false;
+      else structDirtyRef.current = false;
+      setReloading(true);
+      enqueue({ values: r.values }, true);
+    }
+
+    /** 回车 = 提交(不再额外触发失焦, 避免同一次编辑提交两遍) */
+    function enterCommits(key) {
+      return function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        commitStruct(key);
+      };
+    }
+
+    // 关闭设置面板会直接卸载组件: 把还没失焦的编辑补交一次(不读组件状态, 合并成一个请求)
+    React.useEffect(function () {
+      return function () {
+        const draft = draftRef.current;
+        if (!draft) return;
+        const values = Object.assign({}, readListen(draft).values, readTimeout(draft).values, readTtl(draft).values, readHosts(draft).values);
+        if (Object.keys(values).length === 0) return;
+        void rpc('config-update', { values: values }).catch(function () { /* 面板已关闭, 失败无需提示 */ });
+      };
+    }, []);
 
     /** 开关/下拉类的结构性字段: 乐观显示 + 立即提交(会重载插件, 但不阻塞后续点击) */
     function changeStruct(draftPatch, values) {
@@ -661,18 +747,6 @@ interface DshModuleSpec {
       setDraft(Object.assign({}, base, draftPatch));
       setReloading(true);
       enqueue({ values: values }, true);
-    }
-
-    function applyListen() {
-      if (!form) return;
-      const base = draftRef.current || form.draft;
-      const host = String(base.host || '').trim();
-      const port = Number(base.port);
-      if (!host) { setErr('listen', t('listen.hostRequired')); return; }
-      if (!Number.isInteger(port) || port < 1 || port > 65535) { setErr('listen', t('listen.portInvalid')); return; }
-      clearErr();
-      setReloading(true);
-      enqueue({ values: { host: host, port: port } }, true);
     }
 
     if (!state) {
@@ -687,14 +761,6 @@ interface DshModuleSpec {
     const conns = state.connections || [];
     const httpOff = state.httpEnabled === false;
     const d = form !== null ? form.draft : null;
-    const currentHost = typeof cfg.host === 'string' && cfg.host ? cfg.host : '127.0.0.1';
-    const currentPort = typeof cfg.port === 'number' ? cfg.port : 8090;
-    const listenDirty = !!d && (String(d.host || '').trim() !== currentHost || Number(d.port) !== currentPort);
-    // 其它结构性字段的未应用改动(应用按钮的可用态); 生效值缺失时用默认值比较
-    const timeoutDirty = !!d && Number(d.approvalTimeoutMs) !== Number(typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS);
-    const ttlDirty = !!d && Number(d.sessionTtlMs) !== Number(typeof cfg.sessionTtlMs === 'number' ? cfg.sessionTtlMs : DEFAULT_SESSION_TTL_MS);
-    const hostsDirty = !!d && String(d.hostsText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean).join(',')
-      !== (Array.isArray(cfg.allowedHosts) ? cfg.allowedHosts : []).join(',');
 
     // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
     const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
@@ -851,6 +917,8 @@ interface DshModuleSpec {
               value: d.host,
               spellCheck: false,
               onChange: function (e) { setListen({ host: e.target.value }); },
+              onBlur: function () { commitStruct('listen'); },
+              onKeyDown: enterCommits('listen'),
             }),
             React.createElement('input', {
               className: 'dcs-input dcs-input-port',
@@ -859,13 +927,9 @@ interface DshModuleSpec {
               max: 65535,
               value: d.port,
               onChange: function (e) { setListen({ port: e.target.value }); },
+              onBlur: function () { commitStruct('listen'); },
+              onKeyDown: enterCommits('listen'),
             }),
-            React.createElement('button', {
-              type: 'button',
-              className: 'dcs-btn',
-              disabled: !listenDirty,
-              onClick: applyListen,
-            }, t('apply')),
           ),
           errOf('listen') ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', errOf('listen')) : null,
         ),
@@ -953,17 +1017,9 @@ interface DshModuleSpec {
               step: 1000,
               value: d.approvalTimeoutMs,
               onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
+              onBlur: function () { commitStruct('approvalTimeoutMs'); },
+              onKeyDown: enterCommits('approvalTimeoutMs'),
             }),
-            React.createElement('button', {
-              type: 'button',
-              className: 'dcs-btn',
-              disabled: !timeoutDirty,
-              onClick: function () {
-                const n = Number((draftRef.current || form.draft).approvalTimeoutMs);
-                if (!Number.isFinite(n) || n < 1000 || n > 600000) { setErr('approvalTimeoutMs', t('approvalTimeout.invalid')); return; }
-                saveStruct({ approvalTimeoutMs: Math.round(n) });
-              },
-            }, t('apply')),
           ),
         }),
         React.createElement(Row, {
@@ -978,17 +1034,9 @@ interface DshModuleSpec {
               step: 60000,
               value: d.sessionTtlMs,
               onChange: function (e) { setStruct({ sessionTtlMs: e.target.value }); },
+              onBlur: function () { commitStruct('sessionTtlMs'); },
+              onKeyDown: enterCommits('sessionTtlMs'),
             }),
-            React.createElement('button', {
-              type: 'button',
-              className: 'dcs-btn',
-              disabled: !ttlDirty,
-              onClick: function () {
-                const n = Number((draftRef.current || form.draft).sessionTtlMs);
-                if (!Number.isFinite(n) || n < 0) { setErr('sessionTtlMs', t('ttl.invalid')); return; }
-                saveStruct({ sessionTtlMs: Math.round(n) });
-              },
-            }, t('apply')),
           ),
         }),
         React.createElement(Row, {
@@ -1003,19 +1051,9 @@ interface DshModuleSpec {
               placeholder: 'example.com, 192.168.1.5',
               spellCheck: false,
               onChange: function (e) { setStruct({ hostsText: e.target.value }); },
+              onBlur: function () { commitStruct('allowedHosts'); },
+              onKeyDown: enterCommits('allowedHosts'),
             }),
-            React.createElement('button', {
-              type: 'button',
-              className: 'dcs-btn',
-              disabled: !hostsDirty,
-              onClick: function () {
-                const text = String((draftRef.current || form.draft).hostsText || '');
-                const entries = text.split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
-                const bad = entries.find(function (s) { return !/^[A-Za-z0-9._:-]+$/.test(s); });
-                if (bad) { setErr('allowedHosts', t('hosts.invalid', { h: bad })); return; }
-                saveStruct({ allowedHosts: entries });
-              },
-            }, t('apply')),
           ),
         }),
         // 重启代价只说一次, 避免每条说明都挂一句"改此项会重载插件"把行宽挤满
