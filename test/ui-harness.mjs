@@ -35,8 +35,10 @@ const state = {
   startedAt,
   config: {
     host: '127.0.0.1', port: 8090,
-    allowedModels: [], allowedModelsEnabled: false, defaultDetail: 'summary',
+    http: true, resourceFirst: false,
+    allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
+    approvalControl: 'off', approvalTimeoutMs: 120000, sessionTtlMs: 86400000,
   },
   connections: DEFAULT_CONNS(),
 }
@@ -349,8 +351,11 @@ const server = createServer(async (req, res) => {
           }
           if ('host' in payload.values || 'port' in payload.values) {
             state.endpoint = 'http://' + state.config.host + ':' + state.config.port + '/mcp'
-            return json(res, 200, { updated: true, reloading: true })
           }
+          // 与后端同语义: 非 volatile 字段重载插件(前端等待重载后刷新), volatile 字段就地提交
+          const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled'])
+          const reloading = Object.keys(payload.values).some((k) => !VOLATILE.has(k))
+          if (reloading) return json(res, 200, { updated: true, reloading: true })
         } else {
           return json(res, 400, { error: 'values 必须是对象' })
         }
