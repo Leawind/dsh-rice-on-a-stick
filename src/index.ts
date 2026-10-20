@@ -1,51 +1,28 @@
 /**
  * dsh-carrot-on-a-stick — 在 Harness 内部启动 MCP server, 把 dsh 的操作能力暴露给任意 MCP 客户端。
  *
- * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置构建、
- * Streamable HTTP 传输层(认证/Host/Origin/体上限/会话路由)与 GUI 控制面。
+ * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置与订阅枢纽、审批桥、
+ * 原生工具开关、状态快照, 以及把 HTTP 传输层与 GUI 控制面挂到宿主生命周期上。
  *
  * 模块布局(职责单一, 依赖自上而下无环):
- *   config     配置接口与默认值
- *   types      跨模块纯数据类型
- *   state      进程内可变状态(config/会话记录/hooks/通知钩子)
- *   paths      cwd 规范化与路径包含判定
- *   projection 结果投影(token 预算)与会话纪要投影
- *   host       宿主服务桥接(零宿主副本原则) + 工作区归组/会话查找
- *   engine     执行引擎(显式模型/preset 契约/live 接管与官方冷恢复/取消/结构化结果)
- *   data       数据层: 工具面与资源面共享的读实现 + 资源 URI 构造器
- *   notify     资源订阅枢纽(per-connection 订阅登记/updated 定向推送/list_changed 合并广播)
- *   tools      16 个 MCP 工具注册(resourceFirst 形态下只读面 8 个下线)
- *   resources  资源面: 全量只读 URI + resources/subscribe + completion + annotations
- *   onboarding initialize 的 instructions 引导 + dsh_get_started 帮助文档(agent 认知面)
+ *   core/     配置、进程内状态、跨模块纯类型、路径工具
+ *   host/     宿主服务桥(零宿主副本原则) + 工具面/资源面共享的数据层
+ *   session/  执行引擎、异步控制面、审批接管、结果投影、请求索引、原生工具注册
+ *   mcp/      Streamable HTTP、GUI 路由、工具/资源面、订阅枢纽、initialize 引导与入门指南
  *
- * 工具集 = 界面操作清单(会话中心): session_create / session_prompt / session_cancel /
- *   session_queue / session_select_model / session_rename / session_search / session_fork /
- *   session_archive / session_list / session_history, 加目录与状态类(model_list /
- *   workspace_list / dsh_status / dsh_list_tools / dsh_get_started / echo)。
- *
- * 模型与 preset 契约: 均由调用方在创建会话时显式指定(provider+model 成对、preset 取值见
- * model_list 的 presets), 插件不做任何默认回填; 续接已有会话沿用其原模型与原 preset。
+ * 工具集 = dsh web 界面的操作清单(会话中心)+ MCP-only 的异步/审批/子代理控制面 +
+ * 目录与状态类工具; 模型与 preset 均由调用方在创建会话时显式指定, 续接沿用会话原值。
  *
  * 安全: 默认仅监听本机; Bearer 常时比较; Host/Origin 白名单防 DNS rebinding; 10MB 体上限。
  * 暴露公网前必须加反代 + TLS + 认证(README「安全」)。
- *
- * 回路: 调用方 → session_create 建会话 → session_prompt 发消息等本轮结果 → 用 sessionId 续接
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID, timingSafeEqual } from 'node:crypto'
-import http from 'node:http'
-import net from 'node:net'
-import os from 'node:os'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './core/config.js'
 import { state } from './core/state.js'
-import { registerTools } from './mcp/tools/index.js'
-import { registerResources } from './mcp/resources.js'
-import { resUri, collectModelCatalog } from './host/data.js'
+import { collectModelCatalog, resUri } from './host/data.js'
+import { createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
 import { createNotifyHub } from './mcp/notify.js'
-import { serverInstructions } from './mcp/onboarding.js'
-import { serviceOf } from './host/bridge.js'
+import { registerWebRoutes } from './mcp/web.js'
 import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './session/approvals.js'
 import { installSelfTools, type SelfToolsController } from './session/self-tools.js'
 
@@ -59,247 +36,9 @@ export const name = PLUGIN_NAME
  */
 export const inject = ['tools', 'llm', 'agents', 'agentPresets', 'workspaceRegistry', 'sessionPersistence', 'sessions']
 
-/** 插件配置类型(从 config.ts 再导出, 供消费方 import type { Config } from 'dsh-carrot-on-a-stick') */
+/** 插件配置类型(从 core/config.ts 再导出, 供消费方 import type { Config } from 'dsh-carrot-on-a-stick') */
 // Config 以 value+type 同名导出: value(schema)供 cordis 装载期校验与宿主配置视图渲染, type 供 apply 签名
 export { Config } from './core/config.js'
-
-// ── GUI 控制面(webServer 路由) ──
-
-/** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
-interface WebServerView {
-  register(options: {
-    kind: 'prefix'
-    path: string
-    handler: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
-  }): () => void
-}
-
-/** 配置编辑通道视图(@deepseek-ai/dsh-config-editor 提供; 可选依赖, 仅类型声明合并零运行时副本):
- * edit 把 change 的返回值写为 profile patch 本条目的 config 行(原子写 + 文件锁 + hmr 串行),
- * 写前经条目 Config schema 校验, "等于继承层"的写入自动删除覆盖行。 */
-interface ConfigEditorView {
-  edit(
-    entry: unknown,
-    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
-  ): Promise<void>
-}
-
-/** 带 HTTP 状态码的错误(GUI 路由的 catch 按 status 决定是否回传 message) */
-function httpError(status: number, message: string): Error & { status: number } {
-  const err = new Error(message) as Error & { status: number }
-  err.status = status
-  return err
-}
-
-/** 一条 MCP 客户端连接(transport 会话)的观测记录: 面板与 status RPC 的数据源 */
-interface McpConnection {
-  sessionId: string
-  connectedAt: number
-  lastActivity: number
-  userAgent: string
-  requests: number
-}
-
-/** GUI 路由前缀: /_dsh/dsh-carrot-on-a-stick/<method>, 与 bottom-info-bar 同约定 */
-const WEB_ROUTE_PREFIX = '/_dsh/dsh-carrot-on-a-stick'
-
-/** JSON 响应(GUI 路由) */
-function webRespond(res: http.ServerResponse, status: number, payload: unknown): void {
-  const body = JSON.stringify(payload)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-  })
-  res.end(body)
-}
-
-/** 绑定通配地址时, Host 头会是本机实际网卡地址/主机名, 需要一并放进白名单 */
-function wildcardHostAliases(bindHost: string): string[] {
-  if (bindHost !== '0.0.0.0' && bindHost !== '::') return []
-  const aliases = [os.hostname()]
-  for (const list of Object.values(os.networkInterfaces())) {
-    for (const address of list ?? []) {
-      if (!address.internal) aliases.push(address.address)
-    }
-  }
-  return aliases
-}
-
-/** 本机回环主机名: 桌面 shell / 浏览器用 localhost 与 127.0.0.1 两种拼写访问同一服务时视为同源 */
-function isLoopbackHostname(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
-}
-
-/** Host 头是否是本机回环 authority(127.0.0.1:64223 / localhost:3000 / [::1]:8080) */
-function isLoopbackAuthority(authority: string): boolean {
-  try {
-    return isLoopbackHostname(new URL(`http://${authority}`).hostname)
-  } catch {
-    return false
-  }
-}
-
-/**
- * 变更类 GUI 路由的同源校验(CSRF 门禁)。判定顺序:
- *   1. Fetch Metadata(`Sec-Fetch-Site`)由浏览器写入、页面 JS 无法伪造: `cross-site` 直接拒,
- *      `same-origin` 直接放行。桌面客户端用 `dsh-app://` 自定义 scheme 承载页面, 其 Origin 与
- *      HTTP Host 天然不同——只看 Origin/Host 会把真机面板的全部写操作误杀。
- *   2. 没有 Fetch Metadata 时退回 Origin/Host 比对: `dsh-app:` Origin 只可能来自桌面 shell, 放行;
- *      http(s) Origin 要求 host 相同(或同端口的回环别名)。
- *   3. Origin 与 Fetch Metadata 都缺: 桌面壳的自定义 scheme 处理器转发请求时会丢掉浏览器的
- *      这两个头(真机实测 site=-, origin=-, host=127.0.0.1:64223), 此时按"本机非浏览器客户端"
- *      处理——Host 必须是回环地址。浏览器发起的跨站写请求必带 Origin(且 JSON 还要过 CORS
- *      预检), 不会走到这个分支, CSRF 面不扩大。
- */
-function sameOrigin(req: http.IncomingMessage): boolean {
-  const fetchSite = req.headers['sec-fetch-site']
-  const origin = req.headers.origin
-  // 桌面 shell 的页面 origin(dsh-app://)与 HTTP Host 天然不同; 远端网页无法伪造该 origin
-  if (origin !== undefined) {
-    try {
-      if (new URL(origin).protocol === 'dsh-app:') return true
-    } catch {
-      // Origin: null 等无法解析的值留给下面的 Fetch Metadata / 默认拒绝
-    }
-  }
-  // Fetch Metadata 由浏览器写入、页面 JS 无法伪造
-  if (fetchSite === 'cross-site') return false
-  if (fetchSite === 'same-origin') return true
-  const host = req.headers.host
-  if (origin === undefined) {
-    // 无 Origin: 浏览器同站请求(same-site)或本机客户端; 其余只接受回环 Host
-    if (fetchSite === 'same-site') return true
-    return host !== undefined && isLoopbackAuthority(host)
-  }
-  let parsed: URL
-  try {
-    parsed = new URL(origin)
-  } catch {
-    return false // 普通网页不可能产生无法解析的 Origin; 视为不可信
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-  if (host === undefined) return false
-  if (parsed.host === host) return true
-  // 回环别名: Origin 用 localhost、Host 用 127.0.0.1(或反向)时端口相同即视为同源
-  const hostUrl = new URL(`http://${host}`)
-  return parsed.port === hostUrl.port
-    && isLoopbackHostname(parsed.hostname)
-    && isLoopbackHostname(hostUrl.hostname)
-}
-
-/** 读 GUI 路由请求体(限字节; 超限 413) */
-function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<string> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const chunks: Buffer[] = []
-    let size = 0
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > maxBytes) {
-        const err = new Error('body too large') as Error & { status?: number }
-        err.status = 413
-        rejectPromise(err)
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => resolvePromise(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', rejectPromise)
-  })
-}
-
-// ── GUI 配置编辑(config-update 路由)的字段面 ──
-
-/** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是结构性字段, 写入后重载) */
-const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
-/** 布尔字段(模型白名单/认证/本实例自用工具的开关; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled'])
-/** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
-const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
-/** defaultDetail 合法枚举(与 config.ts schema 一致) */
-const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
-
-/** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
-function isValidListenHost(host: string): boolean {
-  if (host.length === 0 || host.length > 253) return false
-  if (/[\s/]/.test(host)) return false
-  return net.isIP(host) !== 0 || /^[A-Za-z0-9._:-]+$/.test(host)
-}
-
-/** 校验并整形 GUI 提交的配置值: 只放行白名单字段, 类型/枚举/下限不对一律 400(逐字段报因)。 */
-function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw httpError(400, 'values 必须是对象')
-  }
-  const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (GUI_STRING_FIELDS.has(key)) {
-      if (typeof value !== 'string') throw httpError(400, `${key} 必须是字符串`)
-      if (key === 'host') {
-        const host = value.trim().replace(/^\[(.*)\]$/, '$1')
-        if (!isValidListenHost(host)) throw httpError(400, 'host 必须是合法的监听地址')
-        out[key] = host
-      } else {
-        out[key] = value
-      }
-    } else if (GUI_BOOL_FIELDS.has(key)) {
-      if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
-      out[key] = value
-    } else if (key in GUI_NUMBER_MIN) {
-      const n = typeof value === 'number' ? value : Number(value)
-      const min = GUI_NUMBER_MIN[key]
-      if (!Number.isFinite(n) || n < min) throw httpError(400, `${key} 必须是不小于 ${min} 的数字`)
-      if (key === 'port' && (!Number.isInteger(n) || n > 65535)) throw httpError(400, 'port 必须是 1-65535 的整数')
-      out[key] = n
-    } else if (key === 'defaultDetail') {
-      if (typeof value !== 'string' || !GUI_DETAIL_VALUES.has(value)) {
-        throw httpError(400, 'defaultDetail 必须是 summary/normal/full 之一')
-      }
-      out[key] = value
-    } else if (key === 'allowedModels') {
-      if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-        throw httpError(400, 'allowedModels 必须是字符串数组')
-      }
-      const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
-      const bad = entries.find((s) => !s.includes('/'))
-      if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
-      out[key] = [...new Set(entries)]
-    } else {
-      throw httpError(400, `字段 ${key} 不支持在界面编辑, 请编辑 cordis.patch.yml`)
-    }
-  }
-  if (Object.keys(out).length === 0) throw httpError(400, 'values 不能为空')
-  return out
-}
-
-// ── HTTP 层(认证 / Host 校验 / 路由) ──
-
-/** JSON-RPC 错误响应体 */
-function jsonrpcError(code: number, message: string): string {
-  return JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null })
-}
-
-/** MCP POST 请求体上限(字节): 正常任务/上下文远小于此, 413 拒绝失控载荷防进程内存被打爆 */
-const MAX_BODY_BYTES = 10 * 1024 * 1024
-
-/** Bearer token 常数时间比较(认证未启用或未配令牌时放行; 长度不等直接拒, 相等走 timingSafeEqual) */
-function bearerOk(req: http.IncomingMessage): boolean {
-  if (!state.config.authEnabled || !state.config.authToken) return true
-  const got = Buffer.from(String(req.headers['authorization'] ?? ''), 'utf8')
-  const want = Buffer.from(`Bearer ${state.config.authToken}`, 'utf8')
-  return got.length === want.length && timingSafeEqual(got, want)
-}
-
-/** 从 Host 头提取主机名(去端口; '[::1]:8090' → '::1') */
-function hostnameOf(hostHeader: string): string {
-  if (hostHeader.startsWith('[')) {
-    const end = hostHeader.indexOf(']')
-    return hostHeader.slice(1, end === -1 ? undefined : end).toLowerCase()
-  }
-  const colon = hostHeader.indexOf(':')
-  return (colon === -1 ? hostHeader : hostHeader.slice(0, colon)).toLowerCase()
-}
 
 /**
  * 插件入口: 启动 MCP server(StreamableHTTP, 跨网), 通过 ctx 桥接 dsh 能力。
@@ -328,100 +67,17 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })
   state.approvals = approvalBridge.bridge.runtime
 
-  const port = state.config.port
-  // 安全默认: 仅监听本机。暴露公网/局域网前必须自行加认证+反代+TLS(见 README 警告)
-  const host = state.config.host
-
-  // Host 头白名单: 绑定地址 + loopback 别名 + 通配绑定的实际网卡地址 + 显式 allowedHosts
-  // (防 DNS rebinding: 恶意网页把自己域名 rebinding 到 127.0.0.1 后, Host 头仍是该域名 → 拒)
-  const allowedHostSet = new Set<string>()
-  for (const h of [host, ...wildcardHostAliases(host), 'localhost', '127.0.0.1', '::1', ...(config.allowedHosts ?? [])]) {
-    allowedHostSet.add(h.toLowerCase())
-  }
-
-  /** Origin 头校验: 不带 Origin(非浏览器 MCP 客户端的常态)放行; 带了则主机名必须命中同一白名单 */
-  const originOk = (req: http.IncomingMessage): boolean => {
-    const origin = req.headers['origin']
-    if (origin === undefined) return true
-    try {
-      const parsed = new URL(String(origin))
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-      return allowedHostSet.has(parsed.hostname.toLowerCase())
-    } catch {
-      return false // Origin: null 等非法值一律拒(无法证明同源)
-    }
-  }
-
-  // 标准 cordis 生命周期: 用 ctx.effect 注册清理(卸载时清空会话记录与订阅枢纽; agent 生命周期归宿主 registry)
-  ctx.effect(() => {
-    return () => {
-      state.sessionRecords.clear()
-      state.sessionRequests.clear()
-      state.latestRequestBySession.clear()
-      state.approvals = NOOP_APPROVAL_RUNTIME
-      approvalBridge.dispose()
-      hub.dispose()
-    }
-  }, PLUGIN_NAME)
-
-  // ── MCP server 观测与软停启(http:false 时仅保留 GUI 控制面) ──
   const startedAt = Date.now()
-  /** MCP 连接登记(sessionId → 观测记录); GUI 面板与 status RPC 的数据源, apply 级生命周期 */
-  const connections = new Map<string, McpConnection>()
-  const servers = new Map<string, McpServer>()
-  const transports = new Map<string, StreamableHTTPServerTransport>()
-  let server: http.Server | undefined
-  let listening = false
-
-  // 会话空闲 TTL GC: 客户端异常退出时不会发 DELETE, transport/McpServer 会无限累积。
-  // 超时无活动的会话由服务端关闭, 客户端下次请求得 404 后按规范重新 initialize。0 = 关闭 GC。
-  const sessionTtl = state.config.sessionTtlMs
-  const sessionSweeper = sessionTtl > 0
-    ? setInterval(() => {
-      const now = Date.now()
-      for (const [sid, conn] of connections) {
-        if (now - Math.max(conn.lastActivity, conn.connectedAt) <= sessionTtl) continue
-        const transport = transports.get(sid)
-        try { void transport?.close() } catch { /* 尽力关闭 */ }
-        // close 正常会触发 onclose 清理映射; 这里兜底防泄漏
-        if (transports.has(sid)) {
-          transports.delete(sid)
-          const mcp = servers.get(sid)
-          if (mcp) hub.unbind(mcp)
-          servers.delete(sid)
-          connections.delete(sid)
-        }
-      }
-    }, Math.max(100, Math.min(60_000, Math.floor(sessionTtl / 2))))
-    : undefined
-  sessionSweeper?.unref?.()
-
-  /** 监听一次(可重复调用): 端口被占/EADDRNOTAVAIL 时抛错, 调用方决定是否致命 */
-  const listenOnce = () => new Promise<void>((resolveListen, rejectListen) => {
-    const s = server
-    if (s === undefined) {
-      rejectListen(new Error('server not created (http disabled?)'))
-      return
-    }
-    const onListenError = (e: Error) => {
-      s.off('listening', onListening)
-      rejectListen(new Error(`cannot listen on ${host}:${port}: ${e.message}`))
-    }
-    const onListening = () => {
-      s.off('error', onListenError)
-      resolveListen()
-    }
-    s.once('error', onListenError)
-    s.once('listening', onListening)
-    s.listen(port, host)
-  })
+  let httpServer: McpHttpServer | undefined
 
   /** 状态快照: 版本/监听/配置摘要/订阅观测/活跃连接(GUI 面板与 status RPC 同一数据源) */
   const statusSnapshot = () => {
+    const host = state.config.host
+    const port = state.config.port
     return {
       name,
       version: PLUGIN_VERSION,
-      listening,
+      listening: httpServer?.listening ?? false,
       httpEnabled: config.http !== false,
       endpoint: `http://${host}:${port}/mcp`,
       startedAt,
@@ -439,15 +95,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         approvalTimeoutMs: state.config.approvalTimeoutMs,
       },
       stats: {
-        connections: connections.size,
+        connections: httpServer?.connections().length ?? 0,
         // 资源订阅面观测: 绑定连接数 / 订阅总数(跨连接)
         subscriptions: hub.stats(),
         // 本实例自用工具: 已注册的原生工具数(关闭时为 0)
         selfTools: selfToolsController?.names().length ?? 0,
       },
-      // 最新连接在前: Map 的插入顺序是最旧在前, 面板与 status/connections 资源共用此序
-      connections: Array.from(connections.values(), (c) => ({ ...c }))
-        .sort((a, b) => b.connectedAt - a.connectedAt),
+      // 最新连接在前(HTTP 传输层负责排序, 面板与 status/connections 资源共用此序)
+      connections: httpServer?.connections() ?? [],
     }
   }
 
@@ -468,313 +123,47 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return () => { off() }
   }, `${PLUGIN_NAME}: self-tools config`)
 
-  /** 软停止: 关监听 + 切断全部连接/transport。等 close 完成再返回, 软启动 re-listen 才可靠 */
-  async function stopMcpServer(): Promise<{ stopped: boolean }> {
-    const s = server
-    if (s === undefined || !listening) return { stopped: true }
-    listening = false
-    await new Promise<void>((resolveClose) => { s.close(() => resolveClose()) })
-    // 同步切断遗留 keep-alive/SSE 连接, 端口释放不依赖对端空闲超时
-    s.closeAllConnections?.()
-    for (const transport of transports.values()) {
-      try { void transport.close() } catch { /* 尽力清理 */ }
-    }
-    transports.clear()
-    servers.clear()
-    connections.clear()
-    console.log(`[dsh-carrot-on-a-stick] MCP server stopped (soft stop, ${host}:${port})`)
-    return { stopped: true }
-  }
-
-  /** 软启动: 重新监听同端口(端口被占时返回错误而不抛) */
-  async function startMcpServer(): Promise<{ started: boolean; error?: string }> {
-    if (config.http === false) return { started: false, error: 'http disabled by config' }
-    if (listening) return { started: true }
-    try {
-      await listenOnce()
-      listening = true
-      console.log(`[dsh-carrot-on-a-stick] MCP server listening on ${host}:${port}/mcp (soft start)`)
-      return { started: true }
-    } catch (e) {
-      return { started: false, error: (e as Error)?.message ?? String(e) }
-    }
-  }
+  // ── MCP 传输层: http:false 时 enabled=false(不建 listen server, 但 GUI 控制面仍可用) ──
+  httpServer = createMcpHttpServer({
+    ctx,
+    hub,
+    statusSnapshot,
+    enabled: config.http !== false,
+    allowedHosts: config.allowedHosts,
+  })
 
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-carrot-on-a-stick/<method>(设置页面板的数据/操作后端) ──
-
-  /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
-   * 界面可改的六个字段在 Config schema 上标了 volatile: 只改这些字段时 Loader 就地提交引用,
-   * 本插件不重载(MCP 连接不断、设置面板不阻塞); 改到其它字段(如 sessionTtlMs)才会走正常重载。
-   * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
-  async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean; reloading?: boolean }> {
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      throw httpError(400, '请求体必须是 { values, reset? } 对象')
-    }
-    const { values, reset } = body as { values?: unknown; reset?: unknown }
-    const nextValues = reset === true ? undefined : parseGuiConfigValues(values)
-    const editor = serviceOf<ConfigEditorView>(ctx, 'configEditor')
-    const entry = (ctx as { fiber?: { entry?: unknown } }).fiber?.entry
-    if (editor === undefined || entry === undefined || typeof editor.edit !== 'function') {
-      throw httpError(409, '配置编辑通道不可用(宿主未提供 configEditor), 请直接编辑 cordis.patch.yml')
-    }
-    // host/port 是结构性字段, 写入会重载插件。先探测新端口, 避免写入一个必然启动失败的值;
-    // 只改 host、端口不变时跳过探测(当前 server 正占着该端口, 重载会先释放)。
-    const wantsListen = nextValues !== undefined && ('host' in nextValues || 'port' in nextValues)
-    if (nextValues !== undefined && wantsListen) {
-      const nextHost = typeof nextValues.host === 'string' ? nextValues.host : host
-      const nextPort = typeof nextValues.port === 'number' ? nextValues.port : port
-      if (nextPort !== port) {
-        await new Promise<void>((resolveProbe, rejectProbe) => {
-          const probe = net.createServer()
-          const fail = (e: Error) => {
-            try { probe.close() } catch { /* 未监听时忽略 */ }
-            rejectProbe(httpError(409, `无法监听 ${nextHost}:${nextPort}: ${e.message}`))
-          }
-          probe.once('error', fail)
-          probe.once('listening', () => { probe.close(() => resolveProbe()) })
-          try {
-            probe.listen(nextPort, nextHost)
-          } catch (e) {
-            fail(e as Error)
-          }
-        })
-      }
-    }
-    try {
-      await editor.edit(entry, (_current, inherited) =>
-        // reset: 写回继承层值 → configEditor 对"等于继承层"的写入自动删除覆盖行, 即恢复默认
-        nextValues === undefined ? { ...inherited } : { ..._current, ...nextValues })
-    } catch (e) {
-      throw httpError(400, `配置写入被拒绝: ${(e as Error)?.message ?? String(e)}`)
-    }
-    // selfToolsEnabled 是 volatile: Loader 不重载插件, 这里立即同步原生工具注册。
-    // 事件监听也覆盖手工编辑配置的路径; 显式再 call 一次让面板点击没有轮询延迟。
-    if (nextValues === undefined) selfToolsController?.sync(state.config.selfToolsEnabled)
-    else if (typeof nextValues.selfToolsEnabled === 'boolean') selfToolsController?.sync(nextValues.selfToolsEnabled)
-    return wantsListen ? { updated: true, reloading: true } : { updated: true }
-  }
-
-  const WEB_ROUTES: Record<string, (body: unknown) => unknown> = {
-    // 面板 status: 在工具面快照基础上回显 authToken 完整值, 供令牌行的复制按钮随时取用。
-    // 回显只发生在同源 GUI 路由——完整令牌本就明文存于 cordis.patch.yml, 能读本路由的同源页面
-    // 与本机进程同样读得到该文件, 不增加攻击面; MCP 工具面(dsh_status)仍只透掩码, 不把凭证
-    // 交给被认证的调用方。
-    status: () => {
-      const snap = statusSnapshot()
-      const cfg = snap.config as Record<string, unknown>
-      if (state.config.authToken !== '') cfg.authToken = state.config.authToken
-      return snap
-    },
-    // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
+  registerWebRoutes(ctx, {
+    statusSnapshot,
+    start: () => httpServer!.start(),
+    stop: () => httpServer!.stop(),
     models: () => collectModelCatalog(ctx),
-    stop: () => stopMcpServer(),
-    start: () => startMcpServer(),
-    'config-update': (body) => guiConfigUpdate(body),
-  }
-  const WEB_MUTATING = new Set(['stop', 'start', 'config-update'])
-  ctx.inject(['webServer'], (webCtx) => {
-    const webServer = (webCtx as unknown as { webServer: WebServerView }).webServer
-    webCtx.effect(() => {
-      const dispose = webServer.register({
-        kind: 'prefix',
-        path: WEB_ROUTE_PREFIX,
-        handler: async (req: http.IncomingMessage, res: http.ServerResponse) => {
-          try {
-            const path = new URL(req.url ?? '/', 'http://localhost').pathname
-            if (!path.startsWith(`${WEB_ROUTE_PREFIX}/`)) {
-              webRespond(res, 404, { error: 'not found' })
-              return
-            }
-            const method = decodeURIComponent(path.slice(WEB_ROUTE_PREFIX.length + 1))
-            const fn = Object.hasOwn(WEB_ROUTES, method) ? WEB_ROUTES[method] : undefined
-            if (typeof fn !== 'function') {
-              webRespond(res, 404, { error: `unknown method: ${method}` })
-              return
-            }
-            // 变更类方法要求同源(GUI 按钮发起; 防 CSRF 式启停/改配置)
-            if (WEB_MUTATING.has(method) && !sameOrigin(req)) {
-              // 带上判定输入: 桌面 shell / 反代换了 origin 拼写时, 面板上的报错要能直接定位
-              const site = req.headers['sec-fetch-site'] ?? '-'
-              const origin = req.headers.origin ?? '-'
-              const host = req.headers.host ?? '-'
-              webRespond(res, 403, { error: `cross-origin request rejected (site=${site}, origin=${origin}, host=${host})` })
-              return
-            }
-            // 读 body(限 64k 防滥用): config-update 需要 JSON 载荷, 其余方法仅消费流
-            let body: unknown
-            if (req.method === 'POST' || req.method === 'PUT') {
-              const raw = await webReadBody(req, 64 * 1024)
-              if (raw !== '') {
-                try {
-                  body = JSON.parse(raw)
-                } catch {
-                  throw httpError(400, '请求体不是合法 JSON')
-                }
-              }
-            }
-            webRespond(res, 200, await fn(body))
-          } catch (e) {
-            const status = (e as { status?: number })?.status ?? 500
-            webRespond(res, status, { error: status === 500 ? 'internal error' : String((e as Error)?.message ?? e) })
-          }
-        },
-      })
-      return () => { dispose() }
-    }, 'dsh-carrot-on-a-stick: web routes')
+    // selfToolsEnabled 是 volatile: Loader 不重载插件, 配置落盘后立即同步原生工具注册。
+    onConfigCommitted: (values) => {
+      if (values === undefined) selfToolsController?.sync(state.config.selfToolsEnabled)
+      else if (typeof values.selfToolsEnabled === 'boolean') selfToolsController?.sync(values.selfToolsEnabled)
+    },
   })
+
+  // 卸载时清空会话记录/订阅枢纽/审批桥, 并关闭 HTTP server 与其传输会话
+  ctx.effect(() => {
+    return () => {
+      state.sessionRecords.clear()
+      state.sessionRequests.clear()
+      state.latestRequestBySession.clear()
+      state.approvals = NOOP_APPROVAL_RUNTIME
+      approvalBridge.dispose()
+      httpServer?.dispose()
+      hub.dispose()
+    }
+  }, PLUGIN_NAME)
 
   // http: false 显式关闭 MCP 监听(GUI 控制面仍可用: 面板显示"未监听", 可看配置但不可启动)
   if (config.http === false) {
-    console.log('[dsh-carrot-on-a-stick] http disabled by config, MCP server not started (web panel still available)')
+    console.log(`[${PLUGIN_NAME}] http disabled by config, MCP server not started (web panel still available)`)
     return
   }
 
-  server = http.createServer(async (req, res) => {
-    // Bearer token 认证(认证启用时所有请求强制校验, 常数时间比较; 401 带 WWW-Authenticate 挑战;
-    // 开关关闭 = 不校验但仍保留令牌, 与面板/配置文档的语义一致)
-    if (!bearerOk(req)) {
-      res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="dsh-carrot-on-a-stick"' })
-      res.end(jsonrpcError(-32001, 'Unauthorized'))
-      return
-    }
-    // Host 头校验(防 DNS rebinding; HTTP/1.1 必有 Host, 缺失视为非法请求)
-    const hostHeader = req.headers.host
-    if (hostHeader === undefined) {
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(jsonrpcError(-32600, 'Missing Host header'))
-      return
-    }
-    if (!allowedHostSet.has(hostnameOf(hostHeader))) {
-      res.writeHead(403, { 'Content-Type': 'application/json' })
-      res.end(jsonrpcError(-32001, `Host not allowed: ${hostnameOf(hostHeader)}`))
-      return
-    }
-    // Origin 头校验(MCP 规范: 本地 HTTP 服务校验 Origin 防 DNS rebinding)。浏览器会带 Origin,
-    // 非浏览器 MCP 客户端通常不带(放行); 带了但主机名不在白名单(含 Origin: null 等解析失败)一律拒。
-    if (!originOk(req)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' })
-      res.end(jsonrpcError(-32001, `Origin not allowed: ${String(req.headers.origin)}`))
-      return
-    }
-    // 请求体上限: 声明超过上限的 POST 先排空请求体再回 413(不进入传输层读体;
-    // 排空是为了客户端拿到完整响应而非连接被重置)
-    const contentLength = Number(req.headers['content-length'] ?? 0)
-    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-      req.resume()
-      res.writeHead(413, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: `Payload too large: ${contentLength} bytes > ${MAX_BODY_BYTES}` }))
-      return
-    }
-    // 只服务 /mcp 端点, 其余路径 404(不给扫描器留面)。非 JSON-RPC 场景, 响应体用普通错误对象。
-    const pathname = (req.url ?? '').split('?')[0] ?? ''
-    if (pathname !== '/mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: `Not found: ${pathname}` }))
-      return
-    }
-
-    const sessionId = (req.headers['mcp-session-id'] as string | undefined) ?? undefined
-    // 连接观测: 每个带会话头的请求都记一次活跃(连接身份以 User-Agent 识别)
-    if (sessionId) {
-      const c = connections.get(sessionId)
-      if (c) {
-        c.lastActivity = Date.now()
-        c.requests++
-        const ua = String(req.headers['user-agent'] ?? '')
-        if (ua && !c.userAgent) c.userAgent = ua
-      }
-    }
-    const existing = sessionId ? transports.get(sessionId) : undefined
-
-    // 已有 session: GET/POST/DELETE 都路由到对应 transport(支持 SSE 流 + 会话终止)
-    if (existing) {
-      if (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') {
-        await existing.handleRequest(req, res)
-        return
-      }
-      res.writeHead(405, { 'Content-Type': 'application/json' })
-      res.end(jsonrpcError(-32600, 'Method not allowed'))
-      return
-    }
-
-    // 新 session 初始化(仅 POST 且无 session id)
-    if (req.method === 'POST' && !sessionId) {
-      // instructions 随 initialize result 下发: agent 在拿到工具清单前先读到整体工作流引导
-      // resources 能力显式声明(subscribe 由本插件自管登记; listChanged 由 hub 合并广播)
-      const mcp = new McpServer({ name, version: PLUGIN_VERSION }, {
-        // resourceFirst 部署的引导文本指路资源面; 普通部署指路工具
-        instructions: serverInstructions(state.config.resourceFirst),
-        capabilities: { resources: { listChanged: true, subscribe: true } },
-      })
-      registerTools(mcp, ctx, { statusSnapshot })
-      registerResources(mcp, ctx, { statusSnapshot, hub })
-      const initUserAgent = String(req.headers['user-agent'] ?? '')
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sid) => {
-          transports.set(sid, transport)
-          servers.set(sid, mcp)
-          // 连接登记: 首个 initialize 请求的 User-Agent 即客户端身份; 订阅枢纽自此收发
-          hub.bind(mcp)
-          connections.set(sid, {
-            sessionId: sid,
-            connectedAt: Date.now(),
-            lastActivity: Date.now(),
-            userAgent: initUserAgent,
-            requests: 1,
-          })
-        },
-      })
-      // 会话关闭时清理映射(避免临时 key 泄漏 + 无效会话累积)
-      transport.onclose = () => {
-        hub.unbind(mcp)
-        const sid = transport.sessionId
-        if (sid) {
-          transports.delete(sid)
-          servers.delete(sid)
-          connections.delete(sid)
-        }
-      }
-      await mcp.connect(transport)
-      await transport.handleRequest(req, res)
-      return
-    }
-
-    // 未知 session → 404(不新建 transport, 避免遗留对象)
-    if (sessionId) {
-      res.writeHead(404, { 'Content-Type': 'application/json' })
-      res.end(jsonrpcError(-32001, 'Session not found'))
-      return
-    }
-
-    // 无 session 的非初始化请求 → 400
-    res.writeHead(400, { 'Content-Type': 'application/json' })
-    res.end(jsonrpcError(-32600, 'Invalid request'))
-  })
-
   // 等待 listen 完成: 端口被占/EADDRNOTAVAIL 时 apply 直接抛错, 插件启动失败可见(不再静默成功)
-  await listenOnce()
-  listening = true
-  console.log(`[dsh-carrot-on-a-stick] MCP server listening on ${host}:${port}/mcp`)
-  // 运行期错误(如 socket 异常)记日志不崩进程
-  server.on('error', (e) => {
-    console.error('[dsh-carrot-on-a-stick] HTTP server error:', e.message)
-  })
-
-  // 卸载时关 server + 清空 transport/server/连接映射(与上面的池/队列清理同属一个 effect 链)
-  ctx.effect(() => {
-    return () => {
-      if (sessionSweeper) clearInterval(sessionSweeper)
-      server?.close()
-      // 热重载确定性: HMR 换新实例卸旧 fiber 时同步切断遗留 keep-alive/SSE 连接,
-      // 8090 的释放不依赖对端空闲超时; 进行中的请求被 reset(dev 形态可接受)
-      server?.closeAllConnections?.()
-      for (const transport of transports.values()) {
-        try { void transport.close() } catch { /* 尽力清理 */ }
-      }
-      transports.clear()
-      servers.clear()
-      connections.clear()
-    }
-  }, PLUGIN_NAME)
+  await httpServer.listen()
 }
