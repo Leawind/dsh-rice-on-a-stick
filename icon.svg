@@ -1,8 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" role="img" aria-labelledby="title desc">
-  <title id="title">DSH Carrot on a Stick</title>
-  <desc id="desc">A single-color outline of a carrot hanging from the tip of a fishing rod.</desc>
+  <title id="title">DSH Rice on a Stick</title>
+  <desc id="desc">A single-color outline of a bowl of white rice hanging from the tip of a fishing rod.</desc>
   <path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#7C8798" stroke-width="1.55" stroke-linecap="round"/>
-  <path d="M18.2 3.4v3.5" stroke="#7C8798" stroke-width="1.15" stroke-linecap="round"/>
-  <path d="M18.2 6.9 C15.25 6.9 14.9 7.9 14.9 8.9 C14.9 13.24 16.62 17.72 17.08 19.44 C17.67 20.5 18.73 20.5 19.32 19.44 C19.78 17.72 21.5 13.24 21.5 8.9 C21.5 7.9 21.15 6.9 18.2 6.9 Z" stroke="#7C8798" stroke-width="1.45" stroke-linejoin="round"/>
-  <path d="M18 6.8C16.6 5.1 15.2 4.2 13.3 3.8M18.7 6.7C19.9 5 21.2 4 22.9 3.6" stroke="#7C8798" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M18.2 3.4v5" stroke="#7C8798" stroke-width="1.15" stroke-linecap="round"/>
+  <path d="M14.2 11.4 C14.4 10.4 15.0 9.8 15.8 9.8 C16.2 9.0 17.0 8.6 17.8 8.9 C18.4 8.3 19.2 8.3 19.8 8.9 C20.6 8.6 21.4 9.0 21.8 9.8 C22.2 10.2 22.4 10.8 22.4 11.4" stroke="#7C8798" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13.5 11.4 H22.5" stroke="#7C8798" stroke-width="1.35" stroke-linecap="round"/>
+  <path d="M13.5 11.4 C13.6 13.9 15.2 15.7 18.0 15.7 C20.8 15.7 22.4 13.9 22.5 11.4" stroke="#7C8798" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M16.3 15.7 L15.9 16.7 H20.1 L19.7 15.7" stroke="#7C8798" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20.6 11.2 L22.8 7.4 M19.7 11.2 L21.9 7.4" stroke="#7C8798" stroke-width="0.95" stroke-linecap="round"/>
 </svg>

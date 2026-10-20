@@ -15,7 +15,7 @@ interface DshModuleSpec {
   // - 注册 settings.section 设置页面板: 状态头 / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
   //   configEditor 写 profile patch 后热重载生效) / 软停启 / MCP 客户端连接列表
   // - 设置侧栏图标: 宿主的 settings.section 只投影 id/order/label(没有 icon 字段), 第三方分区
-  //   一律显示齿轮; 与 dshmarket 同法认领本分区行, 用 mask 换上胡萝卜钓竿标记
+  //   一律显示齿轮; 与 dshmarket 同法认领本分区行, 用 mask 换上米饭碗标记
   // - React 由模块系统种子提供; 不依赖其它 client 包
   // - 视觉直接引用宿主全局 --dsw-* 主题 token(与宿主同文档, 深浅主题自动跟随), 每处 var() 带中性
   //   fallback 兜底; 控件规格对齐官方 primitives(输入 32px/radius-md, 按钮 sm 28/md 36, 开关 36×20,
@@ -1095,16 +1095,19 @@ interface DshModuleSpec {
   // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS mask
   // 把宿主注入的齿轮换成自己的标记. 只读 DOM, 不改 React 管理的节点, 语言切换时重新认领.
   //
-  // 图形是 24 网格上的空心线稿“斜竿 + 胡萝卜”(与 icon.svg 同一几何、同一组线宽): 与宿主自带的
-  // 线性图标一致用描边而非填充; 16px 下竿身仍需明显粗于缨子, 胡萝卜才不会被读成一根带长柄的叶子;
-  // 3 根缨子在小尺寸会糊成一团, 只留左右两根.
+  // 图形是 24 网格上的空心线稿“斜竿 + 一碗白米饭”(与 icon.svg 同一几何、同一组线宽): 与宿主自带的
+  // 线性图标一致用描边而非填充; 16px 下竿身仍需明显粗于碗沿, 饭碗才不会被读成一根带长柄的球;
+  // 碗沿、碗身和筷子的线宽按 16px 的可读性分级, 再细就会糊成一团.
   var NAV_ICON_MARKER = 'data-dsh-carrot-nav-icon';
   var NAV_ICON_SIZE = 16;
   var NAV_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
     + '<path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#000" stroke-width="1.55" stroke-linecap="round"/>'
-    + '<path d="M18.2 3.4v3.5" stroke="#000" stroke-width="1.15" stroke-linecap="round"/>'
-    + '<path d="M18.2 6.9 C15.25 6.9 14.9 7.9 14.9 8.9 C14.9 13.24 16.62 17.72 17.08 19.44 C17.67 20.5 18.73 20.5 19.32 19.44 C19.78 17.72 21.5 13.24 21.5 8.9 C21.5 7.9 21.15 6.9 18.2 6.9 Z" stroke="#000" stroke-width="1.45" stroke-linejoin="round"/>'
-    + '<path d="M18 6.8C16.6 5.1 15.2 4.2 13.3 3.8M18.7 6.7C19.9 5 21.2 4 22.9 3.6" stroke="#000" stroke-width="1.2" stroke-linecap="round"/>'
+    + '<path d="M18.2 3.4v5" stroke="#000" stroke-width="1.15" stroke-linecap="round"/>'
+    + '<path d="M14.2 11.4 C14.4 10.4 15.0 9.8 15.8 9.8 C16.2 9.0 17.0 8.6 17.8 8.9 C18.4 8.3 19.2 8.3 19.8 8.9 C20.6 8.6 21.4 9.0 21.8 9.8 C22.2 10.2 22.4 10.8 22.4 11.4" stroke="#000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M13.5 11.4 H22.5" stroke="#000" stroke-width="1.35" stroke-linecap="round"/>'
+    + '<path d="M13.5 11.4 C13.6 13.9 15.2 15.7 18.0 15.7 C20.8 15.7 22.4 13.9 22.5 11.4" stroke="#000" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M16.3 15.7 L15.9 16.7 H20.1 L19.7 15.7" stroke="#000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M20.6 11.2 L22.8 7.4 M19.7 11.2 L21.9 7.4" stroke="#000" stroke-width="0.95" stroke-linecap="round"/>'
     + '</svg>';
 
   function navIconCss() {
