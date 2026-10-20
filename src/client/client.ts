@@ -126,6 +126,7 @@ interface DshModuleSpec {
       'nav': 'MCP 服务',
       'uptime': '已运行 {d}',
       'state.running': '运行中',
+      'state.reloading': '重载中',
       'state.stopped': '已停止',
       'state.listeningOff': '监听关闭',
       'server.title': 'MCP 服务',
@@ -135,26 +136,26 @@ interface DshModuleSpec {
       'self.title': '将工具注册到本dsh实例',
       'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
       'http.title': '外部 MCP 监听',
-      'http.hint': '关闭后不监听端口，仅保留生命周期钩子（改此项会重载插件）',
+      'http.hint': '关闭后不监听端口，仅保留生命周期钩子',
       'resource.title': '资源优先形态',
-      'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取（改此项会重载插件）',
+      'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取',
       'approval.title': '审批接管模式',
-      'approval.hint': 'off 只读展示；fallback 界面优先、无人应答时接管；exclusive 直接接管（改此项会重载插件）',
+      'approval.hint': 'off 只读展示；fallback 界面优先、无人应答时接管；exclusive 直接接管',
       'approval.off': '关闭（只读展示）',
       'approval.fallback': '界面优先，无人应答时接管',
       'approval.exclusive': '仅由 MCP 接管',
       'approvalTimeout.title': '审批接管等待上限',
-      'approvalTimeout.hint': '毫秒，1000-600000；被接管后超时按失败关闭处理（改此项会重载插件）',
+      'approvalTimeout.hint': '毫秒，1000-600000；超时按失败关闭处理',
       'approvalTimeout.invalid': '等待上限必须是 1000-600000 之间的数字。',
       'ttl.title': 'MCP 传输会话空闲上限',
-      'ttl.hint': '毫秒，0 表示永不淘汰（改此项会重载插件）',
+      'ttl.hint': '毫秒，0 表示永不淘汰',
       'ttl.invalid': '空闲上限必须是不小于 0 的数字。',
       'hosts.title': 'Host 头白名单',
-      'hosts.hint': '额外放行的主机名，逗号或空格分隔（改此项会重载插件）',
+      'hosts.hint': '额外放行的主机名，逗号或空格分隔',
       'hosts.invalid': '主机名不合法：{h}',
       'listen.title': '监听地址与端口',
+      'footnote': '带“应用”的项改动后会重启插件，已连接的 MCP 客户端会短暂断开。',
       'apply': '应用',
-      'reloading': '正在重启插件…',
       'listen.hostRequired': '监听地址不能为空。',
       'listen.portInvalid': '端口必须是 1-65535 的整数。',
       'copy': '复制',
@@ -200,6 +201,7 @@ interface DshModuleSpec {
       'nav': 'MCP Service',
       'uptime': 'Up {d}',
       'state.running': 'Running',
+      'state.reloading': 'Reloading',
       'state.stopped': 'Stopped',
       'state.listeningOff': 'Listener off',
       'server.title': 'MCP server',
@@ -209,26 +211,26 @@ interface DshModuleSpec {
       'self.title': 'Register tools into this dsh instance',
       'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
       'http.title': 'External MCP listener',
-      'http.hint': 'Off: no listening socket, lifecycle hooks remain (reloads the plugin).',
+      'http.hint': 'Off: no listening socket, lifecycle hooks remain.',
       'resource.title': 'Resource-first mode',
-      'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources (reloads the plugin).',
+      'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources.',
       'approval.title': 'Approval takeover',
-      'approval.hint': 'off: display only; fallback: UI first, MCP when nobody answers; exclusive: MCP only (reloads the plugin).',
+      'approval.hint': 'off: display only; fallback: UI first, MCP when nobody answers; exclusive: MCP only.',
       'approval.off': 'Off (display only)',
       'approval.fallback': 'UI first, MCP when nobody answers',
       'approval.exclusive': 'MCP only',
       'approvalTimeout.title': 'Approval wait limit',
-      'approvalTimeout.hint': 'Milliseconds, 1000-600000; a parked approval times out as failure-closed (reloads the plugin).',
+      'approvalTimeout.hint': 'Milliseconds, 1000-600000; times out fail-closed.',
       'approvalTimeout.invalid': 'The wait limit must be a number between 1000 and 600000.',
       'ttl.title': 'MCP transport idle TTL',
-      'ttl.hint': 'Milliseconds, 0 = never reap (reloads the plugin).',
+      'ttl.hint': 'Milliseconds, 0 = never reap.',
       'ttl.invalid': 'The idle TTL must be a number >= 0.',
       'hosts.title': 'Host header allowlist',
-      'hosts.hint': 'Extra hostnames, comma or space separated (reloads the plugin).',
+      'hosts.hint': 'Extra hostnames, comma or space separated.',
       'hosts.invalid': 'Invalid hostname: {h}',
+      'footnote': 'Items with Apply restart the plugin; connected MCP clients drop briefly.',
       'listen.title': 'Listen address and port',
       'apply': 'Apply',
-      'reloading': 'Restarting the plugin…',
       'listen.hostRequired': 'Listen address must not be empty.',
       'listen.portInvalid': 'Port must be an integer between 1 and 65535.',
       'copy': 'Copy',
@@ -309,8 +311,11 @@ interface DshModuleSpec {
     '.dcs-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l3,rgba(0,0,0,.12)));}',
     '.dcs-urlrow{display:flex;align-items:center;gap:8px;}',
     '.dcs-url{flex:1;min-width:0;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;word-break:break-all;}',
-    // 监听地址/端口: 标签与说明占整行, 输入框和按钮在下一行; 面板窄时按钮可换行
-    '.dcs-row-stack{flex-direction:column;align-items:stretch;gap:10px;}',
+    // 监听地址/端口: 标签与说明占整行, 输入框和按钮在下一行; 面板窄时按钮可换行。
+    // 选择器必须带 .dcs-row(同为 0,1,0 但 .dcs-row 在下方, 单写 .dcs-row-stack 会被它覆盖成 align-items:center,
+    // 竖排时就是"标签水平居中"); 标签在竖排里不参与收缩, 否则 flex-basis 会变成高度。
+    '.dcs-row.dcs-row-stack{flex-direction:column;align-items:stretch;gap:10px;}',
+    '.dcs-row.dcs-row-stack > .dcs-labels{flex:none;align-items:flex-start;}',
     '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;}',
     '.dcs-input-host{flex:1 1 180px;width:auto;min-width:140px;}',
     '.dcs-input-port{flex:0 0 96px;width:96px;}',
@@ -322,20 +327,21 @@ interface DshModuleSpec {
     '.dcs-form{display:flex;flex-direction:column;}',
     // 发丝线只画在配置行之间: 行下的附属块(白名单清单/令牌行/端点卡)属于同一项, 不另画线
     '.dcs-form > .dcs-row:not(:first-child){border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
-    '.dcs-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 2px;}',
-    '.dcs-labels{display:flex;flex-direction:column;gap:2px;min-width:0;}',
+    '.dcs-row{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;padding:12px 2px;}',
+    // 说明列可收缩且允许任意断行; 空间不够时控件整列换到下一行, 永远不会压到文字上
+    '.dcs-labels{display:flex;flex-direction:column;gap:2px;flex:1 1 220px;min-width:0;overflow-wrap:anywhere;}',
     '.dcs-label{font-size:13px;line-height:20px;font-weight:500;}',
     '.dcs-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
-    // 控件列: 控件居右, 字段校验提示紧随其下(不占用整行, 也不跑到别的行去)
-    '.dcs-controlwrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0;}',
+    // 控件列: 控件居右, 字段校验提示浮在控件下方(绝对定位, 不占据行高——出错时不会挤动其它行)
+    '.dcs-controlwrap{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0;margin-left:auto;}',
     '.dcs-control{flex:none;display:flex;align-items:center;}',
     // 行内"输入框 + 应用": 数值/主机名这类结构性字段与其它行同一套布局(标签左、控件右)
     '.dcs-inline{display:flex;align-items:center;gap:8px;}',
-    '.dcs-inline .dcs-input{flex:none;width:150px;}',
-    '.dcs-inline .dcs-input-wide{width:220px;}',
-    '.dcs-err-right{max-width:320px;text-align:right;}',
-    // 插件级状态(正在重启插件): 只在面板头部下方出现一次, 不挂在任何配置项上
-    '.dcs-notice{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629);}',
+    '.dcs-inline .dcs-input{flex:none;width:130px;}',
+    '.dcs-inline .dcs-input-wide{width:200px;}',
+    '.dcs-err-right{position:absolute;top:100%;right:0;margin-top:4px;max-width:320px;text-align:right;pointer-events:none;}',
+    // 表单脚注: "改动会重启插件"只说一次, 不再挂在每条说明里挤占行宽
+    '.dcs-footnote{padding:10px 2px 2px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     // 输入(官方 Input: 32px 高/0.5px border-l4/radius-md/焦点边框变品牌蓝)
     '.dcs-input{box-sizing:border-box;width:300px;max-width:100%;height:32px;padding:0 8px;font-family:inherit;font-size:14px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);outline:none;transition:border-color .1s ease;}',
     '.dcs-input:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
@@ -383,11 +389,14 @@ interface DshModuleSpec {
     '.dcs-empty{font-size:12.5px;color:var(--dsw-alias-label-tertiary,#81858c);padding:8px 2px;}',
   ].join('');
 
-  // 状态徽章: 运行中(绿)/已停止(琥珀)/监听关闭(红); title 带运行时长
+  // 状态徽章: 运行中(绿)/已停止(琥珀)/监听关闭(红); 插件重载期间复用为"重载中",
+  // 状态变化只改这一枚徽章的文字与配色, 不新增占位、不移动其它元素
   function Badge(props) {
-    const cls = props.ok ? 'dcs-tag dcs-tag-ok' : props.warn ? 'dcs-tag dcs-tag-warn' : 'dcs-tag dcs-tag-err';
-    const text = t(props.ok ? 'state.running' : props.warn ? 'state.stopped' : 'state.listeningOff');
-    return React.createElement('span', { className: cls, title: props.title },
+    const cls = props.busy ? 'dcs-tag dcs-tag-warn'
+      : props.ok ? 'dcs-tag dcs-tag-ok'
+        : props.warn ? 'dcs-tag dcs-tag-warn' : 'dcs-tag dcs-tag-err';
+    const text = t(props.busy ? 'state.reloading' : props.ok ? 'state.running' : props.warn ? 'state.stopped' : 'state.listeningOff');
+    return React.createElement('span', { className: cls, title: props.title, role: 'status' },
       React.createElement('span', { className: 'dcs-dot' }), text);
   }
 
@@ -709,19 +718,18 @@ interface DshModuleSpec {
 
     return React.createElement('div', { className: 'dcs-root' },
       React.createElement('style', null, PANEL_CSS),
-      // 头部: 状态徽章 + 标题/版本(服务启停已下移到设置表单)
+      // 头部: 状态徽章 + 标题/版本(重载期间徽章变"重载中", 不新增元素、不挤动下方内容)
       React.createElement('div', { className: 'dcs-head' },
         React.createElement(Badge, {
           ok: !!state.listening,
           warn: !httpOff,
+          busy: reloading,
           title: t('uptime', { d: fmtDur(state.uptimeMs) }),
         }),
         React.createElement('span', { className: 'dcs-title' }, 'dsh-carrot-on-a-stick'),
         React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
-      // 插件级状态: 结构性字段写入后整插件重载, 这是插件状态而不是某个配置项的状态
-      reloading ? React.createElement('div', { className: 'dcs-notice' }, t('reloading')) : null,
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
@@ -1010,6 +1018,8 @@ interface DshModuleSpec {
             }, t('apply')),
           ),
         }),
+        // 重启代价只说一次, 避免每条说明都挂一句"改此项会重载插件"把行宽挤满
+        React.createElement('div', { className: 'dcs-footnote' }, t('footnote')),
         cfgError ? React.createElement('div', { className: 'dcs-savebar' },
           React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
         ) : null,
