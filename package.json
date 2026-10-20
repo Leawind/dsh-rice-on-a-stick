@@ -28,7 +28,7 @@
   "scripts": {
     "build": "tsc -p . && tsc -p tsconfig.client.json",
     "dev": "node scripts/dev.mjs",
-    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.client.json --noEmit",
+    "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.client.json --noEmit",
     "smoke": "npm run build && node test/smoke.ts && node test/smoke-port.ts",
     "smoke:ui": "npm run build && node test/ui-harness.mjs",
     "test": "npm run smoke",
