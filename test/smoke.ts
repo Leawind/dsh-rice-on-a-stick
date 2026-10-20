@@ -565,6 +565,15 @@ try {
       && typeof stBody.config?.defaultDetail === 'string'
       && typeof stBody.stats?.connections === 'number' && Array.isArray(stBody.connections)
     checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === 8087
+    // 连接列表: 最新连接排最前(面板与 status/connections 资源同序)
+    await new Promise((r) => setTimeout(r, 5))
+    const second = await phase.initialize()
+    const stOrder = await phase.gui('status')
+    const stOrderConns = stOrder.status === 200 ? JSON.parse(stOrder.body).connections ?? [] : []
+    checks['GUI 路由: 连接列表最新在前(connectedAt 倒序)'] = stOrderConns.length === 2
+      && stOrderConns[0]?.sessionId === second.sid
+      && stOrderConns[1]?.sessionId === stBody.connections?.[0]?.sessionId
+      && stOrderConns[0].connectedAt >= stOrderConns[1].connectedAt
     const modelsRoute = await phase.gui('models')
     checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200
       && modelsRoute.body.includes('Provider One')

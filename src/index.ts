@@ -445,7 +445,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         // 本实例自用工具: 已注册的原生工具数(关闭时为 0)
         selfTools: selfToolsController?.names().length ?? 0,
       },
-      connections: Array.from(connections.values(), (c) => ({ ...c })),
+      // 最新连接在前: Map 的插入顺序是最旧在前, 面板与 status/connections 资源共用此序
+      connections: Array.from(connections.values(), (c) => ({ ...c }))
+        .sort((a, b) => b.connectedAt - a.connectedAt),
     }
   }
 

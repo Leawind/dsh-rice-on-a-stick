@@ -16,9 +16,10 @@ const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.
 // ── mock 状态(与 statusSnapshot 同形) ──
 const startedAt = Date.now()
 const now = () => Date.now()
+// 与 statusSnapshot() 一致: 最新连接在前(按 connectedAt 倒序)
 const DEFAULT_CONNS = () => [
-  { sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90', userAgent: 'claude-code/2.1.0 (Windows)', connectedAt: now() - 125_000, lastActivity: now() - 4_000, requests: 42 },
   { sessionId: '0f9e8d7c6b5a4321fedcba9876543210', userAgent: 'cursor/1.99.3', connectedAt: now() - 60_000, lastActivity: now() - 45_000, requests: 7 },
+  { sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90', userAgent: 'claude-code/2.1.0 (Windows)', connectedAt: now() - 125_000, lastActivity: now() - 4_000, requests: 42 },
 ]
 const state = {
   name: 'dsh-carrot-on-a-stick',
