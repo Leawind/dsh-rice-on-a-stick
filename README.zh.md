@@ -329,7 +329,7 @@ client/       浏览器半区：设置 → MCP 服务面板 + 侧栏图标
 cordis.yml    bundle 补丁，插入插件行
 test/         冒烟、真机 e2e 与 UI harness
 assets/       项目图标、设置面板截图
-docs/         架构说明与 e2e 记录
+docs/         架构说明
 ```
 
 checkout 开发时，`npm run dev` 运行 `tsc --watch`；配合 `link:` 安装与宿主 HMR，`lib/` 落盘即重载。宿主半区是**零宿主副本**桥接：`@deepseek-ai/*` 类型在构建后擦除，运行时一律经注入的宿主服务访问，避免插件重载与宿主私有 Symbol 错位。模块地图与关键流程见 [docs/architecture.zh.md](docs/architecture.zh.md)。

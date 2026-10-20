@@ -329,7 +329,7 @@ client/       browser half: Settings → MCP Service panel + settings-nav icon
 cordis.yml    bundle patch that inserts the plugin row
 test/         smoke, real-host e2e, and the UI harness
 assets/       project icon, settings-panel screenshots
-docs/         architecture notes and e2e records
+docs/         architecture notes
 ```
 
 For a checkout, `npm run dev` runs `tsc --watch`; with a `link:` install and the host's HMR configured, `lib/` changes reload the plugin. The host half is a **zero-host-copy** bridge: `@deepseek-ai/*` types are erased at build time and everything runtime goes through injected services, so a plugin reload cannot desync host-private symbols. See [docs/architecture.zh.md](docs/architecture.zh.md) (Chinese) for the module map and key flows.
