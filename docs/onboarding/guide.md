@@ -73,7 +73,8 @@ you already know.
    automatically.
 5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title;
    `includeCold: true` also folds persisted-only sessions' titles, at the cost of one
-   log read per candidate), `session_meta` for model+reasoning effort, preset, live
+   log read per candidate, and `coldScanMax` raises or lowers the per-call scan budget
+   — default 50, cap 500), `session_meta` for model+reasoning effort, preset, live
    state, turn/step counters and context occupancy, `session_history` for recent turns
    (pass `roles` to keep only the turn types you need, e.g. `["assistant"]` to skip tool
    noise), `session_search` to find sessions by content.

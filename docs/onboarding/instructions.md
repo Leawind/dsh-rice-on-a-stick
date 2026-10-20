@@ -28,7 +28,8 @@ Quick start:
 - session_select_model switches a session's model in place (history preserved);
   session_list / session_meta / session_history let you find and inspect sessions.
   session_list takes cwd or title (case-insensitive; includeCold=true also folds
-  persisted-only sessions' titles, otherwise only live titles are searched).
+  persisted-only sessions' titles, one log read per candidate, coldScanMax sets how many
+  to scan per call, default 50).
   session_meta reports model+reasoning effort, preset, live state, turn/step counters
   and context occupancy (token meter, else the last logged usage).
 - session_command lists the slash commands a live session can run (action=list) and runs

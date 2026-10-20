@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { serviceOf } from '../../host/bridge.js'
-import { collectSessions, sessionHistoryPayload, sessionMetaPayload, type SessionControllerView } from '../../host/data.js'
+import { COLD_TITLE_SCAN_LIMIT, COLD_TITLE_SCAN_MAX, collectSessions, sessionHistoryPayload, sessionMetaPayload, type SessionControllerView } from '../../host/data.js'
 import { out, outError, resolveSessionTarget, structuredOut } from './shared.js'
 
 const sessionListOut = z.object({
@@ -44,14 +44,15 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
-        includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). Cold sessions are scanned newest first, at most 50 per call; the result reports `titleSearch`.'),
+        includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). Cold sessions are scanned newest first and each one costs one log read; the result reports `titleSearch`.'),
+        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to scan per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Raise it to search further back when the workspace has many sessions; ignored without a title filter.`),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
-    async ({ limit, cwd, title, includeCold }) => {
+    async ({ limit, cwd, title, includeCold, coldScanMax }) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, includeCold })
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, includeCold, coldScanMax })
         return structuredOut({
           total,
           sessions: items.slice(0, limit ?? 20),

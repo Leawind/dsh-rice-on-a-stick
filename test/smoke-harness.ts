@@ -285,6 +285,13 @@ export const fakeSessionController = {
     if (sessionId === 'sess-legacy') {
       return { meta: { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD }, inheritedEventCount: 0, events: [] }
     }
+    if (sessionId === 'sess-persisted2') {
+      return {
+        meta: { version: 0, id: 'sess-persisted2', createdAt: 5, cwd: FAKE_CWD },
+        inheritedEventCount: 0,
+        events: [{ type: 'session/title', data: { title: 'Persisted Newer' } }],
+      }
+    }
     throw new Error(`session "${sessionId}" not found`)
   },
   // 官方冷恢复(界面打开旧会话同一路径): 返回活体或稳定错误。
@@ -405,7 +412,9 @@ export function makeCtx(opts: {
   const fakePersistence = {
     list: async () => [
       { header: { version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' } },
-      { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD },
+      { header: { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD } },
+      // 比 sess-persisted 更新, 但没有会话对象: 验证 includeCold 的扫描顺序与 coldScanMax 预算耗尽
+      { header: { version: 0, id: 'sess-persisted2', createdAt: 5, cwd: FAKE_CWD } },
       ...extraPersisted.map((s, i) => ({ header: { version: 0, id: s.id, createdAt: 3 + i, cwd: s.cwd } })),
     ],
   }

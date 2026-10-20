@@ -167,10 +167,11 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
 
 // ── 会话(session_list / session_history / dsh://sessions[/…]) ──
 
-/** 冷会话标题缓存的 TTL / 容量 / 单次搜索扫描上限(冷搜索的成本 = 每会话一次日志读) */
+/** 冷会话标题缓存的 TTL / 容量, 与单次搜索扫描的默认预算 / 允许上限(冷搜索成本 = 每会话一次日志读) */
 export const COLD_TITLE_TTL_MS = 60_000
 const COLD_TITLE_CACHE_MAX = 500
 export const COLD_TITLE_SCAN_MAX = 50
+export const COLD_TITLE_SCAN_LIMIT = 500
 
 /** 会话清单的查询条件(全部可选; 缺省 = 现有行为: 全部 live + 持久化会话) */
 export interface SessionQuery {
@@ -181,9 +182,11 @@ export interface SessionQuery {
   /**
    * 标题过滤时是否把持久化-only 会话也纳入(默认 false)。
    * 冷会话没有内存标题, 必须读日志折 session/title——每次搜索每个会话付一次读日志成本,
-   * 因此默认关闭; 打开时单次最多扫描 COLD_TITLE_SCAN_MAX 个, 结果带 titleSearch 报告。
+   * 因此默认关闭; 打开时单次最多扫描 coldScanMax 个(默认 COLD_TITLE_SCAN_MAX), 结果带 titleSearch 报告。
    */
   includeCold?: boolean
+  /** includeCold 的单次扫描预算(默认 COLD_TITLE_SCAN_MAX, 夹在 1..COLD_TITLE_SCAN_LIMIT; 无 title 时不生效) */
+  coldScanMax?: number
 }
 
 /** 冷会话标题: 读日志折 session/title, TTL 内复用; 读不到(无 sessionController/读取失败)记 undefined */
@@ -207,7 +210,7 @@ async function coldTitleOf(ctx: Context, sessionId: string): Promise<string | un
  * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd 过滤
  * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
  * 标题过滤: live 会话的标题走内存(会话对象字段优先, 缺失时折内存日志), 零 I/O;
- * 冷会话默认不参与匹配, 显式 includeCold 才读日志。
+ * 冷会话默认不参与匹配, 显式 includeCold 才读日志(单次预算由 coldScanMax 给, 默认 COLD_TITLE_SCAN_MAX)。
  */
 export async function collectSessions(ctx: Context, query: SessionQuery = {}): Promise<{
   total: number
@@ -285,6 +288,12 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
   const titleQuery = query.title?.trim().toLowerCase() ?? ''
   if (titleQuery === '') return { total: visible.length, sessions: items }
 
+  // 扫描预算: 调用方可按会话总量调大(每个冷会话 = 一次日志读), 夹在 1..COLD_TITLE_SCAN_LIMIT 防呆
+  const requested = typeof query.coldScanMax === 'number' && Number.isFinite(query.coldScanMax)
+    ? query.coldScanMax
+    : COLD_TITLE_SCAN_MAX
+  const coldScanMax = Math.min(COLD_TITLE_SCAN_LIMIT, Math.max(1, Math.floor(requested)))
+
   const matched: Record<string, unknown>[] = []
   let coldScanned = 0
   let coldTruncated = false
@@ -296,7 +305,7 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
     }
     // 没有内存标题 = 冷会话(或从未生成过标题): 只有显式 includeCold 才为它读一次日志
     if (query.includeCold !== true) continue
-    if (coldScanned >= COLD_TITLE_SCAN_MAX) {
+    if (coldScanned >= coldScanMax) {
       coldTruncated = true
       continue
     }

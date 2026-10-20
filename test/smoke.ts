@@ -417,6 +417,16 @@ try {
     && slColdInner.sessions?.[0]?.sessionId === 'sess-persisted'
     && slColdInner.sessions?.[0]?.title === 'Persisted Older'
     && slColdInner.titleSearch?.coldScanned >= 1 && slColdInner.titleSearch?.coldTruncated === false
+  // coldScanMax: 单次扫描预算可调(默认 50, 上限 500); 预算耗尽即截断, 命中取决于扫描顺序(新→旧)
+  const slCap1 = await rpc(init.sid, { jsonrpc: '2.0', id: 551, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true, coldScanMax: 1 } } })
+  const slCap1Inner = innerOf(slCap1)
+  checks['session_list: coldScanMax 缩小预算即截断'] = slCap1Inner.total === 0
+    && slCap1Inner.titleSearch?.coldScanned === 1 && slCap1Inner.titleSearch?.coldTruncated === true
+  const slCapBig = await rpc(init.sid, { jsonrpc: '2.0', id: 552, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true, coldScanMax: 20 } } })
+  const slCapBigInner = innerOf(slCapBig)
+  checks['session_list: coldScanMax 放大预算后命中较旧会话'] = slCapBigInner.total === 1
+    && slCapBigInner.sessions?.[0]?.sessionId === 'sess-persisted'
+    && slCapBigInner.titleSearch?.coldScanned > 1 && slCapBigInner.titleSearch?.coldTruncated === false
   // 会话元信息: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志)
   const metaLive = await rpc(init.sid, { jsonrpc: '2.0', id: 56, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } })
   const metaLiveInner = innerOf(metaLive)
