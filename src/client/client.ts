@@ -1095,20 +1095,13 @@ interface DshModuleSpec {
   // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS mask
   // 把宿主注入的齿轮换成自己的标记. 只读 DOM, 不改 React 管理的节点, 语言切换时重新认领.
   //
-  // 图形是 24 网格上的空心线稿“斜竿 + 一碗白米饭”(与 icon.svg 同一几何、同一组线宽): 与宿主自带的
-  // 线性图标一致用描边而非填充; 16px 下竿身仍需明显粗于碗沿, 饭碗才不会被读成一根带长柄的球;
+  // 图形由 scripts/inline-icon.mjs 在构建时从根目录 icon.svg 内联, 源码里只留占位符;
+  // 24 网格上的空心线稿“斜竿 + 一碗白米饭”, 与宿主线性图标一致用描边而非填充;
+  // 16px 下竿身仍需明显粗于碗沿, 饭碗才不会被读成一根带长柄的球;
   // 碗沿、碗身和筷子的线宽按 16px 的可读性分级, 再细就会糊成一团.
   var NAV_ICON_MARKER = 'data-dsh-carrot-nav-icon';
   var NAV_ICON_SIZE = 16;
-  var NAV_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
-    + '<path d="M2.2 20.9C7.1 15.9 11.7 9 18.2 3.4" stroke="#000" stroke-width="1.55" stroke-linecap="round"/>'
-    + '<path d="M18.2 3.4v5" stroke="#000" stroke-width="1.15" stroke-linecap="round"/>'
-    + '<path d="M14.2 11.4 C14.4 10.4 15.0 9.8 15.8 9.8 C16.2 9.0 17.0 8.6 17.8 8.9 C18.4 8.3 19.2 8.3 19.8 8.9 C20.6 8.6 21.4 9.0 21.8 9.8 C22.2 10.2 22.4 10.8 22.4 11.4" stroke="#000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'
-    + '<path d="M13.5 11.4 H22.5" stroke="#000" stroke-width="1.35" stroke-linecap="round"/>'
-    + '<path d="M13.5 11.4 C13.6 13.9 15.2 15.7 18.0 15.7 C20.8 15.7 22.4 13.9 22.5 11.4" stroke="#000" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>'
-    + '<path d="M16.3 15.7 L15.9 16.7 H20.1 L19.7 15.7" stroke="#000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'
-    + '<path d="M20.6 11.2 L22.8 7.4 M19.7 11.2 L21.9 7.4" stroke="#000" stroke-width="0.95" stroke-linecap="round"/>'
-    + '</svg>';
+  var NAV_ICON_SVG = /* @dsh-inline-icon */ '';
 
   function navIconCss() {
     var url = 'data:image/svg+xml,' + encodeURIComponent(NAV_ICON_SVG);
