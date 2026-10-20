@@ -262,12 +262,12 @@ Panel copy follows the DSH language setting (Chinese/English) and switches immed
 | --- | --- |
 | **Status header** | Live badge (running / stopped / listener off; hover for uptime); state polls every 10 seconds |
 | **Endpoint card** | The MCP endpoint URL (monospace, one-click copy) |
-| **Settings form** | Register tools into this dsh instance (switch), provide the MCP service for external access (switch; turning it off cuts every connected MCP client and asks first), listen address and port (inputs + Apply; applying reloads the plugin), model whitelist (switch + chosen list; "Add model…" opens a searchable catalog), default detail, and auth token |
+| **Settings form** | Common/built-in settings come first: register tools into this dsh instance (switch), model whitelist (switch + chosen list; "Add model…" opens a searchable catalog), and the initial detail level for results. After that: provide the MCP service for external access (switch; turning it off cuts every connected MCP client and asks first), listen address and port (inputs + Apply; applying reloads the plugin; the endpoint card sits below), and MCP token |
 | **Client connections** | Connected clients with client / connected at / last activity / requests; hover for the transport session id |
 
 **Every change saves immediately** through the host `configEditor` into this plugin's profile entry. The ordinary form fields are `volatile`, so the host commits them into the running plugin in place: MCP clients stay connected, running turns are untouched, and the panel stays interactive while writes queue serially (no save button). The listen address and port are structural: **Apply** writes them and reloads the plugin, disconnecting current MCP clients; the new port is probed first. A failed write shows the error in place and the draft falls back to the server's effective value. **Restore defaults** removes the plugin's override row (including hand-edited non-form fields) and asks first. Writes are pre-checked against a field allowlist plus type validation, and the host write path validates against the `Config` schema again.
 
-The auth token row is a switch plus a password-style read-only input: turning auth on generates and saves a 256-bit token if none exists; turning it off skips validation but keeps the token, and only **Regenerate token** replaces it. **Show** reveals the value; select-to-copy and a copy button are available.
+The MCP token row is a switch plus a password-style read-only input: turning auth on generates and saves a 256-bit token if none exists; turning it off skips validation but keeps the token, and only **Regenerate** replaces it. **Show** reveals the value; select-to-copy and a copy button are available.
 
 ## Security
 
