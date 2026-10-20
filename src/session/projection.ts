@@ -58,9 +58,9 @@ function clip(text: string, max: number): string {
 }
 
 export const DETAIL_ARG = {
-  summary: 'summary(默认): 三行总结 + 回答尾部 + 工具名列表, ~数百 token',
-  normal: 'normal: 加上截断的工具调用参数与结果(~2k token)',
-  full: 'full: 完整原文(最坏数万 token, 仅排查用)',
+  summary: 'summary (default): three-line summary + answer tail + tool names, ~a few hundred tokens',
+  normal: 'normal: adds truncated tool call arguments and results (~2k tokens)',
+  full: 'full: complete text (up to tens of thousands of tokens; debugging only)',
 } as const
 
 /** 结果里的模型回报: 只保留有值的字段(接管别人建的会话、读不到 options 时为空对象) */

@@ -123,6 +123,10 @@ try {
   })()
   const echoTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'echo')
   checks['工具带 title + annotations(2025-06-18 协议字段)'] = echoTool?.title === 'Echo' && echoTool?.annotations?.readOnlyHint === true
+  // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文
+  const CJK = /[\u4e00-\u9fff]/
+  checks['tools/list: 面向客户端的说明统一为英文'] = toolsArr.every((t) =>
+    !CJK.test([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n')))
 
   // 原生子代理发现: 只读目录(不激活 child)
   const subList = await rpc(init.sid, { jsonrpc: '2.0', id: 95, method: 'tools/call', params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live' } } })

@@ -35,10 +35,10 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_list',
     {
       title: 'List sessions',
-      description: '列出已知会话的元数据(sessionId/创建时间/cwd/preset/当前模型)。live 与持久化合并、live 优先、按创建时间倒序; 模型选择仅本插件创建过或 live 的会话可知。用于挑选要续接(session_prompt 的 sessionId)/改名/归档的会话。',
+      description: 'List known session metadata (sessionId, createdAt, cwd, preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live. Use it to pick a `sessionId` for `session_prompt`, rename, or archive.',
       inputSchema: {
-        limit: z.number().int().min(1).max(100).optional().describe('最多返回条数(默认 20)'),
-        cwd: z.string().optional().describe('只列该目录(含子目录)下的会话'),
+        limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
+        cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
@@ -58,12 +58,12 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_history',
     {
       title: 'Session history',
-      description: '读取一个会话的对话纪要(user/assistant/tool_call/tool_result/turn_end 轮次, 从最新往回取, 文本截断)。live 会话直接读内存日志; 已持久化但不在内存的会话经宿主 sessionController.inspect 非激活读取(不创建 agent, 与界面打开旧会话同一数据面)。roles 可只取指定类型(如只看回答传 ["assistant"], 排查问题再取 tool_call/tool_result); 支持 beforeIndex 向更早翻页。',
+      description: 'Read a session\'s conversation digest (user/assistant/tool_call/tool_result/turn_end entries, newest first, text truncated). Live sessions read the in-memory log; persisted-only sessions use the host `sessionController.inspect` non-activating read (does not create an agent; same data path as opening an old session in the UI). `roles` filters to specific entry types (e.g. ["assistant"] to skip tool noise; use tool_call/tool_result for debugging); `beforeIndex` pages further back.',
       inputSchema: {
-        sessionId: z.string().describe('会话 id(来自 session_prompt 结果或 session_list; live 与已持久化会话都可读)'),
-        limit: z.number().int().min(1).max(50).optional().describe('最多返回轮数(默认 10)'),
-        roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).optional().describe('只返回这些类型的轮次; 缺省 = 全部类型'),
-        beforeIndex: z.number().int().min(0).optional().describe('从该事件序号之前往回取(翻页: 传上次结果最早的 index)'),
+        sessionId: z.string().describe('Session id (from a session_prompt result or session_list; both live and persisted sessions are readable).'),
+        limit: z.number().int().min(1).max(50).optional().describe('Maximum number of turns (default 10).'),
+        roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).optional().describe('Only return these entry types; default = all types.'),
+        beforeIndex: z.number().int().min(0).optional().describe('Read entries before this event index (paging: pass the earliest index from the previous result).'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -81,9 +81,9 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_search',
     {
       title: 'Search sessions',
-      description: '按字面短语搜索会话内容(界面搜索框同源, 走 sessionController.search), 返回命中会话与摘要片段。需要 web profile 的 sessionController。',
+      description: 'Search session content by literal phrase (same as the UI search box; goes through `sessionController.search`); returns matching sessions and snippet excerpts. Requires the web profile\'s `sessionController`.',
       inputSchema: {
-        query: z.string().describe('搜索短语(字面匹配消息内容)'),
+        query: z.string().describe('Search phrase (literal match against message content).'),
       },
       annotations: { readOnlyHint: true },
     },

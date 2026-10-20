@@ -28,12 +28,12 @@ export function registerCatalogTools(
     'echo',
     {
       title: 'Echo',
-      description: '回显输入, 验证 MCP server 连通',
+      description: 'Echo the input back to verify MCP server connectivity.',
       inputSchema: { text: z.string() },
       annotations: { readOnlyHint: true },
     },
     async ({ text }) => {
-      return out(`收到: ${text} @ ${Date.now()}`)
+      return out(`echo: ${text} @ ${Date.now()}`)
     },
   )
 
@@ -44,7 +44,7 @@ export function registerCatalogTools(
         title: 'dsh usage guide',
         description: 'If you are new to dsh, call this first: concept glossary (sessions, presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path cheat sheet. Pass section to fetch just one part instead of the whole guide. Returns a static markdown guide; no side effects.',
         inputSchema: {
-          section: z.enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits']).optional().describe('all=整份文档(默认); concepts=概念词典; workflows=工作流食谱; errors=错误→替代路径对照表; results=detail 分级与结果阅读; limits=部署方配置约束'),
+          section: z.enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits']).optional().describe('all = the full guide (default); concepts = glossary; workflows = recipes; errors = error→alternative-path table; results = detail levels and reading results; limits = deployment-imposed limits'),
         },
         annotations: { readOnlyHint: true },
       },
@@ -55,7 +55,7 @@ export function registerCatalogTools(
       'dsh_list_tools',
       {
         title: 'List dsh tools',
-        description: '列出宿主全局工具注册表(name + description)。注意: 模型工具挂在 preset/agent 作用域, 全局表通常为空(见返回的 note 字段); 会话实际可用的工具以 session_prompt 结果里的 toolCalls 为准。',
+        description: 'List the host\'s global tool registry (name + description). Note: model tools live in preset/agent scopes, so this global table is usually empty (see the returned note); the tools a session can actually use are the toolCalls in a session_prompt result.',
         inputSchema: {},
         annotations: { readOnlyHint: true },
       },
@@ -67,7 +67,7 @@ export function registerCatalogTools(
       'dsh_status',
       {
         title: 'Plugin status',
-        description: '查看插件部署状态(只读): 版本/监听状态/uptime/配置摘要(模型白名单/结果形态)/订阅观测/连接的 MCP 客户端。Web 设置面板同源数据。',
+        description: 'Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist / result detail), subscription stats, and connected MCP clients. Same data as the Web settings panel.',
         inputSchema: {},
         annotations: { readOnlyHint: true },
       },
@@ -79,7 +79,7 @@ export function registerCatalogTools(
       'workspace_list',
       {
         title: 'List workspaces',
-        description: '列出已注册的工作区(id/路径/归属会话)。工作区 = 界面左侧的会话分组目录; workspaceRegistry 服务缺席(headless 类部署)时明确报不可用。',
+        description: 'List registered workspaces (id, path, owning sessions). A workspace is the session-grouping directory in the dsh sidebar; if the workspaceRegistry service is unavailable (headless deployments), the result says so explicitly.',
         inputSchema: {},
         annotations: { readOnlyHint: true },
       },
@@ -97,9 +97,9 @@ export function registerCatalogTools(
       'model_list',
       {
         title: 'List models',
-        description: '列出当前可路由的 provider、模型 id 与推理档(reasoningEfforts)、preset 花名册(presets), 以及宿主当前缺省选择。session_create 的 provider/model/preset 都取自这里。source=sessionController 为官方口径(与 Web UI 模型选择器同源); source=llm 为回退(不含推理档)。',
+        description: 'List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host\'s current default selection. `session_create` takes its provider/model/preset from here. `source=sessionController` is the official catalog (same as the Web model picker); `source=llm` is a fallback without reasoning metadata.',
         inputSchema: {
-          provider: z.string().optional().describe('只看该 provider(缺省 = 全部)'),
+          provider: z.string().optional().describe('Only list this provider (default: all).'),
         },
         annotations: { readOnlyHint: true },
       },
@@ -119,10 +119,10 @@ export function registerCatalogTools(
     'subagent_list',
     {
       title: 'List native subagents',
-      description: '读取一个会话的原生子代理目录(宿主 subagents.listChildren/listDescendants): 返回 child sessionId、创建时间、mode(one-shot/continuable/external/unknown)、label; recursive=true 时递归列出后代并带 parentId/depth。只读，不加载也不恢复子代理 Agent。子代理拿到 sessionId 后可直接用 session_prompt / session_poll / session_result / session_cancel 继续驱动。原生派生的发起仍由宿主/模型侧的 subagent 工具负责，本工具只把目录接进 MCP 控制面。',
+      description: 'Read a session\'s native subagent catalog (host subagents.listChildren/listDescendants): returns child `sessionId`, creation time, `mode` (one-shot/continuable/external/unknown), and `label`; with `recursive=true`, returns descendants with `parentId`/`depth`. Read-only: it neither loads nor resumes the child agent. Drive a child with `session_prompt` / `session_poll` / `session_result` / `session_cancel`; spawning children remains the host/model-side subagent tool\'s job — this tool only exposes the catalog over MCP.',
       inputSchema: {
-        parentSessionId: z.string().describe('父会话 id(其 subagent 目录的根)'),
-        recursive: z.boolean().optional().describe('true=递归列出所有可达后代(listDescendants); 缺省只列直接子级'),
+        parentSessionId: z.string().describe('Parent session id (the root of its subagent catalog).'),
+        recursive: z.boolean().optional().describe('true = recursively list all reachable descendants (listDescendants); default = direct children only.'),
       },
       annotations: { readOnlyHint: true },
     },

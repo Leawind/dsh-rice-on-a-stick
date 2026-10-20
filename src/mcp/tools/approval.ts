@@ -15,9 +15,9 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_list',
     {
       title: 'List pending approvals',
-      description: '列出一个或多个会话当前挂起的审批(来自会话日志的 approval/asked/decided 折叠): approvalId、toolName、callId、reason、answerable、policy。answerable=true 表示该审批被本插件扣住、可用 approval_answer 回答; false 表示归界面/其他 answerer，或部署的 approvalControl=off。只读，不推进 turn。',
+      description: 'List pending approvals for one or more sessions (folded from approval/asked/decided events in the session log): `approvalId`, `toolName`, `callId`, `reason`, `answerable`, `policy`. `answerable=true` means this plugin holds the approval and `approval_answer` can answer it; false means the UI/another answerer owns it, or `approvalControl=off`. Read-only; does not advance a turn.',
       inputSchema: {
-        sessionIds: z.array(z.string()).min(1).max(20).describe('要检查的会话 id(1-20 个)'),
+        sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -34,12 +34,12 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_answer',
     {
       title: 'Answer an approval',
-      description: '回答一个被本插件扣住的审批(仅当 approval_list 里 answerable=true): decision=allow 返回 allowed-once(只授权这一次), reject 返回 rejected; 两者都会失败关闭地结束本次审批。部署需把 approvalControl 设为 fallback(界面答不了时才交给 MCP)或 exclusive(直接交给 MCP)并重载插件。审批 id 取 approval_list 的 approvalId, 或用 callId 定位。',
+      description: 'Answer an approval held by this plugin (only when `approval_list` reports `answerable=true`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`; both settle the approval fail-closed. The deployment must set `approvalControl` to `fallback` (UI first, MCP when nobody can answer) or `exclusive` (MCP only) and reload the plugin. Identify the approval by `approvalId` from `approval_list`, or by `callId`.',
       inputSchema: {
-        sessionId: z.string().describe('审批所属的会话 id'),
-        approvalId: z.string().optional().describe('approval_list 返回的 approvalId(与 callId 二选一)'),
-        callId: z.string().optional().describe('工具调用 id(与 approvalId 二选一; 更适合与 session_history 的工具调用对齐)'),
-        decision: z.enum(['allow', 'reject']).describe('allow=允许这一次(allowed-once); reject=拒绝'),
+        sessionId: z.string().describe('Session id that owns the approval.'),
+        approvalId: z.string().optional().describe('approvalId returned by approval_list (alternative to callId).'),
+        callId: z.string().optional().describe('Tool call id (alternative to approvalId; useful for aligning with session_history tool calls).'),
+        decision: z.enum(['allow', 'reject']).describe('allow = grant once (allowed-once); reject = deny.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -58,11 +58,11 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_policy',
     {
       title: 'Get or set approval policy',
-      description: '读取或切换一个会话的审批策略(宿主 approval/policy): ask=需要时走审批; never=需审批的操作直接拒绝(无人值守推荐)。get 对 live 与冷会话都可读(冷会话从日志折叠); set 需要会话 live(新建时可用 session_create 的 approvalPolicy 直接设定)。策略切换由宿主写入会话日志并通知模型。',
+      description: 'Read or switch a session\'s approval policy (host approval/policy): ask = request approval when needed; never = reject operations that need approval outright (recommended for unattended runs). `get` works for live and cold sessions (cold sessions are folded from the log); `set` requires a live session (or set it at creation with `session_create.approvalPolicy`). The host writes the change to the session log and notifies the model.',
       inputSchema: {
-        sessionId: z.string().describe('目标会话 id'),
-        action: z.enum(['get', 'set']).describe('get=读取当前生效策略; set=切换策略'),
-        policy: z.enum(['ask', 'never']).optional().describe('action=set 时的目标策略'),
+        sessionId: z.string().describe('Target session id.'),
+        action: z.enum(['get', 'set']).describe('get = read the effective policy; set = switch it.'),
+        policy: z.enum(['ask', 'never']).optional().describe('Target policy for action=set.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

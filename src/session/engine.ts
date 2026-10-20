@@ -84,7 +84,7 @@ function assertModelAllowed(selection: ModelSelection): void {
   if (!state.config.allowedModelsEnabled || allowed.length === 0) return
   if (!allowed.includes(`${selection.provider}/${selection.model}`)) {
     throw new Error(`model "${selection.provider}/${selection.model}" is not in allowedModels [${allowed.join(', ')}]; `
-      + `调用方请改选清单内的模型(见 model_list), 或由部署方调整/关闭插件的 allowedModels 配置`)
+      + 'choose a model from the allowlist (see model_list), or have the deployment adjust/disable the plugin\'s allowedModels config')
   }
 }
 
@@ -327,11 +327,11 @@ async function awaitIdleOrAbort(pending: Promise<void>, signal?: AbortSignal): P
 /** 组装完整任务文本: 记忆上下文 + 任务 + 执行环境合同 + 结构化输出要求 */
 function assembleTask(task: string, context?: string): string {
   return [
-    context ? `【记忆/上下文(供参考, 来自调用方)】\n${context}\n` : '',
-    `【任务】\n${task}\n`,
-    `【执行环境】你在无人监督的受控环境里执行; 你的总结会被机器读取, 转交给看不到本次对话的调用方——总结必须自包含, 不要引用对话上下文, 验证要具体到命令/文件/路径。`,
-    `【完成后必须】用一行 JSON 总结(不要 markdown 代码块包裹, 直接输出这一行):`,
-    `{"changes":"改了什么","verification":"怎么验证的","leftovers":"遗留问题"}`,
+    context ? `[Memory / context from the caller, for reference]\n${context}\n` : '',
+    `[Task]\n${task}\n`,
+    '[Execution environment] You are running unattended in a controlled environment. Your summary is read by a machine and forwarded to a caller who cannot see this conversation: it must be self-contained, must not refer to this conversation, and verification must name concrete commands/files/paths.',
+    '[Required after finishing] Output a one-line JSON summary (no markdown code fence, just this line):',
+    '{"changes":"what changed","verification":"how it was verified","leftovers":"remaining issues"}',
   ].filter(Boolean).join('\n')
 }
 

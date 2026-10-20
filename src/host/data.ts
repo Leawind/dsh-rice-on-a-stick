@@ -379,7 +379,7 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   }
   return {
     source: 'global-registry',
-    note: '全局注册表会包含本插件注册的本实例自用工具(selfToolsEnabled=true 时)与其它宿主/插件全局工具; 模型工具也可能挂在 preset/agent 作用域, 会话实际可用的工具以 session_prompt 结果里的 toolCalls 为准(想确认某能力是否可用, 直接跑个小任务看 toolCalls)',
+    note: 'the global registry includes this plugin\'s native self-use tools (when selfToolsEnabled=true) and other host/plugin global tools; model tools may also live in preset/agent scopes, so the tools a session can actually use are the toolCalls in a session_prompt result (run a small task to confirm a capability)',
     tools: list,
   }
 }

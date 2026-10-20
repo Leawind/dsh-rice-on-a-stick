@@ -182,31 +182,31 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
 
   // ── 静态资源 ──
   mcp.registerResource('status', resUri.status, {
-    title: 'Plugin status', description: '插件部署状态总览(dsh_status 工具同数据; 细分见 status/config|stats|connections)',
+    title: 'Plugin status', description: 'Plugin deployment status overview (same data as dsh_status; see status/config|stats|connections for slices)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readStatus(uri, {}))
   mcp.registerResource('status-config', resUri.statusConfig, {
-    title: 'Plugin config', description: '部署配置摘要(模型白名单/结果形态; 低频变化, 适合缓存)',
+    title: 'Plugin config', description: 'Deployment config summary (model allowlist / result detail; low churn, safe to cache)',
     mimeType: 'application/json', annotations: ann.doc,
   }, (uri) => readStatusField('config')(uri, {}))
   mcp.registerResource('status-stats', resUri.statusStats, {
-    title: 'Plugin stats', description: '运行指标(监听/uptime/订阅数; 高频变化, 可订阅)',
+    title: 'Plugin stats', description: 'Runtime metrics (listener/uptime/subscription counts; high churn, subscribable)',
     mimeType: 'application/json', annotations: ann.hot,
   }, (uri) => readStatusField('stats')(uri, {}))
   mcp.registerResource('status-connections', resUri.statusConnections, {
-    title: 'MCP connections', description: '连接中的 MCP 客户端(会话/UA/最近活跃/请求数)',
+    title: 'MCP connections', description: 'Connected MCP clients (session/UA/last activity/request count)',
     mimeType: 'application/json', annotations: ann.doc,
   }, (uri) => readStatusField('connections')(uri, {}))
   mcp.registerResource('guide', resUri.guide, {
-    title: 'dsh usage guide', description: 'dsh 概念词典/工作流/排错对照(整份; 分节见 guide/{section})',
+    title: 'dsh usage guide', description: 'dsh concept glossary/workflows/troubleshooting (full document; per-section under guide/{section})',
     mimeType: 'text/markdown', size: Buffer.byteLength(GET_STARTED_DOC), annotations: ann.doc,
   }, (uri) => markdown(uri, GET_STARTED_DOC))
   const SECTION_DESCRIPTIONS: Record<Exclude<GuideSection, 'all'>, string> = {
-    concepts: '概念词典(session/接管层级/preset/turn-step/审批)',
-    workflows: '工作流食谱(单发/队列/转向/翻历史)',
-    errors: '错误→替代路径对照表',
-    results: 'detail 分级与结果阅读',
-    limits: '部署方配置约束',
+    concepts: 'Concept glossary (session/takeover levels/preset/turn-step/approval)',
+    workflows: 'Workflow recipes (one-off/queue/steer/history)',
+    errors: 'Error → alternative-path table',
+    results: 'Detail levels and reading results',
+    limits: 'Deployment-imposed limits',
   }
   for (const section of Object.keys(GET_STARTED_SECTIONS) as Exclude<GuideSection, 'all'>[]) {
     mcp.registerResource(`guide-${section}`, resUri.guideSection(section), {
@@ -216,23 +216,23 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     }, (uri) => markdown(uri, GET_STARTED_SECTIONS[section]))
   }
   mcp.registerResource('tools', resUri.tools, {
-    title: 'Host tool registry', description: '宿主全局工具注册表(dsh_list_tools 同数据; 0.1.5+ 通常为空, 带 note 解释)',
+    title: 'Host tool registry', description: 'Host global tool registry (same data as dsh_list_tools; usually empty on 0.1.5+, with a note explaining why)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readTools(uri, {}))
   mcp.registerResource('models', resUri.models, {
-    title: 'Model catalog', description: '可路由模型目录(provider/模型/推理档/缺省选择/加载失败; model_list 同数据)',
+    title: 'Model catalog', description: 'Routable model catalog (provider/model/reasoning efforts/default selection/load failures; same data as model_list)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readModels(uri, {}))
   mcp.registerResource('presets', resUri.presets, {
-    title: 'Agent presets', description: 'preset 花名册(session_create 的 preset 参数取值来源)',
+    title: 'Agent presets', description: 'Preset roster (source of session_create\'s preset argument)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readPresets(uri, {}))
   mcp.registerResource('workspaces', resUri.workspaces, {
-    title: 'Workspaces', description: '工作区清单(id/路径/归属会话; workspace_list 同数据)',
+    title: 'Workspaces', description: 'Workspace list (id/path/owning sessions; same data as workspace_list)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readWorkspaces(uri, {}))
   mcp.registerResource('sessions', resUri.sessions, {
-    title: 'Sessions', description: '会话清单(live+持久化合并, 白名单裁剪; session_list 同数据)',
+    title: 'Sessions', description: 'Session list (live + persisted merged, allowlist-trimmed; same data as session_list)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readSessions(uri, {}))
 
@@ -255,7 +255,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
       },
     },
   }), {
-    title: 'Model provider detail', description: '单 provider 的模型明细(id/name/推理档; 只有该 provider 的目录口径)',
+    title: 'Model provider detail', description: 'Model detail for one provider (id/name/reasoning efforts; that provider\'s catalog view only)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readModelProvider(uri, vars))
 
@@ -277,7 +277,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
       },
     },
   }), {
-    title: 'Workspace detail', description: '单工作区(路径 + 归属会话清单)',
+    title: 'Workspace detail', description: 'One workspace (path + owning session list)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readWorkspace(uri, vars))
 
@@ -296,7 +296,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     },
     complete: { sessionId: completeSessionIds(ctx) },
   }), {
-    title: 'Session metadata', description: '单会话元数据(元信息 + historyReadable 指路; persisted-only 也可读)',
+    title: 'Session metadata', description: 'One session\'s metadata (meta plus historyReadable; persisted-only sessions are readable too)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readSession(uri, vars))
 
@@ -304,7 +304,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     list: async () => ({ resources: await listLiveSessionUris(ctx, 'history') }),
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session history', description: `会话纪要(最新 ${HISTORY_PAGE} 轮, 从新到旧; 更早翻页读 {id}/history/{before}; session_history 工具同数据)`,
+    title: 'Session history', description: `Session digest (latest ${HISTORY_PAGE} turns, newest first; read {id}/history/{before} for older pages; same data as session_history)`,
     mimeType: 'application/json', annotations: ann.data,
   }, guarded((uri, vars) => readHistory(uri, vars)))
   mcp.registerResource('session-history-page', new ResourceTemplate(resUri.sessions + '/{sessionId}/history/{before}', {
@@ -312,7 +312,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     list: undefined,
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session history page', description: `会话纪要翻页: 只取 {before} 序号之前的事件, 返回其前 ${HISTORY_PAGE} 轮(传上次结果最早的 index)`,
+    title: 'Session history page', description: `Session digest paging: only events before the {before} index, returning the preceding ${HISTORY_PAGE} turns (pass the earliest index from the previous result)`,
     mimeType: 'application/json', annotations: ann.data,
   }, guarded((uri, vars) => readHistory(uri, vars)))
 
@@ -320,14 +320,14 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     list: async () => ({ resources: await listLiveSessionUris(ctx, 'events') }),
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session events', description: `原始事件流 JSONL(全量, 500 行上限; {id}/events/{after} 为续读游标)`,
+    title: 'Session events', description: 'Raw event stream as JSONL (full stream, 500-line cap; {id}/events/{after} is the continuation cursor)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readEvents(uri, vars))
   mcp.registerResource('session-events-page', new ResourceTemplate(resUri.sessions + '/{sessionId}/events/{after}', {
     list: undefined,
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session events (after cursor)', description: '原始事件流续读: 只返回下标 > {after} 的事件(传上次结果的 next 值)',
+    title: 'Session events (after cursor)', description: 'Raw event stream continuation: only events with index > {after} (pass the previous result\'s next value)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readEvents(uri, vars))
 
@@ -335,7 +335,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     list: async () => ({ resources: await listLiveSessionUris(ctx, 'activity') }),
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session activity', description: '当前 turn 活动窗口(active/轮数/最近工具/最新回答尾部; 订阅它可实时看 agent 干活)',
+    title: 'Session activity', description: 'Current turn activity window (active/turn count/last tool/answer tail; subscribe to watch the agent work live)',
     mimeType: 'application/json', annotations: ann.hot,
   }, (uri, vars) => readActivity(uri, vars))
 
