@@ -29,7 +29,7 @@ const COPY = [
 const SKIP = new Set(['.git', 'gui-test-screenshots', 'assets'])
 
 async function main() {
-  const temp = await mkdtemp(join(tmpdir(), 'dsh-carrot-test-'))
+  const temp = await mkdtemp(join(tmpdir(), 'dsh-rice-test-'))
   for (const name of COPY) {
     const from = join(repoRoot, name)
     if (!existsSync(from)) continue

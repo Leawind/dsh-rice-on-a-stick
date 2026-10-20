@@ -157,4 +157,4 @@ client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
 - `session_meta` context occupancy prefers the host token meter; a persisted-only session
   (or a deployment without the meter) falls back to the last logged request usage, and
   the window comes from the newest `request/context` or the model route. Omit `sessionId`
-  only from native `carrot_` tools — an MCP call has no "current session".
+  only from native `rice_` tools — an MCP call has no "current session".

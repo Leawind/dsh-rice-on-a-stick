@@ -94,7 +94,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
       title: 'Session info',
       description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model and reasoning effort, live/idle/running/waiting-approval/inactive, turn and step counters (from turn/start|end and step/start|end), and context occupancy (token meter when the host provides it, otherwise the last logged usage; contextWindow from request/context or the model route). Persisted-only sessions are folded from their log via the host inspector; sessions whose log is unreadable return only the list row (eventsReadable=false).',
       inputSchema: {
-        sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native carrot_ tools only; an MCP call must pass it.'),
+        sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
       },
       annotations: { readOnlyHint: true },
     },

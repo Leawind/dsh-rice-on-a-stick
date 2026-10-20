@@ -270,7 +270,7 @@ export async function attachToWorkspace(ctx: Context, canonical: string, session
     const ws = await ensureWorkspace(ctx, canonical)
     if (ws?.attachSession) await ws.attachSession(sessionId)
   } catch (e) {
-    console.warn('[dsh-carrot-on-a-stick] workspace attach failed:', (e as Error)?.message ?? e)
+    console.warn('[dsh-rice-on-a-stick] workspace attach failed:', (e as Error)?.message ?? e)
   }
 }
 

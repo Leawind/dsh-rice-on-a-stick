@@ -1,4 +1,4 @@
-dsh-carrot-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
+dsh-rice-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
 Your MCP client is the commander; dsh is the executor — sessions here are the same
 sessions the dsh web UI shows (session-centric, one conversation = one agent).
 
@@ -36,7 +36,7 @@ Quick start:
   one without sending it to the model (action=run, e.g. name=compact). Commands come from
   the host registry, so /compact and plugin commands appear automatically; /compact is
   idle-only and reports busy otherwise. Omitting sessionId (session_meta/session_command)
-  targets the calling session, which works only for native carrot_ tools.
+  targets the calling session, which works only for native rice_ tools.
 - Results are projected by the detail argument to save your context budget — default
   is summary. Pass detail=full only for debugging.
 

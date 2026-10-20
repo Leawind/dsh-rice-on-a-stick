@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon-v2.svg" width="96" alt="DSH Carrot on a Stick">
+  <img src="icon.svg" width="96" alt="DSH Rice on a Stick">
 </p>
 
-# DSH Carrot on a Stick
+# DSH Rice on a Stick
 
 中文 | [English](README.md)
 
@@ -17,7 +17,7 @@
 Claude Code / Cursor / Cline / 你的 agent
                 │  Streamable HTTP · 127.0.0.1:8090/mcp
                 ▼
-       dsh-carrot-on-a-stick
+       dsh-rice-on-a-stick
                 │  sessionController · agents · tools · workspaces
                 ▼
    dsh 宿主——与界面看到的是同一批会话
@@ -28,7 +28,7 @@ Claude Code / Cursor / Cline / 你的 agent
 -   **真实会话，不是 shell 包装**——工具经宿主 session controller 操作：新建、发送、排队、分叉、归档、切换模型。
 -   **异步编排**——`session_submit` / `session_poll` / `session_result`；客户端超时只停止等待，不会杀掉 dsh 的 turn；停止工作必须走 `session_cancel`。
 -   **审批**——`approval_list` / `approval_answer` / `approval_policy`；`approvalControl` 决定本插件创建/续接的会话里审批由谁回答：默认 `exclusive` 只由调用方回答（界面不再显示该审批），`fallback` 界面优先、界面无人应答才交给调用方，`off` 只展示不接管。
--   **本实例自用**——同一套工具面注册为本实例原生工具（`carrot_` 前缀）；`http: false` 即纯自用部署。
+-   **本实例自用**——同一套工具面注册为本实例原生工具（`rice_` 前缀）；`http: false` 即纯自用部署。
 -   **默认工具优先**——只监听 `127.0.0.1`，可选 Bearer 认证、Host / Origin 白名单、空闲传输会话回收；资源优先形态需显式开启，只认 tools 的客户端零行为变化。
 
 工具面与资源面的确切清单以 `src/mcp/tools/` 和 `src/mcp/resources.ts` 为准；agent 应先调用 `dsh_get_started`——里面有 dsh 入门课、典型工作流和错误应对。
@@ -49,7 +49,7 @@ npm run build
 dsh plugin --profile web add link:"$(pwd)"
 ```
 
-重启 `dsh web`，打开 **设置 → MCP 服务**。卸载：`dsh plugin --profile web remove dsh-carrot-on-a-stick`。
+重启 `dsh web`，打开 **设置 → MCP 服务**。卸载：`dsh plugin --profile web remove dsh-rice-on-a-stick`。
 
 ## 接入 MCP 客户端
 
@@ -84,7 +84,7 @@ dsh plugin --profile web add link:"$(pwd)"
 字段与默认值声明在 `src/core/config.ts`——唯一事实来源。设置面板逐项覆盖**全部**配置字段（不允许遗漏）：volatile 字段就地保存、不重载插件，MCP 连接不断；其余结构性字段（监听地址与端口、外部 MCP 开关、资源优先形态、审批回答方与等待上限、传输空闲上限、Host 头白名单）在**离开输入框或关闭设置**时自动写入并重载插件——没有“应用”按钮，非法值只就地提示、不写入。关键默认值：`resourceFirst: false`（工具优先）、`approvalControl: exclusive`（审批由调用方回答）、`sessionTtlMs: 604800000`（一周）。传输覆盖写在 profile 的 `cordis.patch.yml`：
 
 ```yaml
-- id: dsh-carrot-on-a-stick
+- id: dsh-rice-on-a-stick
   config:
     http: true
     port: 8090
@@ -99,7 +99,7 @@ dsh plugin --profile web add link:"$(pwd)"
 
 -   配置 `authToken`；不要绑定 `0.0.0.0` 或暴露到局域网 / 公网，除非前面有反向代理 + TLS + 认证。
 -   本插件没有目录白名单：会话可在调用方指定的任意 `cwd` 工作。
--   原生 `carrot_` 工具不经 HTTP / 认证——本实例任何会话都能调用；不需要时关闭注册开关。
+-   原生 `rice_` 工具不经 HTTP / 认证——本实例任何会话都能调用；不需要时关闭注册开关。
 
 ## 开发
 

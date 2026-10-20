@@ -1,5 +1,5 @@
 /**
- * dsh-carrot-on-a-stick — client half, built to client/client.js and loaded by the host's
+ * dsh-rice-on-a-stick — client half, built to client/client.js and loaded by the host's
  * browser module loader. The factory receives only the host's `require` seed (React); this file
  * has no ESM imports, so tsc emits a plain script instead of a module.
  */
@@ -8,10 +8,10 @@ interface DshModuleSpec {
   factory: (require: (id: string) => any) => unknown
 }
 
-(window as unknown as { __ModuleLoader__: { load(spec: DshModuleSpec): void } }).__ModuleLoader__.load({ id: 'dsh-carrot-on-a-stick', factory: (require) => {
+(window as unknown as { __ModuleLoader__: { load(spec: DshModuleSpec): void } }).__ModuleLoader__.load({ id: 'dsh-rice-on-a-stick', factory: (require) => {
   const module: { exports: Record<string, unknown> } = { exports: {} };
-  // dsh-carrot-on-a-stick — client half(浏览器, 静态 bundle 形态)
-  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-carrot-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
+  // dsh-rice-on-a-stick — client half(浏览器, 静态 bundle 形态)
+  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
   // - 注册 settings.section 设置页面板: 状态头 / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
   //   configEditor 写 profile patch 后热重载生效) / 软停启 / MCP 客户端连接列表
   // - 设置侧栏图标: 宿主的 settings.section 只投影 id/order/label(没有 icon 字段), 第三方分区
@@ -23,7 +23,7 @@ interface DshModuleSpec {
   'use strict';
 
   const React = require('react');
-  const RPC_BASE = '/_dsh/dsh-carrot-on-a-stick';
+  const RPC_BASE = '/_dsh/dsh-rice-on-a-stick';
 
   function rpc(method: string, args?: unknown) {
     return fetch(RPC_BASE + '/' + method, {
@@ -116,7 +116,7 @@ interface DshModuleSpec {
   // ── 多语言: 跟随宿主语言设置(dsh 语言行, 偏好存宿主 user-settings 的 locale 命名空间) ──
   // 宿主客户端上下文提供 locale 服务(dsh-client-locale): register 字典 + bind 翻译函数 +
   // subscribe/getSnapshot 快照订阅, 经模块级 inject 声明后使用。zh 是键集来源, en 与 zh 键一一对应。
-  var NS_I18N = 'dsh-carrot-on-a-stick';
+  var NS_I18N = 'dsh-rice-on-a-stick';
   interface Dictionary {
     zh: Record<string, string>;
     en: Record<string, string>;
@@ -792,7 +792,7 @@ interface DshModuleSpec {
           busy: reloading,
           title: t('uptime', { d: fmtDur(state.uptimeMs) }),
         }),
-        React.createElement('span', { className: 'dcs-title' }, 'dsh-carrot-on-a-stick'),
+        React.createElement('span', { className: 'dcs-title' }, 'dsh-rice-on-a-stick'),
         React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
@@ -1099,7 +1099,7 @@ interface DshModuleSpec {
   // 24 网格上的“斜竿 + 一碗白米饭”, 米饭是白色实心, 其余保持线稿.
   // 这里不能用 mask: mask 只取 alpha, 白米饭会被 currentColor 涂成黑色.
   // 因此把描边色替换成该行实际 color 后作为 background-image 输出, 米饭保持白色.
-  var NAV_ICON_MARKER = 'data-dsh-carrot-nav-icon';
+  var NAV_ICON_MARKER = 'data-dsh-rice-nav-icon';
   var NAV_ICON_SIZE = 16;
   var NAV_ICON_SVG = /* @dsh-inline-icon */ '';
 
@@ -1127,8 +1127,8 @@ interface DshModuleSpec {
     if (typeof document === 'undefined') return;
     ctx.effect(function () {
       var tag = document.createElement('style');
-      tag.dataset.plugin = 'dsh-carrot-on-a-stick';
-      tag.dataset.pluginCss = 'dsh-carrot-on-a-stick/settings-nav-icon';
+      tag.dataset.plugin = 'dsh-rice-on-a-stick';
+      tag.dataset.pluginCss = 'dsh-rice-on-a-stick/settings-nav-icon';
       tag.textContent = navIconCss();
       (document.head || document.documentElement).appendChild(tag);
 
@@ -1186,7 +1186,7 @@ interface DshModuleSpec {
         }
         if (tag.parentNode) tag.parentNode.removeChild(tag);
       };
-    }, 'dsh-carrot-on-a-stick: settings nav icon');
+    }, 'dsh-rice-on-a-stick: settings nav icon');
   }
 
   module.exports = {
@@ -1201,7 +1201,7 @@ interface DshModuleSpec {
         slots = ctx.slots || ctx.get('slots');
       }
       if (slots === undefined) {
-        console.warn('[dsh-carrot-on-a-stick] slots 服务 40s 内未就绪, 设置面板未注册');
+        console.warn('[dsh-rice-on-a-stick] slots 服务 40s 内未就绪, 设置面板未注册');
         return;
       }
       LOCALE = ctx.locale;
@@ -1211,7 +1211,7 @@ interface DshModuleSpec {
         return slots.register(
           // 侧栏宽度有限, 长名会被截断; 全名保留在面板标题里。
           // label 用 thunk + locale 元数据: 宿主在语言切换时重取侧栏文案(与官方/dshmarket 同姿势)
-          { name: 'settings.section', id: 'dsh-carrot-on-a-stick', order: 110, label: function () { return t('nav'); }, locale: NS_I18N },
+          { name: 'settings.section', id: 'dsh-rice-on-a-stick', order: 110, label: function () { return t('nav'); }, locale: NS_I18N },
           function () { return React.createElement(StatusPanel); },
         );
       });

@@ -6,7 +6,7 @@
  * 拿到权威的名称/描述/参数 schema/回调, 再逐条包装成 ToolDefinition。因此:
  *   - 新增/修改 MCP 工具只改 src/mcp/tools/ 一处, 原生面自动跟随;
  *   - 原生工具与 MCP 工具同描述、同参数 schema、同实现;
- *   - 原生工具名统一加 `carrot_` 前缀, 避免与宿主/第三方工具撞名;
+ *   - 原生工具名统一加 `rice_` 前缀, 避免与宿主/第三方工具撞名;
  *   - 描述里对其它工具的引用会被自动改写成带前缀的名字;
  *   - 原生面固定 `resourceFirst: false`(它没有 MCP resources 面, 只读工具必须保留)。
  *
@@ -28,7 +28,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** 原生工具名统一前缀: 与 MCP 工具名区分, 避免和宿主/第三方全局工具撞名 */
-const NATIVE_PREFIX = 'carrot_'
+const NATIVE_PREFIX = 'rice_'
 
 /** MCP 工具回调的返回形状(本插件全部是 text content, 可带 structuredContent / isError) */
 interface McpContentBlock {
@@ -61,7 +61,7 @@ interface CapturedRegistration {
 }
 
 interface CapturedTool extends CapturedRegistration {
-  /** 原生工具名(carrot_ + 原名) */
+  /** 原生工具名(rice_ + 原名) */
   nativeName: string
   /** 面向前缀改写后的描述 */
   description: string
@@ -213,7 +213,7 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
         registeredNames.push(tool.nativeName)
       } catch (e) {
         // 捕获与注册之间出现同名工具(其它插件也注册): 只少一个工具, 不影响其余能力
-        console.warn(`[dsh-carrot-on-a-stick] native tool "${tool.nativeName}" registration failed:`, (e as Error)?.message ?? e)
+        console.warn(`[dsh-rice-on-a-stick] native tool "${tool.nativeName}" registration failed:`, (e as Error)?.message ?? e)
       }
     }
   }

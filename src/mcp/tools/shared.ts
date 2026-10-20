@@ -57,7 +57,7 @@ export function uriNote(): { note: string } {
 /** 工具调用上下文(原生自用面额外带调用方 agent; MCP 面只有 signal) */
 export interface ToolCallContext {
   signal?: AbortSignal
-  /** 宿主 agent 循环派发时给出的调用方 agent(native carrot_ 工具面) */
+  /** 宿主 agent 循环派发时给出的调用方 agent(native rice_ 工具面) */
   agent?: unknown
 }
 
@@ -81,6 +81,6 @@ export function resolveSessionTarget(
   const current = currentSessionIdOf(extra)
   if (current !== undefined) return { sessionId: current }
   return {
-    error: 'sessionId is required: this call carries no calling dsh session (omitting it works only for the native carrot_ tools running inside a session)',
+    error: 'sessionId is required: this call carries no calling dsh session (omitting it works only for the native rice_ tools running inside a session)',
   }
 }

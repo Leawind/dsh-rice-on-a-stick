@@ -1,4 +1,4 @@
-dsh-carrot-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
+dsh-rice-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
 Your MCP client is the commander; dsh is the executor — sessions here are the same
 sessions the dsh web UI shows (session-centric, one conversation = one agent).
 

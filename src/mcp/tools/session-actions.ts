@@ -317,7 +317,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       title: 'List or run session commands',
       description: 'List the slash commands a live session can run, or run one — without sending it to the model. Commands come from the host command registry (`ctx.commands`), the same path the UI composer uses; `/compact` is one of them and plugin-registered commands appear automatically. Execution logs `command/run`/`command/done` but creates no turn and never enters model history. Results are the command\'s own human-facing text (for example `/compact` reports busy when the session is not idle).',
       inputSchema: {
-        sessionId: z.string().optional().describe('Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native carrot_ tools only; an MCP call must pass it.'),
+        sessionId: z.string().optional().describe('Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
         action: z.enum(['list', 'run']).describe('list = commands available to this session; run = execute one.'),
         name: z.string().optional().describe('Command name without the leading slash (required for action=run), e.g. "compact".'),
         args: z.string().optional().describe('Raw argument text appended after the name; commands that take no arguments reject extra input themselves.'),

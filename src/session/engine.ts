@@ -155,7 +155,7 @@ function renameSessionTitle(ctx: Context, session: unknown, title: string): void
     const st = ctx.get('sessionTitle') as { rename?: (s: unknown, t: string) => unknown } | undefined
     st?.rename?.(session, title)
   } catch (e) {
-    console.warn('[dsh-carrot-on-a-stick] session title set failed:', String(e))
+    console.warn('[dsh-rice-on-a-stick] session title set failed:', String(e))
   }
 }
 

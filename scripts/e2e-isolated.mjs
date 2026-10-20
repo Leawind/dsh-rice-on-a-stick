@@ -27,7 +27,7 @@ const installRoot = join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 
 const dshExe = join(installRoot, 'DeepSeek Harness.exe')
 const asarPath = join(installRoot, 'resources', 'app.asar')
 const cliJs = join(asarPath, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
-const profile = 'carrot-e2e'
+const profile = 'rice-e2e'
 const mcpPort = 8095
 
 if (!existsSync(join(pluginPath, 'lib', 'index.js'))) {
@@ -39,7 +39,7 @@ if (!existsSync(dshExe) || !existsSync(asarPath)) {
   process.exit(1)
 }
 
-const home = await mkdtemp(join(tmpdir(), 'dsh-carrot-e2e-'))
+const home = await mkdtemp(join(tmpdir(), 'dsh-rice-e2e-'))
 const work = join(home, 'work')
 await mkdir(work, { recursive: true })
 for (const [name, target] of [['.credentials.yaml', '.credentials.yaml'], ['settings.yaml.imported', 'settings.yaml']]) {
@@ -105,8 +105,8 @@ const basePatch = existsSync(patchPath)
   : ''
 const patch = `${basePatch}
 # isolated e2e overlay
-- id: dsh-carrot-on-a-stick
-  name: dsh-carrot-on-a-stick
+- id: dsh-rice-on-a-stick
+  name: dsh-rice-on-a-stick
   config:
     http: true
     port: ${mcpPort}

@@ -188,7 +188,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       // Bearer token 认证(认证启用时所有请求强制校验, 常数时间比较; 401 带 WWW-Authenticate 挑战;
       // 开关关闭 = 不校验但仍保留令牌, 与面板/配置文档的语义一致)
       if (!bearerOk(req)) {
-        res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="dsh-carrot-on-a-stick"' })
+        res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="dsh-rice-on-a-stick"' })
         res.end(jsonrpcError(-32001, 'Unauthorized'))
         return
       }

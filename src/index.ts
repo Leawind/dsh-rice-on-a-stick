@@ -1,5 +1,5 @@
 /**
- * dsh-carrot-on-a-stick — 在 Harness 内部启动 MCP server, 把 dsh 的操作能力暴露给任意 MCP 客户端。
+ * dsh-rice-on-a-stick — 在 Harness 内部启动 MCP server, 把 dsh 的操作能力暴露给任意 MCP 客户端。
  *
  * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置与订阅枢纽、审批桥、
  * 原生工具开关、状态快照, 以及把 HTTP 传输层与 GUI 控制面挂到宿主生命周期上。
@@ -36,7 +36,7 @@ export const name = PLUGIN_NAME
  */
 export const inject = ['tools', 'llm', 'agents', 'agentPresets', 'workspaceRegistry', 'sessionPersistence', 'sessions']
 
-/** 插件配置类型(从 core/config.ts 再导出, 供消费方 import type { Config } from 'dsh-carrot-on-a-stick') */
+/** 插件配置类型(从 core/config.ts 再导出, 供消费方 import type { Config } from 'dsh-rice-on-a-stick') */
 // Config 以 value+type 同名导出: value(schema)供 cordis 装载期校验与宿主配置视图渲染, type 供 apply 签名
 export { Config } from './core/config.js'
 
@@ -137,7 +137,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     allowedHosts: config.allowedHosts,
   })
 
-  // ── GUI 控制面: webServer 路由 /_dsh/dsh-carrot-on-a-stick/<method>(设置页面板的数据/操作后端) ──
+  // ── GUI 控制面: webServer 路由 /_dsh/dsh-rice-on-a-stick/<method>(设置页面板的数据/操作后端) ──
   registerWebRoutes(ctx, {
     statusSnapshot,
     start: () => httpServer!.start(),

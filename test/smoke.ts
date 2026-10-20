@@ -75,36 +75,36 @@ try {
   await apply(ctx, { port: PORT, host: '127.0.0.1' })
   await new Promise((r) => setTimeout(r, 300))
 
-  // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 carrot_, 默认开启 ──
-  const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('carrot_'))
-  checks['原生自用工具: 默认注册全部 26 个(carrot_ 前缀)'] = nativeSchemas.length === 26
-    && ['carrot_echo', 'carrot_session_create', 'carrot_session_prompt', 'carrot_dsh_status', 'carrot_session_archive']
+  // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
+  const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
+  checks['原生自用工具: 默认注册全部 26 个(rice_ 前缀)'] = nativeSchemas.length === 26
+    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
-    const description = ctx.tools.get('carrot_session_prompt')?.description ?? ''
-    return description.includes('carrot_session_poll')
-      && !/(?<!carrot_)session_poll/.test(description)
+    const description = ctx.tools.get('rice_session_prompt')?.description ?? ''
+    return description.includes('rice_session_poll')
+      && !/(?<!rice_)session_poll/.test(description)
   })()
-  const nativeListDef = ctx.tools.get('carrot_session_list')
+  const nativeListDef = ctx.tools.get('rice_session_list')
   const nativeListValue = await nativeListDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeListText = nativeListDef.output.render({}, nativeListValue)[0]?.text ?? ''
   checks['原生自用工具: 直调 session_list 走同一实现'] = nativeListText.includes('sess-live')
-  const nativeStatusDef = ctx.tools.get('carrot_dsh_status')
+  const nativeStatusDef = ctx.tools.get('rice_dsh_status')
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
     && nativeStatusJson.stats?.selfTools === 26
-  const nativeGuideDef = ctx.tools.get('carrot_dsh_get_started')
+  const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
-  checks['原生自用工具: 入门指南补前缀提示'] = nativeGuideText.includes('carrot_') && nativeGuideText.includes('carrot_session_prompt')
+  checks['原生自用工具: 入门指南补前缀提示'] = nativeGuideText.includes('rice_') && nativeGuideText.includes('rice_session_prompt')
   // 原生面"当前会话": exec.agent 由宿主 agent 循环给出, 省略 sessionId 即落到调用方会话
-  const nativeMetaDef = ctx.tools.get('carrot_session_meta')
+  const nativeMetaDef = ctx.tools.get('rice_session_meta')
   const nativeMetaValue = await nativeMetaDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeMetaJson = JSON.parse(nativeMetaDef.output.render({}, nativeMetaValue)[0]?.text ?? '{}')
   checks['原生自用工具: session_meta 省略 sessionId 取当前会话'] = nativeMetaJson.sessionId === 'sess-live'
     && nativeMetaJson.live === true && nativeMetaJson.model?.model === 'live-m'
-  const nativeCmdDef = ctx.tools.get('carrot_session_command')
+  const nativeCmdDef = ctx.tools.get('rice_session_command')
   const nativeCmdValue = await nativeCmdDef.execute({ action: 'list' }, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeCmdJson = JSON.parse(nativeCmdDef.output.render({}, nativeCmdValue)[0]?.text ?? '{}')
   checks['原生自用工具: session_command 省略 sessionId 取当前会话'] = nativeCmdJson.sessionId === 'sess-live'
@@ -532,13 +532,13 @@ try {
   {
     const phaseCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle })
     const phase = await startPhase(8093, phaseCtx, { selfToolsEnabled: false })
-    checks['原生自用工具: selfToolsEnabled=false 不注册'] = phaseCtx.tools.get('carrot_session_create') === undefined
+    checks['原生自用工具: selfToolsEnabled=false 不注册'] = phaseCtx.tools.get('rice_session_create') === undefined
     updateVolatile(phase.config.selfToolsEnabled, (ConfigSchema({ selfToolsEnabled: true }) as any).selfToolsEnabled)
     phaseCtx.__fireVolatile([['selfToolsEnabled']])
-    checks['原生自用工具: volatile 开启后立即注册'] = phaseCtx.tools.get('carrot_session_create') !== undefined
+    checks['原生自用工具: volatile 开启后立即注册'] = phaseCtx.tools.get('rice_session_create') !== undefined
     updateVolatile(phase.config.selfToolsEnabled, (ConfigSchema({ selfToolsEnabled: false }) as any).selfToolsEnabled)
     phaseCtx.__fireVolatile([['selfToolsEnabled']])
-    checks['原生自用工具: volatile 关闭后立即撤销'] = phaseCtx.tools.get('carrot_session_create') === undefined
+    checks['原生自用工具: volatile 关闭后立即撤销'] = phaseCtx.tools.get('rice_session_create') === undefined
     await phase.dispose()
   }
 
@@ -553,7 +553,7 @@ try {
       'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
     checks['原生自用工具: resourceFirst 不影响原生 26 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('carrot_')).length === 26
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 26
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
@@ -1005,7 +1005,7 @@ async function guiRequest(ctx: any, route: string, opts: { httpMethod?: string; 
   const handlers = ctx.__webHandlers as Map<string, (req: unknown, res: unknown) => Promise<void>>
   const handler = handlers.get('gui')
   const req = new EventEmitter()
-  Object.assign(req, { method: opts.httpMethod ?? 'POST', url: `/_dsh/dsh-carrot-on-a-stick/${route}`, headers: opts.headers ?? {} })
+  Object.assign(req, { method: opts.httpMethod ?? 'POST', url: `/_dsh/dsh-rice-on-a-stick/${route}`, headers: opts.headers ?? {} })
   const res = { status: 0, headers: {} as Record<string, unknown>, body: '', writeHead(code: number, h: Record<string, unknown>) { this.status = code; Object.assign(this.headers, h) }, end(b?: string) { this.body = String(b ?? '') } }
   const done = handler(req, res)
   setImmediate(() => {

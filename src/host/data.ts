@@ -505,7 +505,7 @@ export interface ToolDeps {
 /** state 级基础状态快照(deps.statusSnapshot 缺省时的退路; 不含监听/连接等 apply 级数据) */
 export function basicStatusSnapshot(): Record<string, unknown> {
   return {
-    name: 'dsh-carrot-on-a-stick',
+    name: 'dsh-rice-on-a-stick',
     version: PLUGIN_VERSION,
     config: {
       host: state.config.host,

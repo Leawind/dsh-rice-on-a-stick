@@ -11,7 +11,7 @@ import type { Volatile } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 
 /** Cordis 插件名(= 包名, 也是 userMessage.source.plugin 的取值) */
-export const PLUGIN_NAME = 'dsh-carrot-on-a-stick'
+export const PLUGIN_NAME = 'dsh-rice-on-a-stick'
 
 /**
  * authToken 的展示掩码(面板与 dsh_status 只透露这些): 长度足够时取首尾各 4 字符,

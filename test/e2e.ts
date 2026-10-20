@@ -133,13 +133,13 @@ try {
   const listTools = await callTool(sid, 5, 'dsh_list_tools')
   report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
     `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
-  const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('carrot_'))
-  report('将工具注册到本dsh实例(全局表可见 24 个 carrot_ 工具)', nativeNames.length === 24
-    && nativeNames.includes('carrot_session_create') && nativeNames.includes('carrot_dsh_status'),
+  const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
+  report('将工具注册到本dsh实例(全局表可见 24 个 rice_ 工具)', nativeNames.length === 24
+    && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
   `native=${nativeNames.length}`)
 
   const status = await callTool(sid, 6, 'dsh_status')
-  report('dsh_status 返回部署状态', status.inner?.name === 'dsh-carrot-on-a-stick' && status.inner?.listening === true,
+  report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
   report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 24,
     `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)

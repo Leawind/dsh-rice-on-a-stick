@@ -27,7 +27,7 @@ const DEFAULT_CONNS = () => [
   { sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90', userAgent: 'claude-code/2.1.0 (Windows)', connectedAt: now() - 125_000, lastActivity: now() - 4_000, requests: 42, remoteAddress: '127.0.0.1', remotePort: 54322 },
 ]
 const state = {
-  name: 'dsh-carrot-on-a-stick',
+  name: 'dsh-rice-on-a-stick',
   version: '0.1.0-rc.1',
   listening: true,
   httpEnabled: true,
@@ -75,7 +75,7 @@ async function readBody(req) {
 
 const PAGE = `<!doctype html>
 <html lang="zh">
-<head><meta charset="utf-8"><title>dsh-carrot-on-a-stick UI smoke harness</title>
+<head><meta charset="utf-8"><title>dsh-rice-on-a-stick UI smoke harness</title>
 <style>
 /* 宿主 --dsw-* 主题 token stub(取自官方 dsh-client-ui-theme 实测值): 面板样式直接引用这些变量,
    这里提供亮/暗两套并可用右下角按钮切换(body[data-ds-dark-theme]), 模拟宿主的真实取值路径 */
@@ -273,7 +273,7 @@ setInterval(function () {
 setInterval(function () {
   var rows = [];
   document.querySelectorAll('[role="dialog"] nav button').forEach(function (row) {
-    rows.push({ text: row.textContent.trim(), marked: row.hasAttribute('data-dsh-carrot-nav-icon') });
+    rows.push({ text: row.textContent.trim(), marked: row.hasAttribute('data-dsh-rice-nav-icon') });
   });
   fetch('/__test/nav', {
     method: 'POST',
@@ -304,11 +304,11 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
       return res.end(raw)
     }
-    if (req.method === 'POST' && url.pathname.startsWith('/_dsh/dsh-carrot-on-a-stick/')) {
+    if (req.method === 'POST' && url.pathname.startsWith('/_dsh/dsh-rice-on-a-stick/')) {
       // 消费请求体: config-update 携带 JSON 载荷; 不消费会因未读流导致 keep-alive 连接异常
       let rawBody = ''
       for await (const chunk of req) rawBody += chunk
-      const method = url.pathname.slice('/_dsh/dsh-carrot-on-a-stick/'.length)
+      const method = url.pathname.slice('/_dsh/dsh-rice-on-a-stick/'.length)
       if (method === 'status') {
         rpcCounts.status++
         if (mode.statusError) return json(res, 500, { error: '模拟故障(statusError)' })
