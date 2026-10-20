@@ -817,8 +817,8 @@ interface DshModuleSpec {
               React.createElement('div', { className: 'dcs-tr dcs-trh' },
                 React.createElement('span', null, t('conns.client')),
                 React.createElement('span', { className: 'dcs-num', title: t('conns.portHint') }, t('conns.port')),
-                React.createElement('span', null, t('conns.connectedAt')),
-                React.createElement('span', null, t('conns.lastActivity')),
+                React.createElement('span', { className: 'dcs-num' }, t('conns.connectedAt')),
+                React.createElement('span', { className: 'dcs-num' }, t('conns.lastActivity')),
                 React.createElement('span', { className: 'dcs-num' }, t('conns.requests'))),
               conns.map(function (c) {
                 return React.createElement('div', { key: c.sessionId, className: 'dcs-tr', title: (c.userAgent || t('conns.unreported')) + '\nsession ' + c.sessionId + (c.remoteAddress ? '\nremote ' + c.remoteAddress + (c.remotePort !== undefined ? ':' + c.remotePort : '') : '') },
