@@ -39,8 +39,8 @@ export interface WebRouteDeps {
   stop: () => Promise<{ stopped: boolean }>
   /** 模型目录(与 model_list 同源) */
   models: () => Promise<unknown>
-  /** 配置写入落盘后回调(index 用它同步 self-tools 注册; undefined = 恢复默认) */
-  onConfigCommitted: (values: Record<string, unknown> | undefined) => void
+  /** 配置写入落盘后回调(index 用它同步 self-tools 注册) */
+  onConfigCommitted: (values: Record<string, unknown>) => void
 }
 
 /** GUI 路由前缀: /_dsh/<plugin>/<method>, 与 bottom-info-bar 同约定 */
@@ -222,10 +222,10 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
    * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
   async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean; reloading?: boolean }> {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      throw httpError(400, '请求体必须是 { values, reset? } 对象')
+      throw httpError(400, '请求体必须是 { values } 对象')
     }
-    const { values, reset } = body as { values?: unknown; reset?: unknown }
-    const nextValues = reset === true ? undefined : parseGuiConfigValues(values)
+    const { values } = body as { values?: unknown }
+    const nextValues = parseGuiConfigValues(values)
     const editor = serviceOf<ConfigEditorView>(ctx, 'configEditor')
     const entry = (ctx as { fiber?: { entry?: unknown } }).fiber?.entry
     if (editor === undefined || entry === undefined || typeof editor.edit !== 'function') {
@@ -235,8 +235,8 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     // 只改 host、端口不变时跳过探测(当前 server 正占着该端口, 重载会先释放)。
     const host = state.config.host
     const port = state.config.port
-    const wantsListen = nextValues !== undefined && ('host' in nextValues || 'port' in nextValues)
-    if (nextValues !== undefined && wantsListen) {
+    const wantsListen = 'host' in nextValues || 'port' in nextValues
+    if (wantsListen) {
       const nextHost = typeof nextValues.host === 'string' ? nextValues.host : host
       const nextPort = typeof nextValues.port === 'number' ? nextValues.port : port
       if (nextPort !== port) {
@@ -257,9 +257,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
       }
     }
     try {
-      await editor.edit(entry, (_current, inherited) =>
-        // reset: 写回继承层值 → configEditor 对"等于继承层"的写入自动删除覆盖行, 即恢复默认
-        nextValues === undefined ? { ...inherited } : { ..._current, ...nextValues })
+      await editor.edit(entry, (current) => ({ ...current, ...nextValues }))
     } catch (e) {
       throw httpError(400, `配置写入被拒绝: ${(e as Error)?.message ?? String(e)}`)
     }

@@ -140,8 +140,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     models: () => collectModelCatalog(ctx),
     // selfToolsEnabled 是 volatile: Loader 不重载插件, 配置落盘后立即同步原生工具注册。
     onConfigCommitted: (values) => {
-      if (values === undefined) selfToolsController?.sync(state.config.selfToolsEnabled)
-      else if (typeof values.selfToolsEnabled === 'boolean') selfToolsController?.sync(values.selfToolsEnabled)
+      if (typeof values.selfToolsEnabled === 'boolean') selfToolsController?.sync(values.selfToolsEnabled)
     },
   })
 

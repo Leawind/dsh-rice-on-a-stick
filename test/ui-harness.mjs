@@ -40,7 +40,6 @@ const state = {
   },
   connections: DEFAULT_CONNS(),
 }
-const initialConfig = JSON.parse(JSON.stringify(state.config))
 const rpcCounts = { status: 0, stop: 0, start: 0, 'config-update': 0 }
 const configCalls = []
 const boot = { errors: [] }
@@ -336,9 +335,7 @@ const server = createServer(async (req, res) => {
         let payload
         try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
         configCalls.push(payload)
-        if (payload.reset === true) {
-          state.config = JSON.parse(JSON.stringify(initialConfig))
-        } else if (payload.values && typeof payload.values === 'object') {
+        if (payload.values && typeof payload.values === 'object') {
           Object.assign(state.config, payload.values)
           // 与后端 statusSnapshot 的派生字段保持一致(authToken 只写: 载荷缺省 = 保持; 空串 = 清除;
           // 掩码 = 首尾各4字符)

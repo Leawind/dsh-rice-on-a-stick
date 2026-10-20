@@ -147,8 +147,6 @@ interface DshModuleSpec {
       'auth.regen': '重新生成',
       'auth.show': '显示',
       'auth.hide': '隐藏',
-      'save.reset': '恢复默认…',
-      'save.resetConfirm': '恢复默认会移除本插件在配置文件中的全部覆盖（包括表单外的字段），并热重载生效。确认？',
       'conns.title': '客户端连接',
       'conns.count': '{n} 个客户端连接',
       'conns.client': '客户端',
@@ -206,8 +204,6 @@ interface DshModuleSpec {
       'auth.regen': 'Regenerate',
       'auth.show': 'Show',
       'auth.hide': 'Hide',
-      'save.reset': 'Restore defaults…',
-      'save.resetConfirm': 'Restoring defaults removes every override this plugin wrote to the config file (including fields outside the form) and hot-reloads. Continue?',
       'conns.title': 'Client connections',
       'conns.count': '{n} client connections',
       'conns.client': 'Client',
@@ -314,9 +310,8 @@ interface DshModuleSpec {
     // MCP令牌行(生成/复制/清除; 清除与"生成后放弃"之外的清空同状态)
     '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;}',
     '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
-    // 保存栏
+    // 保存错误栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
-    '.dcs-savebtns{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
     // 连接列表
     '.dcs-sechead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding-bottom:4px;}',
     '.dcs-sectitle{font-size:13px;font-weight:600;}',
@@ -560,13 +555,6 @@ interface DshModuleSpec {
       enqueue({ values: { host: host, port: port } }, true);
     }
 
-    function resetConfig() {
-      if (!window.confirm(t('save.resetConfirm'))) return;
-      // 重置排进同一队列: 在途保存先落盘, 其后的重置才能覆盖它。
-      // 重置可能删掉 host/port 覆盖而触发重载, 按 reloading 处理(响应可能被切断)。
-      enqueue({ reset: true }, true);
-    }
-
     if (!state) {
       return React.createElement('div', { className: 'dcs-root' },
         React.createElement('style', null, PANEL_CSS),
@@ -798,12 +786,9 @@ interface DshModuleSpec {
               ),
             )
           : null,
-        React.createElement('div', { className: 'dcs-savebar' },
-          cfgError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError) : null,
-          React.createElement('div', { className: 'dcs-savebtns' },
-            React.createElement('button', { className: 'dcs-btn', onClick: resetConfig }, t('save.reset')),
-          ),
-        ),
+        cfgError ? React.createElement('div', { className: 'dcs-savebar' },
+          React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
+        ) : null,
       ) : null,
       // 连接列表
       React.createElement('div', null,
