@@ -19,6 +19,7 @@
  */
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:net'
+import { readFileSync } from 'node:fs'
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
@@ -798,6 +799,30 @@ try {
     const cfgVolatile = await guiPut({ defaultDetail: 'full', selfToolsEnabled: true })
     checks['GUI 路由: volatile 字段不标记重载'] = cfgVolatile.status === 200
       && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].defaultDetail === 'full'
+    // 白名单完备性: Config schema 的每个字段都必须能被 GUI 写入(不得遗漏)
+    const cfgSamples: Record<string, unknown> = {
+      http: true,
+      port: 8095,
+      host: '127.0.0.1',
+      allowedModels: ['p1/m1'],
+      allowedModelsEnabled: true,
+      defaultDetail: 'normal',
+      authToken: '',
+      authEnabled: false,
+      selfToolsEnabled: true,
+      allowedHosts: ['example.com'],
+      sessionTtlMs: 0,
+      resourceFirst: false,
+      approvalControl: 'off',
+      approvalTimeoutMs: 120000,
+    }
+    const cfgRejected: string[] = []
+    for (const key of Object.keys(ConfigSchema({}) as Record<string, unknown>)) {
+      if (!(key in cfgSamples)) { cfgRejected.push(`${key}(无样本)`); continue }
+      const r = await guiPut({ [key]: cfgSamples[key] })
+      if (r.status !== 200) cfgRejected.push(`${key}(${r.status})`)
+    }
+    checks['GUI 路由: 写入白名单覆盖 Config 全部字段'] = cfgRejected.length === 0
     await phase.dispose()
   }
 
@@ -853,6 +878,14 @@ try {
   })()
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
     try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }
+  })()
+  // 面板完备性(静态): draftFromStatus 必须读取 Config 的每个字段, 新字段漏接会在这里失败
+  checks['设置面板: draftFromStatus 读取全部配置字段'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    // authToken 是只写字段(草稿恒为空串, 令牌行另行读 cfg.authToken), 不在此列
+    const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>)
+      .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
+    return missing.length === 0
   })()
   checks['Config schema: defaultDetail 非法枚举被拒'] = (() => {
     try { ConfigSchema({ defaultDetail: 'verbose' } as any); return false } catch { return true }
