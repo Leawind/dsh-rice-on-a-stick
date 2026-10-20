@@ -1,253 +1,87 @@
 /**
  * Agent 认知面: initialize 的 instructions 引导 + dsh_get_started 帮助文档。
  *
- * 工具描述只覆盖"单次调用"粒度, dsh 的整体工作流与概念词典(会话/preset/turn-step/
- * 审批策略)此前只存在于 README, 到不了 agent 侧。本文件把这两块做成协议内文本:
- *   SERVER_INSTRUCTIONS → 随 initialize result 下发(MCP 规范的 serverOptions.instructions),
- *     体积克制(几十行), 只讲心智模型 + 快速工作流, 指路 dsh_get_started;
- *   GET_STARTED_DOC → dsh_get_started 工具的静态返回值(纯文本, 无运行时依赖), 概念词典 +
- *     工作流食谱 + 错误→替代路径对照表。帮助文档按节拆分(GET_STARTED_SECTIONS), 工具的
- *     section 参数可只取一节——纠错场景不必把整份文档灌进调用方上下文。
- * 面向模型阅读, 英文为主(与 host 侧术语一致); 改内容时同步 README 与 smoke 断言。
+ * 文本是产品文档而非代码, 因此放在 docs/onboarding/*.md, 本模块只负责读取与按节切分:
+ *   instructions.md / instructions.resource-first.md → 随 initialize result 下发的 server instructions
+ *   guide.md                                        → dsh_get_started 的正文; `<!-- section: id -->`
+ *                                                     标记把整份文档切成概念/工作流/错误/结果/限制各节
+ * 文件路径相对本模块解析: src/mcp 与构建产物 lib/mcp 都向上两级到仓库/包根, 因此源码直跑与
+ * 安装后运行一致。文本缺失时在导入期抛错(插件启动即失败, 不静默下发空指南)。
+ * 改内容时同步 README 与 smoke 断言。
  */
-
-/** 随 MCP initialize result 下发的 server 引导文本(McpServer 第二参 serverOptions.instructions)。
- * resourceFirst 部署只读工具下线, 引导改指资源面; 两种形态经 serverInstructions() 选择。 */
-export function serverInstructions(resourceFirst: boolean): string {
-  if (resourceFirst) {
-    return `\
-dsh-carrot-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
-Your MCP client is the commander; dsh is the executor — sessions here are the same
-sessions the dsh web UI shows (session-centric, one conversation = one agent).
-
-This deployment is resource-first for ROSTER/READ data: dsh://status[/config|/stats|/connections],
-dsh://guide[/section], dsh://tools, dsh://models[/{provider}], dsh://presets,
-dsh://workspaces[/{id}], dsh://sessions[/{id}], dsh://sessions/{id}/history[/before],
-dsh://sessions/{id}/events[/after], dsh://sessions/{id}/activity.
-Read them with resources/read; subscribe with resources/subscribe to get
-notifications/resources/updated (turn activity and history updates — no polling).
-Control-plane tools stay available: session_submit / session_poll / session_result
-(async fan-out), approval_list / approval_answer / approval_policy (approval gate),
-subagent_list (native child catalog), plus session_create / session_cancel / session_select_model.
-
-Quick start:
-- Read dsh://models before picking a model and dsh://presets for valid preset ids;
-  create a session with session_create (cwd, provider+model pair, preset are all
-  explicit — no defaults are backfilled).
-- For one task, session_prompt sends a message and waits for the turn to finish,
-  returning a uri-level result pointing at dsh://sessions/{id}/history
-  (pass detail=summary|normal|full to inline the payload).
-- For fan-out, session_submit returns a requestId immediately, session_poll observes
-  many sessions at once with a bounded waitMs, and session_result fetches the
-  structured result. Cancelling a wait never cancels the dsh turn; use session_cancel.
-- If a turn stops on an approval, approval_list shows the pending entries and
-  approval_answer answers one when the deployment enabled approvalControl
-  (fallback/exclusive); approval_policy reads or switches ask|never.
-- session_cancel stops the current turn (queued messages are kept);
-  session_select_model switches the session's model in place.
-- Rosters: dsh://sessions, dsh://presets, dsh://models, dsh://workspaces.
-- New to dsh? Read the dsh://guide resource (concept glossary, workflow recipes,
-  error→alternative-path cheat sheet).`
-  }
-  return `\
-dsh-carrot-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
-Your MCP client is the commander; dsh is the executor — sessions here are the same
-sessions the dsh web UI shows (session-centric, one conversation = one agent).
-
-Quick start:
-- Call model_list first — it holds both the model catalog and the preset roster
-  (its \`presets\` field); create a session with session_create
-  (cwd, provider+model pair, preset — all explicit, no defaults are backfilled).
-- session_prompt sends a message into a session and waits for the turn to finish,
-  returning a structured result ({changes, verification, leftovers, ...}); failures come
-  back with isError:true. Reuse the same sessionId to keep the conversation going
-  (its full history is the agent's context — send only the delta in context).
-- While a session is busy, another session_prompt queues into the host inbox (durable)
-  or interrupts the current step with mode=steer; session_cancel stops the current turn
-  and keeps the queue; session_queue inspects/edits/removes queued messages.
-- For fan-out, do not block on one session at a time: session_submit admits a task and
-  returns requestId immediately; session_poll observes many sessions at once (bounded
-  waitMs, returns changed/timedOut); session_result fetches the structured result by
-  requestId. Cancelling a wait (client timeout / notifications/cancelled) only stops the
-  wait — the dsh turn keeps running; use session_cancel to stop it.
-- If a turn stops on an approval, approval_list shows the pending entries (approvalId,
-  toolName, callId, reason, answerable). approval_answer allows/rejects one; this only
-  works when the deployment set approvalControl=fallback|exclusive, and only for
-  entries marked answerable. approval_policy reads or switches ask|never.
-- Native subagents: subagent_list reads a session's child catalog (recursive=true adds
-  descendants). Once you have a child sessionId, drive it with the same session tools;
-  spawning stays with the host/model-side subagent tools.
-- session_select_model switches a session's model in place (history preserved);
-  session_list / session_history let you find and inspect sessions.
-- Results are projected by the detail argument to save your context budget — default
-  is summary. Pass detail=full only for debugging.
-
-If you are new to dsh, call the dsh_get_started tool first: it holds the concept glossary
-(presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path
-cheat sheet. MCP resources (dsh://status, dsh://presets, dsh://sessions/{id}/history,
-dsh://sessions/{id}/activity, ...) mirror the read tools and add subscription-based
-push updates.`
-}
+import { readFileSync } from 'node:fs'
 
 /** dsh_get_started 的节 id: all=整份文档, 其余各取一节(section 参数可选项须与此对齐) */
 export type GuideSection = 'all' | 'concepts' | 'workflows' | 'errors' | 'results' | 'limits'
+type NamedSection = Exclude<GuideSection, 'all'>
 
-/** 文档头(节 id 无关的开场白, 'all' 时在第一节前输出) */
-const GUIDE_HEADER = `\
-# dsh usage guide (for MCP clients)
+/** 节顺序 = 整份文档的拼接顺序(guide.md 中的标记顺序应与此一致) */
+const SECTION_IDS: readonly NamedSection[] = ['concepts', 'workflows', 'errors', 'results', 'limits']
 
-This server bridges you into dsh (DeepSeek Harness), a local agent runtime.
-Sessions here are the same sessions the dsh web UI shows: creating a session creates
-its agent, the agent keeps its conversation history, and everything you do is visible
-in the UI. You compose tasks; dsh agents execute them with a full toolset
-(bash, fs, web, todo, ...). All tool names, arguments, and result shapes are described
-in each tool's own description — this guide covers what those descriptions assume
-you already know.
-`
-
-/** 帮助文档的各节(section 参数按此取; 'all' = GUIDE_HEADER + 全部按序拼接) */
-export const GET_STARTED_SECTIONS: Record<Exclude<GuideSection, 'all'>, string> = {
-  concepts: `\
-## Concepts
-
-- **dsh / Harness** — the host process this plugin runs inside. Sessions, agents, model
-  routing and presets all live there; the plugin only projects them over MCP.
-- **session / agent** — one conversation and its runtime. The web UI calls it a session;
-  the runtime object that executes turns is its agent. They are 1:1: creating a session
-  creates the agent, and the agent's context IS the session history.
-- **Model & preset selection** — chosen per session at creation (\`session_create\`
-  requires an explicit \`provider\`+\`model\` pair and a \`preset\`, all from
-  \`model_list\` / \`dsh://presets\`; nothing is backfilled). The model is switchable
-  later with \`session_select_model\` (takes effect on the next step, history
-  preserved); the preset stays with the session.
-- **preset** — the persona mounted at session creation (an id from \`model_list\`'s
-  \`presets\` field or the \`dsh://presets\` resource). Required explicitly at creation,
-  like the model; continuing an existing session keeps its original preset.
-- **send modes** — \`session_prompt\` / \`session_submit\` mode mirrors the UI's "busy send
-  behavior": \`queue\` (default) appends to the session's durable inbox while the agent is
-  busy (it runs after the current turn); \`steer\` redirects the running turn at the next
-  step boundary. When the session is idle both simply start a turn.
-- **async request** — \`session_submit\` admits a task and returns \`requestId\` immediately;
-  \`session_poll\` observes one or many sessions (bounded \`waitMs\`, returns
-  \`changed\`/\`timedOut\`); \`session_result\` fetches the structured result by \`requestId\`.
-  The id is persisted on the user message, so it survives a plugin restart. \`session_prompt\`
-  is the blocking convenience wrapper: cancelling its wait never cancels the dsh turn.
-- **turn vs step** — a *turn* is one full run ending in a structured result. *Steps* are
-  the model rounds inside it. \`steer\` is consumed at the next step boundary;
-  \`session_select_model\` takes effect on the next step.
-- **Session lifecycle** — sessions live until the host process ends or the session is
-  archived (\`session_archive\`, the UI's only "delete"). A cold (not-in-memory) session
-  is transparently resumed on the next prompt with its history intact.
-- **Native subagent** — the host can delegate work into child sessions (one-shot,
-  continuable, or external). \`subagent_list\` reads that catalog without activating
-  anything; each child is a normal session id for \`session_prompt\` / \`session_poll\` /
-  \`session_result\`. Starting a child stays with the host/model-side subagent tools.
-- **Approval policy** — the host may ask for confirmation before a sensitive operation
-  (\`ask\`) or reject it deterministically (\`never\`). With the default
-  \`approvalControl=off\`, this plugin only reports pending approvals
-  (\`approval_list\` / \`session_poll.pendingApprovals\`) and the UI/host answers them.
-  With \`fallback\` (UI first, MCP when nobody can answer) or \`exclusive\` (MCP only),
-  \`approval_answer\` grants \`allowed-once\` or \`rejected\`; unanswered requests fail
-  closed when the wait expires. \`approval_policy\` reads or switches the session's
-  \`ask\`/\`never\` policy; \`session_create\` can set it up front. For unattended runs,
-  \`never\` is the predictable choice.
-`,
-  workflows: `\
-## Workflow recipes
-
-1. **One-off task** — \`session_create\` (cwd + provider/model pair + preset), then
-   \`session_prompt\` with the task. The result carries the \`sessionId\`; pass it back
-   later to continue that conversation (send only the delta).
-2. **Keep working in a session** — repeat \`session_prompt\` with the same \`sessionId\`.
-   The agent remembers previous turns; for a fresh start create a new session.
-3. **Session is busy** — another \`session_prompt\` with mode=\`queue\` (default) lines up
-   behind the current turn; mode=\`steer\` redirects it now. Inspect or prune the queue
-   with \`session_queue\`; \`session_cancel\` stops the current turn and keeps the queue.
-4. **Change course mid-conversation** — \`session_select_model\` for a different model,
-   \`session_rename\` for housekeeping, \`session_fork\` to branch a conversation,
-   \`session_archive\` to retire one (the UI's only "delete").
-5. **Find and inspect sessions** — \`session_list\` (optionally filtered by cwd),
-   \`session_history\` for recent turns (pass \`roles\` to keep only the turn types you
-   need, e.g. \`["assistant"]\` to skip tool noise), \`session_search\` to find sessions
-   by content.
-6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
-   \`dsh://status[/config|/stats|/connections]\`, \`dsh://guide[/section]\`, \`dsh://tools\`,
-   \`dsh://models[/{provider}]\`, \`dsh://presets\`, \`dsh://workspaces[/{id}]\`,
-   \`dsh://sessions[/{id}[/history[/before]|/events[/after]|/activity]]\`.
-   Subscribe with \`resources/subscribe\`: \`dsh://sessions/{id}/activity\` streams what a
-   running session is doing right now, and history updates push on turn completion.
-7. **Fan-out / parallel workers** — create N sessions with \`session_create\`, then
-   \`session_submit\` one task per session (optionally with your own idempotent
-   \`requestId\`). Loop \`session_poll\` with \`sessionIds: [...]\` and \`waitMs: 20000\`:
-   it returns when any watched session changes or the wait times out, so do not poll
-   faster than that. Once a session reports \`lastTurn.reason\`, call \`session_result\`
-   with its \`requestId\`; \`status\` tells you completed/blocked/errored/cancelled.
-   \`session_cancel\` stops one worker; \`session_archive\` retires it.
-8. **Approval gate** — when \`session_poll\` reports \`waiting-approval\`, call
-   \`approval_list\` with the session id. If the entry is \`answerable\`, decide with
-   \`approval_answer\` (allow/reject) and keep polling; otherwise the UI/host owns it.
-   To avoid gates up front, create the session with \`approvalPolicy: "never"\` or call
-   \`approval_policy\` on a live session.
-9. **Native subagents** — \`subagent_list({ parentSessionId })\` returns direct children
-   (recursive=true adds descendants). Then treat each child id like any other session:
-   \`session_poll\`, \`session_result\`, \`session_prompt\`. The catalog read is passive;
-   it does not load or resume the child.
-`,
-  errors: `\
-## Error → alternative path
-
-| Situation | Do this instead |
-|---|---|
-| "provider + model are required" | call \`model_list\` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
-| "unknown preset" | pick an id from \`model_list\`'s \`presets\` field (or the \`dsh://presets\` resource) — new sessions always need an explicit preset |
-| "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check \`session_list\` / open it in the dsh UI once, then retry \`session_prompt\` |
-| model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from \`model_list\` that appears there |
-| "session is not running" (cancel/queue) | the session has no live agent right now; send a \`session_prompt\` / \`session_submit\` first |
-| turn ends \`blocked\` | the host waits for interactive approval. Call \`approval_list\`; if \`answerable\`, use \`approval_answer\`. Otherwise arrange approval host-side (or \`approval_policy: "never"\`), then continue via \`session_prompt\` |
-| "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same \`requestId\` again (it is persisted in the session log) or inspect with \`session_history\` |
-| \`status: "pending"\` / \`pending: true\` | the request is queued or the turn is still running; \`session_poll\` again, or \`session_cancel\` to stop it |
-| \`status: "cancelled"\` | the turn was stopped (explicitly or by client cancellation); read \`error\` for the cause and decide whether to resubmit |
-`,
-  results: `\
-## Reading results without blowing your context
-
-\`detail\` controls read-back size: \`summary\` (default, a few hundred tokens — the
-changes/verification/leftovers summary + answer tail), \`normal\` (~2k, adds truncated tool
-calls), \`full\` (everything, for debugging). Tool-level failures return \`isError: true\`
-with the reason in the payload. Every result also names the session and the
-model/preset that actually answered.
-
-Async results carry \`requestId\`, \`status\` (completed / blocked / errored / cancelled;
-running/pending while not settled), \`turn\`, and \`pending\`. A \`session_result\` call that
-succeeds with \`status: "errored"\` is still a successful tool call — inspect the payload,
-not only \`isError\`. \`session_prompt\` keeps the blocking convenience shape and marks a
-client-cancelled wait with \`pending: true\` plus the \`requestId\` to fetch later.
-`,
-  limits: `\
-## Deployment-imposed limits (visible via \`dsh_status\` / \`model_list\`)
-
-- \`allowedModels\`: the allowlist of models sessions may be created with
-  (absent/empty = any model).
-- Model and preset are both explicit: new sessions require \`provider\`+\`model\` (from
-  \`model_list\`) and a \`preset\` (from \`model_list\`'s \`presets\` / \`dsh://presets\`);
-  resuming a sessionId keeps that session's model and preset. The result tells you
-  which model/preset actually answered (\`model\` / \`preset\` fields).
-- Async request index: the last 200 requests are kept for 6 hours in memory. The
-  \`requestId\` is also persisted on the user message, so an explicit \`session_result\`
-  can rebuild its position from the session log after a restart.
-- \`session_poll\` reports live sessions from memory; a persisted-only session returns
-  \`state: "inactive"\` (its log is still readable with \`session_history\`).
-- Pending approvals are always exposed read-only in \`session_poll\` (\`pendingApprovals\`)
-  and \`approval_list\`. Answering requires the deployment to set
-  \`approvalControl=fallback|exclusive\`; only entries marked \`answerable=true\` can be
-  answered, and the default \`off\` leaves every decision to the host/UI.
-- \`subagent_list\` is discovery only: it reads the host's child catalog and treats each
-  child as a normal session. Starting native children remains a host/model-side tool.
-`,
+/** 读一份 agent-facing 文档(路径相对本模块; 失败信息带实际路径, 便于诊断打包缺文件) */
+function readDoc(name: string): string {
+  const url = new URL(`../../docs/onboarding/${name}`, import.meta.url)
+  try {
+    return readFileSync(url, 'utf8')
+  } catch (e) {
+    throw new Error(`cannot read agent-facing doc ${url.pathname}: ${(e as Error)?.message ?? String(e)}`)
+  }
 }
 
+const GUIDE_SOURCE = readDoc('guide.md')
+const INSTRUCTIONS = readDoc('instructions.md').trimEnd() + '\n'
+const RESOURCE_FIRST_INSTRUCTIONS = readDoc('instructions.resource-first.md').trimEnd() + '\n'
+
+/**
+ * 按 `<!-- section: id -->` 标记切分 guide.md。
+ * 第一段(第一个标记之前)是文档头; 每节文本去掉标记后的首个换行与尾部空白, 统一以一个换行结尾。
+ */
+function parseGuide(source: string): { header: string; sections: Record<NamedSection, string> } {
+  const marker = /^<!-- section: (\w+) -->$/gm
+  const parts: { id?: string; text: string }[] = []
+  let lastIndex = 0
+  let lastId: string | undefined
+  let match: RegExpExecArray | null
+  while ((match = marker.exec(source)) !== null) {
+    parts.push({ ...(lastId !== undefined ? { id: lastId } : {}), text: source.slice(lastIndex, match.index) })
+    lastId = match[1]
+    lastIndex = marker.lastIndex
+  }
+  parts.push({ ...(lastId !== undefined ? { id: lastId } : {}), text: source.slice(lastIndex) })
+
+  const header = (parts.shift()?.text ?? '').trimEnd() + '\n'
+  const sections = {} as Record<NamedSection, string>
+  for (const part of parts) {
+    if (part.id === undefined) continue
+    if (!SECTION_IDS.includes(part.id as NamedSection)) {
+      throw new Error(`unknown guide section "${part.id}" in docs/onboarding/guide.md`)
+    }
+    sections[part.id as NamedSection] = part.text.replace(/^\r?\n/, '').trimEnd() + '\n'
+  }
+  for (const id of SECTION_IDS) {
+    if (sections[id] === undefined) throw new Error(`guide section "${id}" is missing from docs/onboarding/guide.md`)
+  }
+  return { header, sections }
+}
+
+const GUIDE = parseGuide(GUIDE_SOURCE)
+
+/** 文档头(节 id 无关的开场白, 'all' 时在第一节前输出) */
+const GUIDE_HEADER = GUIDE.header
+
+/** 帮助文档的各节(section 参数按此取; 'all' = GUIDE_HEADER + 全部按序拼接) */
+export const GET_STARTED_SECTIONS: Record<NamedSection, string> = GUIDE.sections
+
 /** 整份帮助文档(GUIDE_HEADER + 各节按序拼接); dsh://guide 资源与工具的 section=all 同数据 */
-export const GET_STARTED_DOC = GUIDE_HEADER + Object.values(GET_STARTED_SECTIONS).join('\n')
+export const GET_STARTED_DOC = GUIDE_HEADER + SECTION_IDS.map((id) => GET_STARTED_SECTIONS[id]).join('\n')
+
+/**
+ * 随 MCP initialize result 下发的 server 引导文本(McpServer 第二参 serverOptions.instructions)。
+ * resourceFirst 部署只读工具下线, 引导改指资源面; 两种形态经 serverInstructions() 选择。
+ */
+export function serverInstructions(resourceFirst: boolean): string {
+  return resourceFirst ? RESOURCE_FIRST_INSTRUCTIONS : INSTRUCTIONS
+}
 
 /** section 参数取单节的返回值; 非法 id 由 zod schema 拦下, 这里只处理合法枚举 */
 export function guideSectionDoc(section?: GuideSection): string {
