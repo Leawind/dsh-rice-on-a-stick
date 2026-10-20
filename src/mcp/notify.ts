@@ -1,7 +1,7 @@
 /**
  * 资源订阅枢纽(notifications/resources/updated + list_changed 的发射端)。
  *
- * 架构事实: 本插件每个 MCP 传输会话各有一个 McpServer 实例(index.ts), 所以"订阅者按连接隔离"
+ * 架构事实: 本插件每个 MCP 传输会话各有一个 McpServer 实例(mcp/http.ts), 所以"订阅者按连接隔离"
  * 天然成立——订阅登记挂在连接自己的 McpServer 上, 推送只发往登记过的实例。
  * SDK 1.30 只提供 sendResourceUpdated/sendResourceListChanged, 不做订阅者登记, 这里补齐:
  *   updated(uri)          → 立即推给所有订阅了该 URI 的连接(任务完成等状态迁移)

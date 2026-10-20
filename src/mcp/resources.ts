@@ -1,14 +1,14 @@
 /**
  * MCP resources 面: 与工具同数据的只读浏览面 + 订阅/补全/标注的完整利用。
  *
- * URI 全景(构造器唯一出处 = data.ts resUri):
+ * URI 全景(构造器唯一出处 = host/data.ts resUri):
  *   静态: dsh://status[/config|/stats|/connections]  dsh://guide[/section]  dsh://tools
  *         dsh://models  dsh://presets  dsh://workspaces  dsh://sessions
  *   模板: dsh://models/{provider}  dsh://workspaces/{id}  dsh://sessions/{id}
  *         dsh://sessions/{id}/history[/before]  dsh://sessions/{id}/events[/after]
  *         dsh://sessions/{id}/activity
  * 规范要点落地:
- *   - capabilities.resources.{listChanged,subscribe:true} 由 index.ts 在构造器声明;
+ *   - capabilities.resources.{listChanged,subscribe:true} 由 mcp/http.ts 在构造器声明;
  *     list_changed(清单变化)由 state.hooks.notifyListChanged → hub 合并广播, updated(单资源)定向推送。
  *   - resources/subscribe 在此注册(自管订阅登记, 校验 = 试读: 资源当下可读才允许订阅, 否则 -32602)。
  *   - completion: 模板变量的 complete 回调(SDK 自动声明 completions 能力)。
@@ -42,7 +42,7 @@ import type { NotifyHub } from './notify.js'
 
 /** 资源面依赖(statusSnapshot 与工具面同源; hub 缺省时订阅面不注册) */
 export interface ResourceDeps extends ToolDeps {
-  /** 订阅枢纽(index.ts 创建; 缺省 = 纯只读面, resources/subscribe 不可用) */
+  /** 订阅枢纽(apply 创建; 缺省 = 纯只读面, resources/subscribe 不可用) */
   hub?: NotifyHub
 }
 
@@ -134,7 +134,7 @@ const HISTORY_PAGE = 10
 
 /**
  * 注册资源面(每连接一次)。hub 存在时同时注册 resources/subscribe|unsubscribe(自管登记)。
- * 读实现与工具面共用 data.ts——同白名单、同投影。
+ * 读实现与工具面共用 host/data.ts——同白名单、同投影。
  */
 export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceDeps): void {
   const snapshot = () => deps?.statusSnapshot?.()

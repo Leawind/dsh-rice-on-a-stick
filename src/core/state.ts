@@ -11,7 +11,7 @@ import type { ApprovalRuntime, SessionRecord, SessionRequestRecord } from './typ
 
 /**
  * apply 绑定的通知钩子(缺省 no-op, 使数据层/引擎在无 MCP 面的部署形态下零通知开销)。
- * 通知钩子是资源面订阅枢纽(notify.ts)的注入点: 变更点在各模块就地调用,
+ * 通知钩子是资源面订阅枢纽(mcp/notify.ts)的注入点: 变更点在各模块就地调用,
  * hub 未挂载时(no-op)零成本, 挂载后按订阅关系定向推送。
  */
 export interface StateHooks {

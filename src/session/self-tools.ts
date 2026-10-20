@@ -4,7 +4,7 @@
  * 机制: DSH 的模型工具由 `ctx.tools` 注册表统一呈现, 不需要经过 MCP 或 skill。
  * 本模块不复制任何业务实现——它用一个"记录式" McpServer 跑一遍 `registerTools`,
  * 拿到权威的名称/描述/参数 schema/回调, 再逐条包装成 ToolDefinition。因此:
- *   - 新增/修改 MCP 工具只改 src/tools.ts 一处, 原生面自动跟随;
+ *   - 新增/修改 MCP 工具只改 src/mcp/tools/ 一处, 原生面自动跟随;
  *   - 原生工具与 MCP 工具同描述、同参数 schema、同实现;
  *   - 原生工具名统一加 `carrot_` 前缀, 避免与宿主/第三方工具撞名;
  *   - 描述里对其它工具的引用会被自动改写成带前缀的名字;

@@ -31,7 +31,7 @@ Claude Code / Cursor / Cline / 你的 agent
 -   **本实例自用**——同一套工具面注册为本实例原生工具（`carrot_` 前缀）；`http: false` 即纯自用部署。
 -   **默认本机优先**——只监听 `127.0.0.1`，可选 Bearer 认证、Host / Origin 白名单、空闲传输会话回收。
 
-工具面与资源面的确切清单以 `src/tools.ts` 和 `src/resources.ts` 为准；agent 应先调用 `dsh_get_started`——里面有 dsh 入门课、典型工作流和错误应对。
+工具面与资源面的确切清单以 `src/mcp/tools/` 和 `src/mcp/resources.ts` 为准；agent 应先调用 `dsh_get_started`——里面有 dsh 入门课、典型工作流和错误应对。
 
 ## 环境要求
 
@@ -81,7 +81,7 @@ dsh plugin --profile web add link:"$(pwd)"
 
 ## 配置
 
-字段与默认值声明在 `src/config.ts`——唯一事实来源。常用字段可在设置面板编辑（volatile：就地保存、不重载插件，MCP 连接不断）；监听地址与端口是结构性字段，点“应用”后重载插件。传输覆盖写在 profile 的 `cordis.patch.yml`：
+字段与默认值声明在 `src/core/config.ts`——唯一事实来源。常用字段可在设置面板编辑（volatile：就地保存、不重载插件，MCP 连接不断）；监听地址与端口是结构性字段，点“应用”后重载插件。传输覆盖写在 profile 的 `cordis.patch.yml`：
 
 ```yaml
 - id: dsh-carrot-on-a-stick

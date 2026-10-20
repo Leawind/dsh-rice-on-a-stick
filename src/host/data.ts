@@ -1,6 +1,6 @@
 /**
  * 数据层: 工具面(tools)与资源面(resources)共用的读实现——两个面同数据。
- * 从 tools.ts 抽出(消除"工具↔资源"潜在环), 并承载资源面新增的载荷:
+ * 从 mcp/tools/index.ts 抽出(消除"工具↔资源"潜在环), 并承载资源面新增的载荷:
  *   presetsPayload      preset 花名册(dsh://presets; session_create 的 preset 参数取值来源)
  *   workspacesPayload   工作区清单/单工作区(dsh://workspaces[/id])
  *   sessionMetaPayload  单会话元数据(dsh://sessions/{id}; persisted-only 也可读)

@@ -31,7 +31,7 @@ Claude Code / Cursor / Cline / your agent
 -   **Self-use** — the same surface registers as native `carrot_` tools inside this instance; `http: false` gives a self-use-only deployment.
 -   **Local-first** — binds `127.0.0.1`, optional Bearer auth, Host/Origin allowlists, idle transport-session reaping.
 
-The exact tool and resource surfaces are defined in `src/tools.ts` and `src/resources.ts`; agents should call `dsh_get_started` first — it carries the dsh crash course, recipes, and error recovery.
+The exact tool and resource surfaces are defined in `src/mcp/tools/` and `src/mcp/resources.ts`; agents should call `dsh_get_started` first — it carries the dsh crash course, recipes, and error recovery.
 
 ## Requirements
 
@@ -81,7 +81,7 @@ New sessions require explicit `provider` + `model` + `preset` from `model_list` 
 
 ## Configuration
 
-Fields and defaults live in `src/config.ts` — the single source of truth. Common fields are editable in the settings panel (volatile: saved in place without reloading, MCP connections stay up); the listen address and port are structural and reload the plugin via **Apply**. Transport overrides go into the profile's `cordis.patch.yml`:
+Fields and defaults live in `src/core/config.ts` — the single source of truth. Common fields are editable in the settings panel (volatile: saved in place without reloading, MCP connections stay up); the listen address and port are structural and reload the plugin via **Apply**. Transport overrides go into the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: dsh-carrot-on-a-stick
