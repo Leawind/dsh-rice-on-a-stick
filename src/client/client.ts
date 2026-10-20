@@ -72,6 +72,11 @@ interface DshModuleSpec {
     return clock;
   }
 
+  // status 缺字段时的兜底默认(必须与 src/core/config.ts 的 DEFAULTS 一致; 正常情况服务端总会给值)
+  const DEFAULT_APPROVAL_TIMEOUT_MS = 120000;
+  const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+  const APPROVAL_MODES = ['off', 'fallback', 'exclusive'];
+
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
   // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回显。
   // 语义: 所有改动实时保存(改动即 config-update, 无保存按钮); 草稿只是提交在途时的乐观显示。
@@ -89,10 +94,11 @@ interface DshModuleSpec {
       port: typeof c.port === 'number' ? c.port : 8090,
       // 结构性字段(改动会重载插件): 与 Config 一一对应, 面板不得遗漏任何一项
       httpOn: c.http !== false,
+      // 默认工具优先(false): 只认 tools 的客户端零行为变化, 资源优先需显式开启
       resourceFirst: c.resourceFirst === true,
-      approvalControl: c.approvalControl === 'fallback' || c.approvalControl === 'exclusive' ? c.approvalControl : 'off',
-      approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : 120000,
-      sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : 86400000,
+      approvalControl: APPROVAL_MODES.indexOf(c.approvalControl) >= 0 ? c.approvalControl : 'off',
+      approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS,
+      sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
       hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
     };
@@ -147,11 +153,10 @@ interface DshModuleSpec {
       'hosts.hint': '额外放行的主机名，逗号或空格分隔（改此项会重载插件）',
       'hosts.invalid': '主机名不合法：{h}',
       'listen.title': '监听地址与端口',
-      'listen.apply': '应用',
-      'listen.reloading': '正在应用并重载插件…',
+      'apply': '应用',
+      'reloading': '正在重启插件…',
       'listen.hostRequired': '监听地址不能为空。',
       'listen.portInvalid': '端口必须是 1-65535 的整数。',
-      'stop.confirm': '停止后所有已连接的 MCP 客户端会被切断。确认停止？',
       'copy': '复制',
       'copied': '已复制',
       'whitelist.title': '模型白名单',
@@ -222,11 +227,10 @@ interface DshModuleSpec {
       'hosts.hint': 'Extra hostnames, comma or space separated (reloads the plugin).',
       'hosts.invalid': 'Invalid hostname: {h}',
       'listen.title': 'Listen address and port',
-      'listen.apply': 'Apply',
-      'listen.reloading': 'Applying and reloading…',
+      'apply': 'Apply',
+      'reloading': 'Restarting the plugin…',
       'listen.hostRequired': 'Listen address must not be empty.',
       'listen.portInvalid': 'Port must be an integer between 1 and 65535.',
-      'stop.confirm': 'Stopping disconnects every connected MCP client. Stop?',
       'copy': 'Copy',
       'copied': 'Copied',
       'whitelist.title': 'Model whitelist',
@@ -314,14 +318,24 @@ interface DshModuleSpec {
     '.dcs-warn{color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 错误行
     '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
-    // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题, 行间 0.5px 发丝线)
+    // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题)
     '.dcs-form{display:flex;flex-direction:column;}',
-    '.dcs-form > * + *{border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    // 发丝线只画在配置行之间: 行下的附属块(白名单清单/令牌行/端点卡)属于同一项, 不另画线
+    '.dcs-form > .dcs-row:not(:first-child){border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 2px;}',
     '.dcs-labels{display:flex;flex-direction:column;gap:2px;min-width:0;}',
     '.dcs-label{font-size:13px;line-height:20px;font-weight:500;}',
     '.dcs-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    // 控件列: 控件居右, 字段校验提示紧随其下(不占用整行, 也不跑到别的行去)
+    '.dcs-controlwrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0;}',
     '.dcs-control{flex:none;display:flex;align-items:center;}',
+    // 行内"输入框 + 应用": 数值/主机名这类结构性字段与其它行同一套布局(标签左、控件右)
+    '.dcs-inline{display:flex;align-items:center;gap:8px;}',
+    '.dcs-inline .dcs-input{flex:none;width:150px;}',
+    '.dcs-inline .dcs-input-wide{width:220px;}',
+    '.dcs-err-right{max-width:320px;text-align:right;}',
+    // 插件级状态(正在重启插件): 只在面板头部下方出现一次, 不挂在任何配置项上
+    '.dcs-notice{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 输入(官方 Input: 32px 高/0.5px border-l4/radius-md/焦点边框变品牌蓝)
     '.dcs-input{box-sizing:border-box;width:300px;max-width:100%;height:32px;padding:0 8px;font-family:inherit;font-size:14px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);outline:none;transition:border-color .1s ease;}',
     '.dcs-input:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
@@ -377,14 +391,17 @@ interface DshModuleSpec {
       React.createElement('span', { className: 'dcs-dot' }), text);
   }
 
-  // 表单行: 标题+副标题居左, 控件居右(官方设置行同款)
+  // 表单行: 标题+副标题居左, 控件居右(官方设置行同款); err 是该字段自己的校验提示, 紧贴控件下方
   function Row(props) {
     return React.createElement('div', { className: 'dcs-row' },
       React.createElement('div', { className: 'dcs-labels' },
         React.createElement('span', { className: 'dcs-label' }, props.label),
         props.hint ? React.createElement('span', { className: 'dcs-sub' }, props.hint) : null,
       ),
-      React.createElement('div', { className: 'dcs-control' }, props.control),
+      React.createElement('div', { className: 'dcs-controlwrap' },
+        React.createElement('div', { className: 'dcs-control' }, props.control),
+        props.err ? React.createElement('div', { className: 'dcs-err dcs-err-right' }, '⚠ ', props.err) : null,
+      ),
     );
   }
 
@@ -427,9 +444,10 @@ interface DshModuleSpec {
     // 其它结构性字段(审批等待上限/TTL/Host 白名单)的未应用编辑: 同样不被轮询覆盖
     const structDirtyRef = React.useRef(false);
     const [cfgError, setCfgError] = React.useState('');
-    // 监听地址/端口: 结构性保存的局部错误与忙碌状态
-    const [listenError, setListenError] = React.useState('');
-    const [listenBusy, setListenBusy] = React.useState(false);
+    // 插件级重载状态(任何结构性字段写入后都会重载): 只影响面板顶部的一条提示, 不锁任何控件
+    const [reloading, setReloading] = React.useState(false);
+    // 字段级校验提示: {key, msg}, 只显示在对应控件下方(与插件级状态分开)
+    const [fieldErr, setFieldErr] = React.useState({ key: '', msg: '' });
     // 令牌复制反馈(独立于端点复制, 各自 1.5s 复位)
     const [tokenCopied, setTokenCopied] = React.useState(false);
     // 令牌明文展示(默认密码式隐藏; 点击"显示"切换, 输入框只读可选可复制)
@@ -438,6 +456,11 @@ interface DshModuleSpec {
     const [adding, setAdding] = React.useState(null);
     // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
     const [cat, setCat] = React.useState(null);
+    // 字段级校验提示(结构性字段各自一行)的读写: 只显示在对应控件下方
+    function setErr(key, msg) { setFieldErr({ key: key, msg: msg }); }
+    function clearErr() { setFieldErr(function (cur) { return cur.msg ? { key: '', msg: '' } : cur; }); }
+    function errOf(key) { return fieldErr.key === key ? fieldErr.msg : ''; }
+
     const refresh = React.useCallback(function () {
       return rpc('status').then(function (s) {
         setState(s);
@@ -474,11 +497,10 @@ interface DshModuleSpec {
       return function () { alive = false; };
     }, [adding, cat]);
 
+    // 服务启停: 直接执行(不弹确认框); busy 只防同一开关被连点, 与配置重载无关
     function toggleServer() {
       if (!state || busy) return;
       const target = state.listening ? 'stop' : 'start';
-      // 停止会切断全部已连接客户端并停止接受新请求, 轻确认防误触
-      if (target === 'stop' && !window.confirm(t('stop.confirm'))) return;
       setBusy(true);
       rpc(target)
         .then(function () { return refresh(); })
@@ -525,20 +547,20 @@ interface DshModuleSpec {
       enqueue({ values: values });
     }
 
-    function enqueue(payload: unknown, reloading?: boolean) {
-      queueRef.current.items.push({ payload: payload, reloading: reloading === true });
+    function enqueue(payload: unknown, reload?: boolean) {
+      queueRef.current.items.push({ payload: payload, reloading: reload === true });
       void pumpQueue();
     }
 
     // 串行排空保存队列: 保证最后发出的载荷就是界面最终状态; 排空后刷新一次采纳服务端值。
     // 失败时清空队列并回到服务端生效值, 不把失败状态留在草稿里。
-    // reloading 项(host/port)会重载插件, 响应可能被切断: 按"已写入、正在重载"处理并稍后刷新。
+    // reloading 项会重载插件, 响应可能被切断: 按"已写入、正在重载"处理并稍后刷新。
     async function pumpQueue() {
       const queue = queueRef.current;
       if (queue.running) return;
       queue.running = true;
       savingRef.current = true;
-      let reloading = false;
+      let didReload = false;
       try {
         while (queue.items.length > 0) {
           const item = queue.items.shift();
@@ -546,19 +568,18 @@ interface DshModuleSpec {
             const res = await rpc('config-update', item.payload);
             setCfgError('');
             if (item.reloading || (res && res.reloading === true)) {
-              reloading = true;
+              didReload = true;
             }
           } catch (e) {
             const msg = String((e && e.message) || e);
             // 插件重载会先卸下 GUI 路由再重新挂上: fetch 失败/404/空响应都按写入成功处理
             if (item.reloading && /^(Failed to fetch|NetworkError|HTTP (?:404|5\d\d)|响应解析失败)/i.test(msg)) {
               setCfgError('');
-              reloading = true;
+              didReload = true;
               continue;
             }
             queue.items.length = 0;
             setCfgError(msg);
-            if (item.reloading) { setListenError(msg); setListenBusy(false); }
             break;
           }
         }
@@ -567,17 +588,17 @@ interface DshModuleSpec {
         savingRef.current = queue.items.length > 0;
       }
       if (savingRef.current) { void pumpQueue(); return; }
-      if (reloading) {
+      if (didReload) {
+        // 插件级状态: 面板顶部提示一次; 期间不锁任何控件, 后续改动继续排队
         savingRef.current = true;
-        setListenBusy(true);
+        setReloading(true);
         await new Promise(function (resolve) { window.setTimeout(resolve, 1200); });
         savingRef.current = false;
-        setListenBusy(false);
         listenDirtyRef.current = false;
         structDirtyRef.current = false;
       }
       await refresh();
-      setListenBusy(false);
+      setReloading(false);
     }
 
     /** 监听地址/端口: 只改草稿, 点"应用"才写(结构性字段会重载插件) */
@@ -586,7 +607,7 @@ interface DshModuleSpec {
       const base = draftRef.current || form.draft;
       const next = Object.assign({}, base, patch);
       setDraft(next);
-      setListenError('');
+      clearErr();
       listenDirtyRef.current = String(next.host || '').trim() !== currentHost || Number(next.port) !== currentPort;
     }
 
@@ -597,8 +618,8 @@ interface DshModuleSpec {
         return (Array.isArray(list) ? list : []).map(function (v) { return String(v).trim(); }).filter(Boolean).join(',');
       };
       const nowHosts = hostsText(c.allowedHosts);
-      return String(draft.approvalTimeoutMs) !== String(typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : 120000)
-        || String(draft.sessionTtlMs) !== String(typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : 86400000)
+      return String(draft.approvalTimeoutMs) !== String(typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS)
+        || String(draft.sessionTtlMs) !== String(typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS)
         || hostsText(String(draft.hostsText || '').split(/[\s,]+/)) !== nowHosts;
     }
 
@@ -608,37 +629,40 @@ interface DshModuleSpec {
       const base = draftRef.current || form.draft;
       const next = Object.assign({}, base, patch);
       setDraft(next);
-      setListenError('');
+      clearErr();
       structDirtyRef.current = structDirtyOf(next);
     }
 
-    /** 结构性字段提交(会重载插件): 与监听地址走同一条等待重载的路径 */
+    /**
+     * 结构性字段提交(会重载插件): 与监听地址走同一条等待重载的路径。
+     * 重载期间不锁控件: 保存队列会继续按序写入, 后续点击只是排在重载项之后。
+     */
     function saveStruct(values) {
-      if (!form || listenBusy) return;
-      setListenError('');
-      setListenBusy(true);
+      if (!form) return;
+      clearErr();
+      setReloading(true);
       structDirtyRef.current = false;
       enqueue({ values: values }, true);
     }
 
-    /** 开关/下拉类的结构性字段: 乐观显示 + 立即提交(会重载插件) */
+    /** 开关/下拉类的结构性字段: 乐观显示 + 立即提交(会重载插件, 但不阻塞后续点击) */
     function changeStruct(draftPatch, values) {
-      if (!form || listenBusy) return;
+      if (!form) return;
       const base = draftRef.current || form.draft;
       setDraft(Object.assign({}, base, draftPatch));
-      setListenBusy(true);
+      setReloading(true);
       enqueue({ values: values }, true);
     }
 
     function applyListen() {
-      if (!form || listenBusy) return;
+      if (!form) return;
       const base = draftRef.current || form.draft;
       const host = String(base.host || '').trim();
       const port = Number(base.port);
-      if (!host) { setListenError(t('listen.hostRequired')); return; }
-      if (!Number.isInteger(port) || port < 1 || port > 65535) { setListenError(t('listen.portInvalid')); return; }
-      setListenError('');
-      setListenBusy(true);
+      if (!host) { setErr('listen', t('listen.hostRequired')); return; }
+      if (!Number.isInteger(port) || port < 1 || port > 65535) { setErr('listen', t('listen.portInvalid')); return; }
+      clearErr();
+      setReloading(true);
       enqueue({ values: { host: host, port: port } }, true);
     }
 
@@ -658,8 +682,8 @@ interface DshModuleSpec {
     const currentPort = typeof cfg.port === 'number' ? cfg.port : 8090;
     const listenDirty = !!d && (String(d.host || '').trim() !== currentHost || Number(d.port) !== currentPort);
     // 其它结构性字段的未应用改动(应用按钮的可用态); 生效值缺失时用默认值比较
-    const timeoutDirty = !!d && Number(d.approvalTimeoutMs) !== Number(typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : 120000);
-    const ttlDirty = !!d && Number(d.sessionTtlMs) !== Number(typeof cfg.sessionTtlMs === 'number' ? cfg.sessionTtlMs : 86400000);
+    const timeoutDirty = !!d && Number(d.approvalTimeoutMs) !== Number(typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS);
+    const ttlDirty = !!d && Number(d.sessionTtlMs) !== Number(typeof cfg.sessionTtlMs === 'number' ? cfg.sessionTtlMs : DEFAULT_SESSION_TTL_MS);
     const hostsDirty = !!d && String(d.hostsText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean).join(',')
       !== (Array.isArray(cfg.allowedHosts) ? cfg.allowedHosts : []).join(',');
 
@@ -696,6 +720,8 @@ interface DshModuleSpec {
         React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
+      // 插件级状态: 结构性字段写入后整插件重载, 这是插件状态而不是某个配置项的状态
+      reloading ? React.createElement('div', { className: 'dcs-notice' }, t('reloading')) : null,
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
@@ -711,7 +737,6 @@ interface DshModuleSpec {
           hint: t('http.hint'),
           control: React.createElement(Switch, {
             checked: d.httpOn,
-            disabled: listenBusy,
             label: t('http.title'),
             onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
           }),
@@ -793,7 +818,6 @@ interface DshModuleSpec {
           hint: t('resource.hint'),
           control: React.createElement(Switch, {
             checked: d.resourceFirst,
-            disabled: listenBusy,
             label: t('resource.title'),
             onChange: function (v) { changeStruct({ resourceFirst: v }, { resourceFirst: v }); },
           }),
@@ -818,7 +842,6 @@ interface DshModuleSpec {
               type: 'text',
               value: d.host,
               spellCheck: false,
-              disabled: listenBusy,
               onChange: function (e) { setListen({ host: e.target.value }); },
             }),
             React.createElement('input', {
@@ -827,16 +850,16 @@ interface DshModuleSpec {
               min: 1,
               max: 65535,
               value: d.port,
-              disabled: listenBusy,
               onChange: function (e) { setListen({ port: e.target.value }); },
             }),
             React.createElement('button', {
               type: 'button',
               className: 'dcs-btn',
-              disabled: listenBusy || !listenDirty,
+              disabled: !listenDirty,
               onClick: applyListen,
-            }, listenBusy ? t('listen.reloading') : t('listen.apply')),
+            }, t('apply')),
           ),
+          errOf('listen') ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', errOf('listen')) : null,
         ),
         React.createElement('div', { className: 'dcs-listwrap' },
           React.createElement('div', { className: 'dcs-card' },
@@ -846,7 +869,6 @@ interface DshModuleSpec {
             ),
           ),
         ),
-        listenError ? React.createElement('div', { className: 'dcs-listwrap' }, React.createElement('div', { className: 'dcs-err' }, '⚠ ', listenError)) : null,
         React.createElement(Row, {
           label: t('auth.title'),
           control: React.createElement(Switch, {
@@ -904,97 +926,90 @@ interface DshModuleSpec {
           control: React.createElement('select', {
             className: 'dcs-input',
             value: d.approvalControl,
-            disabled: listenBusy,
             onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
           },
             React.createElement('option', { value: 'off' }, t('approval.off')),
             React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
             React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
         }),
-        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
-          React.createElement('div', { className: 'dcs-labels' },
-            React.createElement('span', { className: 'dcs-label' }, t('approvalTimeout.title')),
-            React.createElement('span', { className: 'dcs-sub' }, t('approvalTimeout.hint')),
-          ),
-          React.createElement('div', { className: 'dcs-listenrow' },
+        React.createElement(Row, {
+          label: t('approvalTimeout.title'),
+          hint: t('approvalTimeout.hint'),
+          err: errOf('approvalTimeoutMs'),
+          control: React.createElement('div', { className: 'dcs-inline' },
             React.createElement('input', {
-              className: 'dcs-input dcs-input-port',
+              className: 'dcs-input',
               type: 'number',
               min: 1000,
               max: 600000,
               step: 1000,
               value: d.approvalTimeoutMs,
-              disabled: listenBusy,
               onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
             }),
             React.createElement('button', {
               type: 'button',
               className: 'dcs-btn',
-              disabled: listenBusy || !timeoutDirty,
+              disabled: !timeoutDirty,
               onClick: function () {
                 const n = Number((draftRef.current || form.draft).approvalTimeoutMs);
-                if (!Number.isFinite(n) || n < 1000 || n > 600000) { setListenError(t('approvalTimeout.invalid')); return; }
+                if (!Number.isFinite(n) || n < 1000 || n > 600000) { setErr('approvalTimeoutMs', t('approvalTimeout.invalid')); return; }
                 saveStruct({ approvalTimeoutMs: Math.round(n) });
               },
-            }, t('listen.apply')),
+            }, t('apply')),
           ),
-        ),
-        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
-          React.createElement('div', { className: 'dcs-labels' },
-            React.createElement('span', { className: 'dcs-label' }, t('ttl.title')),
-            React.createElement('span', { className: 'dcs-sub' }, t('ttl.hint')),
-          ),
-          React.createElement('div', { className: 'dcs-listenrow' },
+        }),
+        React.createElement(Row, {
+          label: t('ttl.title'),
+          hint: t('ttl.hint'),
+          err: errOf('sessionTtlMs'),
+          control: React.createElement('div', { className: 'dcs-inline' },
             React.createElement('input', {
-              className: 'dcs-input dcs-input-port',
+              className: 'dcs-input',
               type: 'number',
               min: 0,
               step: 60000,
               value: d.sessionTtlMs,
-              disabled: listenBusy,
               onChange: function (e) { setStruct({ sessionTtlMs: e.target.value }); },
             }),
             React.createElement('button', {
               type: 'button',
               className: 'dcs-btn',
-              disabled: listenBusy || !ttlDirty,
+              disabled: !ttlDirty,
               onClick: function () {
                 const n = Number((draftRef.current || form.draft).sessionTtlMs);
-                if (!Number.isFinite(n) || n < 0) { setListenError(t('ttl.invalid')); return; }
+                if (!Number.isFinite(n) || n < 0) { setErr('sessionTtlMs', t('ttl.invalid')); return; }
                 saveStruct({ sessionTtlMs: Math.round(n) });
               },
-            }, t('listen.apply')),
+            }, t('apply')),
           ),
-        ),
-        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
-          React.createElement('div', { className: 'dcs-labels' },
-            React.createElement('span', { className: 'dcs-label' }, t('hosts.title')),
-            React.createElement('span', { className: 'dcs-sub' }, t('hosts.hint')),
-          ),
-          React.createElement('div', { className: 'dcs-listenrow' },
+        }),
+        React.createElement(Row, {
+          label: t('hosts.title'),
+          hint: t('hosts.hint'),
+          err: errOf('allowedHosts'),
+          control: React.createElement('div', { className: 'dcs-inline' },
             React.createElement('input', {
-              className: 'dcs-input dcs-input-host',
+              className: 'dcs-input dcs-input-wide',
               type: 'text',
               value: d.hostsText,
               placeholder: 'example.com, 192.168.1.5',
               spellCheck: false,
-              disabled: listenBusy,
               onChange: function (e) { setStruct({ hostsText: e.target.value }); },
             }),
             React.createElement('button', {
               type: 'button',
               className: 'dcs-btn',
-              disabled: listenBusy || !hostsDirty,
+              disabled: !hostsDirty,
               onClick: function () {
                 const text = String((draftRef.current || form.draft).hostsText || '');
                 const entries = text.split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
                 const bad = entries.find(function (s) { return !/^[A-Za-z0-9._:-]+$/.test(s); });
-                if (bad) { setListenError(t('hosts.invalid', { h: bad })); return; }
+                if (bad) { setErr('allowedHosts', t('hosts.invalid', { h: bad })); return; }
                 saveStruct({ allowedHosts: entries });
               },
-            }, t('listen.apply')),
+            }, t('apply')),
           ),
-        ),
+        }),
         cfgError ? React.createElement('div', { className: 'dcs-savebar' },
           React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
         ) : null,
