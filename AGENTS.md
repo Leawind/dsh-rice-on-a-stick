@@ -26,7 +26,7 @@
 -   提交前先验证：行为改动跑 `npm test`，纯类型改动跑 `npm run typecheck`，文档改动可免。
 -   提交信息用 conventional commits（`feat` / `fix` / `docs` / `refactor` / `test` / `chore`），标题英文一句话，正文中文列要点。
 -   改动混杂多个不相关主题时拆成多个提交；拿捏不准时宁可拆。
--   CHANGELOG.md 冻结在 0.1.0-rc.1 发布提交（44eb91c）时的内容，开发过程中不要修改它；是否解冻由用户决定。
+-   开发过程中**绝对禁止**改动发布元数据：`CHANGELOG.md`（含 Unreleased 段）与版本号（`package.json` 的 `version`、`src/core/config.ts` 的 `PLUGIN_VERSION`）一律不动。开发期的变更记录由 conventional commits 的提交信息承担；解冻 CHANGELOG 与升版只在用户明确发起发布时进行。
 -   push（尤其强推）永远由用户决定，代理不主动 push。
 
 ## 踩坑记录
