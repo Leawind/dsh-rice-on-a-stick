@@ -324,24 +324,12 @@ async function awaitIdleOrAbort(pending: Promise<void>, signal?: AbortSignal): P
   })
 }
 
-/** 组装完整任务文本: 记忆上下文 + 任务 + 执行环境合同 + 结构化输出要求 */
-function assembleTask(task: string, context?: string): string {
-  return [
-    context ? `[Memory / context from the caller, for reference]\n${context}\n` : '',
-    `[Task]\n${task}\n`,
-    '[Execution environment] You are running unattended in a controlled environment. Your summary is read by a machine and forwarded to a caller who cannot see this conversation: it must be self-contained, must not refer to this conversation, and verification must name concrete commands/files/paths.',
-    '[Required after finishing] Output a one-line JSON summary (no markdown code fence, just this line):',
-    '{"changes":"what changed","verification":"how it was verified","leftovers":"remaining issues"}',
-  ].filter(Boolean).join('\n')
-}
-
 /** submit/prompt 的公共输入 */
 export interface SubmitOptions {
   ctx: Context
   sessionId: string
+  /** 任务原文: 原样投递, 插件不包装、不追加任何内容 */
   task: string
-  /** 调用方记忆/上下文, 注入给 agent 参考 */
-  context?: string
   /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
   mode?: 'queue' | 'steer'
   /**
@@ -368,7 +356,7 @@ interface SubmittedTurn {
  * requestId 同时写进 user 消息的 source.rpcId, 会话日志因此能持久定位这次提交。
  */
 async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
-  const { ctx, sessionId, task, context, mode = 'queue' } = opts
+  const { ctx, sessionId, task, mode = 'queue' } = opts
   const resolved = await resolveSessionForPrompt(ctx, sessionId)
   const requestId = opts.requestId?.trim() || randomUUID()
   const existing = requestOf(requestId)
@@ -382,7 +370,7 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
 
   // 事件基线: 只读本轮新增事件(公开 API snapshotEvents; 旧宿主回退 log 字段)
   const baseline = eventsOf(resolved.handle.agent.session).length
-  const message = userMessage(assembleTask(task, context), requestId)
+  const message = userMessage(task, requestId)
   const record: SessionRequestRecord = {
     requestId,
     sessionId,
@@ -439,9 +427,8 @@ export async function submitSession(opts: SubmitOptions): Promise<SubmitSessionR
 export interface PromptOptions {
   ctx: Context
   sessionId: string
+  /** 任务原文: 原样投递, 插件不包装、不追加任何内容 */
   task: string
-  /** 调用方记忆/上下文, 注入给 agent 参考 */
-  context?: string
   /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
   mode?: 'queue' | 'steer'
   /** 调用方自带的幂等键; 响应丢失时可用它调 session_result 取回结果 */
@@ -456,10 +443,10 @@ export interface PromptOptions {
  * 不会杀掉正在工作的 agent; 要停 turn 请显式调 session_cancel。
  */
 export async function promptSession(opts: PromptOptions): Promise<SessionTurnResult> {
-  const { ctx, sessionId, task, context, mode = 'queue', signal } = opts
+  const { ctx, sessionId, task, mode = 'queue', signal } = opts
   // 还没 admission 就被取消: 不投递。已 admission 后的取消只停止等待(见 awaitIdleOrAbort)。
   if (signal?.aborted) throw new Error('cancelled before submission; no task was sent')
-  const submitted = await submitTurn({ ctx, sessionId, task, context, mode, requestId: opts.requestId, source: 'prompt' })
+  const submitted = await submitTurn({ ctx, sessionId, task, mode, requestId: opts.requestId, source: 'prompt' })
   const { handle, record } = submitted
   // 活动窗口订阅推送: 固定 1s 尾沿节流(hub 侧), 无人订阅时零开销
   const activityTimer = setInterval(() => {

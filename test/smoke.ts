@@ -187,6 +187,10 @@ try {
     && runLiveInner.verification === 'v1' && runLiveInner.leftovers === 'l1'
   checks['session_prompt usage 机会式聚合'] = runLiveInner.usage?.totalTokens === 165
   checks['session_prompt 结果带 history 资源引用(HATEOAS)'] = String(runLiveInner.resource ?? '').includes('sess-live/history')
+  // 投递即原文: 插件不包装 task、不追加任何提示词(发送内容 = 调用方给的 task 字符串)
+  checks['session_prompt 原样投递 task(不包装、不追加)'] = String(
+    followups[followups.length - 1]?.message?.content?.[0]?.text ?? '',
+  ) === 'say ok'
 
   // mode=steer: 打断消化路径(断言 steer 送达)
   const runSteer = await rpc(init.sid, { jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'STEER-MARKER-1', mode: 'steer' } } })

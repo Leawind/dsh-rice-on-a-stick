@@ -61,17 +61,16 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). `mode` mirrors the UI\'s busy-send behavior: queue = append to the session\'s durable host inbox (runs after the current turn); steer = redirect the running turn at the next step boundary (both are equivalent when idle). Cancelling the MCP wait (timeout / notifications/cancelled) only stops the wait, not the dsh turn; the result then carries `pending=true` and a `requestId` for `session_poll`/`session_result`, or use `session_cancel` to stop it. Responses can be lost on network failure — pass your own `requestId` and fetch the result later. For parallel orchestration, prefer `session_submit` + `session_poll` + `session_result` instead of blocking one call for a long time.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
-        task: z.string().describe('Natural-language task for the Harness to execute.'),
-        context: z.string().optional().describe('Caller memory/context injected for the agent (send only the delta when continuing a session).'),
+        task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: uri = reference only (the resource points at the session history; read or subscribe to it); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, context, mode, requestId, detail }, extra) => {
+    async ({ sessionId, task, mode, requestId, detail }, extra) => {
       try {
-        const result = await promptSession({ ctx, sessionId, task, context, mode, requestId, signal: extra.signal })
+        const result = await promptSession({ ctx, sessionId, task, mode, requestId, signal: extra.signal })
         const effDetail = detail ?? (resourceFirst ? 'uri' : state.config.defaultDetail)
         const pendingNote = result.pending === true
           ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
@@ -105,16 +104,15 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       description: 'Admit a task into a session asynchronously and return `requestId`/`messageId` immediately (does not wait for the turn). Observe with `session_poll`, fetch the structured result with `session_result`, stop the turn with `session_cancel`. `mode` matches `session_prompt` (queue / steer). Reusing a `requestId` is idempotent: it is not delivered twice and returns the first receipt. Best for fan-out workers polled together.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; continuing keeps its original model).'),
-        task: z.string().describe('Natural-language task for the Harness to execute.'),
-        context: z.string().optional().describe('Caller memory/context injected for the agent (send only the delta when continuing a session).'),
+        task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (caller-supplied; generated if omitted). Repeating the same id returns the first receipt.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, context, mode, requestId }) => {
+    async ({ sessionId, task, mode, requestId }) => {
       try {
-        const r = await submitSession({ ctx, sessionId, task, context, mode, requestId })
+        const r = await submitSession({ ctx, sessionId, task, mode, requestId })
         return out(JSON.stringify({
           ...r,
           resource: resUri.sessionHistory(sessionId),

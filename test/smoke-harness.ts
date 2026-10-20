@@ -75,7 +75,8 @@ function makeAgent(id, cwd, options) {
       snapshotEvents: (from = 0) => events.slice(from),
     },
     followup: (message) => {
-      followups.push({ id })
+      // 记录 message: 让用例能断言投递文本与调用方给的 task 完全一致
+      followups.push({ id, message })
       events.push({ type: 'user/message', data: { message } })
       events.push({ type: 'turn/start', data: { turn: 1 } })
       events.push({ type: 'tool/call', data: { name: 'bash', arguments: '{"command":"ls"}' } })
@@ -150,7 +151,8 @@ function makeSlowAgent(id, cwd, options) {
       snapshotEvents: (from = 0) => events.slice(from),
     },
     followup: (message) => {
-      followups.push({ id })
+      // 记录 message: 让用例能断言投递文本与调用方给的 task 完全一致
+      followups.push({ id, message })
       events.push({ type: 'user/message', data: { message } })
       events.push({ type: 'turn/start', data: { turn: 1 } })
     },
