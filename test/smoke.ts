@@ -345,6 +345,16 @@ try {
   const qNoItem = await rpc(init.sid, { jsonrpc: '2.0', id: 36, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-missing' } } })
   checks['session_queue 未知 itemId 报错'] = String(innerOf(qNoItem).error ?? '').includes('not found')
 
+  // edit/steer 重建消息必须保留原消息的 source.rpcId: 丢了它, 该 requestId 在 session_result 里永远 pending
+  slowLiveAgent.inbox.nextTurn.push({ id: 'qm-e1', content: [{ type: 'text', text: 'queued edit-me' }], source: { kind: 'user', rpcId: 'req-edit-keep' } })
+  const qEditRpc = await rpc(init.sid, { jsonrpc: '2.0', id: 37, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-e1', content: 'edited text' } } })
+  checks['session_queue edit 保留 rpcId(结果仍可按 requestId 取回)'] = innerOf(qEditRpc).updated === 'qm-e1'
+    && slowLiveAgent.inbox.nextTurn.some((m: any) => m.content?.[0]?.text === 'edited text' && m.source?.rpcId === 'req-edit-keep')
+  slowLiveAgent.inbox.nextTurn.push({ id: 'qm-s1', content: [{ type: 'text', text: 'queued steer-me' }], source: { kind: 'user', rpcId: 'req-steer-keep' } })
+  const qSteerRpc = await rpc(init.sid, { jsonrpc: '2.0', id: 38, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'steer', itemId: 'qm-s1' } } })
+  checks['session_queue steer 保留 rpcId'] = innerOf(qSteerRpc).steered === 'qm-s1'
+    && steered.at(-1)?.message?.source?.rpcId === 'req-steer-keep'
+
   // ── session_select_model / session_rename / session_search / session_fork / session_archive ──
   const selOk = await rpc(init.sid, { jsonrpc: '2.0', id: 40, method: 'tools/call', params: { name: 'session_select_model', arguments: { sessionId: 'sess-live', provider: 'p2', model: 'm9' } } })
   checks['session_select_model 走官方 selectModel'] = innerOf(selOk).ok === true

@@ -518,7 +518,7 @@ export async function queueManage(opts: QueueManageOptions): Promise<unknown> {
   // inbox 形状来自宿主 agent-loop(readonly UserMessage 数组 + replace/remove); 经 unknown 桥接
   const inbox = (live as unknown as {
     inbox?: {
-      nextTurn: readonly { id?: string; content?: { type?: string; text?: string }[] }[]
+      nextTurn: readonly { id?: string; content?: { type?: string; text?: string }[]; source?: { rpcId?: unknown } }[]
       nextStep: readonly unknown[]
       remove?: (messageId: string) => void
       replace?: (messageId: string, message: unknown) => void
@@ -529,6 +529,11 @@ export async function queueManage(opts: QueueManageOptions): Promise<unknown> {
   }
   const textOf = (m: { content?: { type?: string; text?: string }[] }) =>
     (m.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
+  // 重建消息必须继承原消息的 source.rpcId: 它是 session_result 定位这次提交的持久键, 丢了对该 requestId 的结果永远 pending
+  const rpcIdOf = (m: { source?: { rpcId?: unknown } }) => {
+    const id = m.source?.rpcId
+    return typeof id === 'string' && id !== '' ? id : undefined
+  }
   if (action === 'list') {
     return {
       sessionId,
@@ -545,11 +550,11 @@ export async function queueManage(opts: QueueManageOptions): Promise<unknown> {
   }
   if (action === 'edit') {
     if (!content) return { error: 'action "edit" requires content' }
-    inbox.replace?.(itemId, userMessage(content))
+    inbox.replace?.(itemId, userMessage(content, rpcIdOf(item)))
     return { sessionId, updated: itemId }
   }
   // steer: 移出队列并立即转向消化(与 QueueDock 的单行"转正"一致)
-  const message = userMessage(textOf(item))
+  const message = userMessage(textOf(item), rpcIdOf(item))
   inbox.remove(itemId)
   ;(live as unknown as { steer?: (message: unknown) => void }).steer?.(message)
   return { sessionId, steered: itemId }
