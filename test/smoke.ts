@@ -930,6 +930,8 @@ try {
   checks['parseSummary: 正常一行 JSON'] = parseSummary('x {"changes":"c","verification":"v","leftovers":"l"} y').changes === 'c'
   checks['parseSummary: 中文别名字段可解析'] = parseSummary('{"改动":"c2","验证":"v2"}').changes === 'c2'
   checks['parseSummary: 无 summary → 空串兜底'] = parseSummary('no json here').changes === ''
+  checks['parseSummary: 嵌套对象可解析'] = parseSummary('done {"changes":"c3","meta":{"nested":1}} end').changes === 'c3'
+  checks['parseSummary: 字符串里的花括号不干扰配对'] = parseSummary('{"changes":"a}b{c"}').changes === 'a}b{c'
   checks['isWithin: 目录在根内'] = isWithin('/a', '/a/b/c')
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {

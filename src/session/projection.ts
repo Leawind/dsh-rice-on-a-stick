@@ -12,12 +12,7 @@ import type { DetailLevel, ModelSelectionOverride, SessionTurnResult } from '../
 export function parseSummary(assistantText: string): { changes: string; verification: string; leftovers: string } {
   const empty = { changes: '', verification: '', leftovers: '' }
   // 收集所有 {...} 候选(agent 被要求输出一行 summary JSON)
-  const candidates: string[] = []
-  const re = /\{[\s\S]*?\}/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(assistantText)) !== null) {
-    candidates.push(m[0])
-  }
+  const candidates = jsonCandidatesOf(assistantText)
   // 从后往前: 最后出现的候选最可能是最终 summary, 逐个尝试解析
   for (let i = candidates.length - 1; i >= 0; i--) {
     try {
@@ -35,6 +30,40 @@ export function parseSummary(assistantText: string): { changes: string; verifica
     }
   }
   return empty
+}
+
+/**
+ * 按括号配对收集顶层的 {...} 片段(嵌套对象整体成对, 不截在内部 } 上; 字符串里的花括号不参与配对)。
+ * 旧实现的非贪婪正则 `/\{[\s\S]*?\}/` 在 `{"a":{"b":1}}` 上截到内部 } 产生非法片段, 嵌套 JSON 永远解析失败。
+ */
+function jsonCandidatesOf(text: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let start = -1
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === '{') {
+      if (depth === 0) start = i
+      depth++
+    } else if (ch === '}' && depth > 0) {
+      depth--
+      if (depth === 0 && start >= 0) {
+        out.push(text.slice(start, i + 1))
+        start = -1
+      }
+    }
+  }
+  return out
 }
 
 /** 各级别字段上限(字符) */
