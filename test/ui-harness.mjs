@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const PKG_VERSION = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version
 const CLIENT_JS = resolve(ROOT, 'client/client.js')
 if (!existsSync(CLIENT_JS)) {
   console.error('[ui-harness] client/client.js is missing; run `npm run build` first')
@@ -28,7 +29,7 @@ const DEFAULT_CONNS = () => [
 ]
 const state = {
   name: 'dsh-rice-on-a-stick',
-  version: '0.1.0-rc.1',
+  version: PKG_VERSION,
   listening: true,
   httpEnabled: true,
   endpoint: `http://127.0.0.1:5642/mcp`,

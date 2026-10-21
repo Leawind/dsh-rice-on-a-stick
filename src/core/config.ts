@@ -7,6 +7,7 @@
  * 界面没有的概念(任务队列/agent 池/超时旋钮)在这里同样没有位置——
  * 会话生命周期交给宿主(常驻 + 冷恢复), 本配置只管传输/安全/边界/结果形态。
  */
+import { createRequire } from 'node:module'
 import type { Volatile } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 
@@ -29,8 +30,15 @@ export function authTokenHint(token: string): string {
   return token.length >= 12 ? `${token.slice(0, 4)}...${token.slice(-4)}` : '••••••'
 }
 
-/** 插件版本(MCP server 握手时上报; 与 package.json 的 version 同步) */
-export const PLUGIN_VERSION = '0.1.0-rc.1'
+/** 插件版本(MCP server 握手时上报; 单一事实来源是 package.json 的 version, 这里运行时读取) */
+export const PLUGIN_VERSION: string = (() => {
+  try {
+    return createRequire(import.meta.url)('../../package.json').version
+  } catch {
+    // 包布局异常(如宿主改变装载方式)时兜底: 版本号缺失不应让插件 boot 失败
+    return 'unknown'
+  }
+})()
 
 /**
  * 插件配置(文件形态的普通值)。
