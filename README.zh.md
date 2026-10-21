@@ -6,10 +6,10 @@
 中文 | [English](README.md)
 
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
-[![license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
+[![version](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=version)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
+[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
 
-本插件把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的多种功能暴露为 MCP server，其他 agent 能创建并操纵 dsh 会话。  
-同一套工具面默认直接注册为 dsh 的原生工具，使 dsh 自己的会话也能直接操作自己。
+一个将控制 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的能力暴露为 MCP 和内置工具的 dsh 插件。
 
 </div>
 

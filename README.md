@@ -6,10 +6,10 @@
 [中文](README.zh.md) | English
 
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
-[![license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
+[![version](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=version)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
+[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
 
-This plugin exposes various features of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) as an MCP server, allowing other agents to create and manipulate dsh sessions.  
-The same set of tools is registered by default as native dsh tools, so dsh's own sessions can operate on themselves directly.
+A dsh plugin that exposes control over [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) as MCP and built-in tools.
 
 </div>
 
@@ -61,7 +61,6 @@ dsh plugin --profile web add dsh-rice-on-a-stick
 ```
 
 Install from source with live updates:
-
 
 ```sh
 git clone https://github.com/Leawind/dsh-rice-on-a-stick
