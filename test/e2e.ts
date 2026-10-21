@@ -113,13 +113,14 @@ try {
   const sid = init.sid
   await rpc(sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
-  // ── 工具面(会话中心 11 + 异步控制面 3 + 目录/状态 5 + echo) ──
+  // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复) ──
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
     'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_select_model',
-    'session_rename', 'session_list', 'session_history', 'session_search', 'session_fork', 'session_archive',
+    'session_rename', 'session_list', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
+    'session_archive', 'session_unarchive',
     'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
   report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
@@ -134,14 +135,14 @@ try {
   report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
     `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
   const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
-  report('将工具注册到本dsh实例(全局表可见 24 个 rice_ 工具)', nativeNames.length === 24
+  report('将工具注册到本dsh实例(全局表可见 28 个 rice_ 工具)', nativeNames.length === 28
     && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
   `native=${nativeNames.length}`)
 
   const status = await callTool(sid, 6, 'dsh_status')
   report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
-  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 24,
+  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 28,
     `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
@@ -293,6 +294,13 @@ try {
         const archived = await callTool(sid, 35, 'session_archive', { sessionId, stopActivity: true })
         report('session_archive 归档测试会话', archived.inner?.archived === true || archived.inner?.error === undefined,
           String(archived.inner?.error ?? '').slice(0, 120))
+        const archiveList = await callTool(sid, 36, 'session_archive_list', {})
+        report('session_archive_list 列出刚归档的会话', Array.isArray(archiveList.inner?.sessions)
+          && archiveList.inner.sessions.some((s: any) => s.sessionId === sessionId && s.archived === true),
+          `total=${archiveList.inner?.total ?? '?'}`)
+        const unarchived = await callTool(sid, 37, 'session_unarchive', { sessionId })
+        report('session_unarchive 恢复测试会话', unarchived.inner?.wasArchived === true && unarchived.inner?.archived === false,
+          String(unarchived.inner?.error ?? '').slice(0, 120))
       }
       console.log(`\nSESSION_ID=${sessionId}`)
     }

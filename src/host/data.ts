@@ -16,7 +16,7 @@ import { state } from '../core/state.js'
 import type { ModelSelection, ModelSelectionOverride } from '../core/types.js'
 import { canonicalCwd, isWithin } from '../core/paths.js'
 import { historyTurnsOf, projectModel, type HistoryRole } from '../session/projection.js'
-import { asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
+import { archivedSessionIdsOf, asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
 import { latestTitleOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
 import { resolve } from 'node:path'
@@ -187,6 +187,11 @@ export interface SessionQuery {
   includeCold?: boolean
   /** includeCold 的单次扫描预算(默认 COLD_TITLE_SCAN_MAX, 夹在 1..COLD_TITLE_SCAN_LIMIT; 无 title 时不生效) */
   coldScanMax?: number
+  /**
+   * 归档过滤: true = 只列已归档会话, false = 只列未归档会话; 省略 = 不过滤(行上仍带 archived 标记)。
+   * 归档集合来自 workspaceRegistry(registry 全局, 不分 workspace); 缺席时视为没有会话被归档。
+   */
+  archived?: boolean
 }
 
 /** 冷会话标题: 读日志折 session/title, TTL 内复用; 读不到(无 sessionController/读取失败)记 undefined */
@@ -207,10 +212,12 @@ async function coldTitleOf(ctx: Context, sessionId: string): Promise<string | un
 }
 
 /**
- * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd 过滤
+ * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd/归档过滤
  * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
  * 标题过滤: live 会话的标题走内存(会话对象字段优先, 缺失时折内存日志), 零 I/O;
  * 冷会话默认不参与匹配, 显式 includeCold 才读日志(单次预算由 coldScanMax 给, 默认 COLD_TITLE_SCAN_MAX)。
+ * 归档: 每行带 archived 标记(workspaceRegistry 的全局归档集合); archived 参数为
+ * true/false 时只列归档/未归档, 省略时不过滤(与"全部"视图一致)。
  */
 export async function collectSessions(ctx: Context, query: SessionQuery = {}): Promise<{
   total: number
@@ -261,8 +268,12 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
   }
   // cwd 过滤参数: 只列该目录(含子目录)下的会话
   const filterRoot = query.cwd ? await canonicalCwd(resolve(query.cwd)) : undefined
+  // 归档集合(registry 全局字段): 行标记与过滤共用一次读取; registry 缺席 = 空集
+  const archivedIds = new Set(archivedSessionIdsOf(ctx))
   const visible = [...headers.values()]
     .filter((h) => {
+      // 归档过滤只看归档集合本身, 不影响 cwd/标题过滤的语义
+      if (query.archived !== undefined && archivedIds.has(h.id) !== query.archived) return false
       const sessionCwd = h.cwd
       return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
     })
@@ -274,6 +285,7 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
       return {
         sessionId: h.id,
         createdAt: h.createdAt,
+        archived: archivedIds.has(h.id),
         ...(title !== undefined ? { title } : {}),
         ...(h.cwd ? { cwd: h.cwd } : {}),
         ...(h.agentPreset ? { agentPreset: h.agentPreset } : {}),

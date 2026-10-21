@@ -38,8 +38,11 @@ you already know.
   the model rounds inside it. `steer` is consumed at the next step boundary;
   `session_select_model` takes effect on the next step.
 - **Session lifecycle** — sessions live until the host process ends or the session is
-  archived (`session_archive`, the UI's only "delete"). A cold (not-in-memory) session
-  is transparently resumed on the next prompt with its history intact.
+  archived (`session_archive`, the UI's only "delete"; an active session needs
+  `stopActivity=true`). Archiving is a soft mark: the UI hides the session and the host
+  refuses model steps for it and its subagent lineage, while the log stays readable.
+  `session_archive_list` lists archived sessions; `session_unarchive` restores one, and
+  the next prompt then cold-resumes it with its history intact.
 - **Native subagent** — the host can delegate work into child sessions (one-shot,
   continuable, or external). `subagent_list` reads that catalog without activating
   anything; each child is a normal session id for `session_prompt` / `session_poll` /

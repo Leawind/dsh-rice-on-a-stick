@@ -1,5 +1,5 @@
 /**
- * 会话动作类工具: 新建、发送、异步提交、观察、取结果、停止、排队、换模型、改名、分叉、归档。
+ * 会话动作类工具: 新建、发送、异步提交、观察、取结果、停止、排队、换模型、改名、分叉、归档、恢复。
  * 读语义在 session-read.ts; 审批与子代理发现分别在 approvals.ts / catalog.ts。
  */
 import { z } from 'zod'
@@ -10,13 +10,14 @@ import type { ModelSelection } from '../../core/types.js'
 import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from '../../session/engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_ARG, projectModel, renderResult } from '../../session/projection.js'
-import { asSessionId, commandsOf, serviceOf } from '../../host/bridge.js'
+import { archivedSessionIdsOf, asSessionId, commandsOf, serviceOf } from '../../host/bridge.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
 import { out, outError, renderUriResult, resolveSessionTarget } from './shared.js'
 
-/** workspaceController 视图(归档/取档; 可选依赖) */
+/** workspaceController 视图(归档/恢复; 可选依赖) */
 interface WorkspaceControllerView {
   archiveSession?: (request: { sessionId: string; stopActivity?: boolean }) => Promise<unknown>
+  unarchiveSession?: (request: { sessionId: string }) => Promise<unknown>
 }
 
 export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourceFirst: boolean): void {
@@ -384,7 +385,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_archive',
     {
       title: 'Archive session',
-      description: 'Archive a session (the UI session menu\'s Archive — the UI has no delete; archiving is its equivalent): the session disappears from lists and cannot be reopened; the log is retained. An active session requires `stopActivity=true` (equivalent to the UI\'s Stop and Archive confirmation: stop the current turn and kill the session\'s background tasks first). Requires `workspaceController`.',
+      description: 'Archive a session (the UI session menu\'s Archive — the UI has no delete; archiving is its equivalent): the session disappears from the UI lists and the host refuses model steps for it (and its subagent lineage) until unarchived; the log is retained and stays readable via session_history / session_archive_list. An active session requires `stopActivity=true` (equivalent to the UI\'s Stop and Archive confirmation: stop the current turn and kill the session\'s background tasks first). Requires `workspaceController`.',
       inputSchema: {
         sessionId: z.string().describe('Session id to archive.'),
         stopActivity: z.boolean().optional().describe('Set true for an active session = stop its current turn first (the UI\'s Stop and Archive).'),
@@ -406,6 +407,44 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
           ? '; the session is active — pass stopActivity=true to stop it first (mirrors the UI "stop and archive" confirmation)'
           : ''
         return outError(JSON.stringify({ error: `session_archive failed: ${msg}${hint}` }))
+      }
+    },
+  )
+
+  // 会话恢复(界面的 Unarchive; 幂等: 未归档的会话恢复是宿主侧 no-op, wasArchived:false 如实报告)
+  mcp.registerTool(
+    'session_unarchive',
+    {
+      title: 'Unarchive session',
+      description: 'Restore an archived session (the UI session menu\'s Unarchive): removes the archive mark, the session rejoins the normal lists and can be continued — `session_prompt` cold-resumes it with its history intact (unarchiving lifts the host\'s archived gate for the whole lineage). Idempotent: unarchiving a session that is not archived is a host-side no-op and the result reports `wasArchived: false`. Requires `workspaceController`.',
+      inputSchema: {
+        sessionId: z.string().describe('Session id to restore (from session_archive_list or session_list with archived=true).'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId }) => {
+      const wc = serviceOf<WorkspaceControllerView>(ctx, 'workspaceController')
+      if (typeof wc?.unarchiveSession !== 'function') {
+        return outError(JSON.stringify({ error: 'workspaceController service unavailable (session_unarchive needs the host workspace controller)' }))
+      }
+      try {
+        // 前置读一次归档集合: 宿主 unarchive 是幂等 no-op, 只看结果集合区分不了"已恢复"与"本来就未归档"
+        const wasArchived = archivedSessionIdsOf(ctx).includes(sessionId)
+        const res = await wc.unarchiveSession({ sessionId })
+        const remaining = Array.isArray((res as { archivedSessionIds?: unknown } | null)?.archivedSessionIds)
+          ? (res as { archivedSessionIds: readonly unknown[] }).archivedSessionIds.map(String)
+          : undefined
+        state.hooks.notifyListChanged()
+        return out(JSON.stringify({
+          ok: true,
+          sessionId,
+          archived: false,
+          wasArchived,
+          ...(remaining !== undefined ? { archivedRemaining: remaining.length } : {}),
+          ...(wasArchived ? {} : { note: 'the session was not archived; nothing to restore (host-side no-op)' }),
+        }, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: `session_unarchive failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

@@ -1,5 +1,5 @@
 /**
- * 会话只读工具: 清单、纪要、搜索。resourceFirst 部署下这三个工具下线,
+ * 会话只读工具: 清单(含归档清单)、纪要、搜索。resourceFirst 部署下这批工具下线,
  * 数据改由 dsh://sessions 等资源面提供(两者共用 host/data.ts 的同一实现)。
  */
 import { z } from 'zod'
@@ -14,6 +14,7 @@ const sessionListOut = z.object({
   sessions: z.array(z.object({
     sessionId: z.string(),
     createdAt: z.number(),
+    archived: z.boolean(),
     title: z.string().optional(),
     cwd: z.string().optional(),
     agentPreset: z.string().optional(),
@@ -39,20 +40,51 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_list',
     {
       title: 'List sessions',
-      description: 'List known session metadata (sessionId, createdAt, cwd, preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live. Use it to pick a `sessionId` for `session_prompt`, rename, or archive.',
+      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live. Each row carries `archived`: archiving is a soft mark (the UI hides it and the host refuses model steps for it) — pass archived=true to list only archived sessions (or use session_archive_list), archived=false for only active ones, omit for all. Use it to pick a `sessionId` for `session_prompt`, rename, or archive.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
+        archived: z.boolean().optional().describe('true = only archived sessions; false = only non-archived ones; omit = all (rows always carry the archived flag).'),
         includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). Cold sessions are scanned newest first and each one costs one log read; the result reports `titleSearch`.'),
         coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to scan per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Raise it to search further back when the workspace has many sessions; ignored without a title filter.`),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
+    async ({ limit, cwd, title, archived, includeCold, coldScanMax }) => {
+      try {
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived, includeCold, coldScanMax })
+        return structuredOut({
+          total,
+          sessions: items.slice(0, limit ?? 20),
+          ...(titleSearch ? { titleSearch } : {}),
+        }, sessionListOut)
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 归档清单(只读): session_list({archived:true}) 的专用入口, 过滤参数与其完全一致
+  mcp.registerTool(
+    'session_archive_list',
+    {
+      title: 'List archived sessions',
+      description: 'List archived sessions (rows and filters are exactly session_list\'s with archived=true; archiving is a soft mark — the log is retained and readable, the UI hides the session and the host refuses model steps until it is unarchived). Restore with session_unarchive.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
+        cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
+        title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
+        includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). The result reports `titleSearch`.'),
+        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to scan per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}).`),
+      },
+      annotations: { readOnlyHint: true },
+      outputSchema: sessionListOut,
+    },
     async ({ limit, cwd, title, includeCold, coldScanMax }) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, includeCold, coldScanMax })
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived: true, includeCold, coldScanMax })
         return structuredOut({
           total,
           sessions: items.slice(0, limit ?? 20),

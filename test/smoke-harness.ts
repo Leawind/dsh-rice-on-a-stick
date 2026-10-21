@@ -28,6 +28,10 @@ export const approvalPolicyCalls = []
 export const searchSignals = []
 export const forked = []
 export const archived = []
+// 归档集合(registry 全局, 真实宿主存于 workspace.json 的 global.archivedSessionIds):
+// session_archive 会写入, session_unarchive 会移除; 断言直接读它
+export const archivedSessionIds = ['sess-legacy']
+export const unarchived = []
 
 // 仓库根的 realpath(win32 反斜杠规范路径) —— 与 workspace.path / fs.realpath 结果同 canon
 export const FAKE_CWD = realpathSync(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
@@ -44,6 +48,8 @@ const wsRegistry = {
   list: () => [fakeWs],
   resolveByPath: async (p) => (p === FAKE_CWD ? fakeWs : undefined),
   create: async () => fakeWs,
+  // 真实 registry 的归档集合是 getter; 这里给可变数组, 归档/恢复工具与断言共用
+  archivedSessionIds,
 }
 
 function makeAgent(id, cwd, options) {
@@ -315,8 +321,9 @@ export const fakeSessionController = {
     return { sessionId: 'sess-forked' }
   },
 }
-// 归档假服务(workspaceController.archiveSession): 活动会话(live 表里的)拒绝并报 session-active,
-// stopActivity: true 才放行——与界面"停止并归档"确认同语义
+// 归档假服务(workspaceController): archiveSession 活动会话(live 表里的)拒绝并报 session-active,
+// stopActivity: true 才放行——与界面"停止并归档"确认同语义; 归档/恢复都维护 registry 的归档集合,
+// 恢复为宿主同款幂等 no-op(不在集合里就什么都不做), 返回恢复后的完整集合
 export const fakeWorkspaceController = {
   archiveSession: async ({ sessionId, stopActivity }) => {
     const active = sessionId === 'sess-live' || sessionId === 'sess-slow'
@@ -324,7 +331,14 @@ export const fakeWorkspaceController = {
       throw new Error('workspace/session-active: the session is running; archive with stopActivity to stop it first')
     }
     archived.push({ sessionId, stopActivity: stopActivity === true })
-    return undefined
+    if (!archivedSessionIds.includes(sessionId)) archivedSessionIds.push(sessionId)
+    return { archivedSessionIds: [...archivedSessionIds] }
+  },
+  unarchiveSession: async ({ sessionId }) => {
+    const i = archivedSessionIds.indexOf(sessionId)
+    if (i >= 0) archivedSessionIds.splice(i, 1)
+    unarchived.push({ sessionId, wasArchived: i >= 0 })
+    return { archivedSessionIds: [...archivedSessionIds] }
   },
 }
 export const fakeSessionTitle = {

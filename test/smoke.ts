@@ -1,14 +1,14 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 26 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 28 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
  *      索引丢失后从 rpcId 重建)/客户端取消只停等待
  *   E. session_cancel / session_queue(list/edit/remove/未知 itemId)
- *   F. session_select_model / session_rename / session_search / session_fork / session_archive
- *   G. session_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
+ *   F. session_select_model / session_rename / session_search / session_fork / session_archive / session_unarchive
+ *   G. session_list(含 archived 标记与过滤)/session_archive_list / session_history / 资源面(models/presets/sessions/status/订阅推送)
  *   H. allowedModels 允许清单(独立 ctx)
  *   I. resourceFirst 形态(独立 ctx)——只读面下线, 控制面工具保留, prompt 默认 uri 档
  *   J. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
@@ -36,6 +36,7 @@ import {
   approvalAgent,
   approvalPolicyCalls,
   archived,
+  archivedSessionIds,
   attachedIds,
   checks,
   commandCalls,
@@ -69,6 +70,7 @@ import {
   slowLiveAgent3,
   steered,
   waitFor,
+  unarchived,
 } from './smoke-harness.ts'
 
 const ctx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle })
@@ -80,8 +82,8 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 26 个(rice_ 前缀)'] = nativeSchemas.length === 26
-    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive']
+  checks['原生自用工具: 默认注册全部 28 个(rice_ 前缀)'] = nativeSchemas.length === 28
+    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_prompt')?.description ?? ''
@@ -96,7 +98,7 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 26
+    && nativeStatusJson.stats?.selfTools === 28
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -140,8 +142,9 @@ try {
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_list', 'session_meta',
     'session_history',
-    'session_search', 'session_fork', 'session_archive', 'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
-  checks['tools/list: 精确 26 个工具(会话中心 + 异步/审批/子代理)'] = toolNames.length === 26
+    'session_search', 'session_fork', 'session_archive', 'session_unarchive', 'session_archive_list',
+    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
+  checks['tools/list: 精确 28 个工具(会话中心 + 异步/审批/子代理/归档面)'] = toolNames.length === 28
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -447,6 +450,43 @@ try {
   checks['session_list: coldScanMax 放大预算后命中较旧会话'] = slCapBigInner.total === 1
     && slCapBigInner.sessions?.[0]?.sessionId === 'sess-persisted'
     && slCapBigInner.titleSearch?.coldScanned > 1 && slCapBigInner.titleSearch?.coldTruncated === false
+
+  // ── 归档三件套: 行标记 / archived 过滤 / session_archive_list / session_unarchive ──
+  // (此时 sess-live 已在 id46 被归档; 桩的归档集合 = 种子 sess-legacy + sess-live)
+  checks['session_list: 全量视图行带 archived 标记'] = (() => {
+    const liveRow = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live')
+    const legacyRow = slInner.sessions?.find((s: any) => s.sessionId === 'sess-legacy')
+    return liveRow?.archived === true && legacyRow?.archived === true
+      && slInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.archived === false
+  })()
+  const slArch = await rpc(init.sid, { jsonrpc: '2.0', id: 60, method: 'tools/call', params: { name: 'session_list', arguments: { archived: true } } })
+  const slArchInner = innerOf(slArch)
+  checks['session_list: archived=true 只列归档'] = slArchInner.total === 2
+    && slArchInner.sessions?.every((s: any) => s.archived === true)
+    && ['sess-legacy', 'sess-live'].every((id) => slArchInner.sessions?.some((s: any) => s.sessionId === id))
+  const slActive = await rpc(init.sid, { jsonrpc: '2.0', id: 61, method: 'tools/call', params: { name: 'session_list', arguments: { archived: false, limit: 100 } } })
+  const slActiveInner = innerOf(slActive)
+  checks['session_list: archived=false 排除归档'] = slActiveInner.total >= 3
+    && slActiveInner.sessions?.every((s: any) => s.archived === false)
+    && !slActiveInner.sessions?.some((s: any) => s.sessionId === 'sess-live')
+  const archiveList = await rpc(init.sid, { jsonrpc: '2.0', id: 62, method: 'tools/call', params: { name: 'session_archive_list', arguments: {} } })
+  const archiveListInner = innerOf(archiveList)
+  checks['session_archive_list: 等价 session_list(archived=true)'] = archiveListInner.total === 2
+    && archiveListInner.sessions?.every((s: any) => s.archived === true)
+    && ['sess-legacy', 'sess-live'].every((id) => archiveListInner.sessions?.some((s: any) => s.sessionId === id))
+  const unarchive = await rpc(init.sid, { jsonrpc: '2.0', id: 63, method: 'tools/call', params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } } })
+  const unarchiveInner = innerOf(unarchive)
+  checks['session_unarchive: 恢复并回传剩余集合'] = unarchiveInner.ok === true && unarchiveInner.archived === false
+    && unarchiveInner.wasArchived === true && unarchiveInner.archivedRemaining === 1
+    && unarchived.some((u: any) => u.sessionId === 'sess-live' && u.wasArchived === true)
+  const unarchiveAgain = await rpc(init.sid, { jsonrpc: '2.0', id: 64, method: 'tools/call', params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } } })
+  checks['session_unarchive: 未归档会话幂等 no-op(wasArchived=false)'] = innerOf(unarchiveAgain).ok === true
+    && innerOf(unarchiveAgain).wasArchived === false && innerOf(unarchiveAgain).archivedRemaining === 1
+  const archiveListAfter = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'tools/call', params: { name: 'session_archive_list', arguments: {} } })
+  checks['session_archive_list: 恢复后不再列出'] = innerOf(archiveListAfter).total === 1
+    && innerOf(archiveListAfter).sessions?.[0]?.sessionId === 'sess-legacy'
+  checks['归档集合与宿主 registry 同步(unarchive 已生效)'] = archivedSessionIds.includes('sess-legacy')
+    && !archivedSessionIds.includes('sess-live')
   // 会话元信息: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志)
   const metaLive = await rpc(init.sid, { jsonrpc: '2.0', id: 56, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } })
   const metaLiveInner = innerOf(metaLive)
@@ -583,13 +623,13 @@ try {
     const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const phase = await startPhase(8091, resourceCtx, { resourceFirst: true })
     const names = await phase.toolNames()
-    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_meta', 'session_history', 'session_search']
+    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-      'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive',
+      'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
       'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 26 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 26
+    checks['原生自用工具: resourceFirst 不影响原生 28 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 28
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')

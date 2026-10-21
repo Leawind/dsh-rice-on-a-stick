@@ -263,6 +263,16 @@ export async function ensureWorkspace(ctx: Context, canonical: string): Promise<
   return (await registry.resolveByPath?.(canonical)) ?? (await registry.create?.(canonical))
 }
 
+/**
+ * workspaceRegistry 的归档集合(registry 全局字段, 不分 workspace; 归档 = 软标记,
+ * 日志原地不动)。可选依赖: registry 缺席或未暴露该字段时视为空集——归档面整体降级为
+ * "没有会话被归档", 不打崩只读清单。
+ */
+export function archivedSessionIdsOf(ctx: Context): readonly string[] {
+  const registry = serviceOf<{ archivedSessionIds?: readonly unknown[] }>(ctx, 'workspaceRegistry')
+  return (registry?.archivedSessionIds ?? []).map((id) => String(id))
+}
+
 /** 把会话挂名到其 cwd 对应的工作区。attachSession 内部强校验 realpath(header.cwd) 精确等于 workspace.path,
  *  所以 canonical 必须是 header.cwd 的 realpath 规范化值。失败告警不阻断任务(分组是锦上添花)。 */
 export async function attachToWorkspace(ctx: Context, canonical: string, sessionId: SessionId): Promise<void> {

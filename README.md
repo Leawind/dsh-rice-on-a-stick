@@ -33,7 +33,7 @@ flowchart LR
 
 ## Features
 
--   **Operate real sessions** — create, send, queue, fork, archive, switch models, and more.
+-   **Operate real sessions** — create, send, queue, fork, archive and restore, switch models, and more.
     -   Creating a new session requires the calling agent to explicitly specify a model and preset.
     -   When continuing an existing session, the session's original model is retained.
     -   A model allowlist can be manually configured so that clients can only use models on the list.

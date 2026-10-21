@@ -31,7 +31,9 @@ Quick start:
   session_list / session_meta / session_history let you find and inspect sessions.
   session_list takes cwd or title (case-insensitive; includeCold=true also folds
   persisted-only sessions' titles, one log read per candidate, coldScanMax sets how many
-  to scan per call, default 50).
+  to scan per call, default 50). Rows carry `archived`: archived=true lists only archived
+  sessions (session_archive_list is the same list), session_unarchive restores one —
+  archiving is the UI's only delete, and an archived session keeps its readable history.
   session_meta reports model+reasoning effort, preset, live state, turn/step counters
   and context occupancy (token meter, else the last logged usage).
 - session_command lists the slash commands a live session can run (action=list) and runs
