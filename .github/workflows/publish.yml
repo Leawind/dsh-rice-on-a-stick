@@ -3,11 +3,10 @@ name: Publish
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # npm trusted publishing (OIDC) + provenance
 
 jobs:
   publish:
@@ -21,15 +20,24 @@ jobs:
           registry-url: https://registry.npmjs.org
       # 推 tag 发布时，tag 必须与 package.json 版本一致，防止发错版本
       - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           node -e "const v=require('./package.json').version; const t=process.env.GITHUB_REF_NAME.slice(1); if(v!==t){console.error('tag v'+t+' != package.json '+v);process.exit(1)}; console.log('publishing', v)"
       - run: npm ci
       - run: npm test
-      # 预发布版本(x.y.z-后缀)不允许占 latest, npm 强制显式 dist-tag: 有后缀发 rc, 正式版发 latest
+      # npm 对预发布版本强制显式 --tag：registry 尚无正式版时预发布暂占 latest（裸名安装拿最新），
+      # 出现首个正式版后退到 rc 频道。认证走 OIDC trusted publishing（npmjs.com 包设置里需先登记
+      # 本仓库 + 本 workflow 文件名），不再使用 NPM_TOKEN。
       - name: Publish
         run: |
-          TAG=$(node -p "require('./package.json').version.includes('-') ? 'rc' : 'latest'")
-          npm publish --provenance --access public --tag "$TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PKG=$(node -p "require('./package.json').name")
+          V=$(node -p "require('./package.json').version")
+          LATEST=$(npm view "$PKG" dist-tags.latest 2>/dev/null || true)
+          case "$V" in *-*) PRE=1 ;; *) PRE=0 ;; esac
+          case "$LATEST" in *-*) PRE_LATEST=1 ;; *) PRE_LATEST=0 ;; esac
+          if [ "$PRE" = 0 ] || [ -z "$LATEST" ] || [ "$PRE_LATEST" = 1 ]; then
+            TAG=latest
+          else
+            TAG=rc
+          fi
+          echo "publishing $V with dist-tag $TAG (current latest: ${LATEST:-none})"
+          npm publish --provenance --tag "$TAG"
