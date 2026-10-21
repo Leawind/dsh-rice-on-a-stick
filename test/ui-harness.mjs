@@ -161,7 +161,7 @@ body.clean #nav-preview,body.clean #theme-toggle{display:none;}
       </button>
       <button type="button" class="active">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2"/></svg>
-        <span class="label" id="nav-mcp-label">MCP 服务</span>
+        <span class="label" id="nav-mcp-label">白饭钓竿</span>
       </button>
     </nav>
   </div>
@@ -262,7 +262,7 @@ setInterval(function () {
     var mcp = document.getElementById('nav-mcp-label');
     // 假对话框跟随语言: 面板换文案后, 图标认领也要能重新匹配(验证 locale 切换路径)
     if (general && general.textContent !== (en ? 'General' : '通用设置')) general.textContent = en ? 'General' : '通用设置';
-    if (mcp && mcp.textContent !== (en ? 'MCP Service' : 'MCP 服务')) mcp.textContent = en ? 'MCP Service' : 'MCP 服务';
+    if (mcp && mcp.textContent !== (en ? 'Rice on a Stick' : '白饭钓竿')) mcp.textContent = en ? 'Rice on a Stick' : '白饭钓竿';
     if (j.locale && j.locale !== window.__localeSeen) {
       window.__localeSeen = j.locale;
       window.__localeSvc.__setActive(j.locale);

@@ -123,7 +123,7 @@ interface DshModuleSpec {
   }
   var DICT: Dictionary = {
     zh: {
-      'nav': 'MCP 服务',
+      'nav': '白饭钓竿',
       'plugin.name': '白饭钓竿',
       'uptime': '已运行 {d}',
       'state.running': '运行中',
@@ -198,7 +198,7 @@ interface DshModuleSpec {
       'loading': '载入中…',
     },
     en: {
-      'nav': 'MCP Service',
+      'nav': 'Rice on a Stick',
       'plugin.name': 'Rice on a Stick',
       'uptime': 'Up {d}',
       'state.running': 'Running',
