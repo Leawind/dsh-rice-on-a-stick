@@ -806,16 +806,6 @@ interface DshModuleSpec {
             onChange: function (v) { change({ selfToolsOn: v }); },
           }),
         }),
-        // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(写入会重载插件)
-        React.createElement(Row, {
-          label: t('service.title'),
-          hint: t('service.hint'),
-          control: React.createElement(Switch, {
-            checked: d.httpOn,
-            label: t('service.title'),
-            onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
-          }),
-        }),
         React.createElement(Row, {
           label: t('whitelist.title'),
           hint: t('whitelist.hint'),
@@ -887,6 +877,47 @@ interface DshModuleSpec {
             React.createElement('option', { value: 'summary' }, t('detail.summary')),
             React.createElement('option', { value: 'normal' }, t('detail.normal')),
             React.createElement('option', { value: 'full' }, t('detail.full'))),
+        }),
+        React.createElement(Row, {
+          label: t('approval.title'),
+          hint: t('approval.hint'),
+          control: React.createElement('select', {
+            className: 'dcs-input',
+            value: d.approvalControl,
+            onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
+          },
+            React.createElement('option', { value: 'off' }, t('approval.off')),
+            React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
+            React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
+        }),
+        React.createElement(Row, {
+          label: t('approvalTimeout.title'),
+          hint: t('approvalTimeout.hint'),
+          err: errOf('approvalTimeoutMs'),
+          control: React.createElement('div', { className: 'dcs-inline' },
+            React.createElement('input', {
+              className: 'dcs-input',
+              type: 'number',
+              min: 1000,
+              max: 600000,
+              step: 1000,
+              value: d.approvalTimeoutMs,
+              onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
+              onBlur: function () { commitStruct('approvalTimeoutMs'); },
+              onKeyDown: enterCommits('approvalTimeoutMs'),
+            }),
+          ),
+        }),
+        // ── MCP 服务设置(通用设置在前, MCP 相关统一放后面) ──
+        // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(写入会重载插件)
+        React.createElement(Row, {
+          label: t('service.title'),
+          hint: t('service.hint'),
+          control: React.createElement(Switch, {
+            checked: d.httpOn,
+            label: t('service.title'),
+            onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
+          }),
         }),
         React.createElement(Row, {
           label: t('resource.title'),
@@ -983,36 +1014,6 @@ interface DshModuleSpec {
               ),
             )
           : null,
-        React.createElement(Row, {
-          label: t('approval.title'),
-          hint: t('approval.hint'),
-          control: React.createElement('select', {
-            className: 'dcs-input',
-            value: d.approvalControl,
-            onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
-          },
-            React.createElement('option', { value: 'off' }, t('approval.off')),
-            React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
-            React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
-        }),
-        React.createElement(Row, {
-          label: t('approvalTimeout.title'),
-          hint: t('approvalTimeout.hint'),
-          err: errOf('approvalTimeoutMs'),
-          control: React.createElement('div', { className: 'dcs-inline' },
-            React.createElement('input', {
-              className: 'dcs-input',
-              type: 'number',
-              min: 1000,
-              max: 600000,
-              step: 1000,
-              value: d.approvalTimeoutMs,
-              onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
-              onBlur: function () { commitStruct('approvalTimeoutMs'); },
-              onKeyDown: enterCommits('approvalTimeoutMs'),
-            }),
-          ),
-        }),
         React.createElement(Row, {
           label: t('ttl.title'),
           hint: t('ttl.hint'),
