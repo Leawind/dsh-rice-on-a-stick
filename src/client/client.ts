@@ -12,7 +12,7 @@ interface DshModuleSpec {
   const module: { exports: Record<string, unknown> } = { exports: {} };
   // dsh-rice-on-a-stick — client half(浏览器, 静态 bundle 形态)
   // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
-  // - 注册 settings.section 设置页面板: 状态头 / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
+  // - 注册 settings.section 设置页面板: 品牌头(图标+中文名+徽章) / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
   //   configEditor 写 profile patch 后热重载生效) / 软停启 / MCP 客户端连接列表
   // - 设置侧栏图标: 宿主的 settings.section 只投影 id/order/label(没有 icon 字段), 第三方分区
   //   一律显示齿轮; 与 dshmarket 同法认领本分区行, 用 mask 换上米饭碗标记
@@ -124,6 +124,7 @@ interface DshModuleSpec {
   var DICT: Dictionary = {
     zh: {
       'nav': 'MCP 服务',
+      'plugin.name': '白饭钓竿',
       'uptime': '已运行 {d}',
       'state.running': '运行中',
       'state.reloading': '重载中',
@@ -198,6 +199,7 @@ interface DshModuleSpec {
     },
     en: {
       'nav': 'MCP Service',
+      'plugin.name': 'Rice on a Stick',
       'uptime': 'Up {d}',
       'state.running': 'Running',
       'state.reloading': 'Reloading',
@@ -286,11 +288,13 @@ interface DshModuleSpec {
   // ── 样式: 只引用宿主 --dsw-* token(var fallback 为亮色中性值, 宿主缺失时可读性兜底) ──
   const PANEL_CSS = [
     // 顶部留白对齐宿主设置页: 宿主把分区内容直接挂在对话框头部下方, 而其他分区首元素多为带外边距的标题,
-    // 本面板首元素是状态行, 不加这一段会贴着对话框头
+    // 本面板首元素是品牌行, 不加这一段会贴着对话框头
     '.dcs-root{display:flex;flex-direction:column;gap:20px;padding-top:16px;color:var(--dsw-alias-label-primary,#0f1115);}',
-    // 头部
+    // 头部(品牌行: 图标 + 中文名 + 包名/版本, 状态徽章靠右)
     '.dcs-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
-    '.dcs-title{font-size:15px;font-weight:600;}',
+    '.dcs-icon{flex:none;width:28px;height:28px;}',
+    '.dcs-icon svg{display:block;width:100%;height:100%;}',
+    '.dcs-title{font-size:16px;font-weight:600;}',
     '.dcs-ver{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-spacer{flex:1;}',
     // 状态徽章(官方 Tag 同型: 状态色 12% color-mix 底 + 同色文字 + 6px 点)
@@ -398,6 +402,17 @@ interface DshModuleSpec {
     const text = t(props.busy ? 'state.reloading' : props.ok ? 'state.running' : props.warn ? 'state.stopped' : 'state.listeningOff');
     return React.createElement('span', { className: cls, title: props.title, role: 'status' },
       React.createElement('span', { className: 'dcs-dot' }), text);
+  }
+
+  // 品牌图标: 与侧栏图标同一份构建期内联的 icon.svg(NAV_ICON_SVG 在文件下方赋值, 渲染时已就绪)。
+  // 挂成真实 svg 节点而非 background-image, 才能把描边占位色换成 currentColor 跟随主题文字色;
+  // 白米饭是 svg 自身的白色填充, 不受替换影响。
+  function PanelIcon() {
+    return React.createElement('span', {
+      className: 'dcs-icon',
+      'aria-hidden': 'true',
+      dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
+    });
   }
 
   // 表单行: 标题+副标题居左, 控件居右(官方设置行同款); err 是该字段自己的校验提示, 紧贴控件下方
@@ -784,16 +799,20 @@ interface DshModuleSpec {
 
     return React.createElement('div', { className: 'dcs-root' },
       React.createElement('style', null, PANEL_CSS),
-      // 头部: 状态徽章 + 标题/版本(重载期间徽章变"重载中", 不新增元素、不挤动下方内容)
+      // 头部: 品牌图标 + 中文名 + 包名/版本(对齐插件市场的分区头样式), 状态徽章靠右
+      // (重载期间徽章变"重载中", 不新增元素、不挤动下方内容)
       React.createElement('div', { className: 'dcs-head' },
+        React.createElement(PanelIcon),
+        React.createElement('span', { className: 'dcs-title' }, t('plugin.name')),
+        React.createElement('span', { className: 'dcs-ver' }, 'dsh-rice-on-a-stick'),
+        React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
+        React.createElement('div', { className: 'dcs-spacer' }),
         React.createElement(Badge, {
           ok: !!state.listening,
           warn: !httpOff,
           busy: reloading,
           title: t('uptime', { d: fmtDur(state.uptimeMs) }),
         }),
-        React.createElement('span', { className: 'dcs-title' }, 'dsh-rice-on-a-stick'),
-        React.createElement('span', { className: 'dcs-ver' }, 'v' + (state.version || '?')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
