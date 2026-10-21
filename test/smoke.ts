@@ -674,6 +674,14 @@ try {
     checks['传输 TTL: 空闲超时会话被关(旧 sid 404)'] = stale.status === 404
     const reInit = await phase.initialize()
     checks['传输 TTL: 客户端可重新 initialize'] = Boolean(reInit.sid)
+    // 纯监听连接: 只开着 GET SSE 流、不 POST 的传输会话不能被 TTL GC 回收——流开着就是活跃
+    const sseAlive = openSse(reInit.sid, 'http://127.0.0.1:8088/mcp', { Authorization: 'Bearer secret-token' })
+    await sseAlive.ready
+    await new Promise((r) => setTimeout(r, 1000))
+    const sseStillAlive = await rpc(reInit.sid, { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'echo', arguments: { text: 'sse-keepalive' } } }, { Authorization: 'Bearer secret-token' }, 'http://127.0.0.1:8088/mcp')
+    checks['传输 TTL: 打开着的 SSE 流算活跃(会话不被回收)'] = sseStillAlive.status === 200
+      && sseStillAlive.text.includes('sse-keepalive')
+    sseAlive.close()
     await phase.dispose()
   }
 

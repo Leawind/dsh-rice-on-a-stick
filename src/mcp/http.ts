@@ -170,6 +170,11 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   const connections = new Map<string, McpConnection>()
   const servers = new Map<string, McpServer>()
   const transports = new Map<string, StreamableHTTPServerTransport>()
+  /**
+   * 打开中的 GET SSE 流(sessionId → 未结束的响应): 纯监听连接只开流不 POST, lastActivity 不再前进,
+   * 但流开着就是活跃——TTL GC 豁免它们。响应结束(正常关流或断连)即注销; 同会话多条流按响应记账。
+   */
+  const streamingGets = new Map<string, Set<http.ServerResponse>>()
   let server: http.Server | undefined
   let listening = false
 
@@ -195,11 +200,13 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
 
   // 会话空闲 TTL GC: 客户端异常退出时不会发 DELETE, transport/McpServer 会无限累积。
   // 超时无活动的会话由服务端关闭, 客户端下次请求得 404 后按规范重新 initialize。0 = 关闭 GC。
+  // 打开中的 GET SSE 流不算空闲(纯监听连接的活跃形态是流本身, 不是 POST)。
   const sessionSweeper = enabled && sessionTtl > 0
     ? setInterval(() => {
-      const now = Date.now()
-      for (const [sid, conn] of connections) {
-        if (now - Math.max(conn.lastActivity, conn.connectedAt) <= sessionTtl) continue
+        const now = Date.now()
+        for (const [sid, conn] of connections) {
+          if (streamingGets.has(sid)) continue
+          if (now - Math.max(conn.lastActivity, conn.connectedAt) <= sessionTtl) continue
         const transport = transports.get(sid)
         try { void transport?.close() } catch { /* 尽力关闭 */ }
         // close 正常会触发 onclose 清理映射; 这里兜底防泄漏
@@ -292,6 +299,16 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       // 已有 session: GET/POST/DELETE 都路由到对应 transport(支持 SSE 流 + 会话终止)
       if (existing) {
         if (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') {
+          if (req.method === 'GET' && sessionId !== undefined) {
+            // GET 可能是长驻 SSE 流: 登记到 streamingGets(TTL 豁免), 响应结束时注销
+            const streams = streamingGets.get(sessionId) ?? new Set<http.ServerResponse>()
+            streams.add(res)
+            streamingGets.set(sessionId, streams)
+            res.on('close', () => {
+              streams.delete(res)
+              if (streams.size === 0) streamingGets.delete(sessionId)
+            })
+          }
           await existing.handleRequest(req, res, req.method === 'POST' ? parsedBody : undefined)
           return
         }
@@ -394,6 +411,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     transports.clear()
     servers.clear()
     connections.clear()
+    streamingGets.clear()
   }
 
   return {
