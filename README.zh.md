@@ -1,123 +1,82 @@
-<p align="center">
-  <img src="icon.svg" width="96" alt="DSH Rice on a Stick">
-</p>
+<div align="center">
+  <img src="icon.svg" width="96" alt="Rice on a Stick">
 
-# DSH Rice on a Stick
+# 白饭钓竿
 
 中文 | [English](README.md)
 
-[![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-4D6BFE)](https://github.com/topics/dsh-plugin)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 
-从任意 MCP 客户端操作正在运行的 **DeepSeek Harness（dsh）**：本插件把 dsh 的会话中心、模型与 preset 目录、工作区和实时活动暴露为 MCP server——Claude Code、Cursor、Cline 或你自己的 agent 都能创建并操纵真实的 dsh 会话，与 dsh 界面看到的是同一批会话。同一套工具面也会注册为本实例的原生工具，所以 dsh 自己的会话也能直接操作自己。
+本插件把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的多种功能暴露为 MCP server，其他 agent 能创建并操纵 dsh 会话。  
+同一套工具面默认直接注册为 dsh 的原生工具，使 dsh 自己的会话也能直接操作自己。
 
+</div>
 
-```text
-Claude Code / Cursor / Cline / 你的 agent
-                │  Streamable HTTP · 127.0.0.1:8090/mcp
-                ▼
-       dsh-rice-on-a-stick
-                │  sessionController · agents · tools · workspaces
-                ▼
-   dsh 宿主——与界面看到的是同一批会话
+```mermaid
+flowchart LR
+    mcpClient["MCP 客户端<br>（其他 Agent）"]
+
+    subgraph dsh["DeepSeek Harness (dsh)"]
+        subgraph plugins["dsh 插件"]
+          plugin["白饭钓竿<br>dsh-rice-on-a-stick"]
+        end
+        subgraph hostServices["dsh 宿主服务"]
+            sessions["会话"]
+        end
+    end
+
+    mcpClient <-->|"MCP"| plugin
+    plugin -->|"调用"| hostServices
+    sessions -->|"调用原生工具"| plugin
 ```
 
 ## 特性
 
--   **真实会话，不是 shell 包装**——工具经宿主 session controller 操作：新建、发送、排队、分叉、归档、切换模型。
--   **异步编排**——`session_submit` / `session_poll` / `session_result`；客户端超时只停止等待，不会杀掉 dsh 的 turn；停止工作必须走 `session_cancel`。
--   **审批**——`approval_list` / `approval_answer` / `approval_policy`；`approvalControl` 决定本插件创建/续接的会话里审批由谁回答：默认 `exclusive` 只由调用方回答（界面不再显示该审批），`fallback` 界面优先、界面无人应答才交给调用方，`off` 只展示不接管。
--   **本实例自用**——同一套工具面注册为本实例原生工具（`rice_` 前缀）；`http: false` 即纯自用部署。
--   **默认工具优先**——只监听 `127.0.0.1`，可选 Bearer 认证、Host / Origin 白名单、空闲传输会话回收；资源优先形态需显式开启，只认 tools 的客户端零行为变化。
+-   **操作真实会话**——新建、发送、排队、分叉、归档、切换模型等。
+    -   新建会话要求调用方 agent 显式指定模型与预设。
+    -   续接已有会话时沿用该会话原先的模型。
+    -   可以手动配置模型白名单，使客户端只能使用白名单中的模型
+-   **同步或异步**——可以让调用方 agent 原地等结果，也可以提交后先去干别的、回头再取；等待超时不会打断 dsh 里正在运行的任务，需要停止时随时能停。
+-   **审批接管**——插件创建的会话里弹出的审批请求，默认交给调用方 agent 回答，界面不再重复显示；也可以改成界面优先回答，或只展示、不接管。
+-   **dsh 自己也能用**——这些能力同时注册为 dsh 的内部工具，dsh 会话可直接调用；不需要时可以在设置里关闭。
+-   **安全默认**——默认只监听本机，可配置访问令牌。
 
-工具面与资源面的确切清单以 `src/mcp/tools/` 和 `src/mcp/resources.ts` 为准；agent 应先调用 `dsh_get_started`——里面有 dsh 入门课、典型工作流和错误应对。
+> [!WARNING]
+>
+> -   未启用认证时，任何能访问对应端口的本机进程都可以驱动 dsh
+> -   这个插件会对调用者暴露本机代码执行能力，默认只监听 `127.0.0.1`
+> -   dsh 内部的自用工具启用后，本 dsh 实例的任何会话都能调用，因为它们不经 HTTP、也与令牌无关
 
 ## 环境要求
 
--   DSH `>= 0.2.1-rc.2`（声明在 `engines.dsh`）。设置面板与完整会话面需要 web / desktop profile；最小 / headless profile 仍可运行 MCP server。只支持 stdio 的客户端需要一层 Streamable HTTP 桥接。
+dsh `0.2.1-rc.2` 及以上。设置面板和完整的会话功能需要 web 或 desktop 版 dsh；MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接。
 
 ## 安装
 
-包尚未发布到 npm，从构建好的 checkout 安装：
+通过 npm 安装：
 
 ```sh
-git clone https://github.com/Leawind/dsh-rice-on-a-stick.git
-cd dsh-rice-on-a-stick
-npm install
-npm run build
-dsh plugin --profile web add link:"$(pwd)"
+dsh plugin --profile web add dsh-rice-on-a-stick
 ```
 
-重启 `dsh web`，打开 **设置 → MCP 服务**。卸载：`dsh plugin --profile web remove dsh-rice-on-a-stick`。
+### 接入 MCP 客户端
 
-## 接入 MCP 客户端
-
-默认端点 `http://127.0.0.1:8090/mcp`。未配置令牌时认证默认关闭；开启后，把 **设置 → MCP 服务** 里的令牌作为 Bearer 凭证：
-
-```json
-{
-  "mcpServers": {
-    "dsh": {
-      "type": "http",
-      "url": "http://127.0.0.1:8090/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
-    }
-  }
-}
-```
-
-典型循环：
-
-```json
-{ "name": "model_list", "arguments": {} }
-{ "name": "session_create", "arguments": { "cwd": "/path/to/project", "provider": "…", "model": "…", "preset": "standard" } }
-{ "name": "session_submit", "arguments": { "sessionId": "…", "task": "…" } }
-{ "name": "session_poll", "arguments": { "sessionIds": ["…"], "waitMs": 20000 } }
-{ "name": "session_result", "arguments": { "sessionId": "…", "requestId": "…" } }
-```
-
-新建会话必须从 `model_list` 显式指定 `provider` + `model` + `preset`——插件不做任何默认回填。按 `sessionId` 续接沿用该会话的模型与 preset。
+MCP server 默认监听 `http://127.0.0.1:8090/mcp`，传输方式为 Streamable HTTP；在设置中开启认证后，需要配置 Bearer 凭证。
 
 ## 配置
 
-字段与默认值声明在 `src/core/config.ts`——唯一事实来源。设置面板逐项覆盖**全部**配置字段（不允许遗漏）：volatile 字段就地保存、不重载插件，MCP 连接不断；其余结构性字段（监听地址与端口、外部 MCP 开关、资源优先形态、审批回答方与等待上限、传输空闲上限、Host 头白名单）在**离开输入框或关闭设置**时自动写入并重载插件——没有“应用”按钮，非法值只就地提示、不写入。关键默认值：`resourceFirst: false`（工具优先）、`approvalControl: exclusive`（审批由调用方回答）、`sessionTtlMs: 604800000`（一周）。传输覆盖写在 profile 的 `cordis.patch.yml`：
+所有配置都可在图形界面的设置面板里改，保存即生效。也可以直接改 profile 目录下的 `cordis.patch.yml`（全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)）：
 
 ```yaml
 - id: dsh-rice-on-a-stick
   config:
-    http: true
-    port: 8090
-    host: 127.0.0.1 # 默认仅本机；暴露前必须加认证
-    # authToken: 'your-secret-token'
+      http: true
+      port: 8090
+      host: 127.0.0.1
+      # authToken: 'your-secret-token'
 ```
-
-## 安全
-
-> [!WARNING]
-> 这个插件暴露的是本机代码执行能力。默认只监听 `127.0.0.1`；认证关闭时，任何能访问该端口的本机进程都可以驱动 dsh。
-
--   配置 `authToken`；不要绑定 `0.0.0.0` 或暴露到局域网 / 公网，除非前面有反向代理 + TLS + 认证。
--   本插件没有目录白名单：会话可在调用方指定的任意 `cwd` 工作。
--   原生 `rice_` 工具不经 HTTP / 认证——本实例任何会话都能调用；不需要时关闭注册开关。
-
-## 开发
-
-```sh
-npm install
-npm run build        # 编译 src/ 到 lib/，编译 src/client/ 到 client/
-npm run dev          # 同时监听两个 TypeScript 工程
-npm test             # build + 冒烟
-npm run typecheck    # 类型检查 src/、src/client/、test/ 与 scripts/
-npm run smoke:ui     # 设置面板浏览器冒烟
-```
-
-目录：`src/` 宿主半区（MCP server、工具、资源、引擎）与 `src/client/` 设置面板源码；`client/` 是构建产物（面板 bundle），`cordis.yml` bundle 补丁，`test/` 冒烟 + e2e + UI harness，`docs/` 架构说明。不易从代码读出的设计约束见 [docs/architecture.zh.md](docs/architecture.zh.md)。`test/e2e.ts` 是独立的真机检查，不在 `npm test` 里。
 
 ## 感谢
 
 初始源码复制自 [`chushixixin/dsh-harness-mcp-server`](https://github.com/chushixixin/dsh-harness-mcp-server)（MIT，感谢 @chushixixin），现为独立项目。
-
-## 许可
-
-[MIT](LICENSE)
