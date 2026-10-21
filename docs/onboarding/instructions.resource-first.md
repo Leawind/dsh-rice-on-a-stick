@@ -1,4 +1,6 @@
-dsh-rice-on-a-stick: an MCP bridge into a running dsh (DeepSeek Harness) process.
+Rice on a Stick (白饭钓竿, package dsh-rice-on-a-stick): an MCP bridge into a running
+dsh (DeepSeek Harness) process — "白饭钓竿" is this server's Chinese name, and every tool
+and resource below belongs to it.
 Your MCP client is the commander; dsh is the executor — sessions here are the same
 sessions the dsh web UI shows (session-centric, one conversation = one agent).
 

@@ -42,7 +42,7 @@ export function registerCatalogTools(
       'dsh_get_started',
       {
         title: 'dsh usage guide',
-        description: 'If you are new to dsh, call this first: concept glossary (sessions, presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path cheat sheet. Pass section to fetch just one part instead of the whole guide. Returns a static markdown guide; no side effects.',
+        description: 'This tool set is Rice on a Stick, a bridge into a running dsh (DeepSeek Harness) process — the guide is about that harness. If you are new to dsh, call this first: concept glossary (sessions, presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path cheat sheet. Pass section to fetch just one part instead of the whole guide. Returns a static markdown guide; no side effects.',
         inputSchema: {
           section: z.enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits']).optional().describe('all = the full guide (default); concepts = glossary; workflows = recipes; errors = error→alternative-path table; results = detail levels and reading results; limits = deployment-imposed limits'),
         },

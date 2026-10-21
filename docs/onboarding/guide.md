@@ -1,6 +1,7 @@
 # dsh usage guide (for MCP clients)
 
-This server bridges you into dsh (DeepSeek Harness), a local agent runtime.
+This server — Rice on a Stick (白饭钓竿; that Chinese name is the plugin's own name for
+its tools) — bridges you into dsh (DeepSeek Harness), a local agent runtime.
 Sessions here are the same sessions the dsh web UI shows: creating a session creates
 its agent, the agent keeps its conversation history, and everything you do is visible
 in the UI. You compose tasks; dsh agents execute them with a full toolset
