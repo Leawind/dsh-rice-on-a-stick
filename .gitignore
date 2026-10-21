@@ -30,3 +30,6 @@ commit-msg.txt
 *.tgz
 smoke-run.log
 gui-test-screenshots/
+
+.vscode/
+.idea/
