@@ -160,8 +160,9 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
       if (size > maxBytes) {
         const err = new Error('body too large') as Error & { status?: number }
         err.status = 413
+        // 先让调用方回 413 再断开: 立即 destroy 会把尚未 flush 的响应一并杀掉(客户端看到连接重置而非 413)
         rejectPromise(err)
-        req.destroy()
+        setImmediate(() => req.destroy())
         return
       }
       chunks.push(chunk)
