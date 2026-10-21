@@ -508,6 +508,24 @@ try {
   }, 8000)
   checks['订阅推送: turn 收敛后 history/activity 收到 updated'] = sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/history'))
     && sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/activity'))
+
+  // 订阅推送的 URI 覆盖: events(活动面的同族)/sessions/{id}(历史收敛的元数据面)/游标变体也要收到 updated
+  const subEvents = await rpc(init.sid, { jsonrpc: '2.0', id: 68, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/events' } })
+  const subMeta = await rpc(init.sid, { jsonrpc: '2.0', id: 69, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live' } })
+  const subCursor = await rpc(init.sid, { jsonrpc: '2.0', id: 70, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/history/2' } })
+  checks['resources/subscribe events/元数据/游标变体'] = subEvents.status === 200 && subMeta.status === 200 && subCursor.status === 200
+  const before2 = sse.events.length
+  await rpc(init.sid, { jsonrpc: '2.0', id: 71, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'family push probe' } } })
+  await waitFor(() => {
+    const seen = sse.events.slice(before2).map((e: any) => e.params?.uri ?? '')
+    return seen.includes('dsh://sessions/sess-live/events')
+      && seen.includes('dsh://sessions/sess-live')
+      && seen.includes('dsh://sessions/sess-live/history/2')
+  }, 8000)
+  const seen2 = sse.events.slice(before2).map((e: any) => e.params?.uri ?? '')
+  checks['订阅推送: events(活动同族)收到 updated'] = seen2.includes('dsh://sessions/sess-live/events')
+  checks['订阅推送: sessions/{id}(历史收敛)收到 updated'] = seen2.includes('dsh://sessions/sess-live')
+  checks['订阅推送: 游标变体(history/{before})收到 updated'] = seen2.includes('dsh://sessions/sess-live/history/2')
   sse.close()
 
   for (const d of disposers.splice(0)) if (typeof d === 'function') d()

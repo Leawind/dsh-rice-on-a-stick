@@ -20,9 +20,9 @@ export interface NotifyHub {
   /** 该连接订阅了某个资源 URI */
   subscribe(mcp: McpServer, uri: string): void
   unsubscribe(mcp: McpServer, uri: string): void
-  /** 立即推送资源更新(状态迁移类: 任务完成/历史翻新) */
+  /** 立即推送资源更新(状态迁移类: 任务完成/历史翻新); 命中精确订阅与下游游标变体 */
   updated(uri: string): void
-  /** 尾沿节流推送(高频类: 活动/进度窗口; 间隔取构造参数) */
+  /** 尾沿节流推送(高频类: 活动/进度窗口; 间隔取构造参数); 命中规则同 updated */
   updatedThrottled(uri: string): void
   /** 合并广播资源清单变化(任何清单语义变化都汇到这里) */
   listChanged(): void
@@ -44,6 +44,18 @@ async function send(mcp: McpServer, method: 'notifications/resources/updated' | 
   } catch {
     /* 客户端没开 GET SSE 流 / 传输已关: 通知丢弃是 StreamableHTTP 语义内的正常态 */
   }
+}
+
+/**
+ * uri 的订阅命中: 精确订阅, 或订阅了它的下游游标变体(history/{before}、events/{after})。
+ * 命中的通知携带订阅者自己的 URI(客户端按它订阅的资源行动)。
+ */
+function subscribedUrisOf(set: ReadonlySet<string>, uri: string): string[] {
+  const hits: string[] = []
+  for (const subscribed of set) {
+    if (subscribed === uri || subscribed.startsWith(`${uri}/`)) hits.push(subscribed)
+  }
+  return hits
 }
 
 export function createNotifyHub(opts: { activityThrottleMs: number; listChangedCoalesceMs?: number }): NotifyHub {
@@ -76,13 +88,17 @@ export function createNotifyHub(opts: { activityThrottleMs: number; listChangedC
     },
     updated(uri) {
       for (const [mcp, set] of subs) {
-        if (set.has(uri)) void send(mcp, 'notifications/resources/updated', { uri })
+        for (const target of subscribedUrisOf(set, uri)) {
+          void send(mcp, 'notifications/resources/updated', { uri: target })
+        }
       }
     },
     updatedThrottled(uri) {
-      // 无人订阅时零开销(no-op), 活动窗口的频繁触发不会积累定时器
+      // 无人订阅(含游标变体)时零开销, 活动窗口的频繁触发不会积累定时器
       let anySubscribed = false
-      for (const set of subs.values()) if (set.has(uri)) { anySubscribed = true; break }
+      for (const set of subs.values()) {
+        if (subscribedUrisOf(set, uri).length > 0) { anySubscribed = true; break }
+      }
       if (!anySubscribed) return
       // 尾沿节流: 悬空期间多次触发合并为悬空结束后的一次
       if (activityTimers.has(uri)) return
