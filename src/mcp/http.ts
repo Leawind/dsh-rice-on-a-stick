@@ -104,6 +104,36 @@ function bearerOk(req: http.IncomingMessage): boolean {
   return got.length === want.length && timingSafeEqual(got, want)
 }
 
+/**
+ * 读 POST 请求体并施加真实字节上限(不看 content-length 头——chunked 请求没有它, 只查头会被绕过)。
+ * 超限即停止累积但继续排空流, 让客户端拿到完整的 413 响应而不是连接被重置。
+ */
+function readBodyCapped(req: http.IncomingMessage, maxBytes: number): Promise<{ ok: true; text: string } | { ok: false }> {
+  return new Promise((resolveRead) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    let overflow = false
+    req.on('data', (chunk: Buffer) => {
+      if (overflow) return
+      size += chunk.length
+      if (size > maxBytes) {
+        overflow = true
+        chunks.length = 0
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolveRead(overflow ? { ok: false } : { ok: true, text: Buffer.concat(chunks).toString('utf8') }))
+    req.on('error', () => resolveRead({ ok: false }))
+  })
+}
+
+/** 无会话头 POST 的 initialize 形状预检: 最终裁决仍在 SDK 校验, 预检只为避免为垃圾请求构建整套 server */
+function isInitializeRpc(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    && (value as { method?: unknown }).method === 'initialize'
+}
+
 export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServer {
   const { ctx, hub, statusSnapshot, enabled } = options
   const host = state.config.host
@@ -179,8 +209,12 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     : undefined
   sessionSweeper?.unref?.()
 
-  if (enabled) {
-    server = http.createServer(async (req, res) => {
+  /**
+   * 请求处理主体(全程 try/catch: 传输层/SDK 的意外异常不允许变成 unhandled rejection 打崩宿主进程)。
+   * POST 体由本层自读并按实际字节设限, 读毕的 JSON 作为 parsedBody 传给传输层(SDK 支持预解析体, 不重复读)。
+   */
+  const handleRequest = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+    try {
       // Bearer token 认证(认证启用时所有请求强制校验, 常数时间比较; 401 带 WWW-Authenticate 挑战;
       // 开关关闭 = 不校验但仍保留令牌, 与面板/配置文档的语义一致)
       if (!bearerOk(req)) {
@@ -207,21 +241,30 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         res.end(jsonrpcError(-32001, `Origin not allowed: ${String(req.headers.origin)}`))
         return
       }
-      // 请求体上限: 声明超过上限的 POST 先排空请求体再回 413(不进入传输层读体;
-      // 排空是为了客户端拿到完整响应而非连接被重置)
-      const contentLength = Number(req.headers['content-length'] ?? 0)
-      if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-        req.resume()
-        res.writeHead(413, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Payload too large: ${contentLength} bytes > ${MAX_BODY_BYTES}` }))
-        return
-      }
       // 只服务 /mcp 端点, 其余路径 404(不给扫描器留面)。非 JSON-RPC 场景, 响应体用普通错误对象。
       const pathname = (req.url ?? '').split('?')[0] ?? ''
       if (pathname !== '/mcp') {
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: `Not found: ${pathname}` }))
         return
+      }
+
+      // POST 体自读: 真实字节上限(含 chunked), 超限排空后回 413; 非法 JSON 回 400(对齐 SDK 的 -32700)
+      let parsedBody: unknown
+      if (req.method === 'POST') {
+        const body = await readBodyCapped(req, MAX_BODY_BYTES)
+        if (!body.ok) {
+          res.writeHead(413, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: `Payload too large: > ${MAX_BODY_BYTES} bytes` }))
+          return
+        }
+        try {
+          parsedBody = JSON.parse(body.text)
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(jsonrpcError(-32700, 'Parse error: Invalid JSON'))
+          return
+        }
       }
 
       const sessionId = (req.headers['mcp-session-id'] as string | undefined) ?? undefined
@@ -243,7 +286,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       // 已有 session: GET/POST/DELETE 都路由到对应 transport(支持 SSE 流 + 会话终止)
       if (existing) {
         if (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') {
-          await existing.handleRequest(req, res)
+          await existing.handleRequest(req, res, req.method === 'POST' ? parsedBody : undefined)
           return
         }
         res.writeHead(405, { 'Content-Type': 'application/json' })
@@ -253,6 +296,13 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
 
       // 新 session 初始化(仅 POST 且无 session id)
       if (req.method === 'POST' && !sessionId) {
+        // 形状预检: SDK 对"无会话头的非 initialize POST"回 400 且不建会话——先构建再丢弃等于
+        // 每条垃圾请求(tools/call、notifications、畸形 JSON-RPC)泄漏一整套 McpServer+transport
+        if (!isInitializeRpc(parsedBody)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(jsonrpcError(-32600, 'Invalid request: expected an initialize request (no session id)'))
+          return
+        }
         // instructions 随 initialize result 下发: agent 在拿到工具清单前先读到整体工作流引导
         // resources 能力显式声明(subscribe 由本插件自管登记; listChanged 由 hub 合并广播)
         const mcp = new McpServer({ name: PLUGIN_NAME, version: PLUGIN_VERSION }, {
@@ -291,7 +341,12 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           }
         }
         await mcp.connect(transport)
-        await transport.handleRequest(req, res)
+        await transport.handleRequest(req, res, parsedBody)
+        // 畸形 initialize 被 SDK 拒绝时不会建会话(onsessioninitialized/onclose 都不触发):
+        // 这里兜底回收本次构建, 不留无主对象
+        if (transport.sessionId === undefined) {
+          try { await transport.close() } catch { /* 尽力回收 */ }
+        }
         return
       }
 
@@ -305,7 +360,19 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       // 无 session 的非初始化请求 → 400
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(jsonrpcError(-32600, 'Invalid request'))
-    })
+    } catch (e) {
+      console.error(`[${PLUGIN_NAME}] MCP request handler error:`, (e as Error)?.stack ?? e)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(jsonrpcError(-32603, 'Internal error'))
+      } else {
+        res.destroy()
+      }
+    }
+  }
+
+  if (enabled) {
+    server = http.createServer((req, res) => { void handleRequest(req, res) })
   }
 
   const dispose = (): void => {

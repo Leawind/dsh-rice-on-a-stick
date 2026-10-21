@@ -20,6 +20,8 @@
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
@@ -37,6 +39,7 @@ import {
   attachedIds,
   checks,
   commandCalls,
+  chunkedRequest,
   created,
   disposers,
   fakeLlm,
@@ -670,6 +673,50 @@ try {
     const stOff = await phase.call('dsh_status', {})
     const cfgOff = stOff.status === 200 ? innerOf(stOff).config ?? {} : {}
     checks['安全: 关闭态 status 报 authEnabled=false 且令牌仍保留'] = cfgOff.authEnabled === false && cfgOff.authTokenHint === 'secr...oken'
+    await phase.dispose()
+  }
+
+  // ── Phase E3: 入站请求硬化(独立端口独立 ctx)——垃圾 POST 不构建 server / 字节上限不看头 / 意外异常兜底 ──
+  {
+    const phase = await startPhase(8085, makeCtx({ llm: fakeLlm }), {})
+    // (1) 无会话头的非 initialize POST: 直接 400, 不再为它构建 McpServer(旧实现每条这类请求泄漏一整套 server+transport)
+    let registerCalls = 0
+    const origRegister = (McpServer.prototype as any).registerTool
+    ;(McpServer.prototype as any).registerTool = function (...args: any[]) { registerCalls++; return origRegister.apply(this, args) }
+    const junk = await rawRequest(8085, { headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: { text: 'x' } } }) })
+    ;(McpServer.prototype as any).registerTool = origRegister
+    checks['入站: 无会话头的非 initialize POST 400'] = junk.status === 400
+    checks['入站: 垃圾 POST 不构建 McpServer(不再泄漏)'] = registerCalls === 0
+    // (2) 畸形 initialize: SDK 拒绝建会话时本次构建被立即回收(close), 服务不受影响
+    let closeCalls = 0
+    const origClose = (StreamableHTTPServerTransport.prototype as any).close
+    ;(StreamableHTTPServerTransport.prototype as any).close = function (...args: any[]) { closeCalls++; return origClose.apply(this, args) }
+    const badInit = await rawRequest(8085, { headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} }) })
+    ;(StreamableHTTPServerTransport.prototype as any).close = origClose
+    checks['入站: 畸形 initialize 400'] = badInit.status === 400
+    checks['入站: 未建会话的构建被兜底回收'] = closeCalls >= 1
+    const reinit = await phase.initialize()
+    checks['入站: 回收后正常握手不受影响'] = Boolean(reinit.sid)
+    // (3) 请求体上限按实际字节计: chunked(无 content-length)的超限 POST 也要 413
+    const oversize = await chunkedRequest(8085, ['x'.repeat(6 * 1024 * 1024), 'y'.repeat(6 * 1024 * 1024)], { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' })
+    checks['入站: chunked 超限 POST 413(上限不看 content-length)'] = oversize.status === 413
+    // (4) 传输层意外抛错: 回 500 兜底, 不让 unhandled rejection 打崩宿主进程
+    let rejections = 0
+    const onUnhandled = () => { rejections++ }
+    process.on('unhandledRejection', onUnhandled)
+    const origHandle = (StreamableHTTPServerTransport.prototype as any).handleRequest
+    ;(StreamableHTTPServerTransport.prototype as any).handleRequest = function () { throw new Error('boom-intake') }
+    const crash = await Promise.race([
+      rawRequest(8085, { headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } } }) }),
+      new Promise<{ status: number; text: string }>((r) => setTimeout(() => r({ status: 0, text: 'timeout' }), 5000)),
+    ])
+    ;(StreamableHTTPServerTransport.prototype as any).handleRequest = origHandle
+    process.off('unhandledRejection', onUnhandled)
+    await new Promise((r) => setTimeout(r, 100))
+    checks['入站: 传输层抛错回 500 兜底'] = crash.status === 500
+    checks['入站: 抛错不产生 unhandled rejection'] = rejections === 0
+    const alive = await phase.call('echo', { text: 'still-alive' })
+    checks['入站: 兜底后服务仍可用'] = alive.status === 200 && alive.text.includes('still-alive')
     await phase.dispose()
   }
 

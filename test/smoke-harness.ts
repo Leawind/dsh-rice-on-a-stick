@@ -568,6 +568,20 @@ export function rawRequest(port: number, { method = 'POST', path = '/mcp', heade
   })
 }
 
+/** chunked POST(分段 write, 不设 Content-Length): 请求体上限不能只看 content-length 头 */
+export function chunkedRequest(port: number, chunks: string[], headers: Record<string, string | undefined> = {}): Promise<{ status: number | undefined; text: string }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const r = httpRequest({ host: '127.0.0.1', port, method: 'POST', path: '/mcp', headers }, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => resolvePromise({ status: res.statusCode, text: data }))
+    })
+    r.on('error', rejectPromise)
+    for (const c of chunks) r.write(c)
+    r.end()
+  })
+}
+
 export function parsePayload(text) {
   for (const line of text.split('\n')) {
     const t = line.trim()
