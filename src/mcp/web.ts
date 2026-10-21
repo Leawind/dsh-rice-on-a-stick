@@ -8,6 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import http from 'node:http'
 import net from 'node:net'
+import os from 'node:os'
 import { PLUGIN_NAME } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from '../host/bridge.js'
@@ -121,6 +122,32 @@ function sameOrigin(req: http.IncomingMessage): boolean {
   return parsed.port === hostUrl.port
     && isLoopbackHostname(parsed.hostname)
     && isLoopbackHostname(hostUrl.hostname)
+}
+
+/**
+ * 浏览器请求的 Host 白名单(防 DNS rebinding)。sameOrigin 挡不住 rebinding: 恶意域名 rebind 到
+ * 本机后, 页面 origin 与请求 Host 是同一字符串, 浏览器如实报 `sec-fetch-site: same-origin` 且
+ * Origin==Host——两个判定全部放行。所以浏览器形态(任一 Sec-Fetch-* 头存在)下必须再校验 Host 本身:
+ * 只接受回环别名 / IP 字面量 / 本机主机名, 外部域名一律拒(rebinding 只能用攻击者控制的域名)。
+ * 非浏览器请求(无任何 Sec-Fetch-* 头: 桌面壳自定义 scheme 转发、curl)不受影响, 照旧走 sameOrigin;
+ * 浏览器必带 Host 头, 缺头说明是简化客户端, 也交回 sameOrigin 的既有判定。
+ */
+function browserHostOk(req: http.IncomingMessage): boolean {
+  const hasFetchMeta = req.headers['sec-fetch-site'] !== undefined
+    || req.headers['sec-fetch-mode'] !== undefined
+    || req.headers['sec-fetch-dest'] !== undefined
+  if (!hasFetchMeta) return true
+  const host = req.headers.host
+  if (host === undefined) return true
+  let hostname: string
+  try {
+    hostname = new URL(`http://${host}`).hostname.toLowerCase()
+  } catch {
+    return false
+  }
+  return isLoopbackHostname(hostname)
+    || net.isIP(hostname) !== 0
+    || hostname === os.hostname().toLowerCase()
 }
 
 /** 读 GUI 路由请求体(限字节; 超限 413) */
@@ -330,6 +357,15 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
             const fn = Object.hasOwn(WEB_ROUTES, method) ? WEB_ROUTES[method] : undefined
             if (typeof fn !== 'function') {
               webRespond(res, 404, { error: `unknown method: ${method}` })
+              return
+            }
+            // 浏览器请求(带 Sec-Fetch-*)的 Host 防线: DNS rebinding 形态下 Origin/Fetch-Metadata
+            // 全部"合法", 只有 Host 本身能区分(见 browserHostOk)。status 回显完整令牌, 读面同样要拦
+            if (!browserHostOk(req)) {
+              const site = req.headers['sec-fetch-site'] ?? '-'
+              const origin = req.headers.origin ?? '-'
+              const host = req.headers.host ?? '-'
+              webRespond(res, 403, { error: `browser request with non-local Host rejected (site=${site}, origin=${origin}, host=${host}; possible DNS rebinding)` })
               return
             }
             // 变更类方法要求同源(防 CSRF 式改配置)

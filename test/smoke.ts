@@ -793,6 +793,16 @@ try {
     checks['GUI 路由: 无 Origin/Fetch Metadata + 回环 Host 放行'] = cfgNoMeta.status === 400
     const cfgNoMetaPublic = await phase.gui('config-update', { headers: { host: 'evil.example.com' }, body: badBody })
     checks['GUI 路由: 无 Origin/Fetch Metadata + 非回环 Host 仍拒'] = cfgNoMetaPublic.status === 403
+    // DNS rebinding: 恶意域名 rebind 到本机后, 浏览器如实报 sec-fetch-site=same-origin 且 Origin==Host——
+    // sameOrigin 的既有判定全部放行, 只有 Host 白名单能拦。浏览器形态(带 Sec-Fetch-*)下非本机 Host 一律拒;
+    // status 回显完整令牌, 读面同样要拦
+    const rebindHeaders = { host: 'evil.example.com:8087', origin: 'http://evil.example.com:8087', 'sec-fetch-site': 'same-origin' }
+    const cfgRebind = await phase.gui('config-update', { headers: rebindHeaders, body: badBody })
+    checks['GUI 路由: rebinding 形态(同源+外部域名 Host)的写操作拒'] = cfgRebind.status === 403
+    const stRebind = await phase.gui('status', { httpMethod: 'GET', headers: rebindHeaders })
+    checks['GUI 路由: rebinding 形态的 status(令牌回显面)拒'] = stRebind.status === 403
+    const cfgLocalBrowser = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087', origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'same-origin' }, body: badBody })
+    checks['GUI 路由: 同源+回环 Host 的浏览器写操作放行'] = cfgLocalBrowser.status === 400
     const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
