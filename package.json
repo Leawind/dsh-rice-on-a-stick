@@ -32,6 +32,7 @@
     "smoke": "npm run build && node test/smoke.ts && node test/smoke-port.ts",
     "smoke:ui": "npm run build && node test/ui-harness.mjs",
     "test": "npm run smoke",
+    "e2e": "node test/e2e.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
