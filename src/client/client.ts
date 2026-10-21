@@ -125,6 +125,7 @@ interface DshModuleSpec {
     zh: {
       'nav': '白饭钓竿',
       'plugin.name': '白饭钓竿',
+      'plugin.tagline': '通过 MCP 协议对外提供操作 dsh 的能力，让其他应用与 harness 也能控制本实例',
       'uptime': '已运行 {d}',
       'state.running': '运行中',
       'state.reloading': '重载中',
@@ -197,6 +198,7 @@ interface DshModuleSpec {
     en: {
       'nav': 'Rice on a Stick',
       'plugin.name': 'Rice on a Stick',
+      'plugin.tagline': 'Exposes dsh over MCP so other apps and harnesses can operate this instance',
       'uptime': 'Up {d}',
       'state.running': 'Running',
       'state.reloading': 'Reloading',
@@ -290,6 +292,9 @@ interface DshModuleSpec {
     '.dcs-icon svg{display:block;width:100%;height:100%;}',
     '.dcs-title{font-size:16px;font-weight:600;}',
     '.dcs-ver{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    // 品牌块: 品牌行 + 一句话用途介绍, 整体作为一个行组参与根布局
+    '.dcs-brand{display:flex;flex-direction:column;gap:6px;}',
+    '.dcs-tagline{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-spacer{flex:1;}',
     // 状态徽章(官方 Tag 同型: 状态色 12% color-mix 底 + 同色文字 + 6px 点)
     '.dcs-tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;corner-shape:round;font-size:12px;font-weight:500;}',
@@ -782,7 +787,8 @@ interface DshModuleSpec {
       React.createElement('style', null, PANEL_CSS),
       // 头部: 品牌图标 + 中文名 + 包名/版本(对齐插件市场的分区头样式), 状态徽章靠右
       // (重载期间徽章变"重载中", 不新增元素、不挤动下方内容)
-      React.createElement('div', { className: 'dcs-head' },
+      React.createElement('div', { className: 'dcs-brand' },
+        React.createElement('div', { className: 'dcs-head' },
         React.createElement(PanelIcon),
         React.createElement('span', { className: 'dcs-title' }, t('plugin.name')),
         React.createElement('span', { className: 'dcs-ver' }, 'dsh-rice-on-a-stick'),
@@ -794,6 +800,8 @@ interface DshModuleSpec {
           busy: reloading,
           title: t('uptime', { d: fmtDur(state.uptimeMs) }),
         }),
+        ),
+        React.createElement('div', { className: 'dcs-tagline' }, t('plugin.tagline')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
