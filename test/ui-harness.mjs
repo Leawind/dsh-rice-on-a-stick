@@ -300,7 +300,12 @@ const server = createServer(async (req, res) => {
       return res.end(raw)
     }
     if (req.method === 'GET' && url.pathname.startsWith('/vendor/')) {
-      const raw = readFileSync(resolve(ROOT, 'test/ui', url.pathname.slice(1)))
+      // React 19 起 UMD 构建被移除, react/react-dom 必须精确锁在 18.3.1
+      const umdPath = {
+        '/vendor/react.js': 'react/umd/react.production.min.js',
+        '/vendor/react-dom.js': 'react-dom/umd/react-dom.production.min.js',
+      }[url.pathname]
+      const raw = readFileSync(resolve(ROOT, 'node_modules', umdPath))
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
       return res.end(raw)
     }
