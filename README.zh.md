@@ -60,6 +60,25 @@ dsh `0.2.1-rc.2` 及以上。设置面板和完整的会话功能需要 web 或 
 dsh plugin --profile web add dsh-rice-on-a-stick
 ```
 
+通过源码安装并实现实时更新：
+
+```sh
+git clone https://github.com/Leawind/dsh-rice-on-a-stick
+cd dsh-rice-on-a-stick
+npm install
+npm build
+dsh plugin --profile web add link:.
+
+# 监听源码变动并实时构建
+npm run dev
+```
+
+卸载：
+
+```sh
+dsh plugin --profile web remove dsh-rice-on-a-stick
+```
+
 ### 接入 MCP 客户端
 
 MCP server 默认监听 `http://127.0.0.1:8090/mcp`，传输方式为 Streamable HTTP；在设置中开启认证后，需要配置 Bearer 凭证。

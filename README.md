@@ -60,6 +60,26 @@ Install via npm:
 dsh plugin --profile web add dsh-rice-on-a-stick
 ```
 
+Install from source with live updates:
+
+
+```sh
+git clone https://github.com/Leawind/dsh-rice-on-a-stick
+cd dsh-rice-on-a-stick
+npm install
+npm build
+dsh plugin --profile web add link:.
+
+# Watch source changes and rebuild live
+npm run dev
+```
+
+Uninstall:
+
+```sh
+dsh plugin --profile web remove dsh-rice-on-a-stick
+```
+
 ### Connecting an MCP Client
 
 The MCP server listens on `http://127.0.0.1:8090/mcp` by default, using Streamable HTTP transport; after enabling authentication in settings, Bearer credentials must be configured.
