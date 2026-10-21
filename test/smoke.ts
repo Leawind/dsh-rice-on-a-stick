@@ -962,6 +962,21 @@ try {
       .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
     return missing.length === 0
   })()
+
+  // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
+  {
+    const ctxV6 = makeCtx({ llm: fakeLlm })
+    await apply(ctxV6, { port: 8081, host: '::1' })
+    await new Promise((r) => setTimeout(r, 200))
+    const st = await guiRequest(ctxV6, 'status', { httpMethod: 'GET' })
+    const stV6 = st.status === 200 ? JSON.parse(st.body) : {}
+    let endpointUrl: URL | undefined
+    try { endpointUrl = new URL(String(stV6.endpoint ?? '')) } catch { endpointUrl = undefined }
+    // WHATWG URL 的 hostname 对 IPv6 保留方括号
+    checks['endpoint: IPv6 绑定地址加方括号(合法 URL)'] = Boolean(endpointUrl) && endpointUrl?.hostname === '[::1]'
+    for (const d of disposers.splice(0)) if (typeof d === 'function') d()
+    await new Promise((r) => setTimeout(r, 150))
+  }
   // 面板无法 import 宿主配置(独立 bundle), 兜底默认必须与 DEFAULTS 同步: 文本比对常量定义
   checks['设置面板: 兜底默认值与 DEFAULTS 一致'] = (() => {
     const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')

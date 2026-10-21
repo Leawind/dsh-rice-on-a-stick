@@ -20,7 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './core/config.js'
 import { state } from './core/state.js'
 import { collectModelCatalog, resUri } from './host/data.js'
-import { createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
+import { endpointOf, createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
 import { createNotifyHub } from './mcp/notify.js'
 import { registerWebRoutes } from './mcp/web.js'
 import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './session/approvals.js'
@@ -79,7 +79,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       version: PLUGIN_VERSION,
       listening: httpServer?.listening ?? false,
       httpEnabled: config.http !== false,
-      endpoint: `http://${host}:${port}/mcp`,
+      endpoint: endpointOf(host, port),
       startedAt,
       uptimeMs: Date.now() - startedAt,
       config: {

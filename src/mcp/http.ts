@@ -83,6 +83,12 @@ function hostnameOf(hostHeader: string): string {
   return (colon === -1 ? hostHeader : hostHeader.slice(0, colon)).toLowerCase()
 }
 
+/** MCP 端点的展示形式(IPv6 绑定地址必须加方括号, 直接拼接会产出 http://::1:8090/mcp 这类非法 URL) */
+export function endpointOf(host: string, port: number): string {
+  const authority = host.includes(':') ? `[${host}]` : host
+  return `http://${authority}:${port}/mcp`
+}
+
 /**
  * 直连对端(远程地址 + 端口)。只读 socket, 不信任 X-Forwarded-*:
  * 经反向代理时记录的是代理的地址/端口, 这正是"服务端实际看到的客户端"。
