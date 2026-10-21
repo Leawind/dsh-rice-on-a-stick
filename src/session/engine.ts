@@ -103,11 +103,19 @@ export function selectionOf(args: { provider?: string; model?: string; reasoning
   return selection
 }
 
-/** 已知会话的当前模型选择: 本插件记录 → live agent options; 都没有(如 UI 建的未触达会话)返回 undefined */
+/**
+ * 已知会话的当前模型选择: live 日志头(requestHeader) → 本插件记录 → live agent options。
+ * 日志头优先于创建记录: session_select_model 换模型后日志头是事实, 记录只是提交当时的快照——
+ * 沿用记录会让 session_result/session_list 一直回报创建时的旧模型。都没有(如 UI 建的未触达会话)返回 undefined。
+ */
 export function knownSelectionOf(ctx: Context, sessionId: string): ModelSelection | undefined {
+  const live = ctx.agents.get(asSessionId(sessionId))
+  if (live) {
+    const effective = selectionOfSession((live as { session?: unknown }).session)
+    if (effective) return effective
+  }
   const rec = state.sessionRecords.get(sessionId)
   if (rec) return rec.selection
-  const live = ctx.agents.get(asSessionId(sessionId))
   if (live) {
     const opts = (live as { options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }).options
     const s = (v: unknown) => (typeof v === 'string' && v ? v : undefined)

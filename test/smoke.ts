@@ -720,6 +720,25 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase M: 模型回报新鲜度(独立端口独立 ctx)——换模型后 session_result/session_list 以日志头为准 ──
+  {
+    const mCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle, extraSessions: [{ id: 'sess-select' }] })
+    const phase = await startPhase(8082, mCtx, {})
+    const agent = mCtx.agents.get('sess-select')
+    agent.session.requestHeader = () => ({ config: { provider: 'p1', model: 'm1' } })
+    const sub = await phase.call('session_submit', { sessionId: 'sess-select', task: 'model freshness probe' })
+    checks['模型回报: 提交时按日志头回报(p1/m1)'] = innerOf(sub).model?.provider === 'p1' && innerOf(sub).model?.model === 'm1'
+    // 换模型(session_select_model 的效果 = 日志头变为新选择): 之后的结果与清单必须反映新模型,
+    // 不能沿用创建记录里的旧选择(旧实现记录优先, 换模型后一直报创建时的模型)
+    agent.session.requestHeader = () => ({ config: { provider: 'p2', model: 'm9' } })
+    const res = await phase.call('session_result', { sessionId: 'sess-select' })
+    checks['模型回报: 换模型后 session_result 反映新模型'] = innerOf(res).model?.provider === 'p2' && innerOf(res).model?.model === 'm9'
+    const list = await phase.call('session_list', {})
+    const row = innerOf(list).sessions?.find((s: any) => s.sessionId === 'sess-select')
+    checks['模型回报: 换模型后 session_list 反映新模型'] = row?.model?.provider === 'p2' && row?.model?.model === 'm9'
+    await phase.dispose()
+  }
+
   // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──
   {
     const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})
