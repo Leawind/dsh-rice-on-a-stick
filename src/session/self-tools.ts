@@ -10,7 +10,7 @@
  *   - 描述里对其它工具的引用会被自动改写成带前缀的名字;
  *   - 原生面固定 `resourceFirst: false`(它没有 MCP resources 面, 只读工具必须保留)。
  *
- * 原生工具在 dsh 进程内直调: 不走 8090、不经过 Bearer/Host/Origin, 也不产生 MCP 连接。
+ * 原生工具在 dsh 进程内直调: 不走 5642、不经过 Bearer/Host/Origin, 也不产生 MCP 连接。
  * 想只保留自用、彻底关掉外部访问时, 把配置的 `http` 设为 false。
  */
 import { z } from 'zod'

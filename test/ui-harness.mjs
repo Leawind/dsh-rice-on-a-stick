@@ -31,10 +31,10 @@ const state = {
   version: '0.1.0-rc.1',
   listening: true,
   httpEnabled: true,
-  endpoint: `http://127.0.0.1:8090/mcp`,
+  endpoint: `http://127.0.0.1:5642/mcp`,
   startedAt,
   config: {
-    host: '127.0.0.1', port: 8090,
+    host: '127.0.0.1', port: 5642,
     http: true, resourceFirst: false,
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,

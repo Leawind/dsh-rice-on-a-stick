@@ -1033,7 +1033,7 @@ try {
     const c = ConfigSchema(null) as any
     return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst === false
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
-      && c.selfToolsEnabled.get() === true && c.host === '127.0.0.1' && c.port === 8090
+      && c.selfToolsEnabled.get() === true && c.host === '127.0.0.1' && c.port === 5642
       && c.approvalControl === 'exclusive' && c.approvalTimeoutMs === 120000
       && c.sessionTtlMs === 7 * 24 * 60 * 60 * 1000
       && String(c.approvalControl) === DEFAULTS.approvalControl

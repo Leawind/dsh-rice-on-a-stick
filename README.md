@@ -82,7 +82,7 @@ dsh plugin --profile web remove dsh-rice-on-a-stick
 
 ### Connecting an MCP Client
 
-The MCP server listens on `http://127.0.0.1:8090/mcp` by default, using Streamable HTTP transport; after enabling authentication in settings, Bearer credentials must be configured.
+The MCP server listens on `http://127.0.0.1:5642/mcp` by default, using Streamable HTTP transport; after enabling authentication in settings, Bearer credentials must be configured.
 
 ## Configuration
 
@@ -92,7 +92,7 @@ All configuration can be changed in the graphical settings panel, taking effect 
 - id: dsh-rice-on-a-stick
   config:
       http: true
-      port: 8090
+      port: 5642
       host: 127.0.0.1
       # authToken: 'your-secret-token'
 ```

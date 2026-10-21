@@ -81,7 +81,7 @@ dsh plugin --profile web remove dsh-rice-on-a-stick
 
 ### 接入 MCP 客户端
 
-MCP server 默认监听 `http://127.0.0.1:8090/mcp`，传输方式为 Streamable HTTP；在设置中开启认证后，需要配置 Bearer 凭证。
+MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable HTTP；在设置中开启认证后，需要配置 Bearer 凭证。
 
 ## 配置
 
@@ -91,7 +91,7 @@ MCP server 默认监听 `http://127.0.0.1:8090/mcp`，传输方式为 Streamable
 - id: dsh-rice-on-a-stick
   config:
       http: true
-      port: 8090
+      port: 5642
       host: 127.0.0.1
       # authToken: 'your-secret-token'
 ```

@@ -73,7 +73,7 @@ function wildcardHostAliases(bindHost: string): string[] {
   return aliases
 }
 
-/** 从 Host 头提取主机名(去端口; '[::1]:8090' → '::1') */
+/** 从 Host 头提取主机名(去端口; '[::1]:5642' → '::1') */
 function hostnameOf(hostHeader: string): string {
   if (hostHeader.startsWith('[')) {
     const end = hostHeader.indexOf(']')
@@ -83,7 +83,7 @@ function hostnameOf(hostHeader: string): string {
   return (colon === -1 ? hostHeader : hostHeader.slice(0, colon)).toLowerCase()
 }
 
-/** MCP 端点的展示形式(IPv6 绑定地址必须加方括号, 直接拼接会产出 http://::1:8090/mcp 这类非法 URL) */
+/** MCP 端点的展示形式(IPv6 绑定地址必须加方括号, 直接拼接会产出 http://::1:5642/mcp 这类非法 URL) */
 export function endpointOf(host: string, port: number): string {
   const authority = host.includes(':') ? `[${host}]` : host
   return `http://${authority}:${port}/mcp`
@@ -403,7 +403,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     listening = false
     server?.close()
     // 热重载确定性: HMR 换新实例卸旧 fiber 时同步切断遗留 keep-alive/SSE 连接,
-    // 8090 的释放不依赖对端空闲超时; 进行中的请求被 reset(dev 形态可接受)
+    // 5642 的释放不依赖对端空闲超时; 进行中的请求被 reset(dev 形态可接受)
     server?.closeAllConnections?.()
     for (const transport of transports.values()) {
       try { void transport.close() } catch { /* 尽力清理 */ }

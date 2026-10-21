@@ -91,7 +91,7 @@ interface DshModuleSpec {
       authToken: '',        // 在途令牌(只写): 重新生成的乐观值, rebase 后清空
       selfToolsOn: c.selfToolsEnabled !== false,
       host: typeof c.host === 'string' && c.host ? c.host : '127.0.0.1',
-      port: typeof c.port === 'number' ? c.port : 8090,
+      port: typeof c.port === 'number' ? c.port : 5642,
       // 结构性字段(改动会重载插件): 与 Config 一一对应, 面板不得遗漏任何一项
       httpOn: c.http !== false,
       // 默认工具优先(false): 只认 tools 的客户端零行为变化, 资源优先需显式开启
@@ -636,7 +636,7 @@ interface DshModuleSpec {
     function listenDirtyOf(draft) {
       const c = effective();
       const host = typeof c.host === 'string' && c.host ? c.host : '127.0.0.1';
-      const port = typeof c.port === 'number' ? c.port : 8090;
+      const port = typeof c.port === 'number' ? c.port : 5642;
       return String(draft.host || '').trim() !== host || Number(draft.port) !== port;
     }
 
@@ -670,7 +670,7 @@ interface DshModuleSpec {
       const port = Number(draft.port);
       if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: t('listen.portInvalid') };
       const nowHost = typeof c.host === 'string' && c.host ? c.host : '127.0.0.1';
-      const nowPort = typeof c.port === 'number' ? c.port : 8090;
+      const nowPort = typeof c.port === 'number' ? c.port : 5642;
       if (host === nowHost && port === nowPort) return {};
       return { values: { host: host, port: port } };
     }

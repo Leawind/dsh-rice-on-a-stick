@@ -119,7 +119,7 @@ export const DEFAULTS = {
   // 模型与 preset 都不做任何默认: 调用必须显式指定(与 web 界面一致: 新会话先选模型与预设),
   // allowedModels 只约束"能选哪些", 不提供默认。
   host: '127.0.0.1' as string,
-  port: 8090 as number,
+  port: 5642 as number,
   allowedModels: [] as string[],
   allowedModelsEnabled: false as boolean,
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
@@ -194,7 +194,7 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
  */
 export const Config = Schema.object({
   http: Schema.boolean().default(true).description('Start the HTTP MCP server (explicit false disables listening; lifecycle hooks remain).'),
-  port: Schema.number().default(8090).description('MCP listen port.'),
+  port: Schema.number().default(5642).description('MCP listen port.'),
   host: Schema.string().default('127.0.0.1').description('MCP listen address (safe default: loopback only; add auth + reverse proxy + TLS before exposing to LAN/WAN).'),
   // 以下六个界面可改的字段标 volatile: 写配置时 Loader 就地提交引用, 不重载插件(界面改动零阻塞)
   allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).volatile().description('Model allowlist in "provider/model" form. When enabled (allowedModelsEnabled) and non-empty, session_create/session_select_model reject models outside the list.'),
