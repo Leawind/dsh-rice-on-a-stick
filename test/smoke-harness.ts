@@ -618,13 +618,13 @@ export async function waitFor(fn, timeoutMs = 5000, step = 100) {
  * 资源订阅(notifications/resources/updated | list_changed)经此投递——不打开本流的客户端
  * 收不到推送, 这是 StreamableHTTP 的传输语义而非插件行为。
  */
-export function openSse(sessionId: string): { events: any[]; ready: Promise<void>; close: () => void } {
+export function openSse(sessionId: string, base: string = BASE, extraHeaders: Record<string, string> = {}): { events: any[]; ready: Promise<void>; close: () => void } {
   const events: any[] = []
   const controller = new AbortController()
   const ready = (async () => {
-    const res = await fetch(BASE, {
+    const res = await fetch(base, {
       method: 'GET',
-      headers: { Accept: 'text/event-stream', 'Mcp-Session-Id': sessionId },
+      headers: { Accept: 'text/event-stream', 'Mcp-Session-Id': sessionId, ...extraHeaders },
       signal: controller.signal,
     })
     const reader = (res.body as any).getReader()

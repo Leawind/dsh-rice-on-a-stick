@@ -28,6 +28,8 @@ export interface NotifyHub {
   listChanged(): void
   /** 观测: 绑定连接数 / 全部连接的订阅总数(GUI 面板与 status 用) */
   stats(): { connections: number; subscriptions: number }
+  /** 当前被订阅的会话 id 集合(从 dsh://sessions/{id}… 订阅 URI 解析; 会话观察器只观察它们) */
+  subscribedSessionIds(): Set<string>
   /** 清空定时器与登记(apply 卸载) */
   dispose(): void
 }
@@ -121,6 +123,23 @@ export function createNotifyHub(opts: { activityThrottleMs: number; listChangedC
       let total = 0
       for (const set of subs.values()) total += set.size
       return { connections: bound.size, subscriptions: total }
+    },
+    subscribedSessionIds() {
+      const ids = new Set<string>()
+      for (const set of subs.values()) {
+        for (const uri of set) {
+          if (!uri.startsWith('dsh://sessions/')) continue
+          const id = uri.slice('dsh://sessions/'.length).split('/')[0]
+          if (id) {
+            try {
+              ids.add(decodeURIComponent(id))
+            } catch {
+              ids.add(id)
+            }
+          }
+        }
+      }
+      return ids
     },
     dispose() {
       for (const t of activityTimers.values()) clearTimeout(t)

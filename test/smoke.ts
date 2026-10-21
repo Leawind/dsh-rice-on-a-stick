@@ -757,6 +757,30 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase W: 会话观察器(独立端口独立 ctx)——宿主/UI 驱动的变更也让订阅者收到推送 ──
+  {
+    const wCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle, extraSessions: [{ id: 'sess-watch' }] })
+    const phase = await startPhase(8079, wCtx, {})
+    const wBase = 'http://127.0.0.1:8079/mcp'
+    const conn = await phase.initialize()
+    const sse = openSse(conn.sid, wBase)
+    await sse.ready
+    await rpc(conn.sid, { jsonrpc: '2.0', id: 1, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-watch/events' } }, {}, wBase)
+    await rpc(conn.sid, { jsonrpc: '2.0', id: 2, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-watch/history' } }, {}, wBase)
+    // 等观察器建立基线(1s 周期)后, 模拟 UI 驱动: 直接往会话日志追加事件, 不经插件的 prompt/submit 路径
+    await new Promise((r) => setTimeout(r, 1400))
+    const watchAgent = wCtx.agents.get('sess-watch')
+    watchAgent.__events.push({ type: 'user/message', data: { message: { id: 'w1', role: 'user', content: [{ type: 'text', text: 'ui-driven' }] } } })
+    watchAgent.__events.push({ type: 'turn/start', data: { turn: 1 } })
+    const gotActivity = await waitFor(() => sse.events.some((e: any) => e.params?.uri === 'dsh://sessions/sess-watch/events'), 6000)
+    checks['观察器: UI 驱动的事件增长推 events 订阅者'] = gotActivity
+    watchAgent.__events.push({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    const gotHistory = await waitFor(() => sse.events.some((e: any) => e.params?.uri === 'dsh://sessions/sess-watch/history'), 6000)
+    checks['观察器: UI 驱动的 turn 收敛推 history 订阅者'] = gotHistory
+    sse.close()
+    await phase.dispose()
+  }
+
   // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──
   {
     const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})

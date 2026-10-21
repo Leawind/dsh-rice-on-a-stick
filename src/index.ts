@@ -19,6 +19,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseConfig, type Config } from './core/config.js'
 import { state } from './core/state.js'
+import { asSessionId } from './host/bridge.js'
 import { collectModelCatalog, resUri } from './host/data.js'
 import { endpointOf, createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
 import { createNotifyHub } from './mcp/notify.js'
@@ -65,6 +66,44 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     hub.updated(resUri.session(sessionId))
   }
   state.hooks.notifyListChanged = () => hub.listChanged()
+
+  // ── 会话观察器: 宿主/UI 驱动的变更也推给资源订阅者 ──
+  // 插件自己驱动的 turn 在 engine 的提交/收敛点直推 hooks; 其它路径(界面手开的会话、宿主自动行为)
+  // 没有事件源, 用"只观察被订阅的会话"的轻量轮询补齐: 无订阅时零工作, 有订阅时每秒读一次事件快照,
+  // 首次观察只建基线不推送; 增量里有事件 → activity 族推送, 含 turn/end → history 族推送。
+  const watchBaseline = new Map<string, number>()
+  const sessionWatcher = setInterval(() => {
+    for (const sessionId of hub.subscribedSessionIds()) {
+      const live = ctx.agents.get(asSessionId(sessionId))
+        ?? (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
+      if (live === undefined) {
+        watchBaseline.delete(sessionId)
+        continue
+      }
+      const session = (live as { session?: unknown }).session ?? live
+      const snapshot = (session as { snapshotEvents?: () => readonly unknown[] }).snapshotEvents
+      if (typeof snapshot !== 'function') continue
+      let events: readonly unknown[]
+      try {
+        events = snapshot()
+      } catch {
+        continue
+      }
+      const baseline = watchBaseline.get(sessionId)
+      if (baseline === undefined || events.length < baseline) {
+        // 首次观察, 或日志收缩(fork 截断/压缩): 只重置基线
+        watchBaseline.set(sessionId, events.length)
+        continue
+      }
+      if (events.length === baseline) continue
+      watchBaseline.set(sessionId, events.length)
+      state.hooks.notifySessionActivity(sessionId)
+      if (events.slice(baseline).some((e) => (e as { type?: string }).type === 'turn/end')) {
+        state.hooks.notifySessionHistory(sessionId)
+      }
+    }
+  }, 1000)
+  sessionWatcher.unref?.()
 
   // 审批接管: 默认 off(只读展示)。fallback/exclusive 才挂 waterfall 监听器;
   // 只接管 state.sessionRecords 里的会话, 不劫持界面手开会话。
@@ -158,6 +197,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // 卸载时清空会话记录/订阅枢纽/审批桥, 并关闭 HTTP server 与其传输会话
   ctx.effect(() => {
     return () => {
+      clearInterval(sessionWatcher)
       state.sessionRecords.clear()
       state.sessionRequests.clear()
       state.latestRequestBySession.clear()
