@@ -42,17 +42,13 @@ export interface McpHttpServerOptions {
   allowedHosts?: readonly string[]
 }
 
-/** 传输层控制面(GUI 软停启与 status 快照共用) */
+/** 传输层控制面(status 快照共用) */
 export interface McpHttpServer {
   readonly listening: boolean
   /** 当前连接, 最新连接在前(面板与 status/connections 资源同序) */
   connections(): McpConnection[]
   /** 初次监听: 失败抛错, 让插件启动失败可见 */
   listen(): Promise<void>
-  /** 软停止: 关监听并切断全部传输会话; 可重复调用 */
-  stop(): Promise<{ stopped: boolean }>
-  /** 软启动: 端口被占时返回错误而不抛 */
-  start(): Promise<{ started: boolean; error?: string }>
   /** 卸载: 清定时器并关闭 server/传输会话(幂等) */
   dispose(): void
 }
@@ -141,7 +137,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   let server: http.Server | undefined
   let listening = false
 
-  /** 监听一次(可重复调用): 端口被占/EADDRNOTAVAIL 时抛错, 调用方决定是否致命 */
+  /** 初次监听: 端口被占/EADDRNOTAVAIL 时抛错, 让插件启动失败可见 */
   const listenOnce = () => new Promise<void>((resolveListen, rejectListen) => {
     const s = server
     if (s === undefined) {
@@ -312,36 +308,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     })
   }
 
-  const stop = async (): Promise<{ stopped: boolean }> => {
-    const s = server
-    if (s === undefined || !listening) return { stopped: true }
-    listening = false
-    await new Promise<void>((resolveClose) => { s.close(() => resolveClose()) })
-    // 同步切断遗留 keep-alive/SSE 连接, 端口释放不依赖对端空闲超时
-    s.closeAllConnections?.()
-    for (const transport of transports.values()) {
-      try { void transport.close() } catch { /* 尽力清理 */ }
-    }
-    transports.clear()
-    servers.clear()
-    connections.clear()
-    console.log(`[${PLUGIN_NAME}] MCP server stopped (soft stop, ${host}:${port})`)
-    return { stopped: true }
-  }
-
-  const start = async (): Promise<{ started: boolean; error?: string }> => {
-    if (!enabled) return { started: false, error: 'http disabled by config' }
-    if (listening) return { started: true }
-    try {
-      await listenOnce()
-      listening = true
-      console.log(`[${PLUGIN_NAME}] MCP server listening on ${host}:${port}/mcp (soft start)`)
-      return { started: true }
-    } catch (e) {
-      return { started: false, error: (e as Error)?.message ?? String(e) }
-    }
-  }
-
   const dispose = (): void => {
     if (sessionSweeper) clearInterval(sessionSweeper)
     listening = false
@@ -371,8 +337,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         console.error(`[${PLUGIN_NAME}] HTTP server error:`, e.message)
       })
     },
-    start,
-    stop,
     dispose,
   }
 }

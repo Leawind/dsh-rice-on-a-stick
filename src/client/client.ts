@@ -11,9 +11,9 @@ interface DshModuleSpec {
 (window as unknown as { __ModuleLoader__: { load(spec: DshModuleSpec): void } }).__ModuleLoader__.load({ id: 'dsh-rice-on-a-stick', factory: (require) => {
   const module: { exports: Record<string, unknown> } = { exports: {} };
   // dsh-rice-on-a-stick — client half(浏览器, 静态 bundle 形态)
-  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|stop|start|config-update}(host 半注册)
-  // - 注册 settings.section 设置页面板: 品牌头(图标+中文名+徽章) / 端点卡 / 设置表单(常显, 脏检查保存, 经宿主
-  //   configEditor 写 profile patch 后热重载生效) / 软停启 / MCP 客户端连接列表
+  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|config-update}(host 半注册)
+  // - 注册 settings.section 设置页面板: 品牌头(图标+中文名+徽章) / 端点卡 / 设置表单(常显, 改动即保存, 经宿主
+  //   configEditor 写 profile patch 后热重载生效) / MCP 客户端连接列表
   // - 设置侧栏图标: 宿主的 settings.section 只投影 id/order/label(没有 icon 字段), 第三方分区
   //   一律显示齿轮; 与 dshmarket 同法认领本分区行, 用 mask 换上米饭碗标记
   // - React 由模块系统种子提供; 不依赖其它 client 包
@@ -133,11 +133,8 @@ interface DshModuleSpec {
       'server.title': 'MCP 服务',
       'service.title': '提供MCP服务以供外部访问',
       'service.hint': '让其他harness也能控制dsh',
-      'service.offHint': '配置 http:false 已禁用外部 MCP。',
       'self.title': '将工具注册到本dsh实例',
       'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
-      'http.title': '外部 MCP 监听',
-      'http.hint': '关闭后不监听端口，仅保留生命周期钩子',
       'resource.title': '资源优先形态',
       'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取',
       'approval.title': '审批由谁回答',
@@ -208,11 +205,8 @@ interface DshModuleSpec {
       'server.title': 'MCP server',
       'service.title': 'Provide the MCP service for external access',
       'service.hint': 'Let other harnesses control dsh',
-      'service.offHint': 'External MCP is disabled by config (http: false).',
       'self.title': 'Register tools into this dsh instance',
       'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
-      'http.title': 'External MCP listener',
-      'http.hint': 'Off: no listening socket, lifecycle hooks remain.',
       'resource.title': 'Resource-first mode',
       'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources.',
       'approval.title': 'Who answers approvals',
@@ -450,8 +444,6 @@ interface DshModuleSpec {
     const stateRef = React.useRef(null);
     stateRef.current = state;
     const [error, setError] = React.useState('');
-    // busy 只表示 MCP 服务启停(会短暂切断监听); 配置保存不再禁用界面, 另用保存队列跟踪
-    const [busy, setBusy] = React.useState(false);
     // 语言切换 → 整面板重渲染: 订阅宿主 locale 快照(t 每次调用都走当前语言, 只需触发重渲染)
     const [, localeTick] = React.useReducer(function (x) { return x + 1; }, 0);
     React.useEffect(function () {
@@ -525,17 +517,6 @@ interface DshModuleSpec {
         .catch(function () { if (alive) setCat(false); });
       return function () { alive = false; };
     }, [adding, cat]);
-
-    // 服务启停: 直接执行(不弹确认框); busy 只防同一开关被连点, 与配置重载无关
-    function toggleServer() {
-      if (!state || busy) return;
-      const target = state.listening ? 'stop' : 'start';
-      setBusy(true);
-      rpc(target)
-        .then(function () { return refresh(); })
-        .catch(function (e) { setError(String((e && e.message) || e)); })
-        .finally(function () { setBusy(false); });
-    }
 
     function copyEndpoint() {
       if (state && state.endpoint && navigator.clipboard) {
@@ -825,12 +806,13 @@ interface DshModuleSpec {
             onChange: function (v) { change({ selfToolsOn: v }); },
           }),
         }),
+        // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(写入会重载插件)
         React.createElement(Row, {
-          label: t('http.title'),
-          hint: t('http.hint'),
+          label: t('service.title'),
+          hint: t('service.hint'),
           control: React.createElement(Switch, {
             checked: d.httpOn,
-            label: t('http.title'),
+            label: t('service.title'),
             onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
           }),
         }),
@@ -913,16 +895,6 @@ interface DshModuleSpec {
             checked: d.resourceFirst,
             label: t('resource.title'),
             onChange: function (v) { changeStruct({ resourceFirst: v }, { resourceFirst: v }); },
-          }),
-        }),
-        React.createElement(Row, {
-          label: t('service.title'),
-          hint: httpOff ? t('service.hint') + ' ' + t('service.offHint') : t('service.hint'),
-          control: React.createElement(Switch, {
-            checked: !!state.listening,
-            disabled: busy || httpOff,
-            label: t('service.title'),
-            onChange: toggleServer,
           }),
         }),
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },

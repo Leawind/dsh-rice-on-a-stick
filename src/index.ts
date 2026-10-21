@@ -140,8 +140,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-rice-on-a-stick/<method>(设置页面板的数据/操作后端) ──
   registerWebRoutes(ctx, {
     statusSnapshot,
-    start: () => httpServer!.start(),
-    stop: () => httpServer!.stop(),
     models: () => collectModelCatalog(ctx),
     // selfToolsEnabled 是 volatile: Loader 不重载插件, 配置落盘后立即同步原生工具注册。
     onConfigCommitted: (values) => {
@@ -163,7 +161,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     }
   }, PLUGIN_NAME)
 
-  // http: false 显式关闭 MCP 监听(GUI 控制面仍可用: 面板显示"未监听", 可看配置但不可启动)
+  // http: false 显式关闭 MCP 监听(GUI 控制面仍可用: 面板显示“监听关闭”，配置照常读写)
   if (config.http === false) {
     console.log(`[${PLUGIN_NAME}] http disabled by config, MCP server not started (web panel still available)`)
     return

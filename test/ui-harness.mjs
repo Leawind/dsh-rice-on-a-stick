@@ -1,5 +1,5 @@
 // Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的面板真实渲染到浏览器。
-// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/stop/start/config-update), 状态形状与
+// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/models/config-update), 状态形状与
 // src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
@@ -42,10 +42,10 @@ const state = {
   },
   connections: DEFAULT_CONNS(),
 }
-const rpcCounts = { status: 0, stop: 0, start: 0, 'config-update': 0 }
+const rpcCounts = { status: 0, 'config-update': 0 }
 const configCalls = []
 const boot = { errors: [] }
-const mode = { statusError: false, actionDelayMs: 0, configDelayMs: 0 }
+const mode = { statusError: false, configDelayMs: 0 }
 let navReport = null
 
 function snapshot() {
@@ -357,6 +357,12 @@ const server = createServer(async (req, res) => {
           if ('host' in payload.values || 'port' in payload.values) {
             state.endpoint = 'http://' + state.config.host + ':' + state.config.port + '/mcp'
           }
+          // 与后端重载语义一致: http 写入后重载插件, listening 与连接列表跟随新配置
+          if ('http' in payload.values) {
+            state.httpEnabled = payload.values.http
+            state.listening = payload.values.http
+            if (!payload.values.http) state.connections = []
+          }
           // 与后端同语义: 非 volatile 字段重载插件(前端等待重载后刷新), volatile 字段就地提交
           const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled'])
           const reloading = Object.keys(payload.values).some((k) => !VOLATILE.has(k))
@@ -365,19 +371,6 @@ const server = createServer(async (req, res) => {
           return json(res, 400, { error: 'values 必须是对象' })
         }
         return json(res, 200, { updated: true })
-      }
-      if (method === 'stop' || method === 'start') {
-        rpcCounts[method]++
-        const apply = () => {
-          if (method === 'stop') { state.listening = false; state.connections = [] }
-          else { state.listening = true; state.connections = DEFAULT_CONNS() }
-        }
-        if (mode.actionDelayMs > 0) {
-          await new Promise((r) => setTimeout(r, mode.actionDelayMs))
-          if (res.writableEnded) return // 期间页面已离开/重载则不再响应
-        }
-        apply()
-        return json(res, 200, method === 'stop' ? { stopped: true } : { started: true })
       }
       return json(res, 404, { error: 'unknown method ' + method })
     }
@@ -394,7 +387,6 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/__test/mode') {
       const body = await readBody(req)
       if (typeof body.statusError === 'boolean') mode.statusError = body.statusError
-      if (typeof body.actionDelayMs === 'number') mode.actionDelayMs = body.actionDelayMs
       if (typeof body.configDelayMs === 'number') mode.configDelayMs = body.configDelayMs
       if (typeof body.listening === 'boolean') state.listening = body.listening
       if (typeof body.httpEnabled === 'boolean') state.httpEnabled = body.httpEnabled

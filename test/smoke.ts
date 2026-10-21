@@ -12,7 +12,7 @@
  *   H. allowedModels 允许清单(独立 ctx)
  *   I. resourceFirst 形态(独立 ctx)——只读面下线, 控制面工具保留, prompt 默认 uri 档
  *   J. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
- *   K. GUI 控制面路由: status/models/config-update/stop-start 同源
+ *   K. GUI 控制面路由: status/models/config-update 同源
  *
  * 假宿主与 RPC 小工具在 smoke-harness.ts; 时序敏感断言一律走 waitFor/轮询。
  * 测试是普通 TypeScript, node test/smoke.ts 直跑(Node 原生 type stripping, 需 Node ≥ 23.6)。
@@ -720,22 +720,10 @@ try {
     const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
-    const stopCross = await phase.gui('stop', { httpMethod: 'POST' })
-    checks['GUI 路由: 无同源标识的 stop 被 403(CSRF 门禁)'] = stopCross.status === 403
-    const stopOk = await phase.gui('stop', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
-    checks['GUI 路由: 同源 stop 成功'] = stopOk.status === 200 && JSON.parse(stopOk.body).stopped === true
-    const st2 = await phase.gui('status')
-    checks['GUI 路由: stop 后 listening=false'] = JSON.parse(st2.body).listening === false
-    const startOk = await phase.gui('start', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
-    checks['GUI 路由: 同源 start 重新监听'] = startOk.status === 200 && JSON.parse(startOk.body).started === true
-    // 闭环: 重启后的服务必须能真实完成一次 MCP 握手(而不只是标志位翻真)
-    const afterStart = await fetch('http://127.0.0.1:8087/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-restart', version: '1.0' } } }),
-    })
-    checks['GUI start 后真实 HTTP 握手可达'] = afterStart.status === 200 && Boolean(afterStart.headers.get('mcp-session-id'))
-    await afterStart.text()
+    // 软启停已移除: 对外 MCP 服务只有配置开关 http(持久化, 写入重载插件), 不再有运行时启停
+    const goneStop = await phase.gui('stop', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
+    const goneStart = await phase.gui('start', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
+    checks['GUI 路由: 软启停路由已移除(404)'] = goneStop.status === 404 && goneStart.status === 404
     await phase.dispose()
   }
 
@@ -836,10 +824,6 @@ try {
     const body = JSON.parse(st.body)
     checks['http:false: 不监听, 面板仍可读配置'] = body.httpEnabled === false
       && body.listening === false && body.config.http === false
-    const start = await guiRequest(ctx, 'start', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
-    checks['http:false: start 明确拒绝并说明原因'] = start.status === 200
-      && JSON.parse(start.body).started === false
-      && String(JSON.parse(start.body).error).includes('http disabled')
     // 端口确实没有被占用: 用一次性 listen 试探(成功即说明插件没监听)
     await new Promise<void>((resolveProbe) => {
       const probe = createServer()

@@ -1,7 +1,7 @@
 /**
  * GUI 控制面: 设置页面板经同源 HTTP 路由读写插件状态。
  *
- * 路由前缀 /_dsh/<plugin>/<method>; 变更类方法(config-update/stop/start)要求同源,
+ * 路由前缀 /_dsh/<plugin>/<method>; 变更类方法(config-update)要求同源,
  * 兼容浏览器 Fetch Metadata、回环地址别名与桌面壳的 dsh-app: origin。配置写入经宿主
  * configEditor 落到 profile patch, 本模块只做字段白名单与类型/边界校验。
  */
@@ -34,9 +34,6 @@ interface ConfigEditorView {
 export interface WebRouteDeps {
   /** 与工具/资源面同一份状态快照 */
   statusSnapshot: () => Record<string, unknown>
-  /** MCP 传输层软启停(GUI 按钮) */
-  start: () => Promise<{ started: boolean; error?: string }>
-  stop: () => Promise<{ stopped: boolean }>
   /** 模型目录(与 model_list 同源) */
   models: () => Promise<unknown>
   /** 配置写入落盘后回调(index 用它同步 self-tools 注册) */
@@ -242,7 +239,7 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
 
 /**
  * 注册 GUI 控制面路由(宿主提供 webServer 时; 缺席时面板不可用, 其余能力不受影响)。
- * http:false 时仍注册: 面板显示未监听并读配置, 只是 start 会返回明确错误。
+ * http:false 时仍注册: 面板显示“监听关闭”，配置读写照常。
  */
 export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
   /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
@@ -312,11 +309,9 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     },
     // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
     models: () => deps.models(),
-    stop: () => deps.stop(),
-    start: () => deps.start(),
     'config-update': (body) => guiConfigUpdate(body),
   }
-  const WEB_MUTATING = new Set(['stop', 'start', 'config-update'])
+  const WEB_MUTATING = new Set(['config-update'])
 
   ctx.inject(['webServer'], (webCtx) => {
     const webServer = (webCtx as unknown as { webServer: WebServerView }).webServer
@@ -337,7 +332,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
               webRespond(res, 404, { error: `unknown method: ${method}` })
               return
             }
-            // 变更类方法要求同源(GUI 按钮发起; 防 CSRF 式启停/改配置)
+            // 变更类方法要求同源(防 CSRF 式改配置)
             if (WEB_MUTATING.has(method) && !sameOrigin(req)) {
               // 带上判定输入: 桌面 shell / 反代换了 origin 拼写时, 面板上的报错要能直接定位
               const site = req.headers['sec-fetch-site'] ?? '-'
