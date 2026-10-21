@@ -125,7 +125,7 @@ interface DshModuleSpec {
     zh: {
       'nav': '白饭钓竿',
       'plugin.name': '白饭钓竿',
-      'plugin.tagline': '让 dsh 能被外部应用经 MCP 远程操作，也能把工具注册为本实例的原生工具直接调用',
+      'plugin.tagline': '让 AI Agent 们能控制 DeepSeek Harness',
       'uptime': '已运行 {d}',
       'state.running': '运行中',
       'state.reloading': '重载中',
@@ -198,7 +198,7 @@ interface DshModuleSpec {
     en: {
       'nav': 'Rice on a Stick',
       'plugin.name': 'Rice on a Stick',
-      'plugin.tagline': "Lets dsh be operated remotely over MCP, and registers its tools as native tools of this instance",
+      'plugin.tagline': 'Let AI agents control DeepSeek Harness',
       'uptime': 'Up {d}',
       'state.running': 'Running',
       'state.reloading': 'Reloading',
