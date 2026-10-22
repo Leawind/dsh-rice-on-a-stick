@@ -138,6 +138,9 @@ export function listInvocations(ctx: Context): InvocationView[] {
  * 注意: 白名单外的端点不代表是写操作——只是尚未策展。
  */
 export const BRIDGE_READ_ENDPOINTS: readonly string[] = [
+  'fileReferences/list',
+  'goals/get',
+  'commands/list',
   'cotTranslation/limits',
   'llm/listConfigurableProviders',
   'llm/listProviders',
@@ -191,16 +194,17 @@ export interface EndpointClassification {
   readOnly: boolean
   writable: boolean
   /** 不予受理的原因(目录展示与调用报错共用同一措辞) */
-  reason?: 'stream' | 'non-JSON parameter (needs host-side identity resolution)' | 'permanently blacklisted' | 'not allowed: neither read-curated nor in bridgeWriteAllowlist'
+  reason?: 'stream' | 'permanently blacklisted' | 'not allowed: neither read-curated nor in bridgeWriteAllowlist'
 }
 
-/** 闸门顺序: 流式 → 纯 JSON → 读白名单 → 硬编码黑名单 → 写允许清单 */
+/**
+ * 闸门顺序: 流式 → 读白名单 → 硬编码黑名单 → 写允许清单。
+ * lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析宿主对象
+ * (如 agent 参数传会话 id), 桥只透传; 解析失败由网关报清晰错误。
+ */
 export function classifyInvocation(inv: InvocationView): EndpointClassification {
   const endpoint = `${inv.namespace}/${inv.method}`
   if (inv.stream) return { endpoint, readOnly: false, writable: false, reason: 'stream' }
-  if (inv.parameters.some((p) => p.source === 'lookup')) {
-    return { endpoint, readOnly: false, writable: false, reason: 'non-JSON parameter (needs host-side identity resolution)' }
-  }
   if (BRIDGE_READ_ENDPOINTS.includes(endpoint)) return { endpoint, readOnly: true, writable: false }
   if (BRIDGE_WRITE_BLACKLIST.includes(endpoint)) {
     return { endpoint, readOnly: false, writable: false, reason: 'permanently blacklisted' }

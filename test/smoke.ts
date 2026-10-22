@@ -686,14 +686,14 @@ try {
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
     const byEndpoint = Object.fromEntries((sessionGroup?.methods ?? []).map((m: any) => [m.endpoint, m]))
-    checks['桥目录: 按 namespace 分组, readOnly/writable 标记正确'] = dirPayload.total === 7 && dirPayload.readable === 2 && dirPayload.writable === 0
+    checks['桥目录: 按 namespace 分组, readOnly/writable 标记正确'] = dirPayload.total === 8 && dirPayload.readable === 4 && dirPayload.writable === 0
       && sessionGroup !== undefined
       && byEndpoint['session/modelCatalog']?.readOnly === true
       && byEndpoint['session/list']?.readOnly === true
+      && byEndpoint['session/page']?.readOnly === true
       && byEndpoint['session/prompt']?.readOnly === false
       && byEndpoint['session/prompt']?.blockedBy === 'not allowed: neither read-curated nor in bridgeWriteAllowlist'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
-      && byEndpoint['session/page']?.blockedBy?.includes('non-JSON parameter')
     const credGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'credentialsController')
     checks['桥目录: 黑名单端点标记 permanently blacklisted'] = credGroup?.methods?.[0]?.blockedBy === 'permanently blacklisted'
 
@@ -719,8 +719,10 @@ try {
     checks['桥调用: 清单外端点拒绝'] = String(innerOf(callWrite).error ?? '').includes('not bridge-callable')
     const callStream = await phase.call('bridge_call', { endpoint: 'session/follow' })
     checks['桥调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not bridge-callable')
-    const callLookup = await phase.call('bridge_call', { endpoint: 'session/page' })
-    checks['桥调用: 需要 host 身份解析的端点拒绝'] = String(innerOf(callLookup).error ?? '').includes('not bridge-callable')
+    const callLookup = await phase.call('bridge_call', { endpoint: 'goals/get', args: { agent: 'sess-live' } })
+    const callLookupPayload = innerOf(callLookup) as any
+    checks['桥调用: lookup 参数透传给网关解析(不再拒绝)'] = callLookup.status === 200
+      && callLookupPayload.agentArg === 'sess-live'
     const callBlacklisted = await phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
     checks['桥调用: 黑名单端点即使未入写清单也报黑名单拒绝'] = String(innerOf(callBlacklisted).error ?? '').includes('permanently blacklisted')
     const callUnknown = await phase.call('bridge_call', { endpoint: 'nope/missing' })

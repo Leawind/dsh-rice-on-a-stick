@@ -67,8 +67,10 @@ you already know.
 - **Generic bridge** — `bridge_describe` lists every live host Remote endpoint
   (grouped by namespace, with `readOnly` / `writable` flags); pass one endpoint for
   its exact contract (named wire parameters + result JSON Schema). `bridge_call`
-  invokes an endpoint by reference with named `args`. `readOnly` endpoints run
-  directly; `writable` ones exist only when the deployment listed them in
+  invokes an endpoint by reference with named `args` — use the wire keys from the
+  contract; parameters the host resolves itself (e.g. an agent parameter) take the
+  session id as their wire value, and the gateway resolves them. `readOnly` endpoints
+  run directly; `writable` ones exist only when the deployment listed them in
   `bridgeWriteAllowlist` (and a hard blacklist — credentials, plugin installs —
   always wins). With two-step confirm enabled, a mutating call first returns a
   `confirmToken` instead of executing; resend with `confirm` to run it. Use the
