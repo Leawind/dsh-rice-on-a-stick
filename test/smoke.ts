@@ -1,7 +1,7 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 29 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 31 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
@@ -42,6 +42,7 @@ import {
   archivedSessionIds,
   attachedIds,
   attachmentCalls,
+  bridgeInvokes,
   checks,
   commandCalls,
   chunkedRequest,
@@ -87,7 +88,7 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 29 个(rice_ 前缀)'] = nativeSchemas.length === 29
+  checks['原生自用工具: 默认注册全部 31 个(rice_ 前缀)'] = nativeSchemas.length === 31
     && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
@@ -103,7 +104,7 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 29
+    && nativeStatusJson.stats?.selfTools === 31
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -146,10 +147,10 @@ try {
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_list', 'session_meta',
-    'session_history', 'attachment_read',
+    'session_history', 'attachment_read', 'bridge_describe', 'bridge_call',
     'session_search', 'session_fork', 'session_archive', 'session_unarchive', 'session_archive_list',
     'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
-  checks['tools/list: 精确 29 个工具(会话中心 + 异步/审批/子代理/归档/附件面)'] = toolNames.length === 29
+  checks['tools/list: 精确 31 个工具(会话中心 + 异步/审批/子代理/归档/附件/通用桥面)'] = toolNames.length === 31
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -678,6 +679,50 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase B2: 通用桥(读面) —— 目录/契约/只读调用/闸门拒绝 ──
+  {
+    const phase = await startPhase(8096, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
+    const dir = await phase.call('bridge_describe', {})
+    const dirPayload = innerOf(dir) as any
+    const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
+    const byEndpoint = Object.fromEntries((sessionGroup?.methods ?? []).map((m: any) => [m.endpoint, m]))
+    checks['桥目录: 按 namespace 分组, readOnly 标记正确'] = dirPayload.total === 5 && dirPayload.readable === 2
+      && sessionGroup !== undefined
+      && byEndpoint['session/modelCatalog']?.readOnly === true
+      && byEndpoint['session/list']?.readOnly === true
+      && byEndpoint['session/prompt']?.readOnly === false && byEndpoint['session/prompt']?.blockedBy === 'not curated as read-only'
+      && byEndpoint['session/follow']?.blockedBy === 'stream'
+      && byEndpoint['session/page']?.blockedBy?.includes('non-JSON parameter')
+
+    const contract = await phase.call('bridge_describe', { endpoint: 'session/modelCatalog' })
+    const contractPayload = innerOf(contract) as any
+    checks['桥契约: 单端点给参数表与 result schema'] = contractPayload.endpoint === 'session/modelCatalog'
+      && contractPayload.readOnly === true
+      && Array.isArray(contractPayload.parameters) && contractPayload.parameters.length === 0
+      && contractPayload.result?.jsonSchema?.type === 'object'
+
+    const unknown = await phase.call('bridge_describe', { endpoint: 'nope/missing' })
+    checks['桥契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
+
+    const callOk = await phase.call('bridge_call', { endpoint: 'session/modelCatalog' })
+    const callOkPayload = innerOf(callOk) as any
+    checks['桥调用: 只读端点经 gateway 成功返回'] = callOk.status === 200
+      && callOkPayload.ok === true && callOkPayload.models?.[0] === 'm1'
+    checks['桥调用: 以 owner 身份(peer)发起'] = bridgeInvokes.length === 1
+      && bridgeInvokes[0].endpoint === 'session/modelCatalog'
+      && bridgeInvokes[0].peerKind === 'owner'
+
+    const callWrite = await phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: {} } })
+    checks['桥调用: 白名单外端点拒绝(写操作不可桥)'] = String(innerOf(callWrite).error ?? '').includes('not bridge-callable')
+    const callStream = await phase.call('bridge_call', { endpoint: 'session/follow' })
+    checks['桥调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not bridge-callable')
+    const callLookup = await phase.call('bridge_call', { endpoint: 'session/page' })
+    checks['桥调用: 需要 host 身份解析的端点拒绝'] = String(innerOf(callLookup).error ?? '').includes('not bridge-callable')
+    const callUnknown = await phase.call('bridge_call', { endpoint: 'nope/missing' })
+    checks['桥调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
+    await phase.dispose()
+  }
+
   // ── Phase C: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
   {
     const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
@@ -686,10 +731,10 @@ try {
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
-      'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'attachment_read', 'echo']
+      'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 29 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 29
+    checks['原生自用工具: resourceFirst 不影响原生 31 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 31
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')

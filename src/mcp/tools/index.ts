@@ -1,16 +1,17 @@
 /**
- * MCP 工具注册入口(28 个 = 会话中心 12 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
- * + 目录/状态 7(含 echo) + 归档清单/恢复 2; resourceFirst 部署形态下只读面下线, 数据走
- * resources 面, 但控制面工具必须保留)。
+ * MCP 工具注册入口(31 个 = 会话中心 12 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
+ * + 目录/状态 7(含 echo) + 归档清单/恢复 2 + 附件取回 1 + 通用桥 2; resourceFirst 部署
+ * 形态下只读面下线, 数据走 resources 面, 但控制面工具必须保留)。
  *
  * 本文件只做装配, 具体工具按域拆分:
  *   catalog.ts         echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list /
  *                      model_list / subagent_list
  *   session-actions.ts session_create / prompt / submit / poll / result / cancel / queue /
- *                      command / select_model / rename / fork / archive / unarchive
+ *                      command / select_model / rename / fork / archive / unarchive / attachment_read
  *   session-read.ts    session_list / session_archive_list / session_meta / session_history /
  *                      session_search(resourceFirst 下下线)
  *   approval.ts        approval_list / approval_answer / approval_policy
+ *   bridge.ts          bridge_describe / bridge_call(通用桥读面, 恒注册)
  *
  * 数据与资源面同源(host/data.ts): 同 collectSessions/sessionHistoryPayload 等实现、同一数据边界。
  * 用 registerTool(而非 tool): 带 title 与 annotations(2025-06-18 协议新增字段)。
@@ -26,6 +27,7 @@ import { TOOL_IDENTITY_PREFIX } from '../../core/config.js'
 import { state } from '../../core/state.js'
 import type { ToolDeps } from '../../host/data.js'
 import { registerApprovalTools } from './approval.js'
+import { registerBridgeTools } from './bridge.js'
 import { registerCatalogTools } from './catalog.js'
 import { registerSessionActionTools } from './session-actions.js'
 import { registerSessionReadTools } from './session-read.js'
@@ -73,4 +75,5 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, opt
   registerSessionActionTools(branded, ctx, resourceFirst)
   registerApprovalTools(branded, ctx)
   registerSessionReadTools(branded, ctx, resourceFirst)
+  registerBridgeTools(branded, ctx)
 }

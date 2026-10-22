@@ -412,6 +412,35 @@ export const fakeAttachments = {
   imageHostPath: (ref) => `C:\\fake\\store\\${ref.attachmentId}.png`,
 }
 
+// ── 通用桥桩(typert / typertGateway / connection): 对齐真机 descriptor 形状 ——
+// local.list() 回 InvocationDescriptor[](namespace/method/mode/parameters[source json|lookup]/result.spec);
+// gateway.invoke 记录请求并按端点返回; connection.createPeer 回可 dispose 的 peer ──
+export const bridgeInvokes = []
+const bridgeDescriptors = [
+  { id: 'd1', service: 'sessionController', namespace: 'session', method: 'modelCatalog', description: 'Describe every routable model. Returns the catalog.', parameters: [], result: { spec: { description: 'the catalog', jsonSchema: { type: 'object' } } } },
+  { id: 'd2', service: 'sessionController', namespace: 'session', method: 'list', description: 'List sessions.', parameters: [{ name: 'request', wire: 'request', source: 'json', description: 'list filters' }], result: { spec: {} } },
+  { id: 'd3', service: 'sessionController', namespace: 'session', method: 'prompt', description: 'Send a prompt.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
+  { id: 'd4', service: 'sessionController', namespace: 'session', method: 'follow', mode: 'stream', description: 'Follow a session.', parameters: [], result: { spec: {} } },
+  { id: 'd5', service: 'sessionController', namespace: 'session', method: 'page', description: 'Read one session page.', parameters: [{ name: 'session', wire: 'session', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
+]
+export const fakeTypert = {
+  local: {
+    list: () => bridgeDescriptors,
+    get: (endpoint) => bridgeDescriptors.find((d) => `${d.namespace}/${d.method}` === endpoint),
+  },
+}
+export const fakeGateway = {
+  invoke: async (request) => {
+    bridgeInvokes.push({ endpoint: `${request.namespace}/${request.method}`, args: request.args, peerKind: request.peer?.principal?.kind, interactions: request.peer?.interactions })
+    if (`${request.namespace}/${request.method}` === 'session/modelCatalog') return { ok: true, models: ['m1'] }
+    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog')
+  },
+}
+let bridgePeerSeq = 0
+export const fakeConnection = {
+  createPeer: (options) => ({ id: `bridge-peer-${++bridgePeerSeq}`, principal: options?.principal, interactions: options?.interactions, dispose: async () => {} }),
+}
+
 /**
  * 最小假 ctx: services 里没有的走 undefined。
  * sessionController 只作为同名属性提供(证明 serviceOf 的属性回退可用, 也方便造"没有它"的部署)。
@@ -541,6 +570,9 @@ export function makeCtx(opts: {
     approval: approvalService,
     subagents: fakeSubagents,
     attachments: fakeAttachments,
+    typert: fakeTypert,
+    typertGateway: fakeGateway,
+    connection: fakeConnection,
     on,
     __fireApproval: fireApproval,
     __fireVolatile: (paths) => {
@@ -560,6 +592,9 @@ export function makeCtx(opts: {
           : name === 'approval' ? approvalService
             : name === 'subagents' ? fakeSubagents
               : name === 'attachments' ? fakeAttachments
+                : name === 'typert' ? fakeTypert
+                  : name === 'typertGateway' ? fakeGateway
+                    : name === 'connection' ? fakeConnection
 : name === 'tools' ? tools
             : name === 'tokenMeter' ? tokenMeter
             : name === 'commands' ? commands
