@@ -56,6 +56,23 @@ you already know.
   closed when the wait expires. `approval_policy` reads or switches the session's
   `ask`/`never` policy; `session_create` can set it up front. For unattended runs,
   `never` is the predictable choice.
+- **Image attachments (reference-only)** — `session_prompt` / `session_submit` accept
+  `attachments: [{ path | url, name? }]` (png/jpeg/webp/gif, up to 8). Pass a
+  host-readable path or an http(s) URL — the plugin reads the bytes inside the dsh
+  process and admits them through the host attachment service, so image data never
+  enters tool arguments or your context as base64. Attachment ids come back in the
+  receipt (`session_submit.attachments`) or in `session_history` entries (`images`
+  fields); `attachment_read` returns metadata plus the host file path (zero image
+  tokens), and `inline: true` adds an MCP image content block for multimodal clients.
+- **Generic bridge** — `bridge_describe` lists every live host Remote endpoint
+  (grouped by namespace, with `readOnly` / `writable` flags); pass one endpoint for
+  its exact contract (named wire parameters + result JSON Schema). `bridge_call`
+  invokes an endpoint by reference with named `args`. `readOnly` endpoints run
+  directly; `writable` ones exist only when the deployment listed them in
+  `bridgeWriteAllowlist` (and a hard blacklist — credentials, plugin installs —
+  always wins). With two-step confirm enabled, a mutating call first returns a
+  `confirmToken` instead of executing; resend with `confirm` to run it. Use the
+  bridge for the long tail of host capabilities the curated tools do not cover.
 
 <!-- section: workflows -->
 ## Workflow recipes
@@ -104,6 +121,17 @@ you already know.
    (recursive=true adds descendants). Then treat each child id like any other session:
    `session_poll`, `session_result`, `session_prompt`. The catalog read is passive;
    it does not load or resume the child.
+10. **Send an image** — `session_prompt({ sessionId, task, attachments: [{ path: "/abs/shot.png" }] })`.
+    Keep the reference short (path or URL); never inline image bytes into `task`. Find
+    the attachment id in the `session_submit` receipt or `session_history`'s `images`;
+    hand it to `attachment_read` (add `inline: true` only for multimodal read-back).
+11. **Reach a capability the curated tools lack** — `bridge_describe` (no args) for the
+    directory, `bridge_describe { endpoint }` for the contract, `bridge_call
+    { endpoint, args }` to execute. If the call is refused with
+    `not allowed: neither read-curated nor in bridgeWriteAllowlist`, that endpoint is
+    not opened in this deployment — do not retry it; the deployment adjusts
+    `bridgeWriteAllowlist` if needed. A `requiresConfirmation` response is the normal
+    two-step flow: resend with the given `confirm` token (same args) to execute.
 
 <!-- section: errors -->
 ## Error → alternative path
@@ -119,6 +147,10 @@ you already know.
 | "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history` |
 | `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
 | `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
+| "not a recognized image" | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet |
+| "not bridge-callable" / `blockedBy` | the endpoint is not opened in this deployment (stream / non-JSON parameter / blacklist / not in `bridgeWriteAllowlist`); pick another endpoint from `bridge_describe` |
+| `requiresConfirmation: true` | two-step confirm is on and nothing executed yet — resend `bridge_call` with the `confirm` token and the same args |
+| "unknown or expired confirm token" | the token was consumed, expired (2 min), or bound to another endpoint — start over with a plain call to mint a fresh one |
 
 <!-- section: results -->
 ## Reading results without blowing your context
@@ -162,3 +194,10 @@ client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
   (or a deployment without the meter) falls back to the last logged request usage, and
   the window comes from the newest `request/context` or the model route. Omit `sessionId`
   only from native `rice_` tools — an MCP call has no "current session".
+- Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap
+  (the host attachment service enforces its own image limits on top); `attachment_read`
+  inlines at most 8MB per image — use the host path for larger ones.
+- The bridge exposes only what the deployment opened: `readOnly` endpoints from the
+  curated read-only list, `writable` endpoints from `bridgeWriteAllowlist`; a
+  hard-coded blacklist (credentials, plugin installs, authorization flows) is never
+  callable. Two-step confirm for writes is a deployment choice (`bridgeTwoStepConfirm`).
