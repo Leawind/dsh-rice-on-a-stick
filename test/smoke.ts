@@ -27,6 +27,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
+import { ageBridgePendingForTest, PENDING_TTL_MS } from '../lib/host/typert-bridge.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
 import { parseSummary } from '../lib/session/projection.js'
@@ -780,6 +781,21 @@ try {
 
     const credCall = await phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' }, confirm: 'whatever' })
     checks['写桥黑名单: 写清单里的黑名单端点仍永久拒绝'] = String(innerOf(credCall).error ?? '').includes('permanently blacklisted')
+
+    // TTL 过期: 测试钩子把在途令牌的过期时间前移, 不真等 2 分钟
+    const freshFirst = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's-ttl-a' } } })
+    const freshToken = (innerOf(freshFirst) as any).confirmToken
+    ageBridgePendingForTest(PENDING_TTL_MS - 1_000)
+    const boundary = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's-ttl-a' } }, confirm: freshToken })
+    checks['写桥两段式: TTL 边界内(剩约 1 秒)令牌仍执行'] = boundary.status === 200 && (innerOf(boundary) as any).updated === true
+
+    const staleFirst = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's-ttl-b' } } })
+    const staleToken = (innerOf(staleFirst) as any).confirmToken
+    ageBridgePendingForTest(PENDING_TTL_MS + 1_000)
+    const expired = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's-ttl-b' } }, confirm: staleToken })
+    checks['写桥两段式: 过期令牌被明确拒绝'] = String(innerOf(expired).error ?? '').includes('has expired')
+    const expiredAgain = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's-ttl-b' } }, confirm: staleToken })
+    checks['写桥两段式: 过期令牌已删除(重发报未知而非再报过期)'] = String(innerOf(expiredAgain).error ?? '').includes('unknown or expired confirm token')
 
     // 两段式关闭: allowlist 端点直接执行
     const direct = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {

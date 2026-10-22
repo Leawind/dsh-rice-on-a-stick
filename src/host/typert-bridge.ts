@@ -412,7 +412,12 @@ interface PendingWrite {
   expiresAt: number
 }
 const pendingWrites = new Map<string, PendingWrite>()
-const PENDING_TTL_MS = 120_000
+export const PENDING_TTL_MS = 120_000
+
+/** 测试钩子(smoke 专用): 把所有在途确认令牌的过期时间前移 ms 毫秒, 模拟时间流逝, 不改变生产行为 */
+export function ageBridgePendingForTest(ms: number): void {
+  for (const p of pendingWrites.values()) p.expiresAt -= ms
+}
 
 /** 稳定 JSON 序列化(键排序): args 相等性比较用 */
 function stableJsonOf(value: unknown): string {
