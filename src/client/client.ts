@@ -101,6 +101,9 @@ interface DshModuleSpec {
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
       hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
+      // 通用桥写面: 允许清单("namespace/method", 逗号或空格分隔的文本) + 两段式确认开关
+      bridgeWriteText: Array.isArray(c.bridgeWriteAllowlist) ? c.bridgeWriteAllowlist.filter(function (v) { return typeof v === 'string' && v; }).join(', ') : '',
+      bridgeTwoStep: c.bridgeTwoStepConfirm === true,
     };
   }
 
@@ -152,6 +155,11 @@ interface DshModuleSpec {
       'hosts.title': 'Host 头白名单',
       'hosts.hint': '额外放行的主机名，逗号或空格分隔',
       'hosts.invalid': '主机名不合法：{h}',
+      'bridge.title': '通用桥写允许清单',
+      'bridge.hint': '允许经 bridge_call 执行的变更类端点（"namespace/method"，逗号或空格分隔）；留空 = 桥只读。凭据/插件安装类端点永久不可桥',
+      'bridge.placeholder': '例如 schedule/update',
+      'twostep.title': '桥写操作两段式确认',
+      'twostep.hint': '开启后变更调用先返回确认令牌，带令牌重发才执行；防的是 agent 误触发',
       'listen.title': '监听地址与端口',
       'footnote': '以上各项在离开输入框或关闭设置时自动生效；生效会重启插件，已连接的 MCP 客户端会短暂断开。',
       'listen.hostRequired': '监听地址不能为空。',
@@ -225,6 +233,11 @@ interface DshModuleSpec {
       'hosts.title': 'Host header allowlist',
       'hosts.hint': 'Extra hostnames, comma or space separated.',
       'hosts.invalid': 'Invalid hostname: {h}',
+      'bridge.title': 'Bridge write allowlist',
+      'bridge.hint': 'Mutating endpoints callable through bridge_call ("namespace/method", comma or space separated); empty = read-only bridge. Credential and plugin-install endpoints are permanently refused.',
+      'bridge.placeholder': 'e.g. schedule/update',
+      'twostep.title': 'Two-step confirm for bridge writes',
+      'twostep.hint': 'When on, a mutating call first returns a confirm token; resending with it executes. Guards against agent mistakes.',
       'footnote': 'These take effect when you leave the field or close settings; applying restarts the plugin, so connected MCP clients drop briefly.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
@@ -557,6 +570,9 @@ interface DshModuleSpec {
         defaultDetail: next.defaultDetail,
         authEnabled: next.authOn === true,
         selfToolsEnabled: next.selfToolsOn === true,
+        // 通用桥写面: 文本框按逗号/空白拆分, 服务端做格式校验("namespace/method")
+        bridgeWriteAllowlist: String(next.bridgeWriteText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean),
+        bridgeTwoStepConfirm: next.bridgeTwoStep === true,
       };
       if (arguments.length > 1) values.authToken = authToken;
       enqueue({ values: values });
@@ -934,6 +950,31 @@ interface DshModuleSpec {
             checked: d.resourceFirst,
             label: t('resource.title'),
             onChange: function (v) { changeStruct({ resourceFirst: v }, { resourceFirst: v }); },
+          }),
+        }),
+        // ── 通用桥写面(volatile 字段: 就地生效不重载) ──
+        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
+          React.createElement('div', { className: 'dcs-labels' },
+            React.createElement('span', { className: 'dcs-label' }, t('bridge.title')),
+            React.createElement('span', { className: 'dcs-hint' }, t('bridge.hint')),
+          ),
+          React.createElement('input', {
+            className: 'dcs-input',
+            type: 'text',
+            value: d.bridgeWriteText,
+            placeholder: t('bridge.placeholder'),
+            spellCheck: false,
+            onChange: function (e) { setDraft(Object.assign({}, draftRef.current, { bridgeWriteText: e.target.value })); },
+            onBlur: function () { change({}); },
+            onKeyDown: function (e) { if (e.key === 'Enter') change({}); },
+          }),
+        ),
+        React.createElement(Row, {
+          label: t('twostep.title'),
+          hint: t('twostep.hint'),
+          control: React.createElement(Switch, {
+            checked: d.bridgeTwoStep,
+            onChange: function (v) { change({ bridgeTwoStep: v }); },
           }),
         }),
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },

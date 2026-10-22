@@ -422,6 +422,8 @@ const bridgeDescriptors = [
   { id: 'd3', service: 'sessionController', namespace: 'session', method: 'prompt', description: 'Send a prompt.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
   { id: 'd4', service: 'sessionController', namespace: 'session', method: 'follow', mode: 'stream', description: 'Follow a session.', parameters: [], result: { spec: {} } },
   { id: 'd5', service: 'sessionController', namespace: 'session', method: 'page', description: 'Read one session page.', parameters: [{ name: 'session', wire: 'session', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
+  { id: 'd6', service: 'credentialsController', namespace: 'credentialsController', method: 'set', description: 'Write a credential.', parameters: [{ name: 'ref', wire: 'ref', source: 'json' }, { name: 'value', wire: 'value', source: 'json' }], result: { spec: {} } },
+  { id: 'd7', service: 'schedule', namespace: 'schedule', method: 'update', description: 'Update a schedule.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
 ]
 export const fakeTypert = {
   local: {
@@ -433,7 +435,8 @@ export const fakeGateway = {
   invoke: async (request) => {
     bridgeInvokes.push({ endpoint: `${request.namespace}/${request.method}`, args: request.args, peerKind: request.peer?.principal?.kind, interactions: request.peer?.interactions })
     if (`${request.namespace}/${request.method}` === 'session/modelCatalog') return { ok: true, models: ['m1'] }
-    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog')
+    if (`${request.namespace}/${request.method}` === 'schedule/update') return { updated: true }
+    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog and schedule/update')
   },
 }
 let bridgePeerSeq = 0

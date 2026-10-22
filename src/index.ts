@@ -21,7 +21,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION, authTokenHint, bindRuntimeConfig, parseCon
 import { state } from './core/state.js'
 import { asSessionId } from './host/bridge.js'
 import { collectModelCatalog, resUri } from './host/data.js'
-import { disposeBridgePeer } from './host/typert-bridge.js'
+import { disposeBridgePeer, resetBridgePending } from './host/typert-bridge.js'
 import { endpointOf, createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
 import { createNotifyHub } from './mcp/notify.js'
 import { registerWebRoutes } from './mcp/web.js'
@@ -146,6 +146,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         sessionTtlMs: state.config.sessionTtlMs,
         approvalControl: state.config.approvalControl,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
+        bridgeWriteAllowlist: state.config.bridgeWriteAllowlist,
+        bridgeTwoStepConfirm: state.config.bridgeTwoStepConfirm,
       },
       stats: {
         connections: httpServer?.connections().length ?? 0,
@@ -207,8 +209,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       approvalBridge.dispose()
       httpServer?.dispose()
       hub.dispose()
-      // 通用桥的调用方身份(peer)随插件卸载释放
+      // 通用桥的调用方身份(peer)与在途写确认随插件卸载释放
       void disposeBridgePeer()
+      resetBridgePending()
     }
   }, PLUGIN_NAME)
 

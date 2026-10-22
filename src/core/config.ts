@@ -103,6 +103,18 @@ export interface Config {
   approvalControl?: 'off' | 'fallback' | 'exclusive'
   /** 审批被扣住后最多等多久(毫秒; 默认 120s; 超时失败关闭) */
   approvalTimeoutMs?: number
+  /**
+   * 通用桥写允许清单("namespace/method" 形式; 默认空 = 桥只读)。
+   * 只有这里显式列出的变更类端点才可经 bridge_call 执行——等价部署方预先审批;
+   * 硬编码黑名单(凭据写入/插件安装/连接信任等)优先于本清单, 配了也拒绝。
+   */
+  bridgeWriteAllowlist?: string[]
+  /**
+   * 桥写操作两段式确认(默认 false)。开启后, allowlist 内的变更类 bridge_call 第一次调用
+   * 只返回确认令牌(不执行), 调用方须带 confirm 令牌重发才真正执行——防的是 agent 误触发,
+   * 不是人审; allowlist 本身已经是人的预审批。
+   */
+  bridgeTwoStepConfirm?: boolean
 }
 
 /**
@@ -112,7 +124,8 @@ export interface Config {
  */
 export interface ParsedConfig extends Omit<
   Config,
-  'allowedModels' | 'allowedModelsEnabled' | 'defaultDetail' | 'authToken' | 'authEnabled' | 'selfToolsEnabled'
+  | 'allowedModels' | 'allowedModelsEnabled' | 'defaultDetail' | 'authToken' | 'authEnabled' | 'selfToolsEnabled'
+  | 'bridgeWriteAllowlist' | 'bridgeTwoStepConfirm'
 > {
   allowedModels: Volatile<string[]>
   allowedModelsEnabled: Volatile<boolean | undefined>
@@ -120,6 +133,8 @@ export interface ParsedConfig extends Omit<
   authToken: Volatile<string>
   authEnabled: Volatile<boolean | undefined>
   selfToolsEnabled: Volatile<boolean>
+  bridgeWriteAllowlist: Volatile<string[]>
+  bridgeTwoStepConfirm: Volatile<boolean>
 }
 
 /** 运行时配置默认值 */
@@ -138,6 +153,8 @@ export const DEFAULTS = {
   resourceFirst: false,
   approvalControl: 'exclusive' as 'off' | 'fallback' | 'exclusive',
   approvalTimeoutMs: 120_000,
+  bridgeWriteAllowlist: [] as string[],
+  bridgeTwoStepConfirm: false as boolean,
 }
 
 export type RuntimeConfig = typeof DEFAULTS
@@ -176,7 +193,11 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     resourceFirst: parsed.resourceFirst ?? DEFAULTS.resourceFirst,
     approvalControl: parsed.approvalControl ?? DEFAULTS.approvalControl,
     approvalTimeoutMs: Math.max(1000, Math.min(600_000, parsed.approvalTimeoutMs ?? DEFAULTS.approvalTimeoutMs)),
+    bridgeWriteAllowlist: [],
+    bridgeTwoStepConfirm: false,
   }
+  // 与 allowedModels 同口径: 去空白、丢空串
+  const readWriteAllowlist = () => parsed.bridgeWriteAllowlist.get().map((s) => String(s).trim()).filter(Boolean)
   Object.defineProperties(runtime, {
     allowedModels: { enumerable: true, configurable: true, get: readModels },
     allowedModelsEnabled: {
@@ -192,6 +213,8 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       get: () => parsed.authEnabled.get() ?? parsed.authToken.get() !== '',
     },
     selfToolsEnabled: { enumerable: true, configurable: true, get: () => parsed.selfToolsEnabled.get() },
+    bridgeWriteAllowlist: { enumerable: true, configurable: true, get: readWriteAllowlist },
+    bridgeTwoStepConfirm: { enumerable: true, configurable: true, get: () => parsed.bridgeTwoStepConfirm.get() },
   })
   return runtime
 }
@@ -216,4 +239,6 @@ export const Config = Schema.object({
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface).'),
   approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Who answers approvals for sessions created by this plugin (default exclusive): off = display only, the UI handles them; fallback = UI first, the caller answers when the UI cannot; exclusive = always the caller, via approval_answer (the UI no longer shows them).'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('Maximum wait for an MCP answer after an approval is parked, in milliseconds (default 120000; timeout fails closed).'),
+  bridgeWriteAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeWriteAllowlist).volatile().description('Generic-bridge write allowlist in "namespace/method" form (default empty = the bridge is read-only). Only endpoints listed here can be mutated through bridge_call — equivalent to a deployment-side pre-approval; the hard-coded blacklist (credential writes, plugin installs, connection trust) always wins.'),
+  bridgeTwoStepConfirm: Schema.boolean().default(DEFAULTS.bridgeTwoStepConfirm).volatile().description('Two-step confirmation for allowed bridge writes (default false): the first bridge_call on a mutating endpoint only returns a confirm token, and the caller must resend with it to execute — guards against agent mistakes, not a human review (the allowlist itself is that).'),
 })

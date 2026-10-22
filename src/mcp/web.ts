@@ -176,8 +176,8 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是结构性字段, 写入后重载) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
-/** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst'])
+/** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先/桥两段式确认; 关闭均不清除对应值) */
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst', 'bridgeTwoStepConfirm'])
 /** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1, approvalTimeoutMs: 1000 }
 /** 数字字段 → 上限(与 config.ts / apply 的钳制保持一致) */
@@ -195,6 +195,7 @@ const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
  */
 const GUI_VOLATILE_FIELDS = new Set([
   'allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled',
+  'bridgeWriteAllowlist', 'bridgeTwoStepConfirm',
 ])
 
 /** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
@@ -256,6 +257,14 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
       const bad = entries.find((s) => !s.includes('/'))
       if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
+      out[key] = [...new Set(entries)]
+    } else if (key === 'bridgeWriteAllowlist') {
+      if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+        throw httpError(400, 'bridgeWriteAllowlist 必须是字符串数组')
+      }
+      const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
+      const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
+      if (bad !== undefined) throw httpError(400, `bridgeWriteAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
     } else {
       throw httpError(400, `字段 ${key} 不支持在界面编辑, 请编辑 cordis.patch.yml`)

@@ -679,20 +679,23 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase B2: 通用桥(读面) —— 目录/契约/只读调用/闸门拒绝 ──
+  // ── Phase B2: 通用桥(读面 + 写面闸门) —— 目录/契约/只读调用/闸门拒绝 ──
   {
     const phase = await startPhase(8096, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
     const dir = await phase.call('bridge_describe', {})
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
     const byEndpoint = Object.fromEntries((sessionGroup?.methods ?? []).map((m: any) => [m.endpoint, m]))
-    checks['桥目录: 按 namespace 分组, readOnly 标记正确'] = dirPayload.total === 5 && dirPayload.readable === 2
+    checks['桥目录: 按 namespace 分组, readOnly/writable 标记正确'] = dirPayload.total === 7 && dirPayload.readable === 2 && dirPayload.writable === 0
       && sessionGroup !== undefined
       && byEndpoint['session/modelCatalog']?.readOnly === true
       && byEndpoint['session/list']?.readOnly === true
-      && byEndpoint['session/prompt']?.readOnly === false && byEndpoint['session/prompt']?.blockedBy === 'not curated as read-only'
+      && byEndpoint['session/prompt']?.readOnly === false
+      && byEndpoint['session/prompt']?.blockedBy === 'not allowed: neither read-curated nor in bridgeWriteAllowlist'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
       && byEndpoint['session/page']?.blockedBy?.includes('non-JSON parameter')
+    const credGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'credentialsController')
+    checks['桥目录: 黑名单端点标记 permanently blacklisted'] = credGroup?.methods?.[0]?.blockedBy === 'permanently blacklisted'
 
     const contract = await phase.call('bridge_describe', { endpoint: 'session/modelCatalog' })
     const contractPayload = innerOf(contract) as any
@@ -713,14 +716,66 @@ try {
       && bridgeInvokes[0].peerKind === 'owner'
 
     const callWrite = await phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: {} } })
-    checks['桥调用: 白名单外端点拒绝(写操作不可桥)'] = String(innerOf(callWrite).error ?? '').includes('not bridge-callable')
+    checks['桥调用: 清单外端点拒绝'] = String(innerOf(callWrite).error ?? '').includes('not bridge-callable')
     const callStream = await phase.call('bridge_call', { endpoint: 'session/follow' })
     checks['桥调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not bridge-callable')
     const callLookup = await phase.call('bridge_call', { endpoint: 'session/page' })
     checks['桥调用: 需要 host 身份解析的端点拒绝'] = String(innerOf(callLookup).error ?? '').includes('not bridge-callable')
+    const callBlacklisted = await phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
+    checks['桥调用: 黑名单端点即使未入写清单也报黑名单拒绝'] = String(innerOf(callBlacklisted).error ?? '').includes('permanently blacklisted')
     const callUnknown = await phase.call('bridge_call', { endpoint: 'nope/missing' })
     checks['桥调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
     await phase.dispose()
+  }
+
+  // ── Phase B3: 通用桥写面 —— allowlist 放行 + 黑名单优先 + 两段式确认 ──
+  {
+    bridgeInvokes.length = 0
+    const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      bridgeWriteAllowlist: ['schedule/update', 'credentialsController/set'],
+      bridgeTwoStepConfirm: true,
+    })
+    const dir = await phase.call('bridge_describe', {})
+    const dirPayload = innerOf(dir) as any
+    const sched = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'schedule')?.methods ?? [])[0]
+    const cred = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'credentialsController')?.methods ?? [])[0]
+    checks['写桥目录: allowlist 端点 writable=true, 黑名单端点仍 blocked'] = dirPayload.writable === 1
+      && sched?.writable === true
+      && cred?.blockedBy === 'permanently blacklisted'
+
+    const first = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
+    const firstPayload = innerOf(first) as any
+    checks['写桥两段式: 首调只发确认令牌不执行'] = firstPayload.requiresConfirmation === true
+      && typeof firstPayload.confirmToken === 'string' && firstPayload.confirmToken.length > 0
+      && bridgeInvokes.length === 0
+
+    const wrongArgs = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 'OTHER' } }, confirm: firstPayload.confirmToken })
+    checks['写桥两段式: 令牌与 args 绑定(不同 args 拒绝且不消费令牌)'] = String(innerOf(wrongArgs).error ?? '').includes('issued for different args')
+
+    const confirmed = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } }, confirm: firstPayload.confirmToken })
+    const confirmedPayload = innerOf(confirmed) as any
+    checks['写桥两段式: 带令牌重发才真正执行'] = confirmed.status === 200
+      && confirmedPayload.updated === true
+      && bridgeInvokes.length === 1 && bridgeInvokes[0].endpoint === 'schedule/update'
+
+    const reused = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } }, confirm: firstPayload.confirmToken })
+    checks['写桥两段式: 令牌单次有效'] = String(innerOf(reused).error ?? '').includes('unknown or expired confirm token')
+
+    const credCall = await phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' }, confirm: 'whatever' })
+    checks['写桥黑名单: 写清单里的黑名单端点仍永久拒绝'] = String(innerOf(credCall).error ?? '').includes('permanently blacklisted')
+
+    // 两段式关闭: allowlist 端点直接执行
+    const direct = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      bridgeWriteAllowlist: ['schedule/update'],
+    })
+    bridgeInvokes.length = 0
+    const directCall = await direct.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's2' } } })
+    const directPayload = innerOf(directCall) as any
+    checks['写桥: 两段式关闭时 allowlist 端点直接执行'] = directCall.status === 200
+      && directPayload.updated === true
+      && bridgeInvokes.length === 1
+    await phase.dispose()
+    await direct.dispose()
   }
 
   // ── Phase C: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
@@ -1089,6 +1144,8 @@ try {
       resourceFirst: false,
       approvalControl: 'off',
       approvalTimeoutMs: 120000,
+      bridgeWriteAllowlist: ['schedule/update'],
+      bridgeTwoStepConfirm: true,
     }
     const cfgRejected: string[] = []
     for (const key of Object.keys(ConfigSchema({}) as Record<string, unknown>)) {

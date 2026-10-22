@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
-import { describeDirectory, describeEndpoint, invokeReadOnly } from '../../host/typert-bridge.js'
+import { describeDirectory, describeEndpoint, invokeOnBridge } from '../../host/typert-bridge.js'
 import { out, outError } from './shared.js'
 
 /** 结果渲染上限: 超大载荷直接拒(调用方应缩小查询), 不做破坏性截断 */
@@ -17,7 +17,7 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
     'bridge_describe',
     {
       title: 'Describe host bridge surface',
-      description: 'Progressive discovery of the host-service bridge (the generic escape hatch beyond this plugin\'s curated tools). Omit endpoint for the compact directory: every live host Remote endpoint grouped by namespace, each with a one-line summary and a readOnly flag (readOnly = bridge_call-able: a curated read-only allowlist, non-stream, JSON-only parameters). Pass one endpoint ("namespace/method") for its exact contract: parameter list (wire keys, required, descriptions) and the result JSON Schema. Start here before bridge_call. Mutating host operations are not bridgeable by design.',
+      description: 'Progressive discovery of the host-service bridge (the generic escape hatch beyond this plugin\'s curated tools). Omit endpoint for the compact directory: every live host Remote endpoint grouped by namespace, each with readOnly (callable now: curated read-only allowlist, non-stream, JSON-only parameters) and writable (mutating endpoints opened by the deployment via its bridgeWriteAllowlist) flags. Pass one endpoint ("namespace/method") for its exact contract: parameter list (wire keys, required, descriptions) and the result JSON Schema. Start here before bridge_call.',
       inputSchema: {
         endpoint: z.string().optional().describe('Exact endpoint "namespace/method" from the directory; omit for the compact directory.'),
       },
@@ -46,19 +46,22 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'bridge_call',
     {
-      title: 'Call a read-only host endpoint',
-      description: 'Invoke one read-only host Remote endpoint by reference (the generic bridge): pass an endpoint from bridge_describe (readOnly=true entries only) and its named wire arguments (see the endpoint\'s contract for parameter keys). Arguments are strictly validated host-side against the generated contract; the result is the same wire JSON the dsh Web UI itself consumes. Read-only endpoints only — mutating host operations are not bridgeable by design.',
+      title: 'Call a host endpoint through the bridge',
+      description: 'Invoke one host Remote endpoint by reference (the generic bridge): pass an endpoint from bridge_describe and its named wire arguments (see the endpoint\'s contract for parameter keys). Read-only endpoints (readOnly=true) execute directly. Mutating endpoints execute only if the deployment listed them in bridgeWriteAllowlist (hard blacklist always wins); when two-step confirm is enabled, the first call returns a confirmToken instead of executing — resend with confirm to execute. Arguments are strictly validated host-side against the generated contract; results are the same wire JSON the dsh Web UI consumes.',
       inputSchema: {
-        endpoint: z.string().describe('Exact endpoint "namespace/method" (readOnly=true in bridge_describe).'),
-        // 不用 z.record: dsh 宿主内插件与 SDK 可能加载两份 zod 实例, 跨实例的 record 处理器在
-        // tools/list 的 JSON-Schema 转换中崩掉(reading 'push'); looseObject 走 object 处理器, 安全
+        endpoint: z.string().describe('Exact endpoint "namespace/method" (readOnly=true or writable=true in bridge_describe).'),
+        // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器
         args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint (keys per its bridge_describe contract).'),
+        confirm: z.string().optional().describe('Confirm token from a previous two-step response (only when the deployment enabled bridgeTwoStepConfirm). Single-use; binds to the same endpoint and args.'),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ endpoint, args }, extra) => {
+    async ({ endpoint, args, confirm }, extra) => {
       try {
-        const r = await invokeReadOnly(ctx, endpoint, args ?? {}, extra?.signal)
+        const r = await invokeOnBridge(ctx, endpoint, args ?? {}, { confirm, signal: extra?.signal })
+        if ('requiresConfirmation' in r) {
+          return out(JSON.stringify(r, null, 2))
+        }
         if (!r.ok) return outError(JSON.stringify({ error: r.error }))
         let rendered: string
         try {
