@@ -2,8 +2,9 @@
 //
 // Zero-token phase: MCP handshake + instructions, the current tool surface, read-only tools
 // (echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list / model_list /
-// session_list), session_history on a persisted-only session (host sessionController.inspect),
-// and the resource face (list / read / template-facing presets + session history).
+// session_list), the attachment/bridge read-only face (bridge_describe / bridge_call
+// session/modelCatalog / attachment_read unknown-id), session_history on a persisted-only
+// session (host sessionController.inspect), and the resource face (list / read / presets).
 //
 // Agent phase (E2E_WITH_AGENT=1): create a session with an explicit provider/model/preset and
 // run ONE small real turn (tool call + one-line JSON summary). With E2E_SESSION_ID it skips
@@ -113,15 +114,16 @@ try {
   const sid = init.sid
   await rpc(sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
-  // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复) ──
+  // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复 + 附件/桥) ──
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
     'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-    'session_cancel', 'session_queue', 'session_select_model',
-    'session_rename', 'session_list', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
+    'session_cancel', 'session_queue', 'session_command', 'session_select_model',
+    'session_rename', 'session_list', 'session_meta', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
     'session_archive', 'session_unarchive',
-    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
+    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list',
+    'attachment_read', 'bridge_describe', 'bridge_call']
   report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
@@ -135,14 +137,14 @@ try {
   report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
     `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
   const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
-  report('将工具注册到本dsh实例(全局表可见 28 个 rice_ 工具)', nativeNames.length === 28
+  report('将工具注册到本dsh实例(全局表可见 31 个 rice_ 工具)', nativeNames.length === 31
     && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
   `native=${nativeNames.length}`)
 
   const status = await callTool(sid, 6, 'dsh_status')
   report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
-  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 28,
+  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 31,
     `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
@@ -216,6 +218,22 @@ try {
   const rSessions = await readResource(sid, 23, 'dsh://sessions')
   report('resources/read dsh://sessions', !rSessions.error && Number.isInteger(rSessions.json?.total),
     rSessions.error ? String(rSessions.error).slice(0, 120) : `total=${rSessions.json?.total}`)
+
+  // ── 附件与通用桥只读面(零 token, 不花模型调用) ──
+  const bridgeDir = await callTool(sid, 24, 'bridge_describe', {})
+  report('bridge_describe 目录可读(按 namespace 分组)', Array.isArray(bridgeDir.inner?.namespaces) && (bridgeDir.inner?.total ?? 0) > 0,
+    `total=${bridgeDir.inner?.total ?? String(bridgeDir.inner?.error ?? '?').slice(0, 120)}`)
+  const catalog = await callTool(sid, 25, 'bridge_call', { endpoint: 'session/modelCatalog' })
+  report('bridge_call 只读端点经网关返回模型目录', catalog.inner?.error === undefined && typeof catalog.inner === 'object'
+    && (Array.isArray((catalog.inner as any).routableProviders) || typeof (catalog.inner as any).default === 'object'),
+  String(catalog.inner?.error ?? `providers=${((catalog.inner as any)?.routableProviders ?? []).length}`).slice(0, 140))
+  if (knownSession) {
+    const attMissing = await callTool(sid, 26, 'attachment_read', { sessionId: knownSession, attachmentId: 'e2e-nope' })
+    report('attachment_read 未知附件明确报错', String(attMissing.inner.error ?? '').includes('not found'),
+      String(attMissing.inner.error ?? '').slice(0, 140))
+  } else {
+    console.log('  SKIP  attachment_read 未知附件 — 当前没有可读会话')
+  }
 
   if (!WITH_AGENT) {
     console.log('\n(zero-token phase done; set E2E_WITH_AGENT=1 for the live agent leg)')
