@@ -158,6 +158,9 @@ try {
     const s = toolsArr.find((t) => t.name === 'session_list')?.outputSchema
     return Boolean(s && typeof s === 'object' && Object.keys(s).length > 0)
   })()
+  // 图片入站的入参防线: max(8) 必须真的发布在 schema 里(漂移即测试失败)
+  const attachmentsSchema: any = (toolsArr.find((t) => t.name === 'session_prompt')?.inputSchema as any)?.properties?.attachments
+  checks['图片入站: attachments 入参 schema 声明 maxItems=8'] = attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === 8
   const echoTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'echo')
   checks['工具带 title + annotations(2025-06-18 协议字段)'] = echoTool?.title === 'Echo' && echoTool?.annotations?.readOnlyHint === true
   // 身份注入: 每条描述统一前置 TOOL_IDENTITY_PREFIX("白饭钓竿"的唯一 DSH 原生可见通道)
@@ -660,6 +663,17 @@ try {
     const submitReceipt = innerOf(submitImg) as any
     checks['图片入站: submit 回执带 attachmentId 列表'] = Array.isArray(submitReceipt.attachments)
       && submitReceipt.attachments.length === 1 && typeof submitReceipt.attachments[0] === 'string'
+
+    // 上限防线: 第 9 张在入参校验(SDK zod)被拒, 不会发生字节读取与准入
+    const admissionsBefore = attachmentCalls.length
+    const tooMany = await phase.call('session_submit', {
+      sessionId: 'sess-live', task: 'too many images',
+      attachments: Array.from({ length: 9 }, (_v, i) => ({ path: `no-such-${i}.png` })),
+    })
+    const tooManyErr = String(innerOf(tooMany).error ?? '')
+    checks['图片入站: 第 9 张在入参校验被拒(不到准入)'] = tooManyErr.includes('session_submit')
+      && /attachment|items|maxItems|8/i.test(tooManyErr)
+      && attachmentCalls.length === admissionsBefore
 
     const hist = await phase.call('session_history', { sessionId: 'sess-live', limit: 12 })
     const histPayload = innerOf(hist) as any
