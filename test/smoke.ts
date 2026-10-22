@@ -647,6 +647,14 @@ try {
     checks['图片入站: 非图片文件明确拒绝'] = badPrompt.status === 200
       && String(innerOf(badPrompt).error ?? '').includes('not a recognized image')
 
+    const badScheme = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'bad scheme', attachments: [{ url: 'file:///etc/passwd' }] })
+    checks['图片入站: url 仅接受 http(s)(file 协议拒绝)'] = badScheme.status === 200
+      && String(innerOf(badScheme).error ?? '').includes('must be http(s)')
+
+    const bothRefs = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'both refs', attachments: [{ path: pngPath, url: 'https://example.com/x.png' }] })
+    checks['图片入站: path 与 url 同时给出明确拒绝'] = bothRefs.status === 200
+      && String(innerOf(bothRefs).error ?? '').includes('not both')
+
     const submitImg = await phase.call('session_submit', { sessionId: 'sess-live', task: 'second image', attachments: [{ path: pngPath, name: 'two.png' }], requestId: 'rice-img-2' })
     const submitReceipt = innerOf(submitImg) as any
     checks['图片入站: submit 回执带 attachmentId 列表'] = Array.isArray(submitReceipt.attachments)
@@ -734,14 +742,14 @@ try {
   {
     bridgeInvokes.length = 0
     const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
-      bridgeWriteAllowlist: ['schedule/update', 'credentialsController/set'],
+      bridgeWriteAllowlist: ['schedule/update', 'session/prompt'],
       bridgeTwoStepConfirm: true,
     })
     const dir = await phase.call('bridge_describe', {})
     const dirPayload = innerOf(dir) as any
     const sched = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'schedule')?.methods ?? [])[0]
     const cred = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'credentialsController')?.methods ?? [])[0]
-    checks['写桥目录: allowlist 端点 writable=true, 黑名单端点仍 blocked'] = dirPayload.writable === 1
+    checks['写桥目录: allowlist 端点 writable=true, 黑名单端点仍 blocked'] = dirPayload.writable === 2
       && sched?.writable === true
       && cred?.blockedBy === 'permanently blacklisted'
 
@@ -753,6 +761,13 @@ try {
 
     const wrongArgs = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 'OTHER' } }, confirm: firstPayload.confirmToken })
     checks['写桥两段式: 令牌与 args 绑定(不同 args 拒绝且不消费令牌)'] = String(innerOf(wrongArgs).error ?? '').includes('issued for different args')
+
+    // 令牌与端点绑定: schedule 的令牌用于另一 allowlist 端点(先为其铸一个令牌)必须被拒
+    const otherFirst = await phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: {} } })
+    const otherToken = (innerOf(otherFirst) as any).confirmToken
+    const crossEndpoint = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } }, confirm: otherToken })
+    checks['写桥两段式: 令牌与端点绑定(跨端点使用被拒)'] = String(innerOf(crossEndpoint).error ?? '').includes('unknown or expired confirm token')
+    // 被拒的跨端点令牌不得影响原令牌: schedule 令牌仍然可用(下方 confirmed 用例验证)
 
     const confirmed = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } }, confirm: firstPayload.confirmToken })
     const confirmedPayload = innerOf(confirmed) as any

@@ -59,17 +59,22 @@ export function sniffImageMediaType(bytes: Uint8Array): 'image/png' | 'image/jpe
 
 /** 读一处引用的字节: path(绝对, 或相对会话 cwd)或 http(s) url; 带上限与清晰错误 */
 async function readSourceBytes(input: ImageRefInput, baseDir: string | undefined): Promise<{ data: Uint8Array; name: string }> {
-  if (input.path !== undefined && input.path !== '') {
-    const p = isAbsolute(input.path) || baseDir === undefined ? input.path : join(baseDir, input.path)
+  const hasPath = input.path !== undefined && input.path !== ''
+  const hasUrl = input.url !== undefined && input.url !== ''
+  if (hasPath && hasUrl) {
+    throw new Error('each attachment takes exactly one of path or url, not both')
+  }
+  if (hasPath) {
+    const p = isAbsolute(input.path!) || baseDir === undefined ? input.path! : join(baseDir, input.path!)
     const data = await readFile(p)
     if (data.byteLength > MAX_SOURCE_BYTES) {
       throw new Error(`${input.path}: ${data.byteLength} bytes exceeds the ${MAX_SOURCE_BYTES}-byte source cap`)
     }
     return { data, name: input.name ?? basename(p) }
   }
-  if (input.url !== undefined && input.url !== '') {
-    if (!/^https?:/i.test(input.url)) throw new Error(`attachment url must be http(s): ${input.url}`)
-    const res = await fetch(input.url)
+  if (hasUrl) {
+    if (!/^https?:/i.test(input.url!)) throw new Error(`attachment url must be http(s): ${input.url}`)
+    const res = await fetch(input.url!)
     if (!res.ok) throw new Error(`fetch ${input.url} failed: HTTP ${res.status}`)
     const data = new Uint8Array(await res.arrayBuffer())
     if (data.byteLength > MAX_SOURCE_BYTES) {
@@ -77,7 +82,7 @@ async function readSourceBytes(input: ImageRefInput, baseDir: string | undefined
     }
     let tail = ''
     try {
-      tail = decodeURIComponent(new URL(input.url).pathname.split('/').filter(Boolean).pop() ?? '')
+      tail = decodeURIComponent(new URL(input.url!).pathname.split('/').filter(Boolean).pop() ?? '')
     } catch {
       tail = ''
     }
