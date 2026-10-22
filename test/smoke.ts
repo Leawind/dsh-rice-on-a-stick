@@ -1,7 +1,7 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 28 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 29 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
@@ -19,12 +19,15 @@
  */
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:net'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
+import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
 import { parseSummary } from '../lib/session/projection.js'
 import { approvalPolicyOfEvents, createApprovalBridge } from '../lib/session/approvals.js'
@@ -38,12 +41,14 @@ import {
   archived,
   archivedSessionIds,
   attachedIds,
+  attachmentCalls,
   checks,
   commandCalls,
   chunkedRequest,
   created,
   disposers,
   fakeLlm,
+  FAKE_PNG,
   fakeSessionController,
   fakeSessionTitle,
   fakeWorkspaceController,
@@ -82,7 +87,7 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 28 个(rice_ 前缀)'] = nativeSchemas.length === 28
+  checks['原生自用工具: 默认注册全部 29 个(rice_ 前缀)'] = nativeSchemas.length === 29
     && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
@@ -98,7 +103,7 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 28
+    && nativeStatusJson.stats?.selfTools === 29
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -141,10 +146,10 @@ try {
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_list', 'session_meta',
-    'session_history',
+    'session_history', 'attachment_read',
     'session_search', 'session_fork', 'session_archive', 'session_unarchive', 'session_archive_list',
     'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
-  checks['tools/list: 精确 28 个工具(会话中心 + 异步/审批/子代理/归档面)'] = toolNames.length === 28
+  checks['tools/list: 精确 29 个工具(会话中心 + 异步/审批/子代理/归档/附件面)'] = toolNames.length === 29
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -618,6 +623,61 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase I2: 图片附件管线 —— 引用式入站(宿主侧读字节)/引用投影/attachment_read ──
+  {
+    const phase = await startPhase(8095, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
+    const tmpDir = mkdtempSync(join(tmpdir(), 'rice-smoke-img-'))
+    const pngPath = join(tmpDir, 'shot.png')
+    writeFileSync(pngPath, FAKE_PNG)
+    writeFileSync(join(tmpDir, 'note.txt'), 'plain text, not an image')
+
+    const imgPrompt = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'look at this screenshot', attachments: [{ path: pngPath }] })
+    checks['图片入站: prompt 携带图片引用成功'] = imgPrompt.status === 200 && innerOf(imgPrompt).error === undefined
+    const lastMsg = followups[followups.length - 1]?.message as any
+    const imgId = lastMsg?.content?.find((c: any) => c.type === 'image')?.attachment?.attachmentId
+    checks['图片入站: 消息 content = text + image 块(引用不传值)'] = typeof imgId === 'string' && imgId.startsWith('img-')
+      && lastMsg.content.filter((c: any) => c.type === 'text').length === 1
+      && !JSON.stringify(lastMsg.content).includes('base64')
+    checks['图片入站: 字节在宿主侧读取并准入'] = attachmentCalls.length === 1
+      && attachmentCalls[0][0].mediaType === 'image/png'
+      && attachmentCalls[0][0].bytes === FAKE_PNG.length
+
+    const badPrompt = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'bad file', attachments: [{ path: join(tmpDir, 'note.txt') }] })
+    checks['图片入站: 非图片文件明确拒绝'] = badPrompt.status === 200
+      && String(innerOf(badPrompt).error ?? '').includes('not a recognized image')
+
+    const submitImg = await phase.call('session_submit', { sessionId: 'sess-live', task: 'second image', attachments: [{ path: pngPath, name: 'two.png' }], requestId: 'rice-img-2' })
+    const submitReceipt = innerOf(submitImg) as any
+    checks['图片入站: submit 回执带 attachmentId 列表'] = Array.isArray(submitReceipt.attachments)
+      && submitReceipt.attachments.length === 1 && typeof submitReceipt.attachments[0] === 'string'
+
+    const hist = await phase.call('session_history', { sessionId: 'sess-live', limit: 12 })
+    const histPayload = innerOf(hist) as any
+    const userWithImages = (histPayload.turns ?? []).filter((t: any) => t.role === 'user' && Array.isArray(t.images))
+    checks['出站投影: history user 条目带 images 引用(无字节)'] = userWithImages.length >= 1
+      && userWithImages.some((t: any) => t.images.some((i: any) => i.attachmentId === imgId))
+      && !JSON.stringify(userWithImages).includes('base64')
+
+    const readRef = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: imgId })
+    const readRefMeta = innerOf(readRef) as any
+    checks['attachment_read: 引用模式 = 元数据 + hostPath, 零图片字节'] = readRef.status === 200
+      && readRefMeta.error === undefined
+      && parsePayload(readRef.text).result?.content?.length === 1
+      && parsePayload(readRef.text).result?.content?.[0]?.type === 'text'
+      && readRefMeta.attachmentId === imgId && String(readRefMeta.hostPath ?? '').includes(imgId)
+
+    const readInline = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: imgId, inline: true })
+    const readInlineBlocks = parsePayload(readInline.text).result?.content ?? []
+    checks['attachment_read: inline 模式回 MCP image 内容块'] = readInline.status === 200
+      && readInlineBlocks[0]?.type === 'image'
+      && readInlineBlocks[0]?.mimeType === 'image/png'
+      && readInlineBlocks[0]?.data === Buffer.from(FAKE_PNG).toString('base64')
+
+    const readMissing = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: 'img-nope' })
+    checks['attachment_read: 未知 id 明确报错'] = String(innerOf(readMissing).error ?? '').includes('not found')
+    await phase.dispose()
+  }
+
   // ── Phase C: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
   {
     const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
@@ -626,10 +686,10 @@ try {
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
-      'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'echo']
+      'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'attachment_read', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 28 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 28
+    checks['原生自用工具: resourceFirst 不影响原生 29 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 29
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
@@ -1027,6 +1087,11 @@ try {
   checks['parseSummary: 无 summary → 空串兜底'] = parseSummary('no json here').changes === ''
   checks['parseSummary: 嵌套对象可解析'] = parseSummary('done {"changes":"c3","meta":{"nested":1}} end').changes === 'c3'
   checks['parseSummary: 字符串里的花括号不干扰配对'] = parseSummary('{"changes":"a}b{c"}').changes === 'a}b{c'
+  checks['sniffImageMediaType: png/jpeg/gif/webp 魔数与拒绝非图'] = sniffImageMediaType(FAKE_PNG) === 'image/png'
+    && sniffImageMediaType(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])) === 'image/jpeg'
+    && sniffImageMediaType(Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) === 'image/gif'
+    && sniffImageMediaType(Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])) === 'image/webp'
+    && sniffImageMediaType(new TextEncoder().encode('plain text')) === undefined
   checks['isWithin: 目录在根内'] = isWithin('/a', '/a/b/c')
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {

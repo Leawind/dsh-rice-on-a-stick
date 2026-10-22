@@ -53,12 +53,13 @@ function deepFreeze<T>(value: T): T {
  * user 消息上的未知 kind 运行时虽被透传, 但已脱契约, 溯源标注也会退化。
  * 传入 requestId 时写成 user-rpc 形状({kind:'user', rpcId}): rpcId 随消息持久化进会话日志,
  * 插件重启后 session_result 仍能按它定位提交对应的 turn(进程内 requests 索引只是加速)。
+ * extraBlocks 追加在文本块之后(图片附件的 image 内容块, 引用不传值)。
  * id 是宿主品牌类型(MessageId), 纯数据构造经 unknown 转换。 */
-export function userMessage(text: string, requestId?: string): UserMessage {
+export function userMessage(text: string, requestId?: string, extraBlocks?: readonly unknown[]): UserMessage {
   return deepFreeze({
     id: randomUUID(),
     role: 'user',
-    content: [{ type: 'text', text }],
+    content: [{ type: 'text', text }, ...(extraBlocks ?? [])],
     source: requestId === undefined ? { kind: 'user' } : { kind: 'user', rpcId: requestId },
   }) as unknown as UserMessage
 }

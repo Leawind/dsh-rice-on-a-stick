@@ -37,6 +37,7 @@ flowchart LR
     -   Creating a new session requires the calling agent to explicitly specify a model and preset.
     -   When continuing an existing session, the session's original model is retained.
     -   A model allowlist can be manually configured so that clients can only use models on the list.
+-   **Image attachments, reference-only** — `session_prompt` / `session_submit` accept images (a host-readable local path or an http(s) URL): bytes are read inside the dsh process, admitted through the official attachment service, and delivered with the message; image data never enters tool arguments or the model context. Read them back with `attachment_read`: by default it returns metadata plus the host-local path (zero image tokens), and multimodal clients can opt into an inline MCP image block (billed as vision tokens, not base64 text).
 -   **Synchronous or asynchronous** — the calling agent can wait for results in place, or submit and come back later; a wait timeout does not interrupt tasks running in dsh, and tasks can be stopped at any time.
 -   **Approval takeover** — approval requests raised in sessions created by the plugin are answered by the calling agent by default, and are no longer shown again in the UI; this can also be changed to UI-first answering, or display-only without takeover.
 -   **dsh can use it too** — these capabilities are also registered as internal dsh tools, callable directly from dsh sessions; they can be disabled in settings if not needed.

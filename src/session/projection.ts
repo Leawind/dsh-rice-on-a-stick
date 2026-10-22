@@ -158,6 +158,52 @@ export function extractTexts(value: unknown, acc: string[] = []): string[] {
   return acc
 }
 
+/** 事件数据里图片引用的投影形状(引用不传值: 只有元数据, 没有字节) */
+export interface ImageRefProjection {
+  attachmentId: string
+  mediaType: string
+  bytes: number
+  width?: number
+  height?: number
+  name?: string
+}
+
+/**
+ * 递归收集事件数据里的 image 内容块引用(attachment_read 的取回键)。
+ * 与 extractTexts 同思路: 只投影元数据; 每次调用最多 max 条(缺省 4), 防止刷图事件撑爆纪要。
+ */
+export function imageRefsOf(value: unknown, max = 4, acc: ImageRefProjection[] = [], seen = new WeakSet<object>()): ImageRefProjection[] {
+  if (acc.length >= max) return acc
+  if (Array.isArray(value)) {
+    for (const x of value) {
+      imageRefsOf(x, max, acc, seen)
+      if (acc.length >= max) break
+    }
+    return acc
+  }
+  if (value === null || typeof value !== 'object') return acc
+  const rec = value as Record<string, unknown>
+  const attachment = rec.attachment as Record<string, unknown> | undefined
+  if (rec.type === 'image' && attachment !== null && typeof attachment === 'object' && typeof attachment.attachmentId === 'string' && attachment.attachmentId) {
+    const ref: ImageRefProjection = {
+      attachmentId: attachment.attachmentId,
+      mediaType: typeof attachment.mediaType === 'string' ? attachment.mediaType : '',
+      bytes: typeof attachment.bytes === 'number' ? attachment.bytes : 0,
+    }
+    if (typeof attachment.width === 'number') ref.width = attachment.width
+    if (typeof attachment.height === 'number') ref.height = attachment.height
+    if (typeof attachment.name === 'string' && attachment.name) ref.name = attachment.name
+    acc.push(ref)
+  }
+  if (seen.has(rec)) return acc
+  seen.add(rec)
+  for (const v of Object.values(rec)) {
+    imageRefsOf(v, max, acc, seen)
+    if (acc.length >= max) break
+  }
+  return acc
+}
+
 export type HistoryRole = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'turn_end'
 
 /**
@@ -177,10 +223,19 @@ export function historyTurnsOf(events: readonly unknown[], limit: number, before
       if (want && !want.has('assistant')) continue
       const d = ev.data as { message?: { content?: { type?: string; text?: string }[] } } | undefined
       const text = (d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
-      if (text.trim()) turns.unshift({ index: i, role: 'assistant', text: clip(text, 600) })
+      const images = imageRefsOf(ev.data)
+      if (text.trim() || images.length > 0) {
+        turns.unshift({ index: i, role: 'assistant', text: clip(text, 600), ...(images.length > 0 ? { images } : {}) })
+      }
     } else if (ev?.type === 'user/message') {
       if (want && !want.has('user')) continue
-      turns.unshift({ index: i, role: 'user', text: clip(extractTexts(ev.data).join('\n'), 200) })
+      const images = imageRefsOf(ev.data)
+      turns.unshift({
+        index: i,
+        role: 'user',
+        text: clip(extractTexts(ev.data).join('\n'), 200),
+        ...(images.length > 0 ? { images } : {}),
+      })
     } else if (ev?.type === 'tool/call') {
       if (want && !want.has('tool_call')) continue
       const d = ev.data as { name?: string; arguments?: string; input?: unknown } | undefined
@@ -188,7 +243,10 @@ export function historyTurnsOf(events: readonly unknown[], limit: number, before
     } else if (ev?.type === 'tool/result') {
       if (want && !want.has('tool_result')) continue
       const texts = extractTexts(ev.data ?? ev).join('\n')
-      if (texts.trim()) turns.unshift({ index: i, role: 'tool_result', text: clip(texts, 300) })
+      const images = imageRefsOf(ev.data ?? ev)
+      if (texts.trim() || images.length > 0) {
+        turns.unshift({ index: i, role: 'tool_result', text: clip(texts, 300), ...(images.length > 0 ? { images } : {}) })
+      }
     } else if (ev?.type === 'turn/end') {
       if (want && !want.has('turn_end')) continue
       const d = ev.data as { turn?: number; reason?: { kind?: string } } | undefined

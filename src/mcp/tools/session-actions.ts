@@ -10,7 +10,8 @@ import type { ModelSelection } from '../../core/types.js'
 import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from '../../session/engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_ARG, projectModel, renderResult } from '../../session/projection.js'
-import { archivedSessionIdsOf, asSessionId, commandsOf, serviceOf } from '../../host/bridge.js'
+import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSessionEvents, serviceOf } from '../../host/bridge.js'
+import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
 import { out, outError, renderUriResult, resolveSessionTarget } from './shared.js'
 
@@ -19,6 +20,14 @@ interface WorkspaceControllerView {
   archiveSession?: (request: { sessionId: string; stopActivity?: boolean }) => Promise<unknown>
   unarchiveSession?: (request: { sessionId: string }) => Promise<unknown>
 }
+
+/** 图片附件参数(session_prompt / session_submit 共用): 引用不传值, 字节在宿主侧读取 */
+const ATTACHMENTS_ARG = z.array(z.object({
+  path: z.string().optional().describe('Image file path readable by the dsh host process (absolute, or relative to the session cwd).'),
+  url: z.string().optional().describe('HTTP(S) URL of the image; the dsh host fetches the bytes (64MB source cap).'),
+  name: z.string().optional().describe('Display name (default: file name or URL tail).'),
+})).max(8).optional()
+  .describe('Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the receipt (session_submit) or session_history (images fields) and can be fetched with attachment_read.')
 
 export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourceFirst: boolean): void {
   mcp.registerTool(
@@ -63,15 +72,16 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
+        attachments: ATTACHMENTS_ARG,
         mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: uri = reference only (the resource points at the session history; read or subscribe to it); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, mode, requestId, detail }, extra) => {
+    async ({ sessionId, task, attachments, mode, requestId, detail }, extra) => {
       try {
-        const result = await promptSession({ ctx, sessionId, task, mode, requestId, signal: extra.signal })
+        const result = await promptSession({ ctx, sessionId, task, mode, attachments, requestId, signal: extra.signal })
         const effDetail = detail ?? (resourceFirst ? 'uri' : state.config.defaultDetail)
         const pendingNote = result.pending === true
           ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
@@ -106,14 +116,15 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; continuing keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
+        attachments: ATTACHMENTS_ARG,
         mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (caller-supplied; generated if omitted). Repeating the same id returns the first receipt.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, mode, requestId }) => {
+    async ({ sessionId, task, attachments, mode, requestId }) => {
       try {
-        const r = await submitSession({ ctx, sessionId, task, mode, requestId })
+        const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
         return out(JSON.stringify({
           ...r,
           resource: resUri.sessionHistory(sessionId),
@@ -445,6 +456,69 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
         }, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: `session_unarchive failed: ${(e as Error)?.message ?? String(e)}` }))
+      }
+    },
+  )
+
+  // 图片附件取回(只读, resourceFirst 下保留——内容访问与 subagent_list 同属控制面):
+  // 默认引用模式(元数据 + 宿主本地路径, 零图片 token); inline=true 额外回 MCP image 内容块(多模态视觉输入)。
+  mcp.registerTool(
+    'attachment_read',
+    {
+      title: 'Read image attachment',
+      description: 'Read one image attachment of a session as a reference (never base64 text): returns its metadata (mediaType, bytes, dimensions, name) plus, when the host stores images on the local filesystem, the host file path. Default mode transfers zero image tokens — use the path locally. Pass inline=true to also return an MCP image content block: multimodal clients turn it into native vision input (~1-2k tokens for a typical screenshot, versus ~350k if base64 were inlined as text). Find attachmentId in session_submit receipts (attachments field), session_prompt confirmations, or session_history entries (images fields).',
+      inputSchema: {
+        sessionId: z.string().optional().describe('Session owning the image (omit only on the native rice_ tools: it targets the calling session).'),
+        attachmentId: z.string().describe('Image attachment id (from a submit receipt, prompt confirmation, or session_history images).'),
+        inline: z.boolean().optional().describe('Also return the image as an MCP image content block for multimodal clients (default false: reference only).'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId, attachmentId, inline }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      try {
+        // 定位引用: live 事件快照优先, 冷会话走官方 inspect(非激活读)
+        const live = ctx.agents.get(asSessionId(target.sessionId))
+        const events = live !== undefined
+          ? eventsOf((live as { session?: unknown }).session ?? live)
+          : await inspectSessionEvents(ctx, asSessionId(target.sessionId))
+        const ref = findImageRefInEvents(events, attachmentId)
+        if (ref === undefined) {
+          return outError(JSON.stringify({
+            error: `attachment "${attachmentId}" not found in session "${target.sessionId}" (it must appear in a message or tool result of that session; check session_history images fields)`,
+          }))
+        }
+        const svc = attachmentsOf(ctx)
+        const hostPath = svc?.imageHostPath?.(ref)
+        const meta = {
+          sessionId: target.sessionId,
+          attachmentId: ref.attachmentId,
+          mediaType: ref.mediaType,
+          bytes: ref.bytes,
+          width: ref.width,
+          height: ref.height,
+          ...(ref.name !== undefined ? { name: ref.name } : {}),
+          ...(hostPath !== undefined && hostPath !== '' ? { hostPath } : {}),
+          note: 'reference mode: zero image tokens; use hostPath on the same machine, or pass inline=true for an MCP image content block',
+        }
+        if (inline !== true) return out(JSON.stringify(meta, null, 2))
+        if (typeof svc?.readImage !== 'function') {
+          return outError(JSON.stringify({ error: 'the host attachments service is unavailable (inline reads need the web profile attachment service)' }))
+        }
+        const stored = await svc.readImage(ref, extra?.signal)
+        // inline 传输面护栏: 超大图拒绝内联(默认引用模式仍可用)
+        if (stored.data.byteLength > 8 * 1024 * 1024) {
+          return outError(JSON.stringify({ error: `image is ${stored.data.byteLength} bytes; inline mode caps at 8MB — use the reference mode (hostPath) instead` }))
+        }
+        return {
+          content: [
+            { type: 'image' as const, data: Buffer.from(stored.data).toString('base64'), mimeType: ref.mediaType },
+            { type: 'text' as const, text: JSON.stringify(meta, null, 2) },
+          ],
+        }
+      } catch (e) {
+        return outError(JSON.stringify({ error: `attachment_read failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

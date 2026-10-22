@@ -390,6 +390,28 @@ export const fakeCommands = {
   },
 }
 
+// ── 图片附件桩(ctx.attachments): 对齐真机契约 —— saveImages 收 {data, mediaType, name} 回
+// ImageAttachmentRef 形状(attachmentId/mediaType/bytes/width/height/name); readImage 回 {ref, data} ──
+export const FAKE_PNG = new Uint8Array(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'))
+export const attachmentCalls = []
+let attachmentSeq = 0
+export const fakeAttachments = {
+  saveImages: async (inputs) => {
+    attachmentCalls.push(inputs.map((x) => ({ mediaType: x.mediaType, name: x.name, bytes: x.data.length })))
+    return inputs.map((x) => ({
+      attachmentId: `img-${++attachmentSeq}`,
+      mediaType: x.mediaType,
+      bytes: x.data.length,
+      width: 1,
+      height: 1,
+      ...(x.name !== undefined ? { name: x.name } : {}),
+    }))
+  },
+  readImage: async (ref) => ({ ref, data: FAKE_PNG }),
+  imageHostPath: (ref) => `C:\\fake\\store\\${ref.attachmentId}.png`,
+}
+
 /**
  * 最小假 ctx: services 里没有的走 undefined。
  * sessionController 只作为同名属性提供(证明 serviceOf 的属性回退可用, 也方便造"没有它"的部署)。
@@ -518,6 +540,7 @@ export function makeCtx(opts: {
     workspaceRegistry: wsRegistry,
     approval: approvalService,
     subagents: fakeSubagents,
+    attachments: fakeAttachments,
     on,
     __fireApproval: fireApproval,
     __fireVolatile: (paths) => {
@@ -536,6 +559,7 @@ export function makeCtx(opts: {
         : name === 'sessionPersistence' ? fakePersistence
           : name === 'approval' ? approvalService
             : name === 'subagents' ? fakeSubagents
+              : name === 'attachments' ? fakeAttachments
 : name === 'tools' ? tools
             : name === 'tokenMeter' ? tokenMeter
             : name === 'commands' ? commands

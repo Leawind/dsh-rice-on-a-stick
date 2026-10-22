@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto'
 import { state } from '../core/state.js'
 import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult, ApprovalPolicy } from '../core/types.js'
 import { canonicalCwd, canonicalWorkdir } from '../core/paths.js'
+import { admitImages, type ImageBlockView, type ImageRefInput } from '../host/attachments.js'
 import { recordRequest, requestOf } from './requests.js'
 import { setApprovalPolicy } from './approvals.js'
 import { buildTurnResult, findRequestTurn, type TurnRange } from './turn.js'
@@ -341,6 +342,11 @@ export interface SubmitOptions {
   /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
   mode?: 'queue' | 'steer'
   /**
+   * 图片附件引用(path/url 二选一, 最多 8 张): 字节由插件在宿主侧读取并经 attachments 服务
+   * 准入为 image 内容块, 与文本同消息投递。引用不传值——图片字节绝不进工具参数/模型上下文。
+   */
+  attachments?: readonly ImageRefInput[]
+  /**
    * 调用方自带的请求 id(幂等键)。重复提交同一个 requestId 不会再次投递,
    * 而是返回首次提交的回执; 省略时插件生成 UUID。
    */
@@ -357,6 +363,8 @@ interface SubmittedTurn {
   record: SessionRequestRecord
   selection: ModelSelection
   preset: string
+  /** 本次随消息投递的 image 内容块(无附件时空数组; 回执里只投影 attachmentId) */
+  attachments: readonly ImageBlockView[]
 }
 
 /**
@@ -373,12 +381,18 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
       throw new Error(`requestId "${requestId}" already belongs to session "${existing.sessionId}"`)
     }
     // 幂等回执: 不再投递第二次
-    return { requestId, messageId: existing.messageId, handle: resolved.handle, record: existing, selection: resolved.selection, preset: resolved.preset }
+    return { requestId, messageId: existing.messageId, handle: resolved.handle, record: existing, selection: resolved.selection, preset: resolved.preset, attachments: [] }
   }
+
+  // 图片附件: 幂等回执不重复准入(同一 requestId 直接回首次结果); 相对 path 以会话 cwd 为基线。
+  // 准入在投递之前: 任一失败整体抛错, 不产生"文字已发、图片没跟上"的半残消息。
+  const attachmentBlocks = opts.attachments !== undefined && opts.attachments.length > 0
+    ? await admitImages(ctx, opts.attachments, { baseDir: resolved.handle.agent.session.header.cwd })
+    : []
 
   // 事件基线: 只读本轮新增事件(公开 API snapshotEvents; 旧宿主回退 log 字段)
   const baseline = eventsOf(resolved.handle.agent.session).length
-  const message = userMessage(task, requestId)
+  const message = userMessage(task, requestId, attachmentBlocks)
   const record: SessionRequestRecord = {
     requestId,
     sessionId,
@@ -399,7 +413,7 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
     if (state.latestRequestBySession.get(sessionId) === record.requestId) state.latestRequestBySession.delete(sessionId)
     throw e
   }
-  return { requestId, messageId: record.messageId, handle: resolved.handle, record, selection: resolved.selection, preset: resolved.preset }
+  return { requestId, messageId: record.messageId, handle: resolved.handle, record, selection: resolved.selection, preset: resolved.preset, attachments: attachmentBlocks }
 }
 
 /** session_submit 的回执(admission, 不是结果) */
@@ -412,6 +426,8 @@ export interface SubmitSessionResult {
   state: 'idle' | 'running'
   model: ModelSelection
   preset: string
+  /** 随消息投递的图片附件 id(attachment_read 的取回键; 无附件时省略) */
+  attachments?: readonly string[]
 }
 
 /**
@@ -429,6 +445,7 @@ export async function submitSession(opts: SubmitOptions): Promise<SubmitSessionR
     state: status === 'running' ? 'running' : 'idle',
     model: submitted.selection,
     preset: submitted.preset,
+    ...(submitted.attachments.length > 0 ? { attachments: submitted.attachments.map((b) => b.attachment.attachmentId) } : {}),
   }
 }
 
@@ -439,6 +456,8 @@ export interface PromptOptions {
   task: string
   /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
   mode?: 'queue' | 'steer'
+  /** 图片附件引用(与 session_submit 同语义: path/url 二选一, 宿主侧读字节, 引用不传值) */
+  attachments?: readonly ImageRefInput[]
   /** 调用方自带的幂等键; 响应丢失时可用它调 session_result 取回结果 */
   requestId?: string
   /** MCP 客户端取消等待(只停止等待, 不停止 turn; 停 turn 用 session_cancel) */
@@ -454,7 +473,7 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
   const { ctx, sessionId, task, mode = 'queue', signal } = opts
   // 还没 admission 就被取消: 不投递。已 admission 后的取消只停止等待(见 awaitIdleOrAbort)。
   if (signal?.aborted) throw new Error('cancelled before submission; no task was sent')
-  const submitted = await submitTurn({ ctx, sessionId, task, mode, requestId: opts.requestId, source: 'prompt' })
+  const submitted = await submitTurn({ ctx, sessionId, task, mode, attachments: opts.attachments, requestId: opts.requestId, source: 'prompt' })
   const { handle, record } = submitted
   // 活动窗口订阅推送: 固定 1s 尾沿节流(hub 侧), 无人订阅时零开销
   const activityTimer = setInterval(() => {
