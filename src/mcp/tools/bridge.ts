@@ -50,7 +50,9 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
       description: 'Invoke one read-only host Remote endpoint by reference (the generic bridge): pass an endpoint from bridge_describe (readOnly=true entries only) and its named wire arguments (see the endpoint\'s contract for parameter keys). Arguments are strictly validated host-side against the generated contract; the result is the same wire JSON the dsh Web UI itself consumes. Read-only endpoints only — mutating host operations are not bridgeable by design.',
       inputSchema: {
         endpoint: z.string().describe('Exact endpoint "namespace/method" (readOnly=true in bridge_describe).'),
-        args: z.record(z.string(), z.unknown()).optional().describe('Named wire arguments of the endpoint (keys per its bridge_describe contract).'),
+        // 不用 z.record: dsh 宿主内插件与 SDK 可能加载两份 zod 实例, 跨实例的 record 处理器在
+        // tools/list 的 JSON-Schema 转换中崩掉(reading 'push'); looseObject 走 object 处理器, 安全
+        args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint (keys per its bridge_describe contract).'),
       },
       annotations: { readOnlyHint: true },
     },
