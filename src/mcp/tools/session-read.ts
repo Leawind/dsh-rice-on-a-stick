@@ -18,6 +18,7 @@ const sessionListOut = z.object({
     title: z.string().optional(),
     cwd: z.string().optional(),
     agentPreset: z.string().optional(),
+    permission: z.string().optional(),
     parentSession: z.string().optional(),
     origin: z.string().optional(),
     delegationDepth: z.number().optional(),
@@ -40,7 +41,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_list',
     {
       title: 'List sessions',
-      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live. Each row carries `archived`: archiving is a soft mark (the UI hides it and the host refuses model steps for it) — pass archived=true to list only archived sessions (or use session_archive_list), archived=false for only active ones, omit for all. Use it to pick a `sessionId` for `session_prompt`, rename, or archive.',
+      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live, and `permission` is derived for live sessions only (no log reads for persisted-only rows). Each row carries `archived`: archiving is a soft mark (the UI hides it and the host refuses model steps for it) — pass archived=true to list only archived sessions (or use session_archive_list), archived=false for only active ones, omit for all. Use it to pick a `sessionId` for `session_prompt`, rename, or archive.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -96,16 +97,17 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     },
   )
 
-  // 会话纪要(只读): 读 live 会话的事件快照, 从最新往回取; 长文本按角色截断省上下文
+  // 会话纪要(只读): 默认只给对话消息(user + assistant), 工具调用过程是 opt-in 噪音;
+  // 长文本按角色截断省上下文
   mcp.registerTool(
     'session_history',
     {
       title: 'Session history',
-      description: 'Read a session\'s conversation digest (user/assistant/tool_call/tool_result/turn_end entries, newest first, text truncated). Live sessions read the in-memory log; persisted-only sessions use the host `sessionController.inspect` non-activating read (does not create an agent; same data path as opening an old session in the UI). `roles` filters to specific entry types (e.g. ["assistant"] to skip tool noise; use tool_call/tool_result for debugging); `beforeIndex` pages further back.',
+      description: 'Read a session\'s conversation digest (user and assistant messages by default — tool calls, tool results and turn boundaries are opt-in via `roles`, so the default view stays cheap in tokens). Newest first, paged back with `beforeIndex`; text is truncated per role. Live sessions read the in-memory log; persisted-only sessions use the host `sessionController.inspect` non-activating read (does not create an agent; same data path as opening an old session in the UI).',
       inputSchema: {
         sessionId: z.string().describe('Session id (from a session_prompt result or session_list; both live and persisted sessions are readable).'),
-        limit: z.number().int().min(1).max(50).optional().describe('Maximum number of turns (default 10).'),
-        roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).optional().describe('Only return these entry types; default = all types.'),
+        limit: z.number().int().min(1).max(50).optional().describe('Maximum number of entries to return, counted after the roles filter (default 10).'),
+        roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).min(1).optional().describe('Entry types to return (default: ["user","assistant"]). Pass tool_call / tool_result for debugging, or turn_end for turn boundaries.'),
         beforeIndex: z.number().int().min(0).optional().describe('Read entries before this event index (paging: pass the earliest index from the previous result).'),
       },
       annotations: { readOnlyHint: true },
@@ -124,7 +126,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_meta',
     {
       title: 'Session info',
-      description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model and reasoning effort, live/idle/running/waiting-approval/inactive, turn and step counters (from turn/start|end and step/start|end), and context occupancy (token meter when the host provides it, otherwise the last logged usage; contextWindow from request/context or the model route). Persisted-only sessions are folded from their log via the host inspector; sessions whose log is unreadable return only the list row (eventsReadable=false).',
+      description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model and reasoning effort, permission preset (`custom` when the sandbox + approval combination matches no preset), live/idle/running/waiting-approval/inactive, turn and step counters (from turn/start|end and step/start|end), and context occupancy (token meter when the host provides it, otherwise the last logged usage; contextWindow from request/context or the model route). Persisted-only sessions are folded from their log via the host inspector; sessions whose log is unreadable return only the list row (eventsReadable=false).',
       inputSchema: {
         sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
       },

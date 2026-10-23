@@ -17,6 +17,7 @@ import {
 } from '../host/bridge.js'
 import { knownSelectionOf } from './engine.js'
 import { pendingApprovalsOf, selectionOfEvents } from './turn.js'
+import { effectivePermissionOf } from './permissions.js'
 
 /** 事件日志里最新的会话标题(session/title 事件; 冷会话也能折出来) */
 export function latestTitleOf(events: readonly unknown[]): string | undefined {
@@ -274,6 +275,8 @@ export async function sessionInsightPayload(
 
   const stats = turnStepStatsOf(events ?? [])
   const context = await contextOccupancyOf(ctx, session, events ?? [], model)
+  // 权限预设: live 会话用宿主推导(含 custom), 冷会话折叠日志里记录的预设
+  const permission = effectivePermissionOf(ctx, live ? session : undefined, events)
 
   return {
     ...row,
@@ -282,6 +285,7 @@ export async function sessionInsightPayload(
     state,
     ...(session?.header?.cwd !== undefined ? { cwd: session.header.cwd } : {}),
     ...(preset !== '' ? { preset } : {}),
+    ...(permission !== undefined ? { permission } : {}),
     ...(model !== undefined ? { model } : {}),
     turn: stats.turn,
     step: stats.step,

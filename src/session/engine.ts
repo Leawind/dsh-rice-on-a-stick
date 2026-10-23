@@ -19,11 +19,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from '../core/state.js'
-import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult, ApprovalPolicy } from '../core/types.js'
+import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult } from '../core/types.js'
 import { canonicalCwd, canonicalWorkdir } from '../core/paths.js'
 import { admitImages, type ImageBlockView, type ImageRefInput } from '../host/attachments.js'
 import { recordRequest, requestOf } from './requests.js'
-import { setApprovalPolicy } from './approvals.js'
+import { assertPermissionAvailable, currentPermissionOf, setPermissionPreset } from './permissions.js'
 import { buildTurnResult, findRequestTurn, type TurnRange } from './turn.js'
 import {
   asSessionId,
@@ -178,8 +178,11 @@ export interface CreateSessionOptions {
   preset: string
   /** 会话标题(缺省由宿主 title 服务在首轮后自动生成) */
   title?: string
-  /** 创建后立即设置的审批策略(可选; ask/never; 服务缺席时静默降级) */
-  approvalPolicy?: ApprovalPolicy
+  /**
+   * 创建后应用的权限预设(可选; 省略 = 宿主默认预设, 由宿主在 session/created 时固定)。
+   * 走 permissionPresets.set(与界面选择器、`/permission` 同源): 写预设记录 + 沙箱/审批两个权威旋钮。
+   */
+  permission?: string
 }
 
 /**
@@ -191,11 +194,15 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
   cwd: string
   selection: ModelSelection
   preset: string
-  approvalPolicy?: ApprovalPolicy
-  approvalPolicyApplied?: boolean
+  /** 生效的权限预设(宿主省略该能力时无) */
+  permission?: string
+  /** 调用方指定的权限预设(仅请求时回报, 供确认实际生效值与请求一致) */
+  permissionRequested?: string
 }> {
-  const { ctx, cwd, selection, title, approvalPolicy } = opts
+  const { ctx, cwd, selection, title, permission } = opts
   const presetName = await resolvePreset(ctx, opts.preset)
+  // 权限预设先校验: 未知预设/服务缺席时不创建半残会话(创建后再失败会留下一个建错的会话)
+  if (permission !== undefined) assertPermissionAvailable(ctx, permission)
   const canonical = await canonicalWorkdir(cwd)
   const newSessionId = asSessionId(randomUUID())
   const handle = await ctx.agents.create({
@@ -210,23 +217,29 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
   })
   const rec: SessionRecord = { sessionId: newSessionId, cwd: canonical, selection, preset: presetName }
   state.sessionRecords.set(String(newSessionId), rec)
-  // 审批策略: 创建后立刻切换(宿主会写 approval/policy 并通知模型); 服务缺席时只降级不阻断建会话
-  const approvalPolicyApplied = approvalPolicy !== undefined
-    ? setApprovalPolicy(ctx, handle.agent, approvalPolicy)
-    : undefined
+  // 权限预设: 创建后立刻应用(与界面在会话建好后切换预设完全同源); 失败时会话已存在, 带上修复路径
+  if (permission !== undefined) {
+    try {
+      setPermissionPreset(ctx, handle.agent.session, permission)
+    } catch (e) {
+      throw new Error(`session "${String(newSessionId)}" was created, but applying permission preset "${permission}" failed: `
+        + `${(e as Error)?.message ?? String(e)}; retry with session_set_permission({ sessionId: "${String(newSessionId)}", permission: "${permission}" })`)
+    }
+  }
   // 分组: 把会话归属到 cwd 对应的工作区(resolveByPath ?? create + attachSession; 可选依赖; headless 环境自动跳过)
   void attachToWorkspace(ctx, canonical, newSessionId)
   // title 命名(可选): 创建会话后立即命名; 不传则由宿主 title 服务在首轮后自动生成
   if (title) renameSessionTitle(ctx, handle.agent.session, title)
   // 会话清单(资源面 dsh://sessions)成员变化 → 合并广播
   state.hooks.notifyListChanged()
+  const effectivePermission = currentPermissionOf(ctx, handle.agent.session)
   return {
     sessionId: String(newSessionId),
     cwd: canonical,
     selection,
     preset: presetName,
-    ...(approvalPolicy !== undefined ? { approvalPolicy } : {}),
-    ...(approvalPolicyApplied !== undefined ? { approvalPolicyApplied } : {}),
+    ...(effectivePermission !== undefined ? { permission: effectivePermission } : {}),
+    ...(permission !== undefined ? { permissionRequested: permission } : {}),
   }
 }
 
@@ -246,8 +259,9 @@ interface ResolvedSession {
  *   2. 冷恢复: 走宿主 sessionController.resolveAgent(界面打开旧会话的同一路径——按会话日志
  *      组装 preset、恢复模型选择、校验子代理归属/写入占用/格式迁移), 插件不自己 resume + 猜模型。
  * 插件记录只保存 cwd/模型/preset 供结果回报, 不持有 agent handle: 会话生命周期归宿主。
+ * 需要会话对象的写操作(权限预设切换)复用同一解析, 保证冷会话与 prompt 走同一条恢复路径。
  */
-async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise<ResolvedSession> {
+export async function resolveSessionForPrompt(ctx: Context, sessionId: string): Promise<ResolvedSession> {
   const sid = asSessionId(sessionId)
 
   // 1. live 接管(不做持久化 resume; 沿用会话原有选择, 想换模型走 session_select_model)

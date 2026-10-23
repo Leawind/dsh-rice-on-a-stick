@@ -6,6 +6,7 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { asSessionId, subagentsOf } from '../../host/bridge.js'
+import { permissionCatalogPayload, permissionPresetsOf } from '../../session/permissions.js'
 import {
   basicStatusSnapshot,
   collectModelCatalog,
@@ -113,6 +114,28 @@ export function registerCatalogTools(
       },
     )
   }
+
+  // 权限预设目录: session_create.permission / session_set_permission 的取值来源。
+  // 与 subagent_list 一样属于控制面发现能力, resourceFirst 部署同样保留(创建会话仍需它)。
+  mcp.registerTool(
+    'permission_list',
+    {
+      title: 'List permission presets',
+      description: 'List the host\'s permission presets — the sandbox + approval bundles the UI\'s permission switcher offers (for example workspace-write = write inside the workspace with approval prompts, danger-full-access = full file access without approval prompts). The values are what `session_create.permission` and `session_set_permission` take; `defaultPreset` is what new sessions inherit. Read-only.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      const svc = permissionPresetsOf(ctx)
+      if (svc === undefined) {
+        return outError(JSON.stringify({ error: 'the host permission-presets service is unavailable (this deployment composes no permission presets)' }))
+      }
+      return out(JSON.stringify({
+        ...(permissionCatalogPayload(svc) ?? { options: [] }),
+        note: 'pass one of `options[].value` to session_create.permission or session_set_permission',
+      }, null, 2))
+    },
+  )
 
   // 原生子代理发现: 只读目录, 不加载也不恢复 child; resourceFirst 下仍保留(控制面能力)
   mcp.registerTool(

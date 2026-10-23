@@ -12,13 +12,16 @@ Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
 Control-plane tools stay available: session_submit / session_poll / session_result
 (async fan-out), approval_list / approval_answer / approval_policy (approval gate),
-subagent_list (native child catalog), session_command (list/run the session's slash
-commands, e.g. /compact), plus session_create / session_cancel / session_select_model.
+permission_list / session_set_permission (permission presets), subagent_list (native
+child catalog), session_command (list/run the session's slash commands, e.g. /compact),
+plus session_create / session_cancel / session_select_model.
 
 Quick start:
 - Read dsh://models before picking a model and dsh://presets for valid preset ids;
-  create a session with session_create (cwd, provider+model pair, preset are all
-  explicit — no defaults are backfilled).
+  permission_list returns the deployment's permission presets (the sandbox + approval
+  bundles the UI shows); create a session with session_create (cwd, provider+model pair,
+  preset are all explicit — no defaults are backfilled; permission is optional and
+  echoes the effective preset).
 - For one task, session_prompt sends a message and waits for the turn to finish,
   returning a uri-level result pointing at dsh://sessions/{id}/history
   (pass detail=summary|normal|full to inline the payload).
@@ -32,7 +35,8 @@ Quick start:
   session_select_model switches the session's model in place.
 - Rosters: dsh://sessions, dsh://presets, dsh://models, dsh://workspaces.
 - dsh://sessions/{id} carries the same per-session metadata session_meta would return
-  (model+reasoning effort, preset, live state, turn/step counters, context occupancy).
+  (model+reasoning effort, agent preset, permission preset, live state, turn/step
+  counters, context occupancy).
 - session_command lists and runs the session's slash commands (the host registry, so
   /compact and plugin commands appear automatically); /compact is idle-only.
 - New to dsh? Read the dsh://guide resource (concept glossary, workflow recipes,

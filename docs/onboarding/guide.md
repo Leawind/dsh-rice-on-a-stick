@@ -54,8 +54,17 @@ you already know.
   With `fallback` (UI first, MCP when nobody can answer) or `exclusive` (MCP only),
   `approval_answer` grants `allowed-once` or `rejected`; unanswered requests fail
   closed when the wait expires. `approval_policy` reads or switches the session's
-  `ask`/`never` policy; `session_create` can set it up front. For unattended runs,
-  `never` is the predictable choice.
+  `ask`/`never` policy knob.
+- **Permission preset** — what the UI's permission switcher shows: a bundle of sandbox
+  mode + approval policy (for example `workspace-write` = write inside the workspace
+  with approval prompts, `danger-full-access` = full file access with no approval
+  prompts). `permission_list` returns the deployment's presets and its default.
+  `session_create.permission` picks one for a new session; `session_set_permission`
+  switches an existing one (they use the same host path as the UI and `/permission`).
+  Changing only the approval knob can leave a sandbox+approval combination that matches
+  no preset — the UI then shows `custom`; switch a named preset instead of stacking
+  knob-level changes. For unattended runs, a full-access preset is the predictable
+  choice.
 - **Image attachments (reference-only)** — `session_prompt` / `session_submit` accept
   `attachments: [{ path | url, name? }]` (png/jpeg/webp/gif, up to 8). Pass a
   host-readable path or an http(s) URL — the plugin reads the bytes inside the dsh
@@ -80,9 +89,10 @@ you already know.
 <!-- section: workflows -->
 ## Workflow recipes
 
-1. **One-off task** — `session_create` (cwd + provider/model pair + preset), then
-   `session_prompt` with the task. The result carries the `sessionId`; pass it back
-   later to continue that conversation (send only the delta).
+1. **One-off task** — `session_create` (cwd + provider/model pair + preset, plus an
+   optional `permission` preset), then `session_prompt` with the task. The result
+   carries the `sessionId`; pass it back later to continue that conversation (send only
+   the delta).
 2. **Keep working in a session** — repeat `session_prompt` with the same `sessionId`.
    The agent remembers previous turns; for a fresh start create a new session.
 3. **Session is busy** — another `session_prompt` with mode=`queue` (default) lines up
@@ -98,10 +108,10 @@ you already know.
 5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title;
    `includeCold: true` also folds persisted-only sessions' titles, at the cost of one
    log read per candidate, and `coldScanMax` raises or lowers the per-call scan budget
-   — default 50, cap 500), `session_meta` for model+reasoning effort, preset, live
+   — default 50, cap 500), `session_meta` for model+reasoning effort, presets, live
    state, turn/step counters and context occupancy, `session_history` for recent turns
-   (pass `roles` to keep only the turn types you need, e.g. `["assistant"]` to skip tool
-   noise), `session_search` to find sessions by content.
+   (a conversation view by default — `roles` adds tool calls or turn boundaries when you
+   are debugging), `session_search` to find sessions by content.
 6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
    `dsh://status[/config|/stats|/connections]`, `dsh://guide[/section]`, `dsh://tools`,
    `dsh://models[/{provider}]`, `dsh://presets`, `dsh://workspaces[/{id}]`,
@@ -118,8 +128,8 @@ you already know.
 8. **Approval gate** — when `session_poll` reports `waiting-approval`, call
    `approval_list` with the session id. If the entry is `answerable`, decide with
    `approval_answer` (allow/reject) and keep polling; otherwise the UI/host owns it.
-   To avoid gates up front, create the session with `approvalPolicy: "never"` or call
-   `approval_policy` on a live session.
+   To avoid gates up front, create the session with a full-access `permission` preset
+   (see `permission_list`) or switch an existing session with `session_set_permission`.
 9. **Native subagents** — `subagent_list({ parentSessionId })` returns direct children
    (recursive=true adds descendants). Then treat each child id like any other session:
    `session_poll`, `session_result`, `session_prompt`. The catalog read is passive;
@@ -145,10 +155,11 @@ you already know.
 |---|---|
 | "provider + model are required" | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
 | "unknown preset" | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset |
+| "unknown permission preset" | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults) |
 | "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_prompt` |
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from `model_list` that appears there |
 | "session is not running" (cancel/queue) | the session has no live agent right now; send a `session_prompt` / `session_submit` first |
-| turn ends `blocked` | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise arrange approval host-side (or `approval_policy: "never"`), then continue via `session_prompt` |
+| turn ends `blocked` | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_prompt` |
 | "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history` |
 | `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
 | `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
@@ -181,6 +192,12 @@ client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
   `model_list`) and a `preset` (from `model_list`'s `presets` / `dsh://presets`);
   resuming a sessionId keeps that session's model and preset. The result tells you
   which model/preset actually answered (`model` / `preset` fields).
+- Permission presets are deployment-defined (`permission_list`). `session_create`
+  echoes the effective `permission` (the host default when you omit it); persisted-only
+  sessions report the preset recorded in the log, while a live session's value comes
+  from the host (`custom` means the current sandbox+approval combination matches no
+  preset). Switching requires the host permission-presets service — deployments without
+  it reject `permission` explicitly and leave permissions to the host defaults.
 - Async request index: the last 200 requests are kept for 6 hours in memory. The
   `requestId` is also persisted on the user message, so an explicit `session_result`
   can rebuild its position from the session log after a restart.

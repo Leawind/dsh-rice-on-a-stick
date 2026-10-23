@@ -19,6 +19,7 @@ import { historyTurnsOf, projectModel, type HistoryRole } from '../session/proje
 import { archivedSessionIdsOf, asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
 import { latestTitleOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
+import { currentPermissionOf } from '../session/permissions.js'
 import { resolve } from 'node:path'
 
 // ── 规范 URI 构造器(资源面注册 / 订阅 / 通知 / 工具结果的 HATEOAS 引用同一来源) ──
@@ -282,6 +283,9 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
     .map((h) => {
       const model = knownSelectionOf(ctx, h.id)
       const title = knownLiveTitle(h.id)
+      // 权限预设只对 live 行推导(宿主投影读取; 冷会话推导需要读日志, 清单面不为它付 I/O)
+      const liveSession = sessions?.get?.(h.id)
+      const permission = liveSession === undefined ? undefined : currentPermissionOf(ctx, liveSession)
       return {
         sessionId: h.id,
         createdAt: h.createdAt,
@@ -289,6 +293,7 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
         ...(title !== undefined ? { title } : {}),
         ...(h.cwd ? { cwd: h.cwd } : {}),
         ...(h.agentPreset ? { agentPreset: h.agentPreset } : {}),
+        ...(permission !== undefined ? { permission } : {}),
         // 原生子代理/分叉的持久谱系字段(SessionHeader 自带; 之前没投影, 外部调用方看不到树)
         ...(h.parentSession !== undefined ? { parentSession: String(h.parentSession) } : {}),
         ...(h.origin !== undefined ? { origin: h.origin } : {}),
@@ -347,8 +352,13 @@ export async function sessionMetaPayload(ctx: Context, sessionId: string): Promi
   return { ...insight, historyReadable: readable }
 }
 
+/** session_history / dsh://sessions/{id}/history 的默认视角: 只给对话消息; 工具调用/轮边界需显式传 roles */
+export const HISTORY_DEFAULT_ROLES: readonly HistoryRole[] = ['user', 'assistant']
+
 /**
  * session_history / dsh://sessions/{id}/history 的共享实现(工具与资源同数据同边界)。
+ * 默认视角只给对话消息(user + assistant)——工具调用过程是 opt-in 噪音(roles 显式传),
+ * 默认调用因此不为工具条目付 token。
  * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
  * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
  */
@@ -368,7 +378,7 @@ export async function sessionHistoryPayload(ctx: Context, sessionId: string, lim
         + 'open the session in the dsh UI, or continue it with session_prompt first')
     }
   }
-  return { sessionId, source: live ? 'live' : 'persisted', totalEvents: events.length, turns: historyTurnsOf(events, limit, beforeIndex, roles) }
+  return { sessionId, source: live ? 'live' : 'persisted', totalEvents: events.length, turns: historyTurnsOf(events, limit, beforeIndex, roles ?? HISTORY_DEFAULT_ROLES) }
 }
 
 /** 活动/事件流面的公共前置: live 校验, 返回 live 会话对象。不可读时抛错。 */

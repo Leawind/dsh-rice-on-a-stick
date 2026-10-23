@@ -28,8 +28,8 @@ test/               冒烟、真机 e2e、UI harness
 
 1.  **零宿主副本（`src/host/bridge.ts`）**：运行时对 `@deepseek-ai/*` 零依赖——类型只在编译期声明合并（构建后擦除），运行时一律经注入的宿主服务访问，避免插件依赖副本与宿主进程内私有 Symbol 错位。推论：宿主没暴露的 API 就是已知限制，不要用 devDependency 破解。
 2.  **会话生命周期归宿主（`src/session/engine.ts`）**：不做池 / LRU / 队列 / 超时——会话创建即常驻，冷会话由宿主恢复（`sessionController.resolveAgent`，与界面打开旧会话同一路径）。插件只记录 cwd / 模型 / preset，不持有 agent handle。
-3.  **模型与 preset 显式契约（`src/session/engine.ts` / `src/core/config.ts`）**：新建会话必须显式指定 `provider` + `model` 与 `preset`，无默认回填；续接沿用会话原值。`allowedModels` 只约束调用方可选范围。
-4.  **投影省上下文（`src/session/projection.ts`）**：内部结果恒为全量，出口按 `detail`（`uri` / `summary` / `normal` / `full`）裁剪。
+3.  **模型与 preset 显式契约（`src/session/engine.ts` / `src/core/config.ts`）**：新建会话必须显式指定 `provider` + `model` 与 `preset`，无默认回填；续接沿用会话原值。`allowedModels` 只约束调用方可选范围。权限同理按宿主的"预设"概念（沙箱模式 + 审批策略捆绑，`src/session/permissions.ts`）：`session_create.permission` / `session_set_permission` 调 `ctx.permissionPresets.set`（与界面切换器、`/permission` 同源），不直接叠审批/沙箱旋钮——旋钮级组合不匹配任何预设时界面显示 `custom`。
+4.  **投影省上下文（`src/session/projection.ts`）**：内部结果恒为全量，出口按 `detail`（`uri` / `summary` / `normal` / `full`）裁剪；会话纪要默认只给对话消息（`HISTORY_DEFAULT_ROLES`），工具调用与轮边界经 `roles` 显式 opt-in。
 5.  **安全边界（`src/mcp/http.ts` / `src/mcp/web.ts`）**：默认只监听本机；Bearer 常数时间比较；Host / Origin 白名单；请求体上限；MCP 面只留 `/mcp`；GUI 写路由以 `Sec-Fetch-Site` 同源门禁为主，兼容桌面壳 origin。
 6.  **审批失败关闭（`src/session/approvals.ts`）**：默认 `exclusive`（审批一律由调用方经 `approval_answer` 回答，界面不再显示同一项）；`fallback` 仅在宿主 answerer 返回 `unavailable` 后接手；`off` 只读展示。没有决定绝不放行；只作用于本插件创建或续接过的会话。
 7.  **Agent 认知面（`src/mcp/onboarding.ts` + `docs/onboarding/`）**：initialize instructions 与 `dsh_get_started` 正文都是英文产品文本，放在 Markdown；加载器在导入期校验节齐全，缺文件/缺节直接让插件启动失败，不静默下发空指南。

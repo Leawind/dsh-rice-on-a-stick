@@ -22,7 +22,8 @@ const WITH_AGENT = process.env.E2E_WITH_AGENT === '1'
 const CWD = process.env.E2E_CWD ?? process.cwd()
 const AGENT_TIMEOUT_MS = Number(process.env.E2E_AGENT_TIMEOUT_MS ?? 180_000)
 const RESUME_SESSION = process.env.E2E_SESSION_ID ?? ''
-const APPROVAL_POLICY = process.env.E2E_APPROVAL_POLICY ?? ''
+// 权限预设(宿主 permission-presets 的预设 id, 如 danger-full-access); 空 = 继承宿主默认
+const PERMISSION_PRESET = process.env.E2E_PERMISSION ?? ''
 
 const findings = []
 function report(name, ok, detail = '') {
@@ -137,14 +138,14 @@ try {
   report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
     `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
   const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
-  report('将工具注册到本dsh实例(全局表可见 31 个 rice_ 工具)', nativeNames.length === 31
+  report('将工具注册到本dsh实例(全局表可见 33 个 rice_ 工具)', nativeNames.length === 33
     && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
   `native=${nativeNames.length}`)
 
   const status = await callTool(sid, 6, 'dsh_status')
   report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
-  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 31,
+  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 33,
     `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
@@ -252,16 +253,20 @@ try {
       }
       const created = await callTool(sid, 30, 'session_create', {
         cwd: CWD, provider, model, preset,
-        ...(APPROVAL_POLICY ? { approvalPolicy: APPROVAL_POLICY } : {}),
+        ...(PERMISSION_PRESET ? { permission: PERMISSION_PRESET } : {}),
       }, 60_000)
       sessionId = String(created.inner?.sessionId ?? '')
       report('session_create 新建会话', sessionId !== '' && created.inner?.preset === preset,
-        `session=${sessionId.slice(0, 8)} model=${JSON.stringify(created.inner?.model)} preset=${created.inner?.preset}`)
-      if (APPROVAL_POLICY) {
-        report('session_create 设置审批策略(宿主 setPolicy)', created.inner?.approvalPolicy === APPROVAL_POLICY
-          && created.inner?.approvalPolicyApplied === true,
-          `policy=${created.inner?.approvalPolicy ?? '?'} applied=${created.inner?.approvalPolicyApplied ?? '?'}`)
+        `session=${sessionId.slice(0, 8)} model=${JSON.stringify(created.inner?.model)} preset=${created.inner?.preset} permission=${created.inner?.permission ?? '(宿主默认)'}`)
+      if (PERMISSION_PRESET) {
+        report('session_create 应用权限预设(宿主 permissionPresets.set)', created.inner?.permission === PERMISSION_PRESET
+          && created.inner?.permissionRequested === PERMISSION_PRESET,
+          `permission=${created.inner?.permission ?? '?'} requested=${created.inner?.permissionRequested ?? '?'}`)
       }
+      const permList = await callTool(sid, 301, 'permission_list', {})
+      report('permission_list 返回宿主预设目录', Array.isArray(permList.inner?.options) && permList.inner.options.length > 0
+        && typeof permList.inner?.defaultPreset === 'string',
+        `options=${(permList.inner?.options ?? []).map((o: any) => o.value).join(',')} default=${permList.inner?.defaultPreset ?? '?'}`)
     } else {
       console.log(`\nagent leg: cold resume of ${sessionId}`)
     }
@@ -282,9 +287,12 @@ try {
       report('一行 JSON 总结解析(changes/verification)', Boolean(prompt.inner.changes || prompt.inner.verification),
         `changes="${String(prompt.inner.changes ?? '').slice(0, 80)}"`)
       report('结果带会话纪要资源引用', String(prompt.inner.resource ?? '').includes(`${sessionId}/history`), String(prompt.inner.resource ?? ''))
-      const approvalPolicy = await callTool(sid, 36, 'approval_policy', { sessionId, action: 'get' })
-      if (APPROVAL_POLICY) {
-        report('approval_policy 读到创建时设置的策略', approvalPolicy.inner?.policy === APPROVAL_POLICY,
+      if (PERMISSION_PRESET) {
+        const meta = await callTool(sid, 36, 'session_meta', { sessionId })
+        report('session_meta 回报权限预设', meta.inner?.permission === PERMISSION_PRESET,
+          `permission=${meta.inner?.permission ?? meta.inner?.error ?? '?'}`)
+        const approvalPolicy = await callTool(sid, 38, 'approval_policy', { sessionId, action: 'get' })
+        report('approval_policy 读取生效策略(预设捆绑的审批旋钮)', typeof approvalPolicy.inner?.policy === 'string' || approvalPolicy.inner?.policy === null,
           `policy=${approvalPolicy.inner?.policy ?? approvalPolicy.inner?.error ?? '?'} live=${approvalPolicy.inner?.live ?? '?'}`)
       }
       const approvalList = await callTool(sid, 37, 'approval_list', { sessionIds: [sessionId] })

@@ -7,9 +7,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { state } from '../../core/state.js'
 import type { ModelSelection } from '../../core/types.js'
-import { cancelSession, createSession, promptSession, queueManage, selectionOf, submitSession } from '../../session/engine.js'
+import { cancelSession, createSession, promptSession, queueManage, resolveSessionForPrompt, selectionOf, submitSession } from '../../session/engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_ARG, projectModel, renderResult } from '../../session/projection.js'
+import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, setPermissionPreset } from '../../session/permissions.js'
 import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSessionEvents, serviceOf } from '../../host/bridge.js'
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
@@ -34,7 +35,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_create',
     {
       title: 'Create session',
-      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` (a pair from `model_list`) and `preset` (from `model_list.presets` / `dsh://presets`) are all required — nothing is backfilled, matching the UI\'s explicit model/preset choice. If `title` is omitted, the host generates one after the first turn.',
+      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` (a pair from `model_list`) and `preset` (from `model_list.presets` / `dsh://presets`) are all required — nothing is backfilled, matching the UI\'s explicit model/preset choice. `permission` selects a permission preset (sandbox + approval bundle; see `permission_list`) — omit it to inherit the host default, which is echoed back as `permission`. If `title` is omitted, the host generates one after the first turn.',
       inputSchema: {
         cwd: z.string().describe('Working directory bound to the session workspace.'),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
@@ -42,24 +43,59 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
         reasoningEffort: z.string().optional().describe('Reasoning effort id (see model_list reasoningEfforts; default = adapter default).'),
         preset: z.string().describe('Agent preset id to mount (required; see model_list.presets / dsh://presets).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
-        approvalPolicy: z.enum(['ask', 'never']).optional().describe('Approval policy to apply after creation (optional): ask = host/UI approval; never = reject operations that need approval (recommended for unattended runs).'),
+        permission: z.string().optional().describe('Permission preset to apply (a sandbox + approval bundle; values from permission_list, e.g. "workspace-write" / "danger-full-access"). Omit to inherit the host default preset. This is the same concept the UI\'s permission switcher shows — prefer it over knob-level approval changes.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ cwd, provider, model, reasoningEffort, preset, title, approvalPolicy }) => {
+    async ({ cwd, provider, model, reasoningEffort, preset, title, permission }) => {
       try {
         const selection = selectionOf({ provider, model, reasoningEffort })
-        const r = await createSession({ ctx, cwd, selection, preset, title, approvalPolicy })
+        const r = await createSession({ ctx, cwd, selection, preset, title, permission })
         return out(JSON.stringify({
           sessionId: r.sessionId,
           cwd: r.cwd,
           model: projectModel(r.selection),
           preset: r.preset,
-          ...(r.approvalPolicy !== undefined ? { approvalPolicy: r.approvalPolicy, approvalPolicyApplied: r.approvalPolicyApplied } : {}),
+          ...(r.permission !== undefined ? { permission: r.permission } : {}),
+          ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
           note: 'blank session created; send work via session_submit (async) or session_prompt (blocking)',
         }, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 权限预设切换(界面 /permission 选择器的服务端语义): 写预设记录 + 沙箱/审批两个权威旋钮,
+  // 修掉旋钮级改动造成的 custom 组合
+  mcp.registerTool(
+    'session_set_permission',
+    {
+      title: 'Switch session permission',
+      description: 'Switch a session\'s permission preset (the UI\'s permission switcher / `/permission`): records the preset and adjusts the sandbox mode and approval policy through their authoritative setters. Use it to fix a session whose permission reads `custom` (a knob-level approval change leaves a combination that matches no preset). Values come from `permission_list`; a cold session is resumed on the same path as session_prompt first. Requires the host permission-presets service.',
+      inputSchema: {
+        sessionId: z.string().describe('Session id to switch.'),
+        permission: z.string().describe('Permission preset id (from permission_list).'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, permission }) => {
+      if (permissionPresetsOf(ctx) === undefined) {
+        return outError(JSON.stringify({ error: 'the host permission-presets service is unavailable (this deployment composes no permission presets)' }))
+      }
+      try {
+        // 先校验预设名(未知预设不激活冷会话), 再解析会话(live 接管 / 官方冷恢复)
+        assertPermissionAvailable(ctx, permission)
+        const resolved = await resolveSessionForPrompt(ctx, sessionId)
+        setPermissionPreset(ctx, resolved.handle.agent.session, permission)
+        state.hooks.notifyListChanged()
+        return out(JSON.stringify({
+          ok: true,
+          sessionId,
+          permission: currentPermissionOf(ctx, resolved.handle.agent.session) ?? permission,
+        }, null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: `session_set_permission failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

@@ -23,7 +23,10 @@ Quick start:
 - If a turn stops on an approval, approval_list shows the pending entries (approvalId,
   toolName, callId, reason, answerable). approval_answer allows/rejects one; this only
   works when the deployment set approvalControl=fallback|exclusive, and only for
-  entries marked answerable. approval_policy reads or switches ask|never.
+  entries marked answerable. approval_policy reads or switches the ask|never knob; for a
+  named permission level (a sandbox + approval bundle, e.g. full access) use
+  permission_list, session_create.permission, or session_set_permission — the same
+  presets the UI's permission switcher shows (knob-only changes can read as `custom`).
 - Native subagents: subagent_list reads a session's child catalog (recursive=true adds
   descendants). Once you have a child sessionId, drive it with the same session tools;
   spawning stays with the host/model-side subagent tools.
@@ -34,8 +37,10 @@ Quick start:
   to scan per call, default 50). Rows carry `archived`: archived=true lists only archived
   sessions (session_archive_list is the same list), session_unarchive restores one —
   archiving is the UI's only delete, and an archived session keeps its readable history.
-  session_meta reports model+reasoning effort, preset, live state, turn/step counters
-  and context occupancy (token meter, else the last logged usage).
+  session_meta reports model+reasoning effort, agent preset, permission preset, live
+  state, turn/step counters and context occupancy (token meter, else the last logged
+  usage); session_history is a conversation view by default (user + assistant — pass
+  roles to include tool calls or turn boundaries).
 - session_command lists the slash commands a live session can run (action=list) and runs
   one without sending it to the model (action=run, e.g. name=compact). Commands come from
   the host registry, so /compact and plugin commands appear automatically; /compact is

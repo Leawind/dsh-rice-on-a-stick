@@ -64,6 +64,7 @@ import {
   mounted,
   openSse,
   parsePayload,
+  permissionPresetCalls,
   PORT,
   rawRequest,
   resolvedAgents,
@@ -89,8 +90,8 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 31 个(rice_ 前缀)'] = nativeSchemas.length === 31
-    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list']
+  checks['原生自用工具: 默认注册全部 33 个(rice_ 前缀)'] = nativeSchemas.length === 33
+    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list', 'rice_permission_list', 'rice_session_set_permission']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_prompt')?.description ?? ''
@@ -105,7 +106,7 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 31
+    && nativeStatusJson.stats?.selfTools === 33
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -147,11 +148,11 @@ try {
   const toolsArr: any[] = parsePayload(toolsList.text).result?.tools ?? []
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-    'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_list', 'session_meta',
+    'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_set_permission', 'session_list', 'session_meta',
     'session_history', 'attachment_read', 'bridge_describe', 'bridge_call',
     'session_search', 'session_fork', 'session_archive', 'session_unarchive', 'session_archive_list',
-    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list']
-  checks['tools/list: 精确 31 个工具(会话中心 + 异步/审批/子代理/归档/附件/通用桥面)'] = toolNames.length === 31
+    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'permission_list']
+  checks['tools/list: 精确 33 个工具(会话中心 + 异步/审批/子代理/归档/附件/权限/通用桥面)'] = toolNames.length === 33
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -193,18 +194,38 @@ try {
   }
 
   // ── session_create ──
-  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', approvalPolicy: 'never' } } })
+  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', permission: 'danger-full-access' } } })
   const mkInner = mk.status === 200 ? innerOf(mk) : { error: 'bad' }
   checks['session_create 返回 sessionId/模型/preset'] = typeof mkInner.sessionId === 'string'
     && mkInner.model?.provider === 'p1' && mkInner.model?.model === 'm1' && mkInner.preset === 'standard'
-  checks['session_create 设置审批策略(approval.setPolicy)'] = mkInner.approvalPolicy === 'never'
-    && mkInner.approvalPolicyApplied === true
-    && approvalPolicyCalls.some((c) => c.id === mkInner.sessionId && c.policy === 'never')
+  // 权限预设: 走宿主 permissionPresets.set(与界面 /permission 同源), 结果回显生效值
+  checks['session_create 应用权限预设(permissionPresets.set)'] = mkInner.permission === 'danger-full-access'
+    && mkInner.permissionRequested === 'danger-full-access'
+    && permissionPresetCalls.some((c) => c.id === mkInner.sessionId && c.preset === 'danger-full-access')
   checks['session_create 走宿主 create(meta.cwd realpath + agentOptions + preset)'] = created.some((c) =>
     c.cwd === FAKE_CWD && c.agentOptions?.provider === 'p1' && c.agentOptions?.model === 'm1' && c.preset === 'standard')
   checks['session_create 挂载 preset'] = mounted.includes('standard')
   checks['session_create 归组到工作区'] = attachedIds.includes(mkInner.sessionId)
   checks['session_create title 经 sessionTitle.rename'] = fakeSessionTitle.renamed.some((r) => r.title === 'smoke 会话')
+
+  // 省略 permission = 继承宿主默认预设(宿主在创建时固定), 且不额外调用 set
+  const mkDefaultPerm = await rpc(init.sid, { jsonrpc: '2.0', id: 115, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } } })
+  const mkDefaultPermInner = mkDefaultPerm.status === 200 ? innerOf(mkDefaultPerm) : { error: 'bad' }
+  checks['session_create 省略 permission 继承宿主默认并回显'] = mkDefaultPermInner.permission === 'workspace-write'
+    && mkDefaultPermInner.permissionRequested === undefined
+    && !permissionPresetCalls.some((c) => c.id === mkDefaultPermInner.sessionId)
+
+  // 未知预设被拒, 且不留下半残会话
+  const createdBeforeBadPerm = created.length
+  const mkBadPerm = await rpc(init.sid, { jsonrpc: '2.0', id: 116, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'nope' } } })
+  checks['session_create 未知权限预设被拒且不建会话'] = String(innerOf(mkBadPerm).error ?? '').includes('unknown permission preset')
+    && created.length === createdBeforeBadPerm
+
+  // 权限预设目录(取值发现面)
+  const pl = await rpc(init.sid, { jsonrpc: '2.0', id: 117, method: 'tools/call', params: { name: 'permission_list', arguments: {} } })
+  const plInner = innerOf(pl)
+  checks['permission_list: 目录/默认预设'] = plInner.defaultPreset === 'workspace-write'
+    && plInner.options?.some((o: any) => o.value === 'danger-full-access' && o.name === 'Full access')
 
   // 参数校验: provider+model 必须成对显式给出(不做默认回填)
   const mkNoModel = await rpc(init.sid, { jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1' } } })
@@ -427,6 +448,9 @@ try {
   const live2Row = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
   checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live'
     && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
+  // 权限预设: live 行经宿主推导; 冷会话行不读日志(字段省略)
+  checks['session_list: live 行回报权限预设'] = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write'
+    && slInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === undefined
   // 标题检索: live 标题在内存里; 冷会话默认不读日志, includeCold 才折叠
   const slTitle = await rpc(init.sid, { jsonrpc: '2.0', id: 53, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live two' } } })
   const slTitleInner = innerOf(slTitle)
@@ -520,6 +544,26 @@ try {
   const metaNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'session_meta', arguments: {} } })
   checks['session_meta: MCP 面省略 sessionId 明确报错'] = String(innerOf(metaNoId).error ?? '').includes('sessionId is required')
 
+  // 权限预设读口径: live 用宿主推导(含 custom), 冷会话折叠日志里记录的预设
+  checks['session_meta: live 权限预设'] = metaLiveInner.permission === 'workspace-write'
+  checks['session_meta: 冷会话折叠权限预设'] = metaColdInner.permission === 'danger-full-access'
+  // 权限预设切换(界面 /permission 的服务端语义): live 直接切, 冷会话先官方恢复
+  const permSetLive = await rpc(init.sid, { jsonrpc: '2.0', id: 571, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'danger-full-access' } } })
+  const permSetLiveInner = innerOf(permSetLive)
+  checks['session_set_permission: live 切换走 permissionPresets.set'] = permSetLiveInner.ok === true
+    && permSetLiveInner.permission === 'danger-full-access'
+    && permissionPresetCalls.some((c) => c.id === 'sess-live' && c.preset === 'danger-full-access')
+  const metaLiveAfterPerm = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 572, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } }))
+  checks['session_set_permission: 切换后 session_meta 反映新预设'] = metaLiveAfterPerm.permission === 'danger-full-access'
+  const permSetBad = await rpc(init.sid, { jsonrpc: '2.0', id: 573, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'nope' } } })
+  checks['session_set_permission: 未知预设被拒'] = String(innerOf(permSetBad).error ?? '').includes('unknown permission preset')
+  const resolvedBefore = resolvedAgents.length
+  const permSetCold = await rpc(init.sid, { jsonrpc: '2.0', id: 574, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-persisted', permission: 'workspace-write' } } })
+  const permSetColdInner = innerOf(permSetCold)
+  checks['session_set_permission: 冷会话先官方恢复再切换'] = permSetColdInner.ok === true
+    && resolvedAgents.length > resolvedBefore
+    && permissionPresetCalls.some((c) => c.id === 'sess-persisted' && c.preset === 'workspace-write')
+
   const sh = await rpc(init.sid, { jsonrpc: '2.0', id: 51, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'] } } })
   checks['session_history 按 roles 取轮次'] = JSON.stringify(innerOf(sh)).includes('"role":"assistant"')
     && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
@@ -527,6 +571,16 @@ try {
   const shCold = await rpc(init.sid, { jsonrpc: '2.0', id: 52, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'] } } })
   checks['session_history 冷会话经官方 inspect 读取'] = innerOf(shCold).source === 'persisted'
     && JSON.stringify(innerOf(shCold)).includes('earlier answer') && inspectedSessions.includes('sess-persisted')
+  // 默认视角: 只给对话消息(user + assistant); 工具调用过程要显式传 roles
+  const shDefault = await rpc(init.sid, { jsonrpc: '2.0', id: 521, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live' } } })
+  const shDefaultInner = innerOf(shDefault)
+  checks['session_history 默认只给对话消息(工具条目 opt-in)'] = Array.isArray(shDefaultInner.turns)
+    && shDefaultInner.turns.length > 0
+    && shDefaultInner.turns.every((t: any) => t.role === 'user' || t.role === 'assistant')
+  const shTools = await rpc(init.sid, { jsonrpc: '2.0', id: 522, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['tool_call'] } } })
+  const shToolsInner = innerOf(shTools)
+  checks['session_history: roles 显式取工具调用'] = shToolsInner.turns.length > 0
+    && shToolsInner.turns.every((t: any) => t.role === 'tool_call')
 
   // ── 资源面: 会话/模型/预设/工作区/status + 订阅 ──
   const sse = openSse(init.sid)
@@ -625,6 +679,26 @@ try {
     updateVolatile(phase.config.selfToolsEnabled, (ConfigSchema({ selfToolsEnabled: false }) as any).selfToolsEnabled)
     phaseCtx.__fireVolatile([['selfToolsEnabled']])
     checks['原生自用工具: volatile 关闭后立即撤销'] = phaseCtx.tools.get('rice_session_create') === undefined
+    await phase.dispose()
+  }
+
+  // ── Phase B4: 无权限预设服务的部署(headless 降级路径) ──
+  {
+    const phase = await startPhase(8094, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, permissionPresets: null }), {})
+    const plOut = await phase.call('permission_list', {})
+    checks['权限预设缺席: permission_list 明确报不可用'] = String(innerOf(plOut).error ?? '').includes('permission-presets service is unavailable')
+    const before = created.length
+    const mkNoPermSvc = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'danger-full-access' })
+    checks['权限预设缺席: 指定 permission 被拒且不建会话'] = String(innerOf(mkNoPermSvc).error ?? '').includes('permission-presets service is unavailable')
+      && created.length === before
+    const mkPlain = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
+    const mkPlainInner = innerOf(mkPlain)
+    checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string'
+      && mkPlainInner.permission === undefined
+    const meta = await phase.call('session_meta', { sessionId: 'sess-live' })
+    checks['权限预设缺席: session_meta 省略 permission 字段'] = innerOf(meta).permission === undefined
+    const setOut = await phase.call('session_set_permission', { sessionId: 'sess-live', permission: 'danger-full-access' })
+    checks['权限预设缺席: session_set_permission 明确报不可用'] = String(innerOf(setOut).error ?? '').includes('permission-presets service is unavailable')
     await phase.dispose()
   }
 
@@ -952,10 +1026,10 @@ try {
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
-      'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
+      'approval_list', 'approval_answer', 'approval_policy', 'permission_list', 'session_set_permission', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 31 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 31
+    checks['原生自用工具: resourceFirst 不影响原生 33 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 33
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')

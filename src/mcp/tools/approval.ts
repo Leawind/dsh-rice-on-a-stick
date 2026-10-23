@@ -58,7 +58,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_policy',
     {
       title: 'Get or set approval policy',
-      description: 'Read or switch a session\'s approval policy (host approval/policy): ask = request approval when needed; never = reject operations that need approval outright (recommended for unattended runs). `get` works for live and cold sessions (cold sessions are folded from the log); `set` requires a live session (or set it at creation with `session_create.approvalPolicy`). The host writes the change to the session log and notifies the model.',
+      description: 'Read or switch a session\'s approval policy knob (host approval/policy): ask = request approval when needed; never = reject operations that need approval outright. `get` works for live and cold sessions (cold sessions are folded from the log); `set` requires a live session. The host writes the change to the session log and notifies the model. Note: this is one knob only — a knob-level change can leave a sandbox + approval combination that matches no permission preset (the UI then shows `custom`). When you want a named permission level (e.g. full access), switch the preset with `session_set_permission` instead.',
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
         action: z.enum(['get', 'set']).describe('get = read the effective policy; set = switch it.'),
@@ -97,7 +97,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
         if (policy === undefined) return outError(JSON.stringify({ error: 'action "set" requires policy (ask|never)' }))
         if (live === undefined) {
           return outError(JSON.stringify({
-            error: `session "${sessionId}" is not live; set approvalPolicy at session_create, or prompt/submit once to activate it, then retry`,
+            error: `session "${sessionId}" is not live; prompt/submit once to activate it, then retry (for a named permission level use session_set_permission, which also resumes cold sessions)`,
           }))
         }
         if (!setApprovalPolicy(ctx, live, policy)) {

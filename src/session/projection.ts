@@ -207,9 +207,10 @@ export function imageRefsOf(value: unknown, max = 4, acc: ImageRefProjection[] =
 export type HistoryRole = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'turn_end'
 
 /**
- * 会话事件 → 轮次纪要(从 newest 往回取 limit 条, 返回时按时间正序排列)。
+ * 会话事件 → 纪要条目(从 newest 往回取 limit 条, 返回时按时间正序排列)。
  * beforeIndex: 只考虑序号小于该值的事件——配合上次结果的最早 index 实现向更早翻页。
- * roles: 只保留命中类型的轮次, limit 按过滤后的条数计数; 缺省 = 全部类型。
+ * roles: 只保留命中类型的条目, limit 按过滤后的条数计数; 缺省 = 全部类型
+ * (工具面与资源面在调用处统一收窄为对话视角, 见 HISTORY_DEFAULT_ROLES)。
  * 事件形状与 executeTask 的解析一致: assistant/message, user/message, tool/call, tool/result, turn/end。
  * 长文本按角色截断, 防止整段历史灌穿调用方上下文。
  */

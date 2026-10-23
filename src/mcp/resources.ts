@@ -129,7 +129,7 @@ function completeLiveSessionIds(ctx: Context) {
   }
 }
 
-/** 读历史的历史轮数(资源面固定档: 与 session_history 工具的默认一致; roles/limit 的细粒度是工具面参数) */
+/** 读历史的历史页大小(资源面固定档: 与 session_history 工具的默认视角一致——对话消息; roles/limit 的细粒度是工具面参数) */
 const HISTORY_PAGE = 10
 
 /**
@@ -296,7 +296,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     },
     complete: { sessionId: completeSessionIds(ctx) },
   }), {
-    title: 'Session metadata', description: 'One session\'s metadata (model/reasoning effort, preset, live state, turn/step counters, context occupancy, historyReadable; same data as session_meta; persisted-only sessions are readable too)',
+    title: 'Session metadata', description: 'One session\'s metadata (model/reasoning effort, preset, permission preset, live state, turn/step counters, context occupancy, historyReadable; same data as session_meta; persisted-only sessions are readable too)',
     mimeType: 'application/json', annotations: ann.data,
   }, (uri, vars) => readSession(uri, vars))
 
@@ -304,7 +304,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     list: async () => ({ resources: await listLiveSessionUris(ctx, 'history') }),
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session history', description: `Session digest (latest ${HISTORY_PAGE} turns, newest first; read {id}/history/{before} for older pages; same data as session_history)`,
+    title: 'Session history', description: `Session conversation digest (latest ${HISTORY_PAGE} entries — user and assistant messages; read {id}/history/{before} for older pages; same data as session_history)`,
     mimeType: 'application/json', annotations: ann.data,
   }, guarded((uri, vars) => readHistory(uri, vars)))
   mcp.registerResource('session-history-page', new ResourceTemplate(resUri.sessions + '/{sessionId}/history/{before}', {
@@ -312,7 +312,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     list: undefined,
     complete: { sessionId: completeLiveSessionIds(ctx) },
   }), {
-    title: 'Session history page', description: `Session digest paging: only events before the {before} index, returning the preceding ${HISTORY_PAGE} turns (pass the earliest index from the previous result)`,
+    title: 'Session history page', description: `Session conversation digest paging: only events before the {before} index, returning the preceding ${HISTORY_PAGE} entries (pass the earliest index from the previous result)`,
     mimeType: 'application/json', annotations: ann.data,
   }, guarded((uri, vars) => readHistory(uri, vars)))
 

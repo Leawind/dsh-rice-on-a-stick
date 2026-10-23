@@ -24,6 +24,9 @@ export const followups = []
 export const searched = []
 // 审批策略切换记录(agent id + policy)
 export const approvalPolicyCalls = []
+// 权限预设切换记录(session id + preset): 与界面 /permission 同源路径的观测点
+export const permissionPresetCalls = []
+const permissionBySession = new Map()
 // 每次 search 是否带上了取消信号(0.2.x 的 Remote search(request, signal) 契约)
 export const searchSignals = []
 export const forked = []
@@ -275,6 +278,8 @@ export const fakeSessionController = {
           { type: 'request/header', data: { header: { config: { provider: 'p1', model: 'm1' } }, reason: 'initial' } },
           // 路由容量(日志口径优先于 llm.resolveModelInfo): ratio 断言用
           { type: 'request/context', data: { provider: 'p1', model: 'm1', contextWindow: 80000 } },
+          // 权限预设: 冷会话只能折叠日志里记录的预设(session_meta.permission)
+          { type: 'permission/preset', data: { preset: 'danger-full-access' } },
           { type: 'user/message', data: { message: { id: 'u-old', role: 'user', content: [{ type: 'text', text: 'earlier question' }] } } },
           {
             type: 'assistant/message',
@@ -346,6 +351,29 @@ export const fakeSessionTitle = {
   rename: (session, title) => {
     fakeSessionTitle.renamed.push({ id: session?.id, title })
     return { title }
+  },
+}
+// 权限预设桩(ctx.permissionPresets): names = 配置预设; catalog = 界面可选项 + 默认预设;
+// current 按会话记最近一次 set(未设置 = 宿主在 session/created 时固定的默认 workspace-write);
+// set 同步记录(真实宿主还会写 permission/preset 事件并调沙箱/审批 setter)
+export const fakePermissionPresets = {
+  names: ['workspace-write', 'danger-full-access'],
+  catalog: () => ({
+    options: [
+      { value: 'workspace-write', name: 'Workspace Write', description: 'Write inside the workspace; wider retries require approval.' },
+      { value: 'danger-full-access', name: 'Full access', description: 'Full file access without approval prompts.' },
+    ],
+    defaultOptions: [
+      { value: 'workspace-write', name: 'Workspace Write', description: 'Write inside the workspace; wider retries require approval.' },
+      { value: 'danger-full-access', name: 'Full access', description: 'Full file access without approval prompts.' },
+    ],
+    defaultPreset: 'workspace-write',
+  }),
+  current: (session) => permissionBySession.get(String(session?.id ?? session?.header?.id ?? '')) ?? 'workspace-write',
+  set: (session, name) => {
+    const id = String(session?.id ?? session?.header?.id ?? '')
+    permissionPresetCalls.push({ id, preset: name })
+    permissionBySession.set(id, name)
   },
 }
 export const fakeLlm = {
@@ -463,10 +491,13 @@ export function makeCtx(opts: {
   configEditor?: any
   tokenMeter?: any
   commands?: any
+  /** 权限预设服务; 传 null 表示该部署没有权限预设(headless 降级路径) */
+  permissionPresets?: any
   extraSessions?: { id: string; cwd?: string }[]
   extraPersisted?: { id: string; cwd?: string }[]
 } = {}): any {
-  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, tokenMeter = fakeTokenMeter, commands = fakeCommands, extraSessions = [], extraPersisted = [] } = opts
+  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, tokenMeter = fakeTokenMeter, commands = fakeCommands, permissionPresets = fakePermissionPresets, extraSessions = [], extraPersisted = [] } = opts
+  const permissionService = permissionPresets === null ? undefined : permissionPresets
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
   const fakeSessions = {
@@ -574,6 +605,7 @@ export function makeCtx(opts: {
     sessionPersistence: fakePersistence,
     workspaceRegistry: wsRegistry,
     approval: approvalService,
+    ...(permissionService !== undefined ? { permissionPresets: permissionService } : {}),
     subagents: fakeSubagents,
     attachments: fakeAttachments,
     typert: fakeTypert,
@@ -596,7 +628,8 @@ export function makeCtx(opts: {
       : name === 'sessions' ? fakeSessions
         : name === 'sessionPersistence' ? fakePersistence
           : name === 'approval' ? approvalService
-            : name === 'subagents' ? fakeSubagents
+            : name === 'permissionPresets' ? permissionService
+              : name === 'subagents' ? fakeSubagents
               : name === 'attachments' ? fakeAttachments
                 : name === 'typert' ? fakeTypert
                   : name === 'typertGateway' ? fakeGateway
