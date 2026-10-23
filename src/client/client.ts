@@ -101,9 +101,8 @@ interface DshModuleSpec {
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
       hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
-      // 通用桥写面: 允许清单("namespace/method", 逗号或空格分隔的文本) + 两段式确认开关
+      // 通用桥写面: 允许清单("namespace/method", 逗号或空格分隔的文本)
       bridgeWriteText: Array.isArray(c.bridgeWriteAllowlist) ? c.bridgeWriteAllowlist.filter(function (v) { return typeof v === 'string' && v; }).join(', ') : '',
-      bridgeTwoStep: c.bridgeTwoStepConfirm === true,
     };
   }
 
@@ -147,8 +146,8 @@ interface DshModuleSpec {
       'approval.fallback': '界面优先，其次调用方',
       'approval.exclusive': '只由调用方回答',
       'approvalTimeout.title': '审批等待上限',
-      'approvalTimeout.hint': '毫秒，1000-600000；超时按失败关闭处理',
-      'approvalTimeout.invalid': '等待上限必须是 1000-600000 之间的数字。',
+      'approvalTimeout.hint': '毫秒，0 表示不限时；其余取 1000-600000，超时按失败关闭处理',
+      'approvalTimeout.invalid': '等待上限须为 0（不限时）或 1000-600000 之间的数字。',
       'ttl.title': 'MCP 传输会话空闲上限',
       'ttl.hint': '毫秒，0 表示永不淘汰',
       'ttl.invalid': '空闲上限必须是不小于 0 的数字。',
@@ -158,8 +157,6 @@ interface DshModuleSpec {
       'bridge.title': '通用桥写允许清单',
       'bridge.hint': '允许经 bridge_call 执行的变更类端点（"namespace/method"，逗号或空格分隔）；留空 = 桥只读。凭据/插件安装类端点永久不可桥',
       'bridge.placeholder': '例如 schedule/update',
-      'twostep.title': '桥写操作两段式确认',
-      'twostep.hint': '开启后变更调用先返回确认令牌，带令牌重发才执行；防的是 agent 误触发',
       'listen.title': '监听地址与端口',
       'footnote': '以上各项在离开输入框或关闭设置时自动生效；生效会重启插件，已连接的 MCP 客户端会短暂断开。',
       'listen.hostRequired': '监听地址不能为空。',
@@ -225,8 +222,8 @@ interface DshModuleSpec {
       'approval.fallback': 'UI first, then caller',
       'approval.exclusive': 'Caller only',
       'approvalTimeout.title': 'Approval wait limit',
-      'approvalTimeout.hint': 'Milliseconds, 1000-600000; times out fail-closed.',
-      'approvalTimeout.invalid': 'The wait limit must be a number between 1000 and 600000.',
+      'approvalTimeout.hint': 'Milliseconds; 0 = wait indefinitely; otherwise 1000-600000. Timeouts fail closed.',
+      'approvalTimeout.invalid': 'The wait limit must be 0 (unlimited) or a number between 1000 and 600000.',
       'ttl.title': 'MCP transport idle TTL',
       'ttl.hint': 'Milliseconds, 0 = never reap.',
       'ttl.invalid': 'The idle TTL must be a number >= 0.',
@@ -236,8 +233,6 @@ interface DshModuleSpec {
       'bridge.title': 'Bridge write allowlist',
       'bridge.hint': 'Mutating endpoints callable through bridge_call ("namespace/method", comma or space separated); empty = read-only bridge. Credential and plugin-install endpoints are permanently refused.',
       'bridge.placeholder': 'e.g. schedule/update',
-      'twostep.title': 'Two-step confirm for bridge writes',
-      'twostep.hint': 'When on, a mutating call first returns a confirm token; resending with it executes. Guards against agent mistakes.',
       'footnote': 'These take effect when you leave the field or close settings; applying restarts the plugin, so connected MCP clients drop briefly.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
@@ -572,7 +567,6 @@ interface DshModuleSpec {
         selfToolsEnabled: next.selfToolsOn === true,
         // 通用桥写面: 文本框按逗号/空白拆分, 服务端做格式校验("namespace/method")
         bridgeWriteAllowlist: String(next.bridgeWriteText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean),
-        bridgeTwoStepConfirm: next.bridgeTwoStep === true,
       };
       if (arguments.length > 1) values.authToken = authToken;
       enqueue({ values: values });
@@ -693,7 +687,8 @@ interface DshModuleSpec {
 
     function readTimeout(draft) {
       const n = Number(draft.approvalTimeoutMs);
-      if (!Number.isFinite(n) || n < 1000 || n > 600000) return { error: t('approvalTimeout.invalid') };
+      // 0 = 不限时; 其余 1000-600000(与服务端钳制同向)
+      if (!Number.isFinite(n) || n < 0 || (n !== 0 && (n < 1000 || n > 600000))) return { error: t('approvalTimeout.invalid') };
       const now = typeof effective().approvalTimeoutMs === 'number' ? effective().approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS;
       return Math.round(n) === now ? {} : { values: { approvalTimeoutMs: Math.round(n) } };
     }
@@ -922,7 +917,7 @@ interface DshModuleSpec {
             React.createElement('input', {
               className: 'dcs-input',
               type: 'number',
-              min: 1000,
+              min: 0,
               max: 600000,
               step: 1000,
               value: d.approvalTimeoutMs,
@@ -969,14 +964,6 @@ interface DshModuleSpec {
             onKeyDown: function (e) { if (e.key === 'Enter') change({}); },
           }),
         ),
-        React.createElement(Row, {
-          label: t('twostep.title'),
-          hint: t('twostep.hint'),
-          control: React.createElement(Switch, {
-            checked: d.bridgeTwoStep,
-            onChange: function (v) { change({ bridgeTwoStep: v }); },
-          }),
-        }),
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },
           React.createElement('div', { className: 'dcs-labels' },
             React.createElement('span', { className: 'dcs-label' }, t('listen.title')),

@@ -102,7 +102,8 @@ export interface ParkedApprovalInfo {
   callId?: string
   reason?: string
   requestedAt: number
-  expiresAt: number
+  /** 扣住的最晚回答时刻(approvalTimeoutMs=0 不限时 → undefined) */
+  expiresAt?: number
 }
 
 /**

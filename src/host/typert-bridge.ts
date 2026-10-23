@@ -8,9 +8,10 @@
  *   身份       connection.createPeer({principal: {kind:'owner'}, interactions:'none'}) ——
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
- * 暴露面 = 人工策展的只读端点白名单(BRIDGE_READ_ENDPOINTS)默认只读; 变更类端点必须同时
- * 通过: 配置的 bridgeWriteAllowlist(部署方预审批) ∧ 非硬编码黑名单 ∧ 非流式 ∧ 参数全部
- * 纯 JSON。读写性宿主不标注——两张白名单都是本插件自己的策展, 逐条人工确认过语义。
+ * 暴露面 = 人工策展的只读端点白名单(BRIDGE_READ_ENDPOINTS)默认只读; 变更类端点两条通路:
+ * 配置的 bridgeWriteAllowlist(部署方预审批, 直行) 或 停泊审批(白名单外的非流式端点, 调用
+ * 挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。硬编码黑名单(凭据/插件安装等)两条
+ * 通路都没有。读写性宿主不标注——白名单与黑名单都是本插件自己的策展, 逐条人工确认过语义。
  * 流式方法(@Remote mode:'stream')不进桥: MCP 工具一次请求一次响应。
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -193,12 +194,14 @@ export interface EndpointClassification {
   endpoint: string
   readOnly: boolean
   writable: boolean
-  /** 不予受理的原因(目录展示与调用报错共用同一措辞) */
-  reason?: 'stream' | 'permanently blacklisted' | 'not allowed: neither read-curated nor in bridgeWriteAllowlist'
+  /** 未入白名单的潜在写端点: 可调用, 但每次调用先停泊等人工在面板审批 */
+  approvalRequired?: boolean
+  /** 不予直行的原因(目录展示与调用报错共用同一措辞) */
+  reason?: 'stream' | 'permanently blacklisted' | 'requires approval'
 }
 
 /**
- * 闸门顺序: 流式 → 读白名单 → 硬编码黑名单 → 写允许清单。
+ * 闸门顺序: 流式 → 读白名单 → 硬编码黑名单 → 写白名单 → 停泊审批。
  * lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析宿主对象
  * (如 agent 参数传会话 id), 桥只透传; 解析失败由网关报清晰错误。
  */
@@ -214,7 +217,8 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
     endpoint,
     readOnly: false,
     writable: false,
-    reason: 'not allowed: neither read-curated nor in bridgeWriteAllowlist',
+    approvalRequired: true,
+    reason: 'requires approval',
   }
 }
 
@@ -233,6 +237,7 @@ export function describeDirectory(ctx: Context): Record<string, unknown> {
       stream: inv.stream,
       readOnly: cls.readOnly,
       writable: cls.writable,
+      ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
       ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
       ...(inv.description !== undefined ? { summary: inv.description.split('.')[0]?.slice(0, 90) } : {}),
     }
@@ -246,9 +251,11 @@ export function describeDirectory(ctx: Context): Record<string, unknown> {
     writable,
     namespaces: [...namespaces.entries()].map(([namespace, methods]) => ({ namespace, methods })),
     note: 'readOnly = callable now (curated read-only allowlist ∧ non-stream ∧ JSON-only parameters). '
-      + 'writable = mutating endpoints opened by the deployment via bridgeWriteAllowlist (hard blacklist always wins; '
-      + 'two-step confirm may apply per config). Pass one endpoint to bridge_describe for its exact contract. '
-      + 'Endpoints with neither flag stay unexposed.',
+      + 'writable = whitelisted mutating endpoints (execute directly; the hard blacklist always wins). '
+      + 'Endpoints with approvalRequired (blockedBy "requires approval") are callable but each call parks '
+      + 'until a human allows or declines the write on this deployment\'s settings panel — decline, timeout '
+      + '(approvalTimeoutMs, 0 = unlimited) and caller disconnect all fail closed. '
+      + 'Pass one endpoint to bridge_describe for its exact contract. Stream endpoints stay unexposed.',
   }
 }
 
@@ -264,6 +271,7 @@ export function describeEndpoint(ctx: Context, endpoint: string): Record<string,
     stream: inv.stream,
     readOnly: cls.readOnly,
     writable: cls.writable,
+    ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
     ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
     parameters: inv.parameters.map((p) => ({
       wire: p.wire,
@@ -323,24 +331,24 @@ export async function disposeBridgePeer(): Promise<void> {
   }
 }
 
-/** 一次桥调用的三种结局: 成功 / 拒绝 / 两段式确认的回执(未执行) */
+/** 一次桥调用的两种结局: 成功 / 拒绝(含审批拒绝、超时、断连等失败关闭) */
 export type BridgeCallOutcome =
   | { ok: true; result: unknown }
   | { ok: false; error: string }
-  | { requiresConfirmation: true; confirmToken: string; endpoint: string; note: string }
 
 /**
- * 桥调用入口: 只读端点直接执行; 变更类端点须在 bridgeWriteAllowlist 里(黑名单永久拒绝),
- * 两段式确认开启时首调只返回确认令牌, 带令牌重发才真正执行。
+ * 桥调用入口: 只读端点与白名单内的变更类端点直接执行; 白名单外的非流式端点不停留在拒绝——
+ * 先停泊(settling 面板审批卡), 阻塞本次调用等人工应答, 允许才执行;
+ * 拒绝 / 超时(approvalTimeoutMs, 0 = 不限时) / 调用方断开一律失败关闭, 什么都不执行。
  * 参数校验由网关做(具名参数严格匹配), 这里只做端点级闸门与服务可达性检查。
  */
 export async function invokeOnBridge(
   ctx: Context,
   endpoint: string,
   args: Record<string, unknown>,
-  opts: { confirm?: string; signal?: AbortSignal } = {},
+  opts: { signal?: AbortSignal } = {},
 ): Promise<BridgeCallOutcome> {
-  const { confirm, signal } = opts
+  const { signal } = opts
   const slash = endpoint.indexOf('/')
   const namespace = slash > 0 ? endpoint.slice(0, slash) : ''
   const method = slash > 0 ? endpoint.slice(slash + 1) : ''
@@ -356,36 +364,7 @@ export async function invokeOnBridge(
     return { ok: false, error: `unknown endpoint "${endpoint}" — call bridge_describe first and pass an endpoint from the directory` }
   }
   const cls = classifyInvocation(inv)
-  if (cls.writable) {
-    // 变更类端点: 两段式确认开启时, 首调只发确认令牌(不执行), 带令牌重发才真正执行
-    const argsKey = stableJsonOf(args)
-    if (state.config.bridgeTwoStepConfirm) {
-      if (confirm === undefined) {
-        const token = randomUUID()
-        pendingWrites.set(token, { endpoint, args, argsKey, expiresAt: Date.now() + PENDING_TTL_MS })
-        return {
-          requiresConfirmation: true,
-          confirmToken: token,
-          endpoint,
-          note: `NOT executed. Two-step confirm is on: resend bridge_call with confirm="${token}" (same args) within ${Math.round(PENDING_TTL_MS / 1000)}s to execute. The token is single-use.`,
-        }
-      }
-      const pending = pendingWrites.get(confirm)
-      if (pending === undefined || pending.endpoint !== endpoint) {
-        return { ok: false, error: 'unknown or expired confirm token — start over with a plain bridge_call to get a fresh token' }
-      }
-      if (Date.now() > pending.expiresAt) {
-        pendingWrites.delete(confirm)
-        return { ok: false, error: 'the confirm token has expired — start over with a plain bridge_call' }
-      }
-      if (stableJsonOf(args) !== pending.argsKey) {
-        // 校验失败不消费令牌: 调用方修正 args 后可用同一令牌重试
-        return { ok: false, error: 'the confirm token was issued for different args — resend with exactly the confirmed args' }
-      }
-      pendingWrites.delete(confirm)
-      args = pending.args
-    }
-  } else if (!cls.readOnly) {
+  if (!cls.readOnly && !cls.writable && cls.approvalRequired !== true) {
     return { ok: false, error: `"${endpoint}" is not bridge-callable in this deployment (blocked by: ${cls.reason ?? 'policy'})` }
   }
   const gw = gatewayOf(ctx)
@@ -394,6 +373,11 @@ export async function invokeOnBridge(
   }
   const peer = bridgePeerOf(ctx)
   if ('error' in peer) return { ok: false, error: peer.error }
+  // 白名单外的写: 停泊等面板审批, 允许才落到网关(可达性检查已过, 停泊不会白等)
+  if (cls.approvalRequired === true) {
+    const verdict = await parkBridgeWrite(endpoint, args, signal)
+    if (verdict !== 'allowed') return { ok: false, error: bridgeWriteDeclineError(verdict, endpoint) }
+  }
   try {
     // 同样在服务对象上调用(invoke 依赖 this)
     const result = await gw.invoke({ namespace, method, args, peer: peer.peer, ...(signal !== undefined ? { signal } : {}) })
@@ -403,33 +387,131 @@ export async function invokeOnBridge(
   }
 }
 
-// ── 两段式确认的在途状态(进程内, 单次有效, TTL 过期; 插件卸载时清空) ──
+// ── 桥写停泊审批(进程内台账): 白名单外的变更类调用挂在这, 等设置面板的审批卡人工应答 ──
+// 与会话审批(session/approvals.ts)相互独立: 那边锚定宿主会话的 approval/request waterfall,
+// 这边没有会话上下文, 进不了宿主审批面, 所以台账与应答通道都在本插件自己手里。
+// 结局词表: allowed 唯一放行; rejected/timeout/cancelled 全部失败关闭。
 
-interface PendingWrite {
+type BridgeWriteVerdict = 'allowed' | 'rejected' | 'timeout' | 'cancelled'
+
+export interface BridgeWriteApprovalInfo {
+  approvalId: string
   endpoint: string
+  /** 展示用参数摘要(JSON, 截断) */
+  argsPreview: string
+  requestedAt: number
+  /** 停泊的最晚应答时刻(approvalTimeoutMs=0 不限时 → undefined) */
+  expiresAt?: number
+}
+
+interface ParkedBridgeWrite extends BridgeWriteApprovalInfo {
   args: Record<string, unknown>
-  argsKey: string
-  expiresAt: number
-}
-const pendingWrites = new Map<string, PendingWrite>()
-export const PENDING_TTL_MS = 120_000
-
-/** 测试钩子(smoke 专用): 把所有在途确认令牌的过期时间前移 ms 毫秒, 模拟时间流逝, 不改变生产行为 */
-export function ageBridgePendingForTest(ms: number): void {
-  for (const p of pendingWrites.values()) p.expiresAt -= ms
+  settled: boolean
+  timer?: ReturnType<typeof setTimeout>
+  signal?: AbortSignal
+  onAbort?: () => void
+  settle: (verdict: BridgeWriteVerdict) => void
 }
 
-/** 稳定 JSON 序列化(键排序): args 相等性比较用 */
-function stableJsonOf(value: unknown): string {
-  return JSON.stringify(value, (_key, v) => {
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-    }
-    return v
-  })
+const pendingBridgeWrites = new Map<string, ParkedBridgeWrite>()
+
+/** 参数摘要上限(审批卡展示; 完整 args 只留在内存, 不进任何持久面) */
+const ARGS_PREVIEW_CAP = 600
+
+function argsPreviewOf(args: Record<string, unknown>): string {
+  let json: string
+  try {
+    json = JSON.stringify(args) ?? 'undefined'
+  } catch {
+    json = String(args)
+  }
+  return json.length > ARGS_PREVIEW_CAP ? json.slice(0, ARGS_PREVIEW_CAP) + '…' : json
 }
 
-/** 插件卸载时清空在途确认(index.ts 的清理 effect 调用) */
+/** 停泊一次写调用并等待应答; 有限时时到点判超时, 调用方 signal 中止判取消 */
+function parkBridgeWrite(
+  endpoint: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+): Promise<BridgeWriteVerdict> {
+  if (signal?.aborted === true) return Promise.resolve('cancelled')
+  const timeoutMs = state.config.approvalTimeoutMs
+  const requestedAt = Date.now()
+  const entry: ParkedBridgeWrite = {
+    approvalId: randomUUID(),
+    endpoint,
+    argsPreview: argsPreviewOf(args),
+    requestedAt,
+    ...(timeoutMs > 0 ? { expiresAt: requestedAt + timeoutMs } : {}),
+    args,
+    settled: false,
+    // 先占位再赋值(闭包里引用 entry, 不能写在对象字面量里)
+    settle: () => {},
+  }
+  const promise = new Promise<BridgeWriteVerdict>((resolve) => { entry.settle = resolve })
+  if (timeoutMs > 0) {
+    entry.timer = setTimeout(() => settleBridgeWrite(entry, 'timeout'), timeoutMs)
+  }
+  if (signal !== undefined) {
+    entry.signal = signal
+    entry.onAbort = () => settleBridgeWrite(entry, 'cancelled')
+    signal.addEventListener('abort', entry.onAbort, { once: true })
+  }
+  pendingBridgeWrites.set(entry.approvalId, entry)
+  return promise
+}
+
+function settleBridgeWrite(entry: ParkedBridgeWrite, verdict: BridgeWriteVerdict): void {
+  if (entry.settled) return
+  entry.settled = true
+  if (pendingBridgeWrites.get(entry.approvalId) === entry) pendingBridgeWrites.delete(entry.approvalId)
+  if (entry.timer !== undefined) clearTimeout(entry.timer)
+  if (entry.signal !== undefined && entry.onAbort !== undefined) {
+    entry.signal.removeEventListener('abort', entry.onAbort)
+  }
+  entry.settle(verdict)
+}
+
+/** 在途桥写审批(设置面板审批卡的数据源; 先停泊的在前) */
+export function listBridgeWriteApprovals(): BridgeWriteApprovalInfo[] {
+  return [...pendingBridgeWrites.values()].map((p) => ({
+    approvalId: p.approvalId,
+    endpoint: p.endpoint,
+    argsPreview: p.argsPreview,
+    requestedAt: p.requestedAt,
+    ...(p.expiresAt !== undefined ? { expiresAt: p.expiresAt } : {}),
+  }))
+}
+
+/** 面板审批卡的人工应答: allow 一次放行一次, reject 失败关闭; 未停泊的 id 给出可诊断原因 */
+export function answerBridgeWriteApproval(approvalId: string, decision: 'allow' | 'reject'): { ok: true } | { ok: false; error: string } {
+  const entry = pendingBridgeWrites.get(approvalId)
+  if (entry === undefined) {
+    return { ok: false, error: `no pending bridge-write approval "${approvalId}" (already answered, expired, or unknown id)` }
+  }
+  settleBridgeWrite(entry, decision === 'allow' ? 'allowed' : 'rejected')
+  return { ok: true }
+}
+
+/** 非放行结局的失败关闭报错(模型可见, 措辞与目录/配置说明同一口径) */
+function bridgeWriteDeclineError(verdict: Exclude<BridgeWriteVerdict, 'allowed'>, endpoint: string): string {
+  if (verdict === 'rejected') {
+    return `the bridge write to "${endpoint}" was declined by the human reviewer; nothing was executed`
+  }
+  if (verdict === 'timeout') {
+    return `the bridge write approval for "${endpoint}" timed out after ${state.config.approvalTimeoutMs} ms and failed closed (nothing was executed; set approvalTimeoutMs=0 to wait indefinitely)`
+  }
+  return `the caller disconnected while the bridge write to "${endpoint}" awaited approval; nothing was executed`
+}
+
+/** 测试钩子(smoke 专用): 把全部在途写审批的过期时间前移 ms 毫秒, 模拟时间流逝, 不改变生产行为 */
+export function ageBridgeWriteApprovalsForTest(ms: number): void {
+  for (const p of pendingBridgeWrites.values()) {
+    if (p.expiresAt !== undefined) p.expiresAt -= ms
+  }
+}
+
+/** 插件卸载时清空在途审批(全部失败关闭; index.ts 的清理 effect 调用) */
 export function resetBridgePending(): void {
-  pendingWrites.clear()
+  for (const entry of [...pendingBridgeWrites.values()]) settleBridgeWrite(entry, 'cancelled')
 }

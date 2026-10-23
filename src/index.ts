@@ -147,7 +147,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         approvalControl: state.config.approvalControl,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
         bridgeWriteAllowlist: state.config.bridgeWriteAllowlist,
-        bridgeTwoStepConfirm: state.config.bridgeTwoStepConfirm,
       },
       stats: {
         connections: httpServer?.connections().length ?? 0,
@@ -209,7 +208,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       approvalBridge.dispose()
       httpServer?.dispose()
       hub.dispose()
-      // 通用桥的调用方身份(peer)与在途写确认随插件卸载释放
+      // 通用桥的调用方身份(peer)与在途写审批随插件卸载释放(在途审批全部失败关闭)
       void disposeBridgePeer()
       resetBridgePending()
     }

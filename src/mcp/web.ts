@@ -176,12 +176,12 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是结构性字段, 写入后重载) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
-/** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先/桥两段式确认; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst', 'bridgeTwoStepConfirm'])
-/** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳) */
-const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1, approvalTimeoutMs: 1000 }
+/** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先; 关闭均不清除对应值) */
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst'])
+/** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳; approvalTimeoutMs 有专用分支: 0 = 不限时) */
+const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 /** 数字字段 → 上限(与 config.ts / apply 的钳制保持一致) */
-const GUI_NUMBER_MAX: Record<string, number> = { approvalTimeoutMs: 600_000, port: 65535 }
+const GUI_NUMBER_MAX: Record<string, number> = { port: 65535 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
 const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
 /** approvalControl 合法枚举(与 config.ts schema 一致) */
@@ -195,7 +195,7 @@ const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
  */
 const GUI_VOLATILE_FIELDS = new Set([
   'allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled',
-  'bridgeWriteAllowlist', 'bridgeTwoStepConfirm',
+  'bridgeWriteAllowlist',
 ])
 
 /** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
@@ -224,6 +224,12 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
     } else if (GUI_BOOL_FIELDS.has(key)) {
       if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
       out[key] = value
+    } else if (key === 'approvalTimeoutMs') {
+      // 专用分支: 0 = 不限时放行; 其余必须是 1000-600000(与 apply 钳制同向)
+      const n = typeof value === 'number' ? value : Number(value)
+      if (!Number.isFinite(n) || n < 0) throw httpError(400, 'approvalTimeoutMs 必须是不小于 0 的数字')
+      if (n !== 0 && (n < 1000 || n > 600_000)) throw httpError(400, 'approvalTimeoutMs 必须是 0(不限时)或 1000-600000 之间的数字')
+      out[key] = n
     } else if (key in GUI_NUMBER_MIN) {
       const n = typeof value === 'number' ? value : Number(value)
       const min = GUI_NUMBER_MIN[key]

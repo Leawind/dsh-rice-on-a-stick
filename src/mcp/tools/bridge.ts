@@ -1,5 +1,5 @@
 /**
- * 通用桥工具(读面): bridge_describe(渐进式发现) + bridge_call(只读白名单调用)。
+ * 通用桥工具(读面 + 审批门控的写面): bridge_describe(渐进式发现) + bridge_call。
  * 长尾宿主能力的零策展覆盖面——数据源与调用机制见 src/host/typert-bridge.ts。
  * 两工具恒注册(不随 resourceFirst 下线): 它们描述/调用的是宿主服务面, 没有资源面等价物。
  */
@@ -17,7 +17,7 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
     'bridge_describe',
     {
       title: 'Describe host bridge surface',
-      description: 'Progressive discovery of the host-service bridge (the generic escape hatch beyond this plugin\'s curated tools). Omit endpoint for the compact directory: every live host Remote endpoint grouped by namespace, each with readOnly (callable now: curated read-only allowlist, non-stream, JSON-only parameters) and writable (mutating endpoints opened by the deployment via its bridgeWriteAllowlist) flags. Pass one endpoint ("namespace/method") for its exact contract: parameter list (wire keys, required, descriptions) and the result JSON Schema. Start here before bridge_call.',
+      description: 'Progressive discovery of the host-service bridge (the generic escape hatch beyond this plugin\'s curated tools). Omit endpoint for the compact directory: every live host Remote endpoint grouped by namespace, each with readOnly (callable now: curated read-only allowlist, non-stream, JSON-only parameters) and writable (whitelisted mutating endpoints, execute directly) flags; other non-stream endpoints carry approvalRequired — bridge_call parks them for a human decision on this deployment\'s settings panel. Pass one endpoint ("namespace/method") for its exact contract: parameter list (wire keys, required, descriptions) and the result JSON Schema. Start here before bridge_call.',
       inputSchema: {
         endpoint: z.string().optional().describe('Exact endpoint "namespace/method" from the directory; omit for the compact directory.'),
       },
@@ -47,21 +47,17 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
     'bridge_call',
     {
       title: 'Call a host endpoint through the bridge',
-      description: 'Invoke one host Remote endpoint by reference (the generic bridge): pass an endpoint from bridge_describe and its named wire arguments (see the endpoint\'s contract for parameter keys). Read-only endpoints (readOnly=true) execute directly. Mutating endpoints execute only if the deployment listed them in bridgeWriteAllowlist (hard blacklist always wins); when two-step confirm is enabled, the first call returns a confirmToken instead of executing — resend with confirm to execute. Arguments are strictly validated host-side against the generated contract; results are the same wire JSON the dsh Web UI consumes.',
+      description: 'Invoke one host Remote endpoint by reference (the generic bridge): pass an endpoint from bridge_describe and its named wire arguments (see the endpoint\'s contract for parameter keys). Read-only endpoints and whitelisted mutating endpoints (bridgeWriteAllowlist) execute directly; the hard blacklist always wins. Any other non-stream endpoint parks the call until a human allows or declines the write on this deployment\'s settings panel (the call blocks in the meantime) — decline, timeout (approvalTimeoutMs, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed. Arguments are strictly validated host-side against the generated contract; results are the same wire JSON the dsh Web UI consumes.',
       inputSchema: {
-        endpoint: z.string().describe('Exact endpoint "namespace/method" (readOnly=true or writable=true in bridge_describe).'),
+        endpoint: z.string().describe('Exact endpoint "namespace/method" (readOnly=true, writable=true, or approvalRequired in bridge_describe).'),
         // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器
         args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint (keys per its bridge_describe contract).'),
-        confirm: z.string().optional().describe('Confirm token from a previous two-step response (only when the deployment enabled bridgeTwoStepConfirm). Single-use; binds to the same endpoint and args.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ endpoint, args, confirm }, extra) => {
+    async ({ endpoint, args }, extra) => {
       try {
-        const r = await invokeOnBridge(ctx, endpoint, args ?? {}, { confirm, signal: extra?.signal })
-        if ('requiresConfirmation' in r) {
-          return out(JSON.stringify(r, null, 2))
-        }
+        const r = await invokeOnBridge(ctx, endpoint, args ?? {}, { signal: extra?.signal })
         if (!r.ok) return outError(JSON.stringify({ error: r.error }))
         let rendered: string
         try {

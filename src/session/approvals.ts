@@ -172,7 +172,8 @@ export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridg
       ...(request.callId !== undefined ? { callId: request.callId } : {}),
       ...(request.reason !== undefined ? { reason: request.reason } : {}),
       requestedAt,
-      expiresAt: requestedAt + timeoutMs,
+      // 不限时(timeoutMs=0)不给过期时刻, 也不设超时定时器
+      ...(timeoutMs > 0 ? { expiresAt: requestedAt + timeoutMs } : {}),
       promise,
       resolve: resolvePromise,
       settled: false,
@@ -180,7 +181,7 @@ export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridg
       timer: undefined as unknown as ReturnType<typeof setTimeout>,
       settle: (outcome, why) => settle(entry, outcome, why),
     }
-    entry.timer = setTimeout(() => settle(entry, 'unavailable', 'timeout'), timeoutMs)
+    if (timeoutMs > 0) entry.timer = setTimeout(() => settle(entry, 'unavailable', 'timeout'), timeoutMs)
     if (request.signal !== undefined) {
       entry.signal = request.signal
       entry.onAbort = () => settle(entry, 'cancelled', 'aborted')
