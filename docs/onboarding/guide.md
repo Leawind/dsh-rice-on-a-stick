@@ -65,16 +65,17 @@ you already know.
   fields); `attachment_read` returns metadata plus the host file path (zero image
   tokens), and `inline: true` adds an MCP image content block for multimodal clients.
 - **Generic bridge** — `bridge_describe` lists every live host Remote endpoint
-  (grouped by namespace, with `readOnly` / `writable` flags); pass one endpoint for
-  its exact contract (named wire parameters + result JSON Schema). `bridge_call`
-  invokes an endpoint by reference with named `args` — use the wire keys from the
-  contract; parameters the host resolves itself (e.g. an agent parameter) take the
-  session id as their wire value, and the gateway resolves them. `readOnly` endpoints
-  run directly; `writable` ones exist only when the deployment listed them in
-  `bridgeWriteAllowlist` (and a hard blacklist — credentials, plugin installs —
-  always wins). With two-step confirm enabled, a mutating call first returns a
-  `confirmToken` instead of executing; resend with `confirm` to run it. Use the
-  bridge for the long tail of host capabilities the curated tools do not cover.
+  (grouped by namespace, with `readOnly` / `writable` flags and `approvalRequired`
+  for the rest); pass one endpoint for its exact contract (named wire parameters +
+  result JSON Schema). `bridge_call` invokes an endpoint by reference with named
+  `args` — use the wire keys from the contract; parameters the host resolves itself
+  (e.g. an agent parameter) take the session id as their wire value, and the gateway
+  resolves them. `readOnly` and `writable` (whitelisted) endpoints run directly; any
+  other non-stream endpoint parks the call until a human answers on the deployment's
+  settings panel — decline, timeout (`approvalTimeoutMs`, 0 = wait indefinitely) and
+  caller disconnect all fail closed with nothing executed, and a hard blacklist
+  (credentials, plugin installs) has no approval path at all. Use the bridge for the
+  long tail of host capabilities the curated tools do not cover.
 
 <!-- section: workflows -->
 ## Workflow recipes
@@ -129,11 +130,13 @@ you already know.
     hand it to `attachment_read` (add `inline: true` only for multimodal read-back).
 11. **Reach a capability the curated tools lack** — `bridge_describe` (no args) for the
     directory, `bridge_describe { endpoint }` for the contract, `bridge_call
-    { endpoint, args }` to execute. If the call is refused with
-    `not allowed: neither read-curated nor in bridgeWriteAllowlist`, that endpoint is
-    not opened in this deployment — do not retry it; the deployment adjusts
-    `bridgeWriteAllowlist` if needed. A `requiresConfirmation` response is the normal
-    two-step flow: resend with the given `confirm` token (same args) to execute.
+    { endpoint, args }` to execute. Whitelisted writes run at once; other non-stream
+    endpoints park the call until a human allows it on the deployment's settings panel
+    (the tool call blocks in the meantime) — if the human declines, or the wait times
+    out, or you disconnect, nothing is executed and the error says so. Blacklisted
+    endpoints (credentials, plugin installs) are refused outright: do not retry them;
+    ask the deployment to adjust `bridgeWriteAllowlist` if a write should run without
+    per-call approval.
 
 <!-- section: errors -->
 ## Error → alternative path
@@ -150,9 +153,9 @@ you already know.
 | `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
 | `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
 | "not a recognized image" | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet |
-| "not bridge-callable" / `blockedBy` | the endpoint is not opened in this deployment (stream / non-JSON parameter / blacklist / not in `bridgeWriteAllowlist`); pick another endpoint from `bridge_describe` |
-| `requiresConfirmation: true` | two-step confirm is on and nothing executed yet — resend `bridge_call` with the `confirm` token and the same args |
-| "unknown or expired confirm token" | the token was consumed, expired (2 min), or bound to another endpoint — start over with a plain call to mint a fresh one |
+| "not bridge-callable" / `blockedBy` | the endpoint is hard-refused in this deployment (stream, or on the credential/plugin-install blacklist); pick another endpoint from `bridge_describe` |
+| "declined by the human reviewer" | the parked bridge write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint |
+| "approval timed out ... failed closed" | the parked bridge write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry |
 
 <!-- section: results -->
 ## Reading results without blowing your context
@@ -199,7 +202,9 @@ client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
 - Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap
   (the host attachment service enforces its own image limits on top); `attachment_read`
   inlines at most 8MB per image — use the host path for larger ones.
-- The bridge exposes only what the deployment opened: `readOnly` endpoints from the
-  curated read-only list, `writable` endpoints from `bridgeWriteAllowlist`; a
-  hard-coded blacklist (credentials, plugin installs, authorization flows) is never
-  callable. Two-step confirm for writes is a deployment choice (`bridgeTwoStepConfirm`).
+- The bridge exposes what the deployment opened: `readOnly` endpoints from the
+  curated read-only list, `writable` endpoints from `bridgeWriteAllowlist`; other
+  non-stream endpoints are callable but each call parks until a human answers on the
+  deployment's settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited; a
+  hard-coded blacklist — credentials, plugin installs, authorization flows — is never
+  callable and gets no approval path).
