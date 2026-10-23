@@ -115,6 +115,11 @@ export const liveAgent = makeAgent('sess-live', FAKE_CWD, { provider: 'live-p', 
 // 真实宿主 0.2.x 的 live 会话对象不带 title(标题只落在日志的 session/title 事件里):
 // sess-live 有日志标题而无对象字段, 验证标题检索/清单投影走内存日志折叠(零 I/O)
 liveAgent.__events.push({ type: 'session/title', data: { title: 'Live One' } })
+// >600 字符的长回答(两端锚点): session_history 默认 digest 截断 + detail=full 逃生门的断言素材
+export const LONG_HEAD = 'LONG-HEAD '
+export const LONG_TAIL = ' LONG-TAIL'
+export const longAnswer = `${LONG_HEAD}${'answer body '.repeat(60)}${LONG_TAIL}`
+liveAgent.__events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: longAnswer }] } } })
 // liveSession2 带原生子代理谱系字段: 验证 session_list 投影 parentSession/origin/delegationDepth
 const liveSession2 = {
   id: 'sess-live2',
@@ -289,6 +294,8 @@ export const fakeSessionController = {
               usage: { inputTokens: 900, cacheReadTokens: 100, outputTokens: 200, totalTokens: 1200 },
             },
           },
+          // 长回答: 冷会话(inspect 路径)的 detail=full 逃生门断言素材
+          { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: longAnswer }] } } },
           { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
         ],
       }

@@ -111,7 +111,8 @@ you already know.
    — default 50, cap 500), `session_meta` for model+reasoning effort, presets, live
    state, turn/step counters and context occupancy, `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you
-   are debugging), `session_search` to find sessions by content.
+   are debugging; `detail: "full"` returns entry text untruncated), `session_search` to
+   find sessions by content.
 6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
    `dsh://status[/config|/stats|/connections]`, `dsh://guide[/section]`, `dsh://tools`,
    `dsh://models[/{provider}]`, `dsh://presets`, `dsh://workspaces[/{id}]`,
@@ -182,6 +183,12 @@ running/pending while not settled), `turn`, and `pending`. A `session_result` ca
 succeeds with `status: "errored"` is still a successful tool call — inspect the payload,
 not only `isError`. `session_prompt` keeps the blocking convenience shape and marks a
 client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
+
+`session_history` follows the same budget idea: its default view clips each entry's text
+(assistant messages at 600 characters, less for tool entries; clipped entries carry
+`truncated: true`). `detail: "full"` returns entries untruncated — that is the way to
+read a whole long message (it works for persisted-only sessions too); page back with
+`limit` / `beforeIndex` instead of pulling an entire history at full detail.
 
 <!-- section: limits -->
 ## Deployment-imposed limits (visible via `dsh_status` / `model_list`)

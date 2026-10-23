@@ -60,6 +60,9 @@ import {
   innerOf,
   inspectedSessions,
   liveAgent,
+  longAnswer,
+  LONG_HEAD,
+  LONG_TAIL,
   makeCtx,
   mounted,
   openSse,
@@ -581,6 +584,20 @@ try {
   const shToolsInner = innerOf(shTools)
   checks['session_history: roles 显式取工具调用'] = shToolsInner.turns.length > 0
     && shToolsInner.turns.every((t: any) => t.role === 'tool_call')
+  // detail 档位: 默认 digest 按角色截断(带 truncated 标记), full 是不截断的逃生门(live 与冷会话同路)
+  const shDigest = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 523, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'], limit: 50 } } }))
+  const longDigest = (shDigest.turns ?? []).find((t: any) => t.text?.startsWith(LONG_HEAD))
+  checks['session_history 默认 digest 截断长文本并标记 truncated'] = shDigest.detail === 'summary'
+    && longDigest !== undefined && longDigest.text.length === 600
+    && !longDigest.text.includes(LONG_TAIL) && longDigest.truncated === true
+  const shFull = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 524, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'], limit: 50, detail: 'full' } } }))
+  const longFull = (shFull.turns ?? []).find((t: any) => t.text?.startsWith(LONG_HEAD))
+  checks['session_history detail=full 返回未截断全文'] = shFull.detail === 'full'
+    && longFull !== undefined && longFull.text === longAnswer && longFull.truncated === undefined
+  const shColdFull = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 525, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'], detail: 'full' } } }))
+  checks['session_history 冷会话(inspect)detail=full 同样未截断'] = shColdFull.detail === 'full'
+    && shColdFull.source === 'persisted'
+    && (shColdFull.turns ?? []).some((t: any) => t.text === longAnswer)
 
   // ── 资源面: 会话/模型/预设/工作区/status + 订阅 ──
   const sse = openSse(init.sid)

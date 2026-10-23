@@ -206,15 +206,31 @@ export function imageRefsOf(value: unknown, max = 4, acc: ImageRefProjection[] =
 
 export type HistoryRole = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'turn_end'
 
+/** 纪要读取档位: summary(默认, 按角色截断省上下文) / full(不截断的逃生门) */
+export type HistoryDetail = 'summary' | 'full'
+
+/** summary 档的按角色截断上限(字符); full 档不截断, 条数由 limit/beforeIndex 控量 */
+const HISTORY_CLIP = { assistant: 600, user: 200, toolCallArgs: 200, toolResult: 300 } as const
+
+/**
+ * 按上限截断并如实标记: 截断了才带 truncated 字段(digest 视角的读者据此知道该去
+ * detail=full 取全文)。max=Infinity 时永不截断。
+ */
+function clipMarked(text: string, max: number): { clipped: string; truncated?: true } {
+  return text.length <= max ? { clipped: text } : { clipped: text.slice(0, max), truncated: true }
+}
+
 /**
  * 会话事件 → 纪要条目(从 newest 往回取 limit 条, 返回时按时间正序排列)。
  * beforeIndex: 只考虑序号小于该值的事件——配合上次结果的最早 index 实现向更早翻页。
  * roles: 只保留命中类型的条目, limit 按过滤后的条数计数; 缺省 = 全部类型
  * (工具面与资源面在调用处统一收窄为对话视角, 见 HISTORY_DEFAULT_ROLES)。
  * 事件形状与 executeTask 的解析一致: assistant/message, user/message, tool/call, tool/result, turn/end。
- * 长文本按角色截断, 防止整段历史灌穿调用方上下文。
+ * detail: summary(默认)按角色截断(截断条目带 truncated: true); full 不截断——
+ * 读取完整长文本的唯一轻量通道(事件资源是原始 JSONL 且仅 live 会话)。
  */
-export function historyTurnsOf(events: readonly unknown[], limit: number, beforeIndex?: number, roles?: readonly HistoryRole[]): Record<string, unknown>[] {
+export function historyTurnsOf(events: readonly unknown[], limit: number, beforeIndex?: number, roles?: readonly HistoryRole[], detail: HistoryDetail = 'summary'): Record<string, unknown>[] {
+  const cap = (n: number) => (detail === 'full' ? Infinity : n)
   const want = roles ? new Set<string>(roles) : undefined
   const turns: Record<string, unknown>[] = []
   const start = Math.min(beforeIndex ?? events.length, events.length)
@@ -226,27 +242,32 @@ export function historyTurnsOf(events: readonly unknown[], limit: number, before
       const text = (d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
       const images = imageRefsOf(ev.data)
       if (text.trim() || images.length > 0) {
-        turns.unshift({ index: i, role: 'assistant', text: clip(text, 600), ...(images.length > 0 ? { images } : {}) })
+        const { clipped, truncated } = clipMarked(text, cap(HISTORY_CLIP.assistant))
+        turns.unshift({ index: i, role: 'assistant', text: clipped, ...(truncated !== undefined ? { truncated } : {}), ...(images.length > 0 ? { images } : {}) })
       }
     } else if (ev?.type === 'user/message') {
       if (want && !want.has('user')) continue
       const images = imageRefsOf(ev.data)
+      const { clipped, truncated } = clipMarked(extractTexts(ev.data).join('\n'), cap(HISTORY_CLIP.user))
       turns.unshift({
         index: i,
         role: 'user',
-        text: clip(extractTexts(ev.data).join('\n'), 200),
+        text: clipped,
+        ...(truncated !== undefined ? { truncated } : {}),
         ...(images.length > 0 ? { images } : {}),
       })
     } else if (ev?.type === 'tool/call') {
       if (want && !want.has('tool_call')) continue
       const d = ev.data as { name?: string; arguments?: string; input?: unknown } | undefined
-      turns.unshift({ index: i, role: 'tool_call', name: d?.name ?? '?', args: clip(String(d?.arguments ?? JSON.stringify(d?.input ?? null) ?? ''), 200) })
+      const { clipped, truncated } = clipMarked(String(d?.arguments ?? JSON.stringify(d?.input ?? null) ?? ''), cap(HISTORY_CLIP.toolCallArgs))
+      turns.unshift({ index: i, role: 'tool_call', name: d?.name ?? '?', args: clipped, ...(truncated !== undefined ? { truncated } : {}) })
     } else if (ev?.type === 'tool/result') {
       if (want && !want.has('tool_result')) continue
       const texts = extractTexts(ev.data ?? ev).join('\n')
       const images = imageRefsOf(ev.data ?? ev)
       if (texts.trim() || images.length > 0) {
-        turns.unshift({ index: i, role: 'tool_result', text: clip(texts, 300), ...(images.length > 0 ? { images } : {}) })
+        const { clipped, truncated } = clipMarked(texts, cap(HISTORY_CLIP.toolResult))
+        turns.unshift({ index: i, role: 'tool_result', text: clipped, ...(truncated !== undefined ? { truncated } : {}), ...(images.length > 0 ? { images } : {}) })
       }
     } else if (ev?.type === 'turn/end') {
       if (want && !want.has('turn_end')) continue

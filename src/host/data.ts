@@ -15,7 +15,7 @@ import { PLUGIN_VERSION, authTokenHint } from '../core/config.js'
 import { state } from '../core/state.js'
 import type { ModelSelection, ModelSelectionOverride } from '../core/types.js'
 import { canonicalCwd, isWithin } from '../core/paths.js'
-import { historyTurnsOf, projectModel, type HistoryRole } from '../session/projection.js'
+import { historyTurnsOf, projectModel, type HistoryDetail, type HistoryRole } from '../session/projection.js'
 import { archivedSessionIdsOf, asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
 import { latestTitleOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
@@ -359,10 +359,11 @@ export const HISTORY_DEFAULT_ROLES: readonly HistoryRole[] = ['user', 'assistant
  * session_history / dsh://sessions/{id}/history 的共享实现(工具与资源同数据同边界)。
  * 默认视角只给对话消息(user + assistant)——工具调用过程是 opt-in 噪音(roles 显式传),
  * 默认调用因此不为工具条目付 token。
+ * 文本档位: summary(默认, 按角色截断并标记 truncated) / full(不截断, 冷会话同样可读)。
  * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
  * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
  */
-export async function sessionHistoryPayload(ctx: Context, sessionId: string, limit: number, beforeIndex?: number, roles?: HistoryRole[]): Promise<Record<string, unknown>> {
+export async function sessionHistoryPayload(ctx: Context, sessionId: string, limit: number, beforeIndex?: number, roles?: HistoryRole[], detail?: HistoryDetail): Promise<Record<string, unknown>> {
   const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
   const session = sessions?.get?.(sessionId)
   const live = session !== undefined
@@ -378,7 +379,13 @@ export async function sessionHistoryPayload(ctx: Context, sessionId: string, lim
         + 'open the session in the dsh UI, or continue it with session_prompt first')
     }
   }
-  return { sessionId, source: live ? 'live' : 'persisted', totalEvents: events.length, turns: historyTurnsOf(events, limit, beforeIndex, roles ?? HISTORY_DEFAULT_ROLES) }
+  return {
+    sessionId,
+    source: live ? 'live' : 'persisted',
+    totalEvents: events.length,
+    detail: detail ?? 'summary',
+    turns: historyTurnsOf(events, limit, beforeIndex, roles ?? HISTORY_DEFAULT_ROLES, detail),
+  }
 }
 
 /** 活动/事件流面的公共前置: live 校验, 返回 live 会话对象。不可读时抛错。 */

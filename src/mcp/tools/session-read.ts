@@ -103,18 +103,19 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_history',
     {
       title: 'Session history',
-      description: 'Read a session\'s conversation digest (user and assistant messages by default — tool calls, tool results and turn boundaries are opt-in via `roles`, so the default view stays cheap in tokens). Newest first, paged back with `beforeIndex`; text is truncated per role. Live sessions read the in-memory log; persisted-only sessions use the host `sessionController.inspect` non-activating read (does not create an agent; same data path as opening an old session in the UI).',
+      description: 'Read a session\'s conversation digest (user and assistant messages by default — tool calls, tool results and turn boundaries are opt-in via `roles`, so the default view stays cheap in tokens). Newest first, paged back with `beforeIndex`; entry text is clipped per role in the default summary view (clipped entries carry `truncated: true`) — pass `detail: full` for untruncated text (works for persisted-only sessions too; page with `limit`/`beforeIndex` to budget tokens). Live sessions read the in-memory log; persisted-only sessions use the host `sessionController.inspect` non-activating read (does not create an agent; same data path as opening an old session in the UI).',
       inputSchema: {
         sessionId: z.string().describe('Session id (from a session_prompt result or session_list; both live and persisted sessions are readable).'),
         limit: z.number().int().min(1).max(50).optional().describe('Maximum number of entries to return, counted after the roles filter (default 10).'),
         roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).min(1).optional().describe('Entry types to return (default: ["user","assistant"]). Pass tool_call / tool_result for debugging, or turn_end for turn boundaries.'),
         beforeIndex: z.number().int().min(0).optional().describe('Read entries before this event index (paging: pass the earliest index from the previous result).'),
+        detail: z.enum(['summary', 'full']).optional().describe('summary (default): entry text clipped per role (assistant 600 / user 200 / tool args-result 200-300 chars, flagged truncated); full: unclipped text — the way to read a whole long message.'),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionId, limit, roles, beforeIndex }) => {
+    async ({ sessionId, limit, roles, beforeIndex, detail }) => {
       try {
-        return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles)))
+        return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles, detail)))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
