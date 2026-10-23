@@ -171,7 +171,7 @@ try {
   checks['tools/list: 每条描述带身份前缀'] = toolsArr.length > 0
     && toolsArr.every((t) => t.description?.startsWith(TOOL_IDENTITY_PREFIX) === true)
   // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文。
-  // 唯一例外是身份前缀本身(双语, 中文名必须能被认出): 断言时剥离后校验。
+  // 唯一例外是身份前缀本身(中文名必须能被认出): 断言时剥离后校验。
   const CJK = /[\u4e00-\u9fff]/
   const stripIdentity = (s: string) => s.split(TOOL_IDENTITY_PREFIX).join('')
   checks['tools/list: 面向客户端的说明统一为英文(身份前缀除外)'] = toolsArr.every((t) =>
