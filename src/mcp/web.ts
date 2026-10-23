@@ -12,7 +12,7 @@ import os from 'node:os'
 import { PLUGIN_NAME } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from '../host/bridge.js'
-import { classifyInvocation, listInvocations } from '../host/typert-bridge.js'
+import { answerBridgeWriteApproval, classifyInvocation, listBridgeWriteApprovals, listInvocations } from '../host/typert-bridge.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
 interface WebServerView {
@@ -377,9 +377,24 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
+    // 桥写停泊审批(设置面板审批卡的数据源): 在途写请求全量 + 等待是否不限时
+    'bridge-approvals': () => ({
+      approvals: listBridgeWriteApprovals(),
+      unlimitedWait: state.config.approvalTimeoutMs === 0,
+    }),
+    // 桥写停泊审批的人工应答: allow 一次放行一次, reject 失败关闭; 未知/已结的 id 回 ok:false
+    'bridge-approval-answer': (body) => {
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        throw httpError(400, '请求体必须是 { approvalId, decision } 对象')
+      }
+      const { approvalId, decision } = body as { approvalId?: unknown; decision?: unknown }
+      if (typeof approvalId !== 'string' || approvalId === '') throw httpError(400, 'approvalId 必须是非空字符串')
+      if (decision !== 'allow' && decision !== 'reject') throw httpError(400, 'decision 必须是 allow 或 reject')
+      return answerBridgeWriteApproval(approvalId, decision)
+    },
     'config-update': (body) => guiConfigUpdate(body),
   }
-  const WEB_MUTATING = new Set(['config-update'])
+  const WEB_MUTATING = new Set(['config-update', 'bridge-approval-answer'])
 
   ctx.inject(['webServer'], (webCtx) => {
     const webServer = (webCtx as unknown as { webServer: WebServerView }).webServer

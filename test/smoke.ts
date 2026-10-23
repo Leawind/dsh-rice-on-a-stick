@@ -819,9 +819,22 @@ try {
     checks['写桥停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
       && String(held?.argsPreview).includes('hi') && typeof held?.expiresAt === 'number'
     checks['写桥停泊: 等待期间未执行'] = bridgeInvokes.length === 1
-    const allowed = answerBridgeWriteApproval(held.approvalId, 'allow')
+
+    // GUI 审批卡路由: 读取在途审批(带不限时标记), 经同源 POST 应答允许
+    const gaRead = await phase.gui('bridge-approvals', { httpMethod: 'GET' })
+    const gaBody = gaRead.status === 200 ? JSON.parse(gaRead.body) : {}
+    checks['GUI bridge-approvals: 在途审批可读'] = gaRead.status === 200
+      && (gaBody.approvals ?? []).some((p: any) => p.approvalId === held.approvalId && p.endpoint === 'session/prompt')
+      && gaBody.unlimitedWait === false
+    const gaAllow = await phase.gui('bridge-approval-answer', {
+      httpMethod: 'POST',
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ approvalId: held.approvalId, decision: 'allow' }),
+    })
+    const gaAllowBody = gaAllow.status === 200 ? JSON.parse(gaAllow.body) : {}
+    checks['GUI bridge-approval-answer: 同源允许成功'] = gaAllow.status === 200 && gaAllowBody.ok === true
     const parkedResult = await parkedCall
-    checks['写桥停泊: 允许后放行执行'] = allowed.ok === true && parkedResult.status === 200
+    checks['写桥停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
       && (innerOf(parkedResult) as any).prompted === true
       && bridgeInvokes.length === 2 && bridgeInvokes[1].endpoint === 'session/prompt'
       && listBridgeWriteApprovals().length === 0
@@ -839,6 +852,33 @@ try {
 
     checks['写桥停泊: 未知审批 id 明确报错'] = answerBridgeWriteApproval('nope', 'allow').ok === false
       && listBridgeWriteApprovals().length === 0
+
+    // GUI 应答边界: 未知 id 回 ok:false; 非法 decision 400; 跨站应答被同源守卫拦下
+    const gaUnknown = await phase.gui('bridge-approval-answer', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ approvalId: 'nope', decision: 'allow' }),
+    })
+    checks['GUI bridge-approval-answer: 未知 id 回 ok:false'] = gaUnknown.status === 200
+      && JSON.parse(gaUnknown.body).ok === false
+    const gaBadDecision = await phase.gui('bridge-approval-answer', {
+      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ approvalId: 'x', decision: 'maybe' }),
+    })
+    checks['GUI bridge-approval-answer: 非法 decision 400'] = gaBadDecision.status === 400
+    const guardCall = phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: { q: 'guard' } } })
+    await waitFor(() => {
+      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'session/prompt')
+      return held !== undefined
+    })
+    const gaCross = await phase.gui('bridge-approval-answer', {
+      httpMethod: 'POST', headers: { origin: 'http://evil.example.com', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ approvalId: held.approvalId, decision: 'allow' }),
+    })
+    checks['GUI bridge-approval-answer: 跨站应答 403(同源守卫)'] = gaCross.status === 403
+      && listBridgeWriteApprovals().length === 1
+    answerBridgeWriteApproval(held.approvalId, 'reject')
+    checks['桥调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined')
+      && bridgeInvokes.length === 2
 
     // 限时超时: 测试钩子把在途审批的过期时间前移, 不真等超时
     const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
@@ -863,6 +903,9 @@ try {
     // 不限时(0): 时间流逝不停泊消失, 允许后执行
     const ctxU = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const phaseU = await startPhase(8074, ctxU, { approvalTimeoutMs: 0 })
+    const guRead = await phaseU.gui('bridge-approvals', { httpMethod: 'GET' })
+    checks['GUI bridge-approvals: 0 = 不限时标记'] = guRead.status === 200
+      && JSON.parse(guRead.body).unlimitedWait === true
     const unlimitedCall = phaseU.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 'u1' } } })
     await waitFor(() => {
       held = listBridgeWriteApprovals().find((p) => p.endpoint === 'schedule/update')
@@ -1351,12 +1394,18 @@ try {
       .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
     return missing.length === 0
   })()
-  // 面板绑定(静态): 白名单清单必须走 bridge-endpoints 路由取数(改路由名时两边要同步)
+  // 面板绑定(静态): 白名单清单走 bridge-endpoints 路由取数, 审批卡走 bridge-approvals/answer(改路由名时两边要同步)
   checks['设置面板: 白名单清单走 bridge-endpoints 路由'] = (() => {
     const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
     return clientSrc.includes("rpc('bridge-endpoints')")
       && clientSrc.includes("kind === 'selectable'")
       && clientSrc.includes("bridgeWriteAllowlist: (next.bridgeWriteAllowlist || []).slice()")
+  })()
+  checks['设置面板: 审批卡走 bridge-approvals 路由'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return clientSrc.includes("rpc('bridge-approvals')")
+      && clientSrc.includes("rpc('bridge-approval-answer'")
+      && clientSrc.includes('BridgeApprovalCard')
   })()
 
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──

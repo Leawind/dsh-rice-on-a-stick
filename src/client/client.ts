@@ -168,6 +168,15 @@ interface DshModuleSpec {
       'bridge.loading': '端点目录加载中…',
       'bridge.unavailable': '端点目录不可用（宿主未提供 Typert），可编辑配置文件手写白名单。',
       'bridge.none': '没有匹配的端点。',
+      'bridgeApproval.title': '桥写待审批',
+      'bridgeApproval.count': '{n} 项桥写操作等待审批',
+      'bridgeApproval.hint': '白名单外的变更调用已停泊：允许一次执行一次；拒绝后调用方收到失败。超时未答按失败关闭。',
+      'bridgeApproval.unlimited': '不限时',
+      'bridgeApproval.left': '剩 {d}',
+      'bridgeApproval.waited': '已等待 {d}',
+      'bridgeApproval.allow': '允许',
+      'bridgeApproval.reject': '拒绝',
+      'bridgeApproval.fail': '应答失败：{e}',
       'listen.title': '监听地址与端口',
       'footnote': '以上各项在离开输入框或关闭设置时自动生效；生效会重启插件，已连接的 MCP 客户端会短暂断开。',
       'listen.hostRequired': '监听地址不能为空。',
@@ -255,6 +264,15 @@ interface DshModuleSpec {
       'bridge.loading': 'Loading endpoint directory…',
       'bridge.unavailable': 'Endpoint directory unavailable (the host provides no Typert); edit the config file to maintain the whitelist by hand.',
       'bridge.none': 'No matching endpoints.',
+      'bridgeApproval.title': 'Bridge writes awaiting approval',
+      'bridgeApproval.count': '{n} bridge write(s) awaiting approval',
+      'bridgeApproval.hint': 'Mutating calls outside the whitelist are parked here: allow executes once; reject fails the call. Unanswered waits fail closed on timeout.',
+      'bridgeApproval.unlimited': 'No time limit',
+      'bridgeApproval.left': '{d} left',
+      'bridgeApproval.waited': 'waited {d}',
+      'bridgeApproval.allow': 'Allow',
+      'bridgeApproval.reject': 'Reject',
+      'bridgeApproval.fail': 'Answer failed: {e}',
       'footnote': 'These take effect when you leave the field or close settings; applying restarts the plugin, so connected MCP clients drop briefly.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
@@ -338,6 +356,9 @@ interface DshModuleSpec {
     '.dcs-btn:disabled{opacity:.4;cursor:default;}',
     '.dcs-btn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;}',
     '.dcs-btn-md{height:36px;padding:0 14px;border-radius:var(--dsw-radius-md,12px);font-size:14px;}',
+    // 主按钮(label-primary 黑白填充, 官方 primary 同型): 审批卡的"允许"用
+    '.dcs-btn-primary{background:var(--dsw-alias-label-primary,#0f1115);color:var(--dsw-alias-label-primary-foreground,#fff);}',
+    '.dcs-btn-primary:hover:enabled{background:var(--dsw-alias-label-primary,#0f1115);opacity:.88;}',
     // 端点卡(官方 settings-card 同型: 填充底 + 半像素描边)
     '.dcs-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l3,rgba(0,0,0,.12)));}',
     '.dcs-urlrow{display:flex;align-items:center;gap:8px;}',
@@ -431,6 +452,15 @@ interface DshModuleSpec {
     '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
     '.dcs-epstale{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-epstale .dcs-eprname{color:var(--dsw-alias-state-warn-label,#dd8629);}',
+    // 桥写审批卡: 置于设置表单之上(动作关键面); 每条 = 端点行(等待倒计时靠右) + 参数摘要 + 允许/拒绝
+    '.dcs-appr{display:flex;flex-direction:column;gap:4px;}',
+    '.dcs-apprrow{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-apprrow:last-child{border-bottom:none;}',
+    '.dcs-apprhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+    '.dcs-apprendpoint{font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;font-weight:600;word-break:break-all;}',
+    '.dcs-apprwait{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
+    '.dcs-apprargs{margin:0;padding:8px 10px;max-height:120px;overflow:auto;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);white-space:pre-wrap;word-break:break-all;}',
+    '.dcs-apprbtns{display:flex;align-items:center;gap:8px;}',
     // 保存错误栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
     // 连接列表
@@ -641,6 +671,58 @@ interface DshModuleSpec {
     );
   }
 
+  // ── 桥写审批卡 ──
+  // 停泊在插件台账里的桥写请求逐一列出(端点 + 参数摘要 + 等待时长), 人工点允许/拒绝。
+  // 应答经同源 POST bridge-approval-answer; 失败(已被超时/他处应答)在卡内提示并刷新。
+  function BridgeApprovalCard(props) {
+    const [busy, setBusy] = React.useState('');
+    const [fail, setFail] = React.useState('');
+    const now = props.now;
+    function answer(a, decision) {
+      if (busy) return;
+      setBusy(a.approvalId + ':' + decision);
+      setFail('');
+      rpc('bridge-approval-answer', { approvalId: a.approvalId, decision: decision }).then(function (r) {
+        setBusy('');
+        if (!(r && r.ok)) setFail(String((r && r.error) || 'rejected by route'));
+        props.onRefresh();
+      }).catch(function (e) {
+        setBusy('');
+        setFail(String((e && e.message) || e));
+        props.onRefresh();
+      });
+    }
+    return React.createElement('div', { className: 'dcs-card dcs-appr' },
+      React.createElement('div', { className: 'dcs-sechead' },
+        React.createElement('span', { className: 'dcs-sectitle' }, t('bridgeApproval.title')),
+        React.createElement('span', { className: 'dcs-seccount' }, t('bridgeApproval.count', { n: props.items.length })),
+      ),
+      React.createElement('div', { className: 'dcs-hint' }, t('bridgeApproval.hint')),
+      props.items.map(function (a) {
+        const left = a.expiresAt !== undefined ? t('bridgeApproval.left', { d: fmtDur(a.expiresAt - now) }) : t('bridgeApproval.unlimited');
+        return React.createElement('div', { key: a.approvalId, className: 'dcs-apprrow' },
+          React.createElement('div', { className: 'dcs-apprhead' },
+            React.createElement('span', { className: 'dcs-apprendpoint' }, a.endpoint),
+            React.createElement('span', { className: 'dcs-apprwait' },
+              t('bridgeApproval.waited', { d: fmtDur(Math.max(0, now - a.requestedAt)) }) + ' · ' + left),
+          ),
+          React.createElement('pre', { className: 'dcs-apprargs' }, a.argsPreview || '{}'),
+          React.createElement('div', { className: 'dcs-apprbtns' },
+            React.createElement('button', {
+              type: 'button', className: 'dcs-btn dcs-btn-primary', disabled: busy !== '',
+              onClick: function () { answer(a, 'allow'); },
+            }, t('bridgeApproval.allow')),
+            React.createElement('button', {
+              type: 'button', className: 'dcs-btn', disabled: busy !== '',
+              onClick: function () { answer(a, 'reject'); },
+            }, t('bridgeApproval.reject')),
+          ),
+        );
+      }),
+      fail ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', t('bridgeApproval.fail', { e: fail })) : null,
+    );
+  }
+
   function StatusPanel() {
     const [state, setState] = React.useState(null);
     // 最新状态镜像: 事件回调与卸载补交都要读到当前生效值(ref 在卸载后仍然有效)
@@ -691,6 +773,22 @@ interface DshModuleSpec {
       };
       load();
       const timer = window.setInterval(load, 10000);
+      return function () { alive = false; window.clearInterval(timer); };
+    }, []);
+    // 桥写停泊审批(面板审批卡): 2 秒轮询——停泊中的写调用正被阻塞, 卡片要尽快露面
+    const [bApprovals, setBApprovals] = React.useState([]);
+    const [bUnlimited, setBUnlimited] = React.useState(false);
+    React.useEffect(function () {
+      let alive = true;
+      const load = function () {
+        rpc('bridge-approvals').then(function (r) {
+          if (!alive) return;
+          setBApprovals(Array.isArray(r && r.approvals) ? r.approvals : []);
+          setBUnlimited((r && r.unlimitedWait) === true);
+        }).catch(function () { /* 路由缺席(重载窗口)时静默, 下一轮再试 */ });
+      };
+      load();
+      const timer = window.setInterval(load, 2000);
       return function () { alive = false; window.clearInterval(timer); };
     }, []);
     // 字段级校验提示(结构性字段各自一行)的读写: 只显示在对应控件下方
@@ -1018,6 +1116,13 @@ interface DshModuleSpec {
         React.createElement('div', { className: 'dcs-tagline' }, t('plugin.tagline')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
+      // 桥写审批卡(动作关键面): 有停泊请求时置于表单之上, 免滚动直达
+      bApprovals.length > 0 ? React.createElement(BridgeApprovalCard, {
+        items: bApprovals,
+        unlimited: bUnlimited,
+        now: now,
+        onRefresh: refresh,
+      }) : null,
       // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
       d ? React.createElement('div', { className: 'dcs-form' },
         React.createElement(Row, {
