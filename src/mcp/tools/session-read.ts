@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { serviceOf } from '../../host/bridge.js'
 import { COLD_TITLE_SCAN_LIMIT, COLD_TITLE_SCAN_MAX, collectSessions, sessionHistoryPayload, sessionMetaPayload, type SessionControllerView } from '../../host/data.js'
-import { out, outError, resolveSessionTarget, structuredOut } from './shared.js'
+import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structuredOut, SOFT_ARCHIVE } from './shared.js'
 
 const sessionListOut = z.object({
   total: z.number(),
@@ -41,7 +41,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_list',
     {
       title: 'List sessions',
-      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live, and `permission` is derived for live sessions only (no log reads for persisted-only rows). Each row carries `archived`: archiving is a soft mark (the UI hides it and the host refuses model steps for it) — pass archived=true to list only archived sessions (or use session_archive_list), archived=false for only active ones, omit for all. Use it to pick a `sessionId` for `session_prompt`, rename, or archive.',
+      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live, and `permission` is derived for live sessions only (no log reads for persisted-only rows). Each row carries `archived` (a reversible soft mark — see `session_archive`); pass archived=true/false to filter, omit for all. Use it to pick a `sessionId` for `session_prompt`. See the guide (dsh_get_started) for shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -72,7 +72,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_archive_list',
     {
       title: 'List archived sessions',
-      description: 'List archived sessions (rows and filters are exactly session_list\'s with archived=true; archiving is a soft mark — the log is retained and readable, the UI hides the session and the host refuses model steps until it is unarchived). Restore with session_unarchive.',
+      description: `List archived sessions — exactly session_list with archived=true (${SOFT_ARCHIVE}). Restore with session_unarchive.`,
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -149,7 +149,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_search',
     {
       title: 'Search sessions',
-      description: 'Search session content by literal phrase (same as the UI search box; goes through `sessionController.search`); returns matching sessions and snippet excerpts. Requires the web profile\'s `sessionController`.',
+      description: `Search session content by literal phrase (same as the UI search box; goes through \`sessionController.search\`); returns matching sessions and snippet excerpts. ${NEEDS_SESSION_CONTROLLER}`,
       inputSchema: {
         query: z.string().describe('Search phrase (literal match against message content).'),
       },

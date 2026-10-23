@@ -54,6 +54,15 @@ export function uriNote(): { note: string } {
   }
 }
 
+// ── 跨工具共享的描述片段(单一出处防漂移; 完整语义在 guide.md Concepts) ──
+
+/** 归档语义的权威短句: "可撤销的软标记, 日志可读"。多个工具引用同一份, 措辞不再各自漂移 */
+export const SOFT_ARCHIVE = 'archiving is a reversible soft mark: the session disappears from lists and the host refuses model steps for it, while the log stays readable (session_unarchive restores)'
+
+/** 服务前置条件短句(fork/search/select_model 与 archive/unarchive 各自共用一份) */
+export const NEEDS_SESSION_CONTROLLER = "Requires the web profile's `sessionController`."
+export const NEEDS_WORKSPACE_CONTROLLER = 'Requires the host `workspaceController`.'
+
 /** 工具调用上下文(原生自用面额外带调用方 agent; MCP 面只有 signal) */
 export interface ToolCallContext {
   signal?: AbortSignal

@@ -34,7 +34,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_answer',
     {
       title: 'Answer an approval',
-      description: 'Answer an approval held by this plugin (only when `approval_list` reports `answerable=true`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`; both settle the approval fail-closed. The deployment must set `approvalControl` to `fallback` (UI first, MCP when nobody can answer) or `exclusive` (MCP only) and reload the plugin. Identify the approval by `approvalId` from `approval_list`, or by `callId`.',
+      description: 'Answer an approval held by this plugin (only entries with `answerable=true` from `approval_list`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`; both settle the approval fail-closed. Requires the deployment\'s `approvalControl` = `fallback` or `exclusive` (see the guide). Identify the approval by `approvalId` or `callId`.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the approval.'),
         approvalId: z.string().optional().describe('approvalId returned by approval_list (alternative to callId).'),
@@ -58,7 +58,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_policy',
     {
       title: 'Get or set approval policy',
-      description: 'Read or switch a session\'s approval policy knob (host approval/policy): ask = request approval when needed; never = reject operations that need approval outright. `get` works for live and cold sessions (cold sessions are folded from the log); `set` requires a live session. The host writes the change to the session log and notifies the model. Note: this is one knob only — a knob-level change can leave a sandbox + approval combination that matches no permission preset (the UI then shows `custom`). When you want a named permission level (e.g. full access), switch the preset with `session_set_permission` instead.',
+      description: 'Read or switch a session\'s approval policy knob: ask = request approval when needed; never = reject outright. `get` works for live and cold sessions (cold = folded from the log); `set` requires a live session and is written to the session log. This is one knob only — knob-level changes can leave a `custom` combination; for a named permission level use `session_set_permission` instead.',
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
         action: z.enum(['get', 'set']).describe('get = read the effective policy; set = switch it.'),

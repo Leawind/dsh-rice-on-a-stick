@@ -14,7 +14,7 @@ import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, se
 import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSessionEvents, serviceOf } from '../../host/bridge.js'
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
-import { out, outError, renderUriResult, resolveSessionTarget } from './shared.js'
+import { NEEDS_SESSION_CONTROLLER, NEEDS_WORKSPACE_CONTROLLER, out, outError, renderUriResult, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
 
 /** workspaceController 视图(归档/恢复; 可选依赖) */
 interface WorkspaceControllerView {
@@ -35,7 +35,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_create',
     {
       title: 'Create session',
-      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` (a pair from `model_list`) and `preset` (from `model_list.presets` / `dsh://presets`) are all required — nothing is backfilled, matching the UI\'s explicit model/preset choice. `permission` selects a permission preset (sandbox + approval bundle; see `permission_list`) — omit it to inherit the host default, which is echoed back as `permission`. If `title` is omitted, the host generates one after the first turn.',
+      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` (a pair from `model_list`) and `preset` (from `model_list.presets` / `dsh://presets`) are all required — nothing is backfilled. `permission` selects a permission preset (see `permission_list`); omit it to inherit the host default, echoed back as `permission`. If `title` is omitted, the host generates one after the first turn.',
       inputSchema: {
         cwd: z.string().describe('Working directory bound to the session workspace.'),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
@@ -43,7 +43,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
         reasoningEffort: z.string().optional().describe('Reasoning effort id (see model_list reasoningEfforts; default = adapter default).'),
         preset: z.string().describe('Agent preset id to mount (required; see model_list.presets / dsh://presets).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
-        permission: z.string().optional().describe('Permission preset to apply (a sandbox + approval bundle; values from permission_list, e.g. "workspace-write" / "danger-full-access"). Omit to inherit the host default preset. This is the same concept the UI\'s permission switcher shows — prefer it over knob-level approval changes.'),
+        permission: z.string().optional().describe('Permission preset to apply (a sandbox + approval bundle; values from permission_list, e.g. "workspace-write" / "danger-full-access"). Omit to inherit the host default preset; prefer switching presets over knob-level approval changes.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -72,7 +72,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_set_permission',
     {
       title: 'Switch session permission',
-      description: 'Switch a session\'s permission preset (the UI\'s permission switcher / `/permission`): records the preset and adjusts the sandbox mode and approval policy through their authoritative setters. Use it to fix a session whose permission reads `custom` (a knob-level approval change leaves a combination that matches no preset). Values come from `permission_list`; a cold session is resumed on the same path as session_prompt first. Requires the host permission-presets service.',
+      description: 'Switch a session\'s permission preset (the UI\'s permission switcher / `/permission`): records the preset and adjusts the sandbox mode and approval policy through their authoritative setters — the way to fix a session whose permission reads `custom` (knob-level changes match no preset). Values come from `permission_list`; a cold session is resumed first. Requires the host permission-presets service.',
       inputSchema: {
         sessionId: z.string().describe('Session id to switch.'),
         permission: z.string().describe('Permission preset id (from permission_list).'),
@@ -104,7 +104,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_prompt',
     {
       title: 'Prompt session',
-      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). `mode` mirrors the UI\'s busy-send behavior: queue = append to the session\'s durable host inbox (runs after the current turn); steer = redirect the running turn at the next step boundary (both are equivalent when idle). Cancelling the MCP wait (timeout / notifications/cancelled) only stops the wait, not the dsh turn; the result then carries `pending=true` and a `requestId` for `session_poll`/`session_result`, or use `session_cancel` to stop it. Responses can be lost on network failure — pass your own `requestId` and fetch the result later. For parallel orchestration, prefer `session_submit` + `session_poll` + `session_result` instead of blocking one call for a long time.',
+      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). `mode` mirrors the UI\'s busy-send behavior (see the mode argument). Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
@@ -268,7 +268,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_select_model',
     {
       title: 'Select session model',
-      description: 'Switch the model a session uses (the UI\'s model picker; goes through the official `sessionController.selectModel`: validated, then written as a durable notification, effective on the next step, history preserved). When the model allowlist is enabled, the target must be in it (the switch can be turned off). Requires the web profile\'s `sessionController`.',
+      description: `Switch the model a session uses (the UI's model picker; via \`sessionController.selectModel\`: validated, effective on the next step, history preserved). When the model allowlist is enabled, the target must be in it. ${NEEDS_SESSION_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Session id whose model should change.'),
         provider: z.string().describe('Target provider route (see model_list / dsh://models).'),
@@ -333,7 +333,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_fork',
     {
       title: 'Fork session',
-      description: 'Fork a session (the UI session menu\'s Fork): creates a new session from a prefix of the source session\'s events (default: the most recently completed turn), inheriting cwd/preset/current model. Requires the web profile\'s `sessionController`.',
+      description: `Fork a session (the UI's Fork): creates a new session from a prefix of the source session's events (default: the most recently completed turn), inheriting cwd/preset/current model. ${NEEDS_SESSION_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Source session id to fork.'),
         atSeq: z.number().optional().describe('Fork cut-off (event sequence number; default = the most recently completed turn).'),
@@ -432,7 +432,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_archive',
     {
       title: 'Archive session',
-      description: 'Archive a session (the UI session menu\'s Archive — the UI has no delete; archiving is its equivalent): the session disappears from the UI lists and the host refuses model steps for it (and its subagent lineage) until unarchived; the log is retained and stays readable via session_history / session_archive_list. An active session requires `stopActivity=true` (equivalent to the UI\'s Stop and Archive confirmation: stop the current turn and kill the session\'s background tasks first). Requires `workspaceController`.',
+      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE} (subagent lineage included; the log stays readable via session_history / session_archive_list). An active session requires \`stopActivity=true\` (the UI's Stop-and-Archive confirmation: stops the current turn and background tasks first). ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Session id to archive.'),
         stopActivity: z.boolean().optional().describe('Set true for an active session = stop its current turn first (the UI\'s Stop and Archive).'),
@@ -463,7 +463,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_unarchive',
     {
       title: 'Unarchive session',
-      description: 'Restore an archived session (the UI session menu\'s Unarchive): removes the archive mark, the session rejoins the normal lists and can be continued — `session_prompt` cold-resumes it with its history intact (unarchiving lifts the host\'s archived gate for the whole lineage). Idempotent: unarchiving a session that is not archived is a host-side no-op and the result reports `wasArchived: false`. Requires `workspaceController`.',
+      description: `Restore an archived session (the UI's Unarchive): removes the archive mark; the session rejoins the lists and \`session_prompt\` cold-resumes it with history intact (the gate covers its whole lineage). Idempotent — unarchiving a not-archived session is a no-op reported as \`wasArchived: false\`. ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Session id to restore (from session_archive_list or session_list with archived=true).'),
       },
