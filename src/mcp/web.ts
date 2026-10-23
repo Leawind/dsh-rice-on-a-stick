@@ -12,6 +12,7 @@ import os from 'node:os'
 import { PLUGIN_NAME } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from '../host/bridge.js'
+import { classifyInvocation, listInvocations } from '../host/typert-bridge.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
 interface WebServerView {
@@ -352,6 +353,30 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     },
     // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
     models: () => deps.models(),
+    // 通用桥端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目
+    'bridge-endpoints': () => {
+      const invocations = listInvocations(ctx)
+      const allow = new Set(state.config.bridgeWriteAllowlist)
+      const live = new Set<string>()
+      const endpoints = invocations.map((inv) => {
+        const endpoint = `${inv.namespace}/${inv.method}`
+        live.add(endpoint)
+        const cls = classifyInvocation(inv)
+        return {
+          endpoint,
+          ...(inv.description !== undefined ? { description: inv.description } : {}),
+          // kind: read/stream/blacklist 行锁定(默认放行/不适用/永禁); selectable 行可勾选(白名单成员)
+          kind: cls.readOnly ? 'read' : inv.stream ? 'stream' : cls.reason === 'permanently blacklisted' ? 'blacklist' : 'selectable',
+          allowed: allow.has(endpoint),
+        }
+      })
+      return {
+        available: invocations.length > 0,
+        total: invocations.length,
+        endpoints,
+        stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
+      }
+    },
     'config-update': (body) => guiConfigUpdate(body),
   }
   const WEB_MUTATING = new Set(['config-update'])

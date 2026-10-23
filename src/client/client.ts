@@ -101,8 +101,8 @@ interface DshModuleSpec {
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
       hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
-      // 通用桥写面: 允许清单("namespace/method", 逗号或空格分隔的文本)
-      bridgeWriteText: Array.isArray(c.bridgeWriteAllowlist) ? c.bridgeWriteAllowlist.filter(function (v) { return typeof v === 'string' && v; }).join(', ') : '',
+      // 通用桥写面: 白名单("namespace/method" 数组; 勾选清单 GUI 维护)
+      bridgeWriteAllowlist: Array.isArray(c.bridgeWriteAllowlist) ? c.bridgeWriteAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
     };
   }
 
@@ -154,9 +154,20 @@ interface DshModuleSpec {
       'hosts.title': 'Host 头白名单',
       'hosts.hint': '额外放行的主机名，逗号或空格分隔',
       'hosts.invalid': '主机名不合法：{h}',
-      'bridge.title': '通用桥写允许清单',
-      'bridge.hint': '允许经 bridge_call 执行的变更类端点（"namespace/method"，逗号或空格分隔）；留空 = 桥只读。凭据/插件安装类端点永久不可桥',
-      'bridge.placeholder': '例如 schedule/update',
+      'bridge.title': '通用桥写白名单',
+      'bridge.hint': '勾选的端点经 bridge_call 直接执行；未勾选的变更端点每次调用都停到审批卡等人工确认。凭据/插件安装类永久不可桥，流式端点不适用。',
+      'bridge.filter': '输入关键字过滤端点或说明',
+      'bridge.selectAll': '全选',
+      'bridge.selected': '已选 {n}/{m}',
+      'bridge.readonly': '只读',
+      'bridge.stream': '流式',
+      'bridge.blacklist': '永禁',
+      'bridge.staleTitle': '失效条目（已不在端点目录中）',
+      'bridge.staleBadge': '已失效',
+      'bridge.staleRemove': '移除失效条目 {e}',
+      'bridge.loading': '端点目录加载中…',
+      'bridge.unavailable': '端点目录不可用（宿主未提供 Typert），可编辑配置文件手写白名单。',
+      'bridge.none': '没有匹配的端点。',
       'listen.title': '监听地址与端口',
       'footnote': '以上各项在离开输入框或关闭设置时自动生效；生效会重启插件，已连接的 MCP 客户端会短暂断开。',
       'listen.hostRequired': '监听地址不能为空。',
@@ -230,9 +241,20 @@ interface DshModuleSpec {
       'hosts.title': 'Host header allowlist',
       'hosts.hint': 'Extra hostnames, comma or space separated.',
       'hosts.invalid': 'Invalid hostname: {h}',
-      'bridge.title': 'Bridge write allowlist',
-      'bridge.hint': 'Mutating endpoints callable through bridge_call ("namespace/method", comma or space separated); empty = read-only bridge. Credential and plugin-install endpoints are permanently refused.',
-      'bridge.placeholder': 'e.g. schedule/update',
+      'bridge.title': 'Bridge write whitelist',
+      'bridge.hint': 'Checked endpoints execute directly through bridge_call; unchecked mutating endpoints park every call for manual approval. Credential and plugin-install endpoints are permanently refused; stream endpoints do not apply.',
+      'bridge.filter': 'Type to filter endpoints or descriptions',
+      'bridge.selectAll': 'Select all',
+      'bridge.selected': '{n}/{m} selected',
+      'bridge.readonly': 'Read-only',
+      'bridge.stream': 'Stream',
+      'bridge.blacklist': 'Blacklisted',
+      'bridge.staleTitle': 'Stale entries (no longer in the endpoint directory)',
+      'bridge.staleBadge': 'Stale',
+      'bridge.staleRemove': 'Remove stale entry {e}',
+      'bridge.loading': 'Loading endpoint directory…',
+      'bridge.unavailable': 'Endpoint directory unavailable (the host provides no Typert); edit the config file to maintain the whitelist by hand.',
+      'bridge.none': 'No matching endpoints.',
       'footnote': 'These take effect when you leave the field or close settings; applying restarts the plugin, so connected MCP clients drop briefly.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
@@ -385,6 +407,30 @@ interface DshModuleSpec {
     // MCP令牌行(生成/复制/清除; 清除与"生成后放弃"之外的清空同状态)
     '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;}',
     '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
+    // 通用桥白名单清单: 过滤+全选行在上, 组头(组复选+namespace+计数)与端点行(复选+端点+说明+锁定徽标)在下
+    '.dcs-eps{display:flex;flex-direction:column;gap:8px;width:100%;}',
+    '.dcs-epbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.dcs-epbar .dcs-input{flex:1 1 200px;width:auto;min-width:160px;height:28px;font-size:12px;}',
+    '.dcs-epall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);white-space:nowrap;cursor:pointer;}',
+    '.dcs-eplist{display:flex;flex-direction:column;max-height:320px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
+    '.dcs-epgroup{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-epgroup:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.04));}',
+    '.dcs-epgroup:last-child,.dcs-epr:last-child{border-bottom:none;}',
+    '.dcs-epchev{flex:none;width:12px;text-align:center;color:var(--dsw-alias-label-tertiary,#81858c);font-size:10px;}',
+    '.dcs-epns{font-size:12.5px;font-weight:600;}',
+    '.dcs-epcount{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
+    '.dcs-epr{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-eprname{flex:none;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;}',
+    '.dcs-eprdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.dcs-epchk{flex:none;width:14px;height:14px;margin:0;accent-color:var(--dsw-alias-brand-primary,#0f1115);cursor:pointer;}',
+    '.dcs-epchk:disabled{opacity:.35;cursor:default;}',
+    '.dcs-epbadge{flex:none;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;corner-shape:round;font-size:11px;}',
+    '.dcs-epbadge-read{color:var(--dsw-alias-state-success-primary,#22c55e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 12%,transparent);}',
+    '.dcs-epbadge-stream{color:var(--dsw-alias-label-tertiary,#81858c);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
+    '.dcs-epbadge-black{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
+    '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
+    '.dcs-epstale{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-epstale .dcs-eprname{color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 保存错误栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
     // 连接列表
@@ -451,6 +497,150 @@ interface DshModuleSpec {
     });
   }
 
+  // ── 通用桥写白名单清单 ──
+  // 端点全量列出(按 namespace 分组, 描述内联), 点击勾选切换: 勾 = 白名单(直行), 不勾 = 停泊审批。
+  // 只读/流式/永禁行锁定(徽标标注, 不可勾)。全选 = 显式快照(一次写入全部可选端点的完整清单);
+  // 无通配符: 每个条目都是精确端点。props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, stale}。
+  function BridgeWhitelist(props) {
+    const [filter, setFilter] = React.useState('');
+    // 展开的组: null = 自动(含已选或失效条目的组展开); 非空 = 显式 Set(点组头后接管)
+    const [open, setOpen] = React.useState(null);
+    const data = props.data;
+    const endpoints = data && data.endpoints ? data.endpoints : [];
+    const stale = data && Array.isArray(data.stale) ? data.stale : [];
+    const allowed = props.allowed || [];
+    const allowedSet = new Set(allowed);
+    const q = filter.trim().toLowerCase();
+
+    // 分组(保持服务端顺序)
+    const groups = [];
+    const byNs = new Map();
+    endpoints.forEach(function (e) {
+      const ns = e.endpoint.slice(0, e.endpoint.indexOf('/'));
+      let g = byNs.get(ns);
+      if (!g) { g = { ns: ns, items: [] }; byNs.set(ns, g); groups.push(g); }
+      g.items.push(e);
+    });
+    const selectableOf = function (items) { return items.filter(function (e) { return e.kind === 'selectable'; }); };
+    const allSelectable = selectableOf(endpoints);
+    const allSelected = allSelectable.length > 0 && allSelectable.every(function (e) { return allowedSet.has(e.endpoint); });
+    const someSelected = !allSelected && allSelectable.some(function (e) { return allowedSet.has(e.endpoint); });
+    const matches = function (e) {
+      return !q || e.endpoint.toLowerCase().includes(q) || String(e.description || '').toLowerCase().includes(q);
+    };
+    function emit(nextArray) { props.onChange(nextArray); }
+    function toggleEndpoint(e, checked) {
+      emit(checked ? allowed.concat([e.endpoint]) : allowed.filter(function (x) { return x !== e.endpoint; }));
+    }
+    function toggleGroup(g, checked) {
+      const names = selectableOf(g.items).map(function (e) { return e.endpoint; });
+      const rest = allowed.filter(function (x) { return names.indexOf(x) === -1; });
+      emit(checked ? rest.concat(names) : rest);
+    }
+    function toggleAll() {
+      // 全选 = 显式快照: 整份清单一次写入(或全清), 不做增量补丁
+      emit(allSelected ? [] : allSelectable.map(function (e) { return e.endpoint; }));
+    }
+    function groupOpen(g) {
+      if (q) return true; // 过滤时全部展开
+      if (open !== null) return open.has(g.ns);
+      return g.items.some(function (e) { return allowedSet.has(e.endpoint); })
+        || stale.some(function (s) { return s.slice(0, s.indexOf('/')) === g.ns; });
+    }
+    function flipGroup(g) {
+      const base = open !== null ? open : new Set(groups.filter(groupOpen).map(function (x) { return x.ns; }));
+      const next = new Set(base);
+      if (next.has(g.ns)) next.delete(g.ns); else next.add(g.ns);
+      setOpen(next);
+    }
+    function checkRef(indeterminate) {
+      return function (el) { if (el) el.indeterminate = indeterminate; };
+    }
+    function row(e) {
+      const locked = e.kind !== 'selectable';
+      return React.createElement('div', { key: e.endpoint, className: 'dcs-epr', title: e.description || e.endpoint },
+        React.createElement('input', {
+          className: 'dcs-epchk', type: 'checkbox', disabled: locked,
+          checked: allowedSet.has(e.endpoint),
+          onChange: function (ev) { toggleEndpoint(e, ev.target.checked); },
+        }),
+        React.createElement('span', { className: 'dcs-eprname' }, e.endpoint),
+        e.description ? React.createElement('span', { className: 'dcs-eprdesc' }, e.description) : null,
+        e.kind === 'read' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('bridge.readonly')) : null,
+        e.kind === 'stream' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stream' }, t('bridge.stream')) : null,
+        e.kind === 'blacklist' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-black' }, t('bridge.blacklist')) : null,
+      );
+    }
+
+    let body;
+    if (data === null) {
+      body = React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.loading'));
+    } else if (data === false) {
+      body = React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.unavailable'));
+    } else {
+      const staleBlock = stale.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
+        React.createElement('span', { className: 'dcs-epcount' }, t('bridge.staleTitle')),
+        stale.map(function (s) {
+          return React.createElement(React.Fragment, { key: s },
+            React.createElement('span', { className: 'dcs-eprname' }, s),
+            React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('bridge.staleBadge')),
+            React.createElement('button', {
+              type: 'button', className: 'dcs-x', title: t('bridge.staleRemove', { e: s }),
+              onClick: function () { emit(allowed.filter(function (x) { return x !== s; })); },
+            }, '✕'),
+          );
+        }),
+      );
+      body = React.createElement('div', { className: 'dcs-eplist' },
+        groups.length === 0
+          ? React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.none'))
+          : groups.map(function (g) {
+              const isOpen = groupOpen(g);
+              const sel = selectableOf(g.items);
+              const picked = sel.filter(function (e) { return allowedSet.has(e.endpoint); }).length;
+              const gAll = sel.length > 0 && picked === sel.length;
+              const gSome = !gAll && picked > 0;
+              const visible = g.items.filter(matches);
+              return React.createElement('div', { key: g.ns },
+                React.createElement('div', { className: 'dcs-epgroup', onClick: function () { flipGroup(g); } },
+                  React.createElement('span', { className: 'dcs-epchev' }, isOpen ? '▾' : '▸'),
+                  React.createElement('input', {
+                    className: 'dcs-epchk', type: 'checkbox', disabled: sel.length === 0,
+                    checked: gAll, ref: checkRef(gSome),
+                    onClick: function (ev) { ev.stopPropagation(); },
+                    onChange: function (ev) { toggleGroup(g, ev.target.checked); },
+                  }),
+                  React.createElement('span', { className: 'dcs-epns' }, g.ns),
+                  React.createElement('span', { className: 'dcs-epcount' }, sel.length > 0 ? picked + '/' + sel.length : ''),
+                ),
+                isOpen && visible.length > 0 ? visible.map(row) : null,
+              );
+            }),
+        staleBlock,
+      );
+    }
+
+    return React.createElement('div', { className: 'dcs-eps' },
+      React.createElement('div', { className: 'dcs-epbar' },
+        React.createElement('input', {
+          className: 'dcs-input', type: 'text', value: filter,
+          placeholder: t('bridge.filter'), spellCheck: false,
+          onChange: function (ev) { setFilter(ev.target.value); },
+        }),
+        React.createElement('label', { className: 'dcs-epall' },
+          React.createElement('input', {
+            className: 'dcs-epchk', type: 'checkbox',
+            checked: allSelected, ref: checkRef(someSelected),
+            onChange: toggleAll,
+          }),
+          t('bridge.selectAll'),
+        ),
+        React.createElement('span', { className: 'dcs-epcount' }, t('bridge.selected', { n: allowed.length, m: allSelectable.length })),
+      ),
+      body,
+    );
+  }
+
   function StatusPanel() {
     const [state, setState] = React.useState(null);
     // 最新状态镜像: 事件回调与卸载补交都要读到当前生效值(ref 在卸载后仍然有效)
@@ -490,6 +680,19 @@ interface DshModuleSpec {
     const [adding, setAdding] = React.useState(null);
     // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
     const [cat, setCat] = React.useState(null);
+    // 通用桥端点目录(白名单清单的数据源): null = 加载中, false = 不可用, 否则 {endpoints, stale}
+    const [eps, setEps] = React.useState(null);
+    React.useEffect(function () {
+      let alive = true;
+      const load = function () {
+        rpc('bridge-endpoints').then(function (r) {
+          if (alive) setEps(r && r.available === true ? r : false);
+        }).catch(function () { if (alive) setEps(false); });
+      };
+      load();
+      const timer = window.setInterval(load, 10000);
+      return function () { alive = false; window.clearInterval(timer); };
+    }, []);
     // 字段级校验提示(结构性字段各自一行)的读写: 只显示在对应控件下方
     function setErr(key, msg) { setFieldErr({ key: key, msg: msg }); }
     function clearErr() { setFieldErr(function (cur) { return cur.msg ? { key: '', msg: '' } : cur; }); }
@@ -565,8 +768,8 @@ interface DshModuleSpec {
         defaultDetail: next.defaultDetail,
         authEnabled: next.authOn === true,
         selfToolsEnabled: next.selfToolsOn === true,
-        // 通用桥写面: 文本框按逗号/空白拆分, 服务端做格式校验("namespace/method")
-        bridgeWriteAllowlist: String(next.bridgeWriteText || '').split(/[\s,]+/).map(function (s) { return s.trim(); }).filter(Boolean),
+        // 通用桥写面: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
+        bridgeWriteAllowlist: (next.bridgeWriteAllowlist || []).slice(),
       };
       if (arguments.length > 1) values.authToken = authToken;
       enqueue({ values: values });
@@ -953,15 +1156,10 @@ interface DshModuleSpec {
             React.createElement('span', { className: 'dcs-label' }, t('bridge.title')),
             React.createElement('span', { className: 'dcs-hint' }, t('bridge.hint')),
           ),
-          React.createElement('input', {
-            className: 'dcs-input',
-            type: 'text',
-            value: d.bridgeWriteText,
-            placeholder: t('bridge.placeholder'),
-            spellCheck: false,
-            onChange: function (e) { setDraft(Object.assign({}, draftRef.current, { bridgeWriteText: e.target.value })); },
-            onBlur: function () { change({}); },
-            onKeyDown: function (e) { if (e.key === 'Enter') change({}); },
+          React.createElement(BridgeWhitelist, {
+            data: eps,
+            allowed: d.bridgeWriteAllowlist || [],
+            onChange: function (nextArray) { change({ bridgeWriteAllowlist: nextArray }); },
           }),
         ),
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },

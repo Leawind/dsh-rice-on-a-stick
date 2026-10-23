@@ -795,6 +795,20 @@ try {
     checks['写桥黑名单: 永久拒绝且不给审批通道'] = String(innerOf(credCall).error ?? '').includes('permanently blacklisted')
       && listBridgeWriteApprovals().length === 0
 
+    // GUI 端点目录路由(设置面板白名单清单的数据源): 全量端点 + 分类 + 白名单标记
+    const epsRes = await phase.gui('bridge-endpoints', { httpMethod: 'GET' })
+    const epsBody = epsRes.status === 200 ? JSON.parse(epsRes.body) : {}
+    const epsMap = Object.fromEntries((epsBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
+    checks['GUI bridge-endpoints: 全量端点+分类+白名单标记'] = epsBody.available === true
+      && epsBody.total === 8 && (epsBody.endpoints ?? []).length === 8
+      && epsMap['session/modelCatalog']?.kind === 'read'
+      && epsMap['session/follow']?.kind === 'stream'
+      && epsMap['credentialsController/set']?.kind === 'blacklist'
+      && epsMap['session/prompt']?.kind === 'selectable' && epsMap['session/prompt']?.allowed === false
+      && epsMap['schedule/update']?.kind === 'selectable' && epsMap['schedule/update']?.allowed === true
+      && Array.isArray(epsBody.stale) && epsBody.stale.length === 0
+      && typeof epsMap['session/modelCatalog']?.description === 'string'
+
     // 停泊 → 允许 → 执行
     let held: any
     const parkedCall = phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: { q: 'hi' } } })
@@ -827,7 +841,15 @@ try {
       && listBridgeWriteApprovals().length === 0
 
     // 限时超时: 测试钩子把在途审批的过期时间前移, 不真等超时
-    const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { approvalTimeoutMs: 1000 })
+    const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      approvalTimeoutMs: 1000,
+      // 失效条目: 不在活性端点目录里的白名单条目要在 GUI 路由里标出来
+      bridgeWriteAllowlist: ['ghost/gone'],
+    })
+    const epsStale = await phaseT.gui('bridge-endpoints', { httpMethod: 'GET' })
+    const epsStaleBody = epsStale.status === 200 ? JSON.parse(epsStale.body) : {}
+    checks['GUI bridge-endpoints: 白名单失效条目标记 stale'] = JSON.stringify(epsStaleBody.stale) === JSON.stringify(['ghost/gone'])
+      && (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
     const timeoutCall = phaseT.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 't1' } } })
     await waitFor(() => {
       held = listBridgeWriteApprovals().find((p) => p.endpoint === 'schedule/update')
@@ -1328,6 +1350,13 @@ try {
     const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>)
       .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
     return missing.length === 0
+  })()
+  // 面板绑定(静态): 白名单清单必须走 bridge-endpoints 路由取数(改路由名时两边要同步)
+  checks['设置面板: 白名单清单走 bridge-endpoints 路由'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return clientSrc.includes("rpc('bridge-endpoints')")
+      && clientSrc.includes("kind === 'selectable'")
+      && clientSrc.includes("bridgeWriteAllowlist: (next.bridgeWriteAllowlist || []).slice()")
   })()
 
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
