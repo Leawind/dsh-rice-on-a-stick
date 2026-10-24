@@ -1,12 +1,13 @@
 /**
- * 通用桥工具(读面 + 审批门控的写面): bridge_describe(渐进式发现) + bridge_call。
+ * 通用桥工具(读面 + 审批门控的写面): bridge_describe(搜索优先的四级解析阶梯:
+ * query 关键词搜索 → 无参 namespace 索引 → namespace 单域清单 → endpoint 精确契约) + bridge_call。
  * 长尾宿主能力的零策展覆盖面——数据源与调用机制见 src/host/typert-bridge.ts。
  * 两工具恒注册(不随 resourceFirst 下线): 它们描述/调用的是宿主服务面, 没有资源面等价物。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
-import { describeDirectory, describeEndpoint, invokeOnBridge } from '../../host/typert-bridge.js'
+import { describeDirectory, describeEndpoint, describeNamespace, invokeOnBridge, bridgeNamespaces, searchEndpoints } from '../../host/typert-bridge.js'
 import { out, outError } from './shared.js'
 
 /** 结果渲染上限: 超大载荷直接拒(调用方应缩小查询), 不做破坏性截断 */
@@ -16,27 +17,44 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'bridge_describe',
     {
-      title: 'Describe host bridge surface',
-      description: 'Progressive discovery of the host-service bridge (the generic escape hatch beyond this plugin\'s curated tools). Omit endpoint for the compact directory: every live host Remote endpoint grouped by namespace, each with readOnly (callable now: curated read-only allowlist, non-stream, JSON-only parameters) and writable (whitelisted mutating endpoints, execute directly) flags; other non-stream endpoints carry approvalRequired — bridge_call parks them for a human decision on this deployment\'s settings panel. Pass one endpoint ("namespace/method") for its exact contract: parameter list (wire keys, required, descriptions) and the result JSON Schema. Start here before bridge_call.',
+      title: 'Discover host bridge endpoints',
+      description: 'Discover host Remote endpoints for the generic bridge (the escape hatch beyond this plugin\'s curated tools). Resolution ladder, search first: query = keyword search over endpoint names and descriptions (case-insensitive substrings, multiple words AND together; combine with namespace to search one domain); no arguments = compact namespace index; namespace = one domain\'s method list; endpoint "namespace/method" = the exact contract (parameter list and result JSON Schema), the last step before bridge_call. Coverage spans host domains such as sessions, workspaces and workspace files, plugins, model providers, market, schedule, settings, permissions, commands, goals, terminal and credentials. Entries are flagged readOnly (callable now), writable (whitelisted mutation, executes directly) or approvalRequired (each call parks until a human allows or declines it on this deployment\'s settings panel); entries with blockedBy (stream, permanently blacklisted) cannot be called at all.',
       inputSchema: {
-        endpoint: z.string().optional().describe('Exact endpoint "namespace/method" from the directory; omit for the compact directory.'),
+        query: z.string().optional().describe('Keyword search (preferred entry): case-insensitive substrings over endpoint names and descriptions; multiple words AND together; combine with namespace to scope one domain.'),
+        namespace: z.string().optional().describe('Namespace name: alone lists its methods; with query scopes the search to it. Omit all arguments for the compact namespace index.'),
+        endpoint: z.string().optional().describe('Exact endpoint "namespace/method" for its full contract (parameters + result schema); cannot combine with query/namespace.'),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ endpoint }) => {
+    async ({ endpoint, namespace, query }) => {
       try {
-        if (endpoint === undefined || endpoint === '') {
-          const dir = describeDirectory(ctx)
-          if ((dir.total as number) === 0) {
-            return outError(JSON.stringify({ error: 'the host typert registry is unavailable (the bridge needs the web profile typert services)' }))
+        const q = query?.trim() || undefined
+        const ns = namespace?.trim() || undefined
+        const ep = endpoint?.trim() || undefined
+        if (ep !== undefined && (q !== undefined || ns !== undefined)) {
+          return outError(JSON.stringify({ error: 'pass at most one selector: endpoint ("namespace/method") fetches the exact contract and cannot combine with query/namespace' }))
+        }
+        const names = bridgeNamespaces(ctx)
+        if (names.length === 0) {
+          return outError(JSON.stringify({ error: 'the host typert registry is unavailable (the bridge needs the web profile typert services)' }))
+        }
+        if (ep !== undefined) {
+          const contract = describeEndpoint(ctx, ep)
+          if (contract === undefined) {
+            return outError(JSON.stringify({ error: `unknown endpoint "${ep}" — call bridge_describe without arguments for the namespace index, or pass query=… to search` }))
           }
-          return out(JSON.stringify(dir, null, 2))
+          return out(JSON.stringify(contract, null, 2))
         }
-        const contract = describeEndpoint(ctx, endpoint)
-        if (contract === undefined) {
-          return outError(JSON.stringify({ error: `unknown endpoint "${endpoint}" — call bridge_describe without arguments for the directory` }))
+        if (ns !== undefined && !names.includes(ns)) {
+          return outError(JSON.stringify({ error: `unknown namespace "${ns}" — available namespaces: ${names.join(', ')}` }))
         }
-        return out(JSON.stringify(contract, null, 2))
+        if (q !== undefined) {
+          return out(JSON.stringify(searchEndpoints(ctx, q, ns), null, 2))
+        }
+        if (ns !== undefined) {
+          return out(JSON.stringify(describeNamespace(ctx, ns), null, 2))
+        }
+        return out(JSON.stringify(describeDirectory(ctx), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: `bridge_describe failed: ${(e as Error)?.message ?? String(e)}` }))
       }

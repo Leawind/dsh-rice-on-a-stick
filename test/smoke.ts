@@ -863,18 +863,34 @@ try {
     const dir = await phase.call('bridge_describe', {})
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
-    const byEndpoint = Object.fromEntries((sessionGroup?.methods ?? []).map((m: any) => [m.endpoint, m]))
-    checks['桥目录: 按 namespace 分组, readOnly/writable/approvalRequired 标记正确'] = dirPayload.total === 8 && dirPayload.readable === 4 && dirPayload.writable === 0
-      && sessionGroup !== undefined
+    checks['桥索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 8 && dirPayload.readable === 4 && dirPayload.writable === 0
+      && sessionGroup?.methods === 5 && sessionGroup?.readable === 3 && sessionGroup?.approvalRequired === 1
+      && sessionGroup?.endpoints === undefined
+      && (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'goals')?.methods === 1
+
+    const nsList = await phase.call('bridge_describe', { namespace: 'session' })
+    const nsPayload = innerOf(nsList) as any
+    const byEndpoint = Object.fromEntries((nsPayload.endpoints ?? []).map((m: any) => [m.endpoint, m]))
+    checks['桥单域清单: 逐端点 readOnly/approvalRequired/blockedBy 标记正确'] = nsPayload.total === 5
       && byEndpoint['session/modelCatalog']?.readOnly === true
-      && byEndpoint['session/list']?.readOnly === true
-      && byEndpoint['session/page']?.readOnly === true
-      && byEndpoint['session/prompt']?.readOnly === false
-      && byEndpoint['session/prompt']?.approvalRequired === true
-      && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
+      && byEndpoint['session/prompt']?.approvalRequired === true && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
-    const credGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'credentialsController')
-    checks['桥目录: 黑名单端点标记 permanently blacklisted'] = credGroup?.methods?.[0]?.blockedBy === 'permanently blacklisted'
+    const credNs = await phase.call('bridge_describe', { namespace: 'credentialsController' })
+    checks['桥单域清单: 黑名单端点标记 permanently blacklisted'] = ((innerOf(credNs) as any).endpoints ?? [])[0]?.blockedBy === 'permanently blacklisted'
+
+    const hit = await phase.call('bridge_describe', { query: 'routable model' })
+    const hitPayload = innerOf(hit) as any
+    checks['桥搜索: 多词 AND 同时命中端点名与描述'] = hitPayload.total === 1 && hitPayload.endpoints?.[0]?.endpoint === 'session/modelCatalog'
+    const scoped = await phase.call('bridge_describe', { query: 'list', namespace: 'session' })
+    checks['桥搜索: namespace 参数把搜索收窄到单域'] = (innerOf(scoped) as any).total === 1
+      && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
+    const zero = await phase.call('bridge_describe', { query: 'zzz-nothing' })
+    const zeroPayload = innerOf(zero) as any
+    checks['桥搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 4
+    const mixed = await phase.call('bridge_describe', { endpoint: 'session/list', query: 'x' })
+    checks['桥解析: endpoint 与 query/namespace 互斥'] = String(innerOf(mixed).error ?? '').includes('at most one')
+    const badNs = await phase.call('bridge_describe', { namespace: 'nope' })
+    checks['桥解析: 未知 namespace 报错列出可用域'] = String(innerOf(badNs).error ?? '').includes('available namespaces')
 
     const contract = await phase.call('bridge_describe', { endpoint: 'session/modelCatalog' })
     const contractPayload = innerOf(contract) as any
@@ -933,13 +949,14 @@ try {
     })
     const dir = await phase.call('bridge_describe', {})
     const dirPayload = innerOf(dir) as any
-    const sched = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'schedule')?.methods ?? [])[0]
-    const prompt = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')?.methods ?? []).find((m: any) => m.endpoint === 'session/prompt')
-    const cred = ((dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'credentialsController')?.methods ?? [])[0]
-    checks['写桥目录: 白名单 writable=true, 清单外 approvalRequired, 黑名单仍 blocked'] = dirPayload.writable === 1
-      && sched?.writable === true
+    const sessNs = innerOf(await phase.call('bridge_describe', { namespace: 'session' })) as any
+    const prompt = (sessNs.endpoints ?? []).find((m: any) => m.endpoint === 'session/prompt')
+    const schedNs = innerOf(await phase.call('bridge_describe', { namespace: 'schedule' })) as any
+    const credNs = innerOf(await phase.call('bridge_describe', { namespace: 'credentialsController' })) as any
+    checks['写桥目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] = dirPayload.writable === 1
+      && (schedNs.endpoints ?? [])[0]?.writable === true
       && prompt?.writable !== true && prompt?.approvalRequired === true && prompt?.blockedBy === 'requires approval'
-      && cred?.blockedBy === 'permanently blacklisted'
+      && (credNs.endpoints ?? [])[0]?.blockedBy === 'permanently blacklisted'
 
     const directCall = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
     checks['写桥: 白名单端点直接执行(无审批)'] = directCall.status === 200

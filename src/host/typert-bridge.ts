@@ -222,40 +222,116 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   }
 }
 
-/** 紧凑目录: 按 namespace 分组, 每方法一行摘要(全量 ~140 项, 控制在 ~2k token) */
+/** 目录/搜索/单域清单共用的紧凑条目(逐字段按需携带: stream 仅真、approvalRequired/blockedBy 仅存在时、摘要首句截 90 字符) */
+export interface EndpointSummary {
+  endpoint: string
+  readOnly: boolean
+  writable: boolean
+  approvalRequired?: boolean
+  blockedBy?: string
+  stream?: boolean
+  summary?: string
+}
+
+function endpointSummary(inv: InvocationView): EndpointSummary {
+  const cls = classifyInvocation(inv)
+  return {
+    endpoint: `${inv.namespace}/${inv.method}`,
+    readOnly: cls.readOnly,
+    writable: cls.writable,
+    ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
+    ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
+    ...(inv.stream ? { stream: true } : {}),
+    ...(inv.description !== undefined ? { summary: inv.description.split('.')[0]?.slice(0, 90) } : {}),
+  }
+}
+
+/** 全部 live 端点的去重 namespace 名单(工具面的注册表可达性检查与未知域报错共用) */
+export function bridgeNamespaces(ctx: Context): string[] {
+  return [...new Set(listInvocations(ctx).map((inv) => inv.namespace))]
+}
+
+/**
+ * 无参形态的 namespace 索引: 每域一行(methods 计数 + 非零分类计数), 不倾倒逐端点条目。
+ * 逐域清单走 describeNamespace, 关键词定位走 searchEndpoints, 精确契约走 describeEndpoint——
+ * 驻留上下文的租金只按实际触达的部分缴纳, 全量枚举退场。
+ */
 export function describeDirectory(ctx: Context): Record<string, unknown> {
   const invocations = listInvocations(ctx)
-  const namespaces = new Map<string, Record<string, unknown>[]>()
+  const groups = new Map<string, { methods: number; readable: number; writable: number; approvalRequired: number }>()
   let readable = 0
   let writable = 0
   for (const inv of invocations) {
     const cls = classifyInvocation(inv)
     if (cls.readOnly) readable++
     if (cls.writable) writable++
-    const entry = {
-      endpoint: `${inv.namespace}/${inv.method}`,
-      stream: inv.stream,
-      readOnly: cls.readOnly,
-      writable: cls.writable,
-      ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
-      ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
-      ...(inv.description !== undefined ? { summary: inv.description.split('.')[0]?.slice(0, 90) } : {}),
-    }
-    const group = namespaces.get(inv.namespace) ?? []
-    group.push(entry)
-    namespaces.set(inv.namespace, group)
+    const group = groups.get(inv.namespace) ?? { methods: 0, readable: 0, writable: 0, approvalRequired: 0 }
+    group.methods++
+    if (cls.readOnly) group.readable++
+    if (cls.writable) group.writable++
+    if (cls.approvalRequired === true) group.approvalRequired++
+    groups.set(inv.namespace, group)
   }
   return {
     total: invocations.length,
     readable,
     writable,
-    namespaces: [...namespaces.entries()].map(([namespace, methods]) => ({ namespace, methods })),
-    note: 'readOnly = callable now (curated read-only allowlist ∧ non-stream ∧ JSON-only parameters). '
-      + 'writable = whitelisted mutating endpoints (execute directly; the hard blacklist always wins). '
-      + 'Endpoints with approvalRequired (blockedBy "requires approval") are callable but each call parks '
-      + 'until a human allows or declines the write on this deployment\'s settings panel — decline, timeout '
-      + '(approvalTimeoutMs, 0 = unlimited) and caller disconnect all fail closed. '
-      + 'Pass one endpoint to bridge_describe for its exact contract. Stream endpoints stay unexposed.',
+    namespaces: [...groups.entries()].map(([namespace, g]) => ({
+      namespace,
+      methods: g.methods,
+      ...(g.readable > 0 ? { readable: g.readable } : {}),
+      ...(g.writable > 0 ? { writable: g.writable } : {}),
+      ...(g.approvalRequired > 0 ? { approvalRequired: g.approvalRequired } : {}),
+    })),
+    note: 'Compact namespace index: query=… keyword-searches endpoint names + descriptions (preferred entry), '
+      + 'namespace=… lists one domain, endpoint=… gives the exact contract. readOnly entries are callable now; '
+      + 'writable execute directly; approvalRequired parks each call for a human decision on this deployment\'s settings panel.',
+  }
+}
+
+/** 搜索结果上限: 超出带 total + truncatedTo 提示调用方加词收窄, 不静默扩载荷 */
+const SEARCH_RESULT_CAP = 30
+
+/**
+ * 关键词搜索: 对 endpoint 名(namespace/method)与 description 做大小写不敏感子串匹配,
+ * 多词 AND(逐词命中即可, 不要求同字段); namespace 参数把搜索收窄到单域。
+ * 零命中附带 namespace 名单供换词续搜(错误即导航)。
+ */
+export function searchEndpoints(ctx: Context, query: string, namespace?: string): Record<string, unknown> {
+  const invocations = listInvocations(ctx)
+  const terms = query.toLowerCase().split(/\s+/).filter((t) => t !== '')
+  const pool = namespace === undefined ? invocations : invocations.filter((inv) => inv.namespace === namespace)
+  const matched = pool.filter((inv) => {
+    const hay = `${inv.namespace}/${inv.method} ${inv.description ?? ''}`.toLowerCase()
+    return terms.every((t) => hay.includes(t))
+  })
+  return {
+    query,
+    ...(namespace !== undefined ? { namespace } : {}),
+    total: matched.length,
+    endpoints: matched.slice(0, SEARCH_RESULT_CAP).map(endpointSummary),
+    ...(matched.length > SEARCH_RESULT_CAP ? { truncatedTo: SEARCH_RESULT_CAP } : {}),
+    ...(matched.length === 0 ? { namespaces: bridgeNamespaces(ctx) } : {}),
+    note: matched.length === 0
+      ? 'no endpoint matched — available namespaces are listed for manual browsing; try broader or different terms, or drop the arguments'
+      : matched.length > SEARCH_RESULT_CAP
+        ? `showing ${SEARCH_RESULT_CAP} of ${matched.length} matches — add a term to narrow; endpoint=… gives the exact contract`
+        : 'pass endpoint=… to bridge_describe for the exact contract (the step before bridge_call)',
+  }
+}
+
+/** 单域方法清单(未知域返回 undefined, 由工具面报错并列出可用域) */
+export function describeNamespace(ctx: Context, namespace: string): Record<string, unknown> | undefined {
+  const inDomain = listInvocations(ctx).filter((inv) => inv.namespace === namespace)
+  if (inDomain.length === 0) return undefined
+  const entries = inDomain.map(endpointSummary)
+  return {
+    namespace,
+    total: entries.length,
+    readable: entries.filter((e) => e.readOnly).length,
+    writable: entries.filter((e) => e.writable).length,
+    endpoints: entries,
+    note: 'pass endpoint=namespace/method to bridge_describe for the exact contract (the step before bridge_call)',
   }
 }
 
