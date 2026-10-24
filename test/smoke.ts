@@ -1211,7 +1211,8 @@ try {
   // ── Phase M: 模型回报新鲜度(独立端口独立 ctx)——换模型后 session_result/session_list 以日志头为准 ──
   {
     const mCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle, extraSessions: [{ id: 'sess-select' }] })
-    const phase = await startPhase(8082, mCtx, {})
+    // 本相位无端口断言: 固定端口被本机其它进程独占(WSAEACCES)时顺延候选, 不中断整套冒烟
+    const phase = await startPhase(await firstBindablePort([8082, 8182, 8282, 8382]), mCtx, {})
     const agent = mCtx.agents.get('sess-select')
     agent.session.requestHeader = () => ({ config: { provider: 'p1', model: 'm1' } })
     const sub = await phase.call('session_submit', { sessionId: 'sess-select', task: 'model freshness probe' })
@@ -1640,6 +1641,20 @@ async function guiRequest(ctx: any, route: string, opts: { httpMethod?: string; 
 }
 
 // ── Phase 脚手架: 独立端口独立 ctx 的 apply + call/raw/gui 小工具 ──
+/** 探测候选端口中第一个可绑定的: 固定端口可能被本机其它进程独占(Windows 上 bind 得 WSAEACCES) */
+async function firstBindablePort(candidates: number[]): Promise<number> {
+  for (const port of candidates) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const probe = createServer()
+      probe.once('error', () => resolve(false))
+      probe.once('listening', () => probe.close(() => resolve(true)))
+      probe.listen(port, '127.0.0.1')
+    })
+    if (ok) return port
+  }
+  throw new Error(`no bindable port among ${candidates.join(', ')}`)
+}
+
 async function startPhase(port: number, ctx: any, config: Record<string, unknown>) {
   // 与 Loader 一致: 配置先过 Config schema(界面字段成为 volatile 引用), 再交给 apply
   const parsed = ConfigSchema({ port, host: '127.0.0.1', ...config }) as any
