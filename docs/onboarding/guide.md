@@ -73,10 +73,13 @@ you already know.
   receipt (`session_submit.attachments`) or in `session_history` entries (`images`
   fields); `attachment_read` returns metadata plus the host file path (zero image
   tokens), and `inline: true` adds an MCP image content block for multimodal clients.
-- **Generic bridge** — `bridge_describe` lists every live host Remote endpoint
-  (grouped by namespace, with `readOnly` / `writable` flags and `approvalRequired`
-  for the rest); pass one endpoint for its exact contract (named wire parameters +
-  result JSON Schema). `bridge_call` invokes an endpoint by reference with named
+- **Generic bridge** — `bridge_describe` resolves host Remote endpoints through a
+  search-first ladder: `query` keyword-searches endpoint names + descriptions
+  (case-insensitive substrings, multiple words AND, optionally scoped with
+  `namespace`); no arguments return a compact namespace index; `namespace` lists one
+  domain's methods; one `endpoint` returns its exact contract (named wire parameters +
+  result JSON Schema). Entries carry `readOnly` / `writable` flags (`approvalRequired`
+  for the rest). `bridge_call` invokes an endpoint by reference with named
   `args` — use the wire keys from the contract; parameters the host resolves itself
   (e.g. an agent parameter) take the session id as their wire value, and the gateway
   resolves them. `readOnly` and `writable` (whitelisted) endpoints run directly; any
@@ -143,9 +146,10 @@ you already know.
     Keep the reference short (path or URL); never inline image bytes into `task`. Find
     the attachment id in the `session_submit` receipt or `session_history`'s `images`;
     hand it to `attachment_read` (add `inline: true` only for multimodal read-back).
-11. **Reach a capability the curated tools lack** — `bridge_describe` (no args) for the
-    directory, `bridge_describe { endpoint }` for the contract, `bridge_call
-    { endpoint, args }` to execute. Whitelisted writes run at once; other non-stream
+11. **Reach a capability the curated tools lack** — `bridge_describe { query: "…" }`
+    to search endpoints by keyword (no args for the namespace index, `{ namespace }`
+    for one domain's methods), `bridge_describe { endpoint }` for the contract,
+    `bridge_call { endpoint, args }` to execute. Whitelisted writes run at once; other non-stream
     endpoints park the call until a human allows it on the deployment's settings panel
     (the tool call blocks in the meantime) — if the human declines, or the wait times
     out, or you disconnect, nothing is executed and the error says so. Blacklisted
