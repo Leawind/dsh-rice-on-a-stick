@@ -1149,9 +1149,11 @@ try {
 
   // ── Phase E2: 认证开关关闭 = 暂不校验(令牌保留, 重新开启即恢复) ──
   {
-    const phase = await startPhase(8086, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', authEnabled: false })
+    // 与 Phase M 同理: 固定端口可能被本机其它进程独占, 本相位无端口数值断言, 顺延候选
+    const e2Port = await firstBindablePort([8086, 8186, 8286])
+    const phase = await startPhase(e2Port, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', authEnabled: false })
     // 不带 Authorization 头直接握手: 开关关闭时不应再被令牌拦下
-    const noHeader = await rawRequest(8086, {
+    const noHeader = await rawRequest(e2Port, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-auth-off', version: '1.0' } } }),
     })
