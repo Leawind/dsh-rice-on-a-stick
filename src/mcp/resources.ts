@@ -6,7 +6,7 @@
  *         dsh://models  dsh://presets  dsh://workspaces  dsh://sessions
  *   模板: dsh://models/{provider}  dsh://workspaces/{id}  dsh://sessions/{id}
  *         dsh://sessions/{id}/history[/before]  dsh://sessions/{id}/events[/after]
- *         dsh://sessions/{id}/activity
+ *         dsh://sessions/{id}/activity  dsh://sessions/{id}/overview
  * 规范要点落地:
  *   - capabilities.resources.{listChanged,subscribe:true} 由 mcp/http.ts 在构造器声明;
  *     list_changed(清单变化)由 state.hooks.notifyListChanged → hub 合并广播, updated(单资源)定向推送。
@@ -14,7 +14,7 @@
  *   - completion: 模板变量的 complete 回调(SDK 自动声明 completions 能力)。
  *   - 读语义: 未知/不可读资源一律 McpError(-32602), 绝不返回空 contents(MCP 规范 MUST)。
  *   - listed ⇒ readable: history/events/activity 的模板清单只列 live 会话(persisted-only 由
- *     dsh://sessions/{id} 元数据资源承接, 其 historyReadable 字段指路)。
+ *     dsh://sessions/{id} 元数据资源与 {id}/overview 概览资源承接, 前者的 historyReadable 字段指路)。
  *   - annotations: audience/priority 按资源的受众与及时性标注; lastModified/size 在可得处下发。
  *   - 参数化走路径游标(SDK UriTemplate 的 {?query} 匹配是必选语义, 不支持可选参数):
  *     history/{before} 与 events/{after} 为翻页变体, 默认模板不带参数。
@@ -34,6 +34,7 @@ import {
   sessionEventsPayload,
   sessionHistoryPayload,
   sessionMetaPayload,
+  sessionOverviewPayload,
   workspaceDetailPayload,
   workspacesPayload,
   type ToolDeps,
@@ -178,6 +179,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     sessionHistoryPayload(ctx, decodeVar(vars.sessionId), 10, parseIndex(vars.before)).then((v) => json(uri, v))
   const readEvents: ReadFn = (uri, vars) => sessionEventsPayload(ctx, decodeVar(vars.sessionId), parseIndex(vars.after)).then((v) => json(uri, v))
   const readActivity: ReadFn = (uri, vars) => activityPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
+  const readOverview: ReadFn = (uri, vars) => sessionOverviewPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
   const readTools: ReadFn = (uri) => json(uri, hostToolsPayload(ctx))
 
   // ── 静态资源 ──
@@ -339,6 +341,25 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.hot,
   }, (uri, vars) => readActivity(uri, vars))
 
+  // 现状概览: 默认档字段(工具面的 fields/recentLimit 细粒度是工具参数, 资源面读默认档);
+  // 清单含 persisted-only 会话(冷会话经 inspect 同样可读), 与元数据资源同一补全源
+  mcp.registerResource('session-overview', new ResourceTemplate(resUri.sessions + '/{sessionId}/overview', {
+    list: async () => {
+      const { sessions: items } = await collectSessions(ctx)
+      return {
+        resources: items.map((s) => ({
+          uri: resUri.sessionOverview(String(s.sessionId)),
+          name: String(s.title ?? s.sessionId),
+          mimeType: 'application/json',
+        })),
+      }
+    },
+    complete: { sessionId: completeSessionIds(ctx) },
+  }), {
+    title: 'Session overview', description: 'One-call, GUI-style glance at a session (default sections: title, permission, model + reasoning effort, in-progress state, recent content digest; same data as session_overview)',
+    mimeType: 'application/json', annotations: ann.hot,
+  }, (uri, vars) => readOverview(uri, vars))
+
   // ── 订阅面(hub 缺省 = 纯只读) ──
   const hub = deps?.hub
   if (hub) {
@@ -352,6 +373,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
       { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/events', { list: undefined }), read: readEvents },
       { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/events/{after}', { list: undefined }), read: readEvents },
       { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/activity', { list: undefined }), read: readActivity },
+      { template: new ResourceTemplate(resUri.sessions + '/{sessionId}/overview', { list: undefined }), read: readOverview },
     ]
     const staticReads: Record<string, ReadFn> = {
       [resUri.status]: readStatus,

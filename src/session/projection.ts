@@ -277,3 +277,56 @@ export function historyTurnsOf(events: readonly unknown[], limit: number, before
   }
   return turns
 }
+
+// ── 会话概览的"最近内容"折叠(session_overview / dsh://sessions/{id}/overview) ──
+
+/** 概览一行摘要的按类预算(字符): 归一化与宿主 turnOutline 轮次卡片同源, 档位取"一行能放下"的宽度 */
+const OVERVIEW_CLIP = { user: 80, assistant: 160, toolArgs: 100 } as const
+
+/**
+ * 界面预览同源的归一化: 空白折叠为单空格、去首尾, 超过 limit-1 截断补省略号
+ * (规则照抄宿主 turnOutline 轮次卡片的 preview(), 预算见 OVERVIEW_CLIP)。
+ */
+export function uiPreview(text: string, limit: number): string {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  return normalized.length > limit - 1 ? `${normalized.slice(0, limit - 1).trimEnd()}…` : normalized
+}
+
+/**
+ * 概览的"最近内容"折叠: 从最新往回收集 limit 条可见条目(user / assistant / tool_call),
+ * 返回按时间正序。对话文本经 uiPreview 压成一行; 工具调用只报 name + 一行参数摘要,
+ * 不带结果——与界面会话页"最近在做什么"的口径一致。
+ * user 侧跳过注入上下文(source.kind 存在且不为 user 的 user/message, 与 turnOutline
+ * 的轮次提示词同一判定)。条目带事件 index, 可直接作为 session_history 的 beforeIndex
+ * 翻页锚点。lastEventTime = 日志里最后一个带 time 的事件时间(没有则省略)。
+ */
+export function recentOverviewOf(events: readonly unknown[], limit: number): { entries: Record<string, unknown>[]; lastEventTime?: number } {
+  // 最后事件时间与条目收集无关: 从尾部找第一个带 time 的事件
+  let lastEventTime: number | undefined
+  for (let i = events.length - 1; i >= 0; i--) {
+    const time = (events[i] as { time?: unknown } | undefined)?.time
+    if (typeof time === 'number' && Number.isFinite(time)) {
+      lastEventTime = time
+      break
+    }
+  }
+  const entries: Record<string, unknown>[] = []
+  for (let i = events.length - 1; i >= 0 && entries.length < limit; i--) {
+    const ev = events[i] as { type?: string; data?: unknown } | undefined
+    if (ev?.type === 'assistant/message') {
+      const d = ev.data as { message?: { content?: { type?: string; text?: string }[] } } | undefined
+      const text = uiPreview((d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join(' '), OVERVIEW_CLIP.assistant)
+      if (text !== '') entries.unshift({ index: i, kind: 'assistant', text })
+    } else if (ev?.type === 'user/message') {
+      const d = ev.data as { source?: { kind?: string } } | undefined
+      if (d?.source?.kind !== undefined && d.source.kind !== 'user') continue
+      const text = uiPreview(extractTexts(ev.data).join(' '), OVERVIEW_CLIP.user)
+      if (text !== '') entries.unshift({ index: i, kind: 'user', text })
+    } else if (ev?.type === 'tool/call') {
+      const d = ev.data as { name?: string; arguments?: string; input?: unknown } | undefined
+      const args = uiPreview(String(d?.arguments ?? JSON.stringify(d?.input ?? null) ?? ''), OVERVIEW_CLIP.toolArgs)
+      entries.unshift({ index: i, kind: 'tool_call', name: d?.name ?? '?', args })
+    }
+  }
+  return { entries, ...(lastEventTime !== undefined ? { lastEventTime } : {}) }
+}

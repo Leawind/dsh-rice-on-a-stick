@@ -6,6 +6,7 @@
  *   sessionMetaPayload  单会话元数据(dsh://sessions/{id}; persisted-only 也可读)
  *   activityPayload     当前 turn 活动窗口(dsh://sessions/{id}/activity; 订阅核心场景)
  *   sessionEventsPayload 原始事件流(dsh://sessions/{id}/events; JSONL, after 游标翻页)
+ *   sessionOverviewPayload 单会话现状概览(dsh://sessions/{id}/overview; 字段可选)
  *   hostToolsPayload    宿主全局工具注册表(dsh://tools)
  * 本层抛普通 Error(带可诊断信息); 资源面统一转 McpError(-32602), 工具面转 isError 结果。
  */
@@ -15,9 +16,9 @@ import { PLUGIN_VERSION, authTokenHint } from '../core/config.js'
 import { state } from '../core/state.js'
 import type { ModelSelection, ModelSelectionOverride } from '../core/types.js'
 import { canonicalCwd, isWithin } from '../core/paths.js'
-import { historyTurnsOf, projectModel, type HistoryDetail, type HistoryRole } from '../session/projection.js'
+import { historyTurnsOf, projectModel, recentOverviewOf, type HistoryDetail, type HistoryRole } from '../session/projection.js'
 import { archivedSessionIdsOf, asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
-import { latestTitleOf, sessionInsightPayload } from '../session/insight.js'
+import { latestTitleOf, sessionEventSourceOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
 import { currentPermissionOf } from '../session/permissions.js'
 import { resolve } from 'node:path'
@@ -43,6 +44,7 @@ export const resUri = {
   sessionHistory: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/history`,
   sessionEvents: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/events`,
   sessionActivity: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/activity`,
+  sessionOverview: (sessionId: string) => `dsh://sessions/${encodeURIComponent(sessionId)}/overview`,
 } as const
 
 // ── 模型目录(model_list / dsh://models) ──
@@ -350,6 +352,69 @@ export async function sessionMetaPayload(ctx: Context, sessionId: string): Promi
   // 元信息与活动/历史面同源: 标题/模型/preset + 轮步计数 + 上下文占用(读不到日志时只回清单行)
   const insight = await sessionInsightPayload(ctx, sessionId, item)
   return { ...insight, historyReadable: readable }
+}
+
+// ── 单会话现状概览(session_overview / dsh://sessions/{id}/overview) ──
+
+/** 概览的可选字段; 显式传 fields 时整体替换默认档(未知字段名直接报错) */
+export const OVERVIEW_FIELDS = ['title', 'permission', 'model', 'state', 'recent', 'context', 'progress', 'preset', 'cwd'] as const
+export type OverviewField = (typeof OVERVIEW_FIELDS)[number]
+/** 默认档: 界面同款"一眼看全"——标题/权限/模型+推理档/进行态/最近内容 */
+export const OVERVIEW_DEFAULT_FIELDS: readonly OverviewField[] = ['title', 'permission', 'model', 'state', 'recent']
+/** recent 摘要的条数: 默认与上限(条目是一行摘要, 上限防长日志灌穿) */
+export const OVERVIEW_RECENT_DEFAULT_LIMIT = 5
+export const OVERVIEW_RECENT_LIMIT_MAX = 20
+
+/**
+ * 单会话现状概览: 一次调用给齐"点开会话页"级别的信息(工具面与资源面同数据)。
+ * 头部字段(标题/权限/模型/推理档)与底部状态(state/inProgress)来自 sessionInsightPayload
+ * 的同一折叠; recent 另折最近可见条目(对话一行摘要 + 工具调用名与参数摘要, 预算与界面
+ * 轮次卡片同源, 见 recentOverviewOf)。事件源只取一次——冷会话只付一次 inspect 读。
+ * fields 只裁输出不省读取(同一份数据一次折出); recentLimit 夹在
+ * 1..OVERVIEW_RECENT_LIMIT_MAX。读不到日志时 eventsReadable=false, recent 为空。
+ */
+export async function sessionOverviewPayload(
+  ctx: Context,
+  sessionId: string,
+  fields?: readonly string[],
+  recentLimit?: number,
+): Promise<Record<string, unknown>> {
+  const wanted = fields !== undefined && fields.length > 0 ? fields : OVERVIEW_DEFAULT_FIELDS
+  for (const field of wanted) {
+    if (!(OVERVIEW_FIELDS as readonly string[]).includes(field)) {
+      throw new Error(`unknown overview field "${field}" (valid fields: ${OVERVIEW_FIELDS.join(', ')})`)
+    }
+  }
+  const limit = Math.min(OVERVIEW_RECENT_LIMIT_MAX, Math.max(1, Math.floor(recentLimit ?? OVERVIEW_RECENT_DEFAULT_LIMIT)))
+  const { sessions: rows } = await collectSessions(ctx)
+  const row = rows.find((s) => String(s.sessionId) === sessionId)
+  if (row === undefined) throw new Error(`session not found: ${sessionId}`)
+  const source = await sessionEventSourceOf(ctx, sessionId)
+  const insight = await sessionInsightPayload(ctx, sessionId, row, source)
+
+  const want = (field: OverviewField) => wanted.includes(field)
+  const result: Record<string, unknown> = {
+    sessionId,
+    archived: insight.archived === true,
+    eventsReadable: insight.eventsReadable === true,
+  }
+  if (want('title') && insight.title !== undefined) result.title = insight.title
+  if (want('permission') && insight.permission !== undefined) result.permission = insight.permission
+  if (want('model') && insight.model !== undefined) result.model = insight.model
+  if (want('preset') && insight.preset !== undefined) result.preset = insight.preset
+  if (want('cwd') && insight.cwd !== undefined) result.cwd = insight.cwd
+  if (want('context') && insight.context !== undefined) result.context = insight.context
+  if (want('progress')) {
+    result.turn = insight.turn
+    result.step = insight.step
+  }
+  if (want('state')) {
+    result.state = insight.state
+    // "是否在进行中" = 打开中的 turn(running / waiting-approval); inactive 会话残留的未闭合 turn 不算
+    result.inProgress = insight.state === 'running' || insight.state === 'waiting-approval'
+  }
+  if (want('recent')) result.recent = recentOverviewOf(source.events ?? [], limit)
+  return result
 }
 
 /** session_history / dsh://sessions/{id}/history 的默认视角: 只给对话消息; 工具调用/轮边界需显式传 roles */

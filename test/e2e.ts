@@ -121,7 +121,7 @@ try {
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
     'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_command', 'session_select_model',
-    'session_rename', 'session_list', 'session_meta', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
+    'session_rename', 'session_list', 'session_meta', 'session_overview', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
     'session_archive', 'session_unarchive',
     'approval_list', 'approval_answer', 'approval_policy', 'subagent_list',
     'attachment_read', 'bridge_describe', 'bridge_call']
@@ -138,14 +138,14 @@ try {
   report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
     `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
   const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
-  report('将工具注册到本dsh实例(全局表可见 33 个 rice_ 工具)', nativeNames.length === 33
+  report('将工具注册到本dsh实例(全局表可见 34 个 rice_ 工具)', nativeNames.length === 34
     && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
   `native=${nativeNames.length}`)
 
   const status = await callTool(sid, 6, 'dsh_status')
   report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
-  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 33,
+  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 34,
     `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)
 
   const workspaces = await callTool(sid, 7, 'workspace_list')

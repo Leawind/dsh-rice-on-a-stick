@@ -56,15 +56,17 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   // ── 资源订阅枢纽: 每连接一个 McpServer 实例的架构让订阅按连接隔离; 变更点经 state.hooks 汇入 ──
   const hub = createNotifyHub({ activityThrottleMs: 1000 })
-  // 推送按"同一事实的资源族"展开: 新增事件 → 活动窗口 + 原始事件流; turn 收敛 → 历史 + 会话元数据
-  // (轮数/状态/标题都变了)。hub 侧按精确 URI + 下游游标变体命中订阅者。
+  // 推送按"同一事实的资源族"展开: 新增事件 → 活动窗口 + 原始事件流 + 概览(recent/进行态变了);
+  // turn 收敛 → 历史 + 会话元数据 + 概览(轮数/状态/标题都变了)。hub 侧按精确 URI + 下游游标变体命中订阅者。
   state.hooks.notifySessionActivity = (sessionId) => {
     hub.updatedThrottled(resUri.sessionActivity(sessionId))
     hub.updatedThrottled(resUri.sessionEvents(sessionId))
+    hub.updatedThrottled(resUri.sessionOverview(sessionId))
   }
   state.hooks.notifySessionHistory = (sessionId) => {
     hub.updated(resUri.sessionHistory(sessionId))
     hub.updated(resUri.session(sessionId))
+    hub.updated(resUri.sessionOverview(sessionId))
   }
   state.hooks.notifyListChanged = () => hub.listChanged()
 

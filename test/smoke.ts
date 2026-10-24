@@ -1,7 +1,7 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 33 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 34 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
@@ -27,6 +27,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
+import { sessionOverviewPayload } from '../lib/host/data.js'
 import { ageBridgeWriteApprovalsForTest, answerBridgeWriteApproval, invokeOnBridge, listBridgeWriteApprovals } from '../lib/host/typert-bridge.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
@@ -93,8 +94,8 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 33 个(rice_ 前缀)'] = nativeSchemas.length === 33
-    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list', 'rice_permission_list', 'rice_session_set_permission']
+  checks['原生自用工具: 默认注册全部 34 个(rice_ 前缀)'] = nativeSchemas.length === 34
+    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list', 'rice_permission_list', 'rice_session_set_permission', 'rice_session_overview']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_prompt')?.description ?? ''
@@ -109,7 +110,7 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 33
+    && nativeStatusJson.stats?.selfTools === 34
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -120,6 +121,12 @@ try {
   const nativeMetaJson = JSON.parse(nativeMetaDef.output.render({}, nativeMetaValue)[0]?.text ?? '{}')
   checks['原生自用工具: session_meta 省略 sessionId 取当前会话'] = nativeMetaJson.sessionId === 'sess-live'
     && nativeMetaJson.live === true && nativeMetaJson.model?.model === 'live-m'
+  const nativeOverviewDef = ctx.tools.get('rice_session_overview')
+  const nativeOverviewValue = await nativeOverviewDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
+  const nativeOverviewJson = JSON.parse(nativeOverviewDef.output.render({}, nativeOverviewValue)[0]?.text ?? '{}')
+  checks['原生自用工具: session_overview 省略 sessionId 取当前会话'] = nativeOverviewJson.sessionId === 'sess-live'
+    && nativeOverviewJson.title === 'Live One' && nativeOverviewJson.recent?.entries?.length === 1
+    && nativeOverviewJson.recent.entries[0]?.kind === 'assistant'
   const nativeCmdDef = ctx.tools.get('rice_session_command')
   const nativeCmdValue = await nativeCmdDef.execute({ action: 'list' }, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeCmdJson = JSON.parse(nativeCmdDef.output.render({}, nativeCmdValue)[0]?.text ?? '{}')
@@ -151,11 +158,11 @@ try {
   const toolsArr: any[] = parsePayload(toolsList.text).result?.tools ?? []
   const toolNames = toolsArr.map((t) => t.name)
   const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-    'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_set_permission', 'session_list', 'session_meta',
+    'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_set_permission', 'session_list', 'session_meta', 'session_overview',
     'session_history', 'attachment_read', 'bridge_describe', 'bridge_call',
     'session_search', 'session_fork', 'session_archive', 'session_unarchive', 'session_archive_list',
     'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'permission_list']
-  checks['tools/list: 精确 33 个工具(会话中心 + 异步/审批/子代理/归档/附件/权限/通用桥面)'] = toolNames.length === 33
+  checks['tools/list: 精确 34 个工具(会话中心 + 异步/审批/子代理/归档/附件/权限/通用桥面)'] = toolNames.length === 34
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -550,6 +557,50 @@ try {
   // 权限预设读口径: live 用宿主推导(含 custom), 冷会话折叠日志里记录的预设
   checks['session_meta: live 权限预设'] = metaLiveInner.permission === 'workspace-write'
   checks['session_meta: 冷会话折叠权限预设'] = metaColdInner.permission === 'danger-full-access'
+
+  // 会话现状概览: 一次调用给齐标题/权限/模型/进行态 + 最近内容摘要
+  const ovLive = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 575, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live' } } }))
+  checks['session_overview: live 默认档(标题/权限/模型/进行态)'] = ovLive.title === 'Live One'
+    && ovLive.permission === 'workspace-write' && ovLive.state === 'idle' && ovLive.inProgress === false
+    && ovLive.model?.provider === 'live-p' && ovLive.model?.model === 'live-m'
+    && ovLive.eventsReadable === true && ovLive.archived === false
+  const ovRecent = ovLive.recent?.entries ?? []
+  checks['session_overview: recent 混排对话与工具调用(时间正序)'] = ovRecent.length === 5
+    && ovRecent.every((e: any, i: number) => i === 0 || e.index > ovRecent[i - 1].index)
+    && ovRecent.some((e: any) => e.kind === 'user' && e.text === 'prompt id probe')
+    && ovRecent.some((e: any) => e.kind === 'tool_call' && e.name === 'bash' && e.args === '{"command":"ls"}')
+    && ovRecent.at(-1)?.kind === 'assistant' && ovRecent.at(-1)?.text === 'extra'
+  checks['session_overview: 默认档不带 context/progress(字段裁剪)'] = ovLive.context === undefined
+    && ovLive.turn === undefined && ovLive.step === undefined && ovLive.preset === undefined
+  const ovFields = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 576, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['context', 'progress'] } } }))
+  checks['session_overview: fields 显式选段(context/progress)'] = ovFields.context?.tokens === 12345
+    && ovFields.context?.source === 'tokenMeter' && ovFields.turn?.started >= 1
+    && ovFields.title === undefined && ovFields.recent === undefined && ovFields.state === undefined
+  // 未知字段: 工具面被入参 schema(enum)先行拒绝; 载荷层兜底(资源面等无 schema 调用方)直调断言
+  const ovBadField = await rpc(init.sid, { jsonrpc: '2.0', id: 577, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['nope'] } } })
+  let ovBadFieldError = ''
+  try {
+    await sessionOverviewPayload(ctx, 'sess-live', ['nope'])
+  } catch (e) {
+    ovBadFieldError = String((e as Error)?.message ?? e)
+  }
+  checks['session_overview: 未知字段名被拒(schema 层 + 载荷层兜底)'] = String(innerOf(ovBadField).error ?? '') !== ''
+    && ovBadFieldError.includes('unknown overview field')
+  const ovCold = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 578, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-persisted' } } }))
+  const ovColdEntries = ovCold.recent?.entries ?? []
+  const ovColdLong = ovColdEntries.at(-1)
+  checks['session_overview: 冷会话经 inspect 折默认档'] = ovCold.state === 'inactive' && ovCold.inProgress === false
+    && ovCold.title === 'Persisted Older' && ovCold.permission === 'danger-full-access'
+    && ovCold.model?.provider === 'p1' && ovCold.model?.model === 'm1'
+    && ovColdEntries[0]?.kind === 'user' && ovColdEntries[0]?.text === 'earlier question'
+  checks['session_overview: 长文本按界面同源预算截断(160 + …)'] = ovColdLong?.kind === 'assistant'
+    && ovColdLong?.text?.startsWith(LONG_HEAD) === true && ovColdLong?.text?.length === 160
+    && ovColdLong?.text?.endsWith('…') === true && !String(ovColdLong?.text).includes(LONG_TAIL)
+  const ovMissing = await rpc(init.sid, { jsonrpc: '2.0', id: 579, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-nope' } } })
+  checks['session_overview: 未知会话明确报错'] = String(innerOf(ovMissing).error ?? '').includes('session not found')
+  const ovNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 580, method: 'tools/call', params: { name: 'session_overview', arguments: {} } })
+  checks['session_overview: MCP 面省略 sessionId 明确报错'] = String(innerOf(ovNoId).error ?? '').includes('sessionId is required')
+
   // 权限预设切换(界面 /permission 的服务端语义): live 直接切, 冷会话先官方恢复
   const permSetLive = await rpc(init.sid, { jsonrpc: '2.0', id: 571, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'danger-full-access' } } })
   const permSetLiveInner = innerOf(permSetLive)
@@ -619,6 +670,13 @@ try {
   checks['资源 dsh://sessions/{id} 冷会话 historyReadable'] = persistedMeta.historyReadable === true
   checks['资源 dsh://sessions/{id} 携带轮数/上下文'] = persistedMeta.turn?.completed === 1
     && persistedMeta.context?.tokens === 1200
+  const readOverviewRes = await rpc(init.sid, { jsonrpc: '2.0', id: 642, method: 'resources/read', params: { uri: 'dsh://sessions/sess-persisted/overview' } })
+  const overviewRes = readOverviewRes.status === 200
+    ? JSON.parse(parsePayload(readOverviewRes.text).result?.contents?.[0]?.text ?? '{}')
+    : {}
+  checks['资源 dsh://sessions/{id}/overview 默认档概览'] = overviewRes.state === 'inactive'
+    && overviewRes.title === 'Persisted Older' && Array.isArray(overviewRes.recent?.entries)
+    && overviewRes.recent.entries[0]?.text === 'earlier question'
   const readStatus = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'resources/read', params: { uri: 'dsh://status' } })
   checks['资源 dsh://status 总览'] = readStatus.status === 200
   // 资源不存在 → McpError(-32602), 不返回空 contents
@@ -635,11 +693,13 @@ try {
   checks['订阅推送: turn 收敛后 history/activity 收到 updated'] = sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/history'))
     && sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/activity'))
 
-  // 订阅推送的 URI 覆盖: events(活动面的同族)/sessions/{id}(历史收敛的元数据面)/游标变体也要收到 updated
+  // 订阅推送的 URI 覆盖: events(活动面的同族)/sessions/{id}(历史收敛的元数据面)/游标变体/概览也要收到 updated
   const subEvents = await rpc(init.sid, { jsonrpc: '2.0', id: 68, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/events' } })
   const subMeta = await rpc(init.sid, { jsonrpc: '2.0', id: 69, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live' } })
   const subCursor = await rpc(init.sid, { jsonrpc: '2.0', id: 70, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/history/2' } })
+  const subOverview = await rpc(init.sid, { jsonrpc: '2.0', id: 643, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/overview' } })
   checks['resources/subscribe events/元数据/游标变体'] = subEvents.status === 200 && subMeta.status === 200 && subCursor.status === 200
+    && subOverview.status === 200
   const before2 = sse.events.length
   await rpc(init.sid, { jsonrpc: '2.0', id: 71, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'family push probe' } } })
   await waitFor(() => {
@@ -652,6 +712,7 @@ try {
   checks['订阅推送: events(活动同族)收到 updated'] = seen2.includes('dsh://sessions/sess-live/events')
   checks['订阅推送: sessions/{id}(历史收敛)收到 updated'] = seen2.includes('dsh://sessions/sess-live')
   checks['订阅推送: 游标变体(history/{before})收到 updated'] = seen2.includes('dsh://sessions/sess-live/history/2')
+  checks['订阅推送: overview(概览面)收到 updated'] = seen2.includes('dsh://sessions/sess-live/overview')
   sse.close()
 
   for (const d of disposers.splice(0)) if (typeof d === 'function') d()
@@ -1040,13 +1101,13 @@ try {
     const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const phase = await startPhase(8091, resourceCtx, { resourceFirst: true })
     const names = await phase.toolNames()
-    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_history', 'session_search']
+    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_overview', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
       'approval_list', 'approval_answer', 'approval_policy', 'permission_list', 'session_set_permission', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 33 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 33
+    checks['原生自用工具: resourceFirst 不影响原生 34 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 34
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')

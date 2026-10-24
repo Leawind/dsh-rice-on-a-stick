@@ -1,12 +1,23 @@
 /**
- * 会话只读工具: 清单(含归档清单)、纪要、搜索。resourceFirst 部署下这批工具下线,
+ * 会话只读工具: 清单(含归档清单)、纪要、搜索、现状概览。resourceFirst 部署下这批工具下线,
  * 数据改由 dsh://sessions 等资源面提供(两者共用 host/data.ts 的同一实现)。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { serviceOf } from '../../host/bridge.js'
-import { COLD_TITLE_SCAN_LIMIT, COLD_TITLE_SCAN_MAX, collectSessions, sessionHistoryPayload, sessionMetaPayload, type SessionControllerView } from '../../host/data.js'
+import {
+  COLD_TITLE_SCAN_LIMIT,
+  COLD_TITLE_SCAN_MAX,
+  OVERVIEW_FIELDS,
+  OVERVIEW_RECENT_DEFAULT_LIMIT,
+  OVERVIEW_RECENT_LIMIT_MAX,
+  collectSessions,
+  sessionHistoryPayload,
+  sessionMetaPayload,
+  sessionOverviewPayload,
+  type SessionControllerView,
+} from '../../host/data.js'
 import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structuredOut, SOFT_ARCHIVE } from './shared.js'
 
 const sessionListOut = z.object({
@@ -138,6 +149,30 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
         return out(JSON.stringify(await sessionMetaPayload(ctx, target.sessionId), null, 2))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 单会话现状概览(只读): 一次调用给界面同款"点开会话页"级别的一瞥; 字段可选裁剪
+  mcp.registerTool(
+    'session_overview',
+    {
+      title: 'Session overview',
+      description: 'One call, a GUI-style glance at a session: title, permission preset, model + reasoning effort, whether a turn is in progress, and a bounded digest of recent content (one-line conversation quotes plus tool calls by name and argument summary — the same preview normalization the UI turn cards use; no tool results). `fields` selects sections and replaces the default set (empty/omitted = title, permission, model, state, recent); opt-ins: context (token occupancy), progress (turn/step counters), preset, cwd. Persisted-only sessions fold from their log exactly like session_meta. `recent.entries[].index` doubles as a session_history `beforeIndex` paging anchor.',
+      inputSchema: {
+        sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
+        fields: z.array(z.enum(OVERVIEW_FIELDS)).min(1).optional().describe(`Sections to return; replaces the default set [${OVERVIEW_FIELDS.slice(0, 5).join(', ')}]. Opt-ins: ${OVERVIEW_FIELDS.slice(5).join(', ')}.`),
+        recentLimit: z.number().int().min(1).max(OVERVIEW_RECENT_LIMIT_MAX).optional().describe(`Entries in the recent digest (default ${OVERVIEW_RECENT_DEFAULT_LIMIT}, max ${OVERVIEW_RECENT_LIMIT_MAX}).`),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId, fields, recentLimit }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      try {
+        return out(JSON.stringify(await sessionOverviewPayload(ctx, target.sessionId, fields, recentLimit), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
