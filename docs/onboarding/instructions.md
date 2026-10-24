@@ -31,7 +31,10 @@ Quick start:
   descendants). Once you have a child sessionId, drive it with the same session tools;
   spawning stays with the host/model-side subagent tools.
 - session_select_model switches a session's model in place (history preserved);
-  session_list / session_meta / session_history let you find and inspect sessions.
+  session_list / session_meta / session_history let you find and inspect sessions, and
+  session_overview is the one-call glance when you only need to know where a session
+  stands (title, permission, model + reasoning effort, in-progress state, recent content
+  digest; fields opts into context occupancy, turn/step counters, preset, cwd).
   session_list takes cwd or title (case-insensitive; includeCold=true also folds
   persisted-only sessions' titles, one log read per candidate, coldScanMax sets how many
   to scan per call, default 50). Rows carry `archived`: archived=true lists only archived
@@ -52,5 +55,5 @@ Quick start:
 If you are new to dsh, call the dsh_get_started tool first: it holds the concept glossary
 (presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path
 cheat sheet. MCP resources (dsh://status, dsh://presets, dsh://sessions/{id}/history,
-dsh://sessions/{id}/activity, ...) mirror the read tools and add subscription-based
-push updates.
+dsh://sessions/{id}/activity, dsh://sessions/{id}/overview, ...) mirror the read tools
+and add subscription-based push updates.

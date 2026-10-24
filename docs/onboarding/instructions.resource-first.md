@@ -7,7 +7,7 @@ sessions the dsh web UI shows (session-centric, one conversation = one agent).
 This deployment is resource-first for ROSTER/READ data: dsh://status[/config|/stats|/connections],
 dsh://guide[/section], dsh://tools, dsh://models[/{provider}], dsh://presets,
 dsh://workspaces[/{id}], dsh://sessions[/{id}], dsh://sessions/{id}/history[/before],
-dsh://sessions/{id}/events[/after], dsh://sessions/{id}/activity.
+dsh://sessions/{id}/events[/after], dsh://sessions/{id}/activity, dsh://sessions/{id}/overview.
 Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
 Control-plane tools stay available: session_submit / session_poll / session_result
@@ -37,6 +37,9 @@ Quick start:
 - dsh://sessions/{id} carries the same per-session metadata session_meta would return
   (model+reasoning effort, agent preset, permission preset, live state, turn/step
   counters, context occupancy).
+- dsh://sessions/{id}/overview is the one-call glance (title, permission, model +
+  reasoning effort, in-progress state, recent content digest) — the same data the
+  session_overview tool returns in tool deployments; it pushes on turn boundaries.
 - session_command lists and runs the session's slash commands (the host registry, so
   /compact and plugin commands appear automatically); /compact is idle-only.
 - New to dsh? Read the dsh://guide resource (concept glossary, workflow recipes,
