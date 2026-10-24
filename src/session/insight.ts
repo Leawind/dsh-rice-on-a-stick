@@ -228,31 +228,50 @@ interface LiveAgentLike {
 /** 与会话清单同形的行(collectSessions 的条目; 标题/模型/谱系字段从这来) */
 export type SessionRow = Record<string, unknown>
 
+/** 会话事件源: 纪要/概览等读取面共用的"一次获取"结果 */
+export interface SessionEventSource {
+  /** 是否在内存中(live 会话或会话对象可取) */
+  live: boolean
+  /** live 会话对象; 冷会话为 undefined */
+  session: unknown
+  /** 事件日志; 冷会话不可读(无 sessionController / 读取失败)时 undefined */
+  events: readonly unknown[] | undefined
+}
+
+/**
+ * 取一个会话的事件源: live(agent.session 优先, sessions.get 兜底)读内存日志;
+ * 否则经宿主 sessionController.inspect 非激活读取(读不到 = events undefined, 不抛)。
+ */
+export async function sessionEventSourceOf(ctx: Context, sessionId: string): Promise<SessionEventSource> {
+  const agent = ctx.agents.get(asSessionId(sessionId)) as LiveAgentLike | undefined
+  const stored = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
+  const session = agent?.session ?? (stored as LiveAgentLike['session'])
+  const live = agent !== undefined || stored !== undefined
+  if (session !== undefined) return { live, session, events: eventsOf(session) }
+  try {
+    return { live, session: undefined, events: await inspectSessionEvents(ctx, asSessionId(sessionId)) }
+  } catch {
+    // 冷会话不可读(无 sessionController / 读取失败): events 记 undefined
+    return { live, session: undefined, events: undefined }
+  }
+}
+
 /**
  * 会话元信息: 清单行(标题/cwd/模型/preset/谱系) + 运行态(live/state) +
  * 轮与步计数 + 上下文占用。live 读内存, 冷会话经 inspect 只读; 都读不到时至少给出清单行。
+ * source: 调用方已取的事件源(概览等聚合面)则复用, 冷会话不付第二次 inspect 读。
  */
 export async function sessionInsightPayload(
   ctx: Context,
   sessionId: string,
   row: SessionRow = {},
+  source?: SessionEventSource,
 ): Promise<Record<string, unknown>> {
   const agent = ctx.agents.get(asSessionId(sessionId)) as LiveAgentLike | undefined
-  const stored = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
-  const session = agent?.session ?? (stored as LiveAgentLike['session'])
-  const live = agent !== undefined || stored !== undefined
-
-  let events: readonly unknown[] | undefined
-  if (session !== undefined) {
-    events = eventsOf(session)
-  } else {
-    try {
-      events = await inspectSessionEvents(ctx, asSessionId(sessionId))
-    } catch {
-      // 冷会话不可读(无 sessionController / 读取失败): 只回清单行
-      events = undefined
-    }
-  }
+  const acquired = source ?? await sessionEventSourceOf(ctx, sessionId)
+  const session = acquired.session as LiveAgentLike['session']
+  const events = acquired.events
+  const live = acquired.live
 
   const rowModel = row.model as ModelSelection | undefined
   // 模型: 日志里的有效选择优先(select_model 之后日志才是事实), 其次插件记录, 最后清单行
