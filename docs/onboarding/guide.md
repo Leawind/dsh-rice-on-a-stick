@@ -109,8 +109,8 @@ you already know.
    `includeCold: true` also folds persisted-only sessions' titles, at the cost of one
    log read per candidate, and `coldScanMax` raises or lowers the per-call scan budget
    — default 50, cap 500), `session_overview` for a one-call, GUI-style glance (title,
-   permission, model + reasoning effort, in-progress state, recent content digest;
-   `fields` opts into context occupancy, turn/step counters, preset, cwd),
+   permission, model + reasoning effort, in-progress state, context occupancy, recent
+   content digest; `fields` opts into turn/step counters, preset, cwd),
    `session_meta` for the full record — model+reasoning effort, presets, live
    state, turn/step counters and context occupancy, `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you

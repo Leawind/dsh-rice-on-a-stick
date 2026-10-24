@@ -38,8 +38,9 @@ Quick start:
   (model+reasoning effort, agent preset, permission preset, live state, turn/step
   counters, context occupancy).
 - dsh://sessions/{id}/overview is the one-call glance (title, permission, model +
-  reasoning effort, in-progress state, recent content digest) — the same data the
-  session_overview tool returns in tool deployments; it pushes on turn boundaries.
+  reasoning effort, in-progress state, context occupancy, recent content digest) — the
+  same data the session_overview tool returns in tool deployments; it pushes on turn
+  boundaries.
 - session_command lists and runs the session's slash commands (the host registry, so
   /compact and plugin commands appear automatically); /compact is idle-only.
 - New to dsh? Read the dsh://guide resource (concept glossary, workflow recipes,

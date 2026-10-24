@@ -33,8 +33,8 @@ Quick start:
 - session_select_model switches a session's model in place (history preserved);
   session_list / session_meta / session_history let you find and inspect sessions, and
   session_overview is the one-call glance when you only need to know where a session
-  stands (title, permission, model + reasoning effort, in-progress state, recent content
-  digest; fields opts into context occupancy, turn/step counters, preset, cwd).
+  stands (title, permission, model + reasoning effort, in-progress state, context
+  occupancy, recent content digest; fields opts into turn/step counters, preset, cwd).
   session_list takes cwd or title (case-insensitive; includeCold=true also folds
   persisted-only sessions' titles, one log read per candidate, coldScanMax sets how many
   to scan per call, default 50). Rows carry `archived`: archived=true lists only archived

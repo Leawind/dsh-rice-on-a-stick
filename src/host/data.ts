@@ -357,20 +357,20 @@ export async function sessionMetaPayload(ctx: Context, sessionId: string): Promi
 // ── 单会话现状概览(session_overview / dsh://sessions/{id}/overview) ──
 
 /** 概览的可选字段; 显式传 fields 时整体替换默认档(未知字段名直接报错) */
-export const OVERVIEW_FIELDS = ['title', 'permission', 'model', 'state', 'recent', 'context', 'progress', 'preset', 'cwd'] as const
+export const OVERVIEW_FIELDS = ['title', 'permission', 'model', 'state', 'context', 'recent', 'progress', 'preset', 'cwd'] as const
 export type OverviewField = (typeof OVERVIEW_FIELDS)[number]
-/** 默认档: 界面同款"一眼看全"——标题/权限/模型+推理档/进行态/最近内容 */
-export const OVERVIEW_DEFAULT_FIELDS: readonly OverviewField[] = ['title', 'permission', 'model', 'state', 'recent']
+/** 默认档: 界面同款"一眼看全"——标题/权限/模型+推理档/进行态/上下文占用/最近内容 */
+export const OVERVIEW_DEFAULT_FIELDS: readonly OverviewField[] = ['title', 'permission', 'model', 'state', 'context', 'recent']
 /** recent 摘要的条数: 默认与上限(条目是一行摘要, 上限防长日志灌穿) */
 export const OVERVIEW_RECENT_DEFAULT_LIMIT = 5
 export const OVERVIEW_RECENT_LIMIT_MAX = 20
 
 /**
  * 单会话现状概览: 一次调用给齐"点开会话页"级别的信息(工具面与资源面同数据)。
- * 头部字段(标题/权限/模型/推理档)与底部状态(state/inProgress)来自 sessionInsightPayload
- * 的同一折叠; recent 另折最近可见条目(对话一行摘要 + 工具调用名与参数摘要, 预算与界面
- * 轮次卡片同源, 见 recentOverviewOf)。事件源只取一次——冷会话只付一次 inspect 读。
- * fields 只裁输出不省读取(同一份数据一次折出); recentLimit 夹在
+ * 头部字段(标题/权限/模型/推理档)、底部状态(state/inProgress)与上下文占用来自
+ * sessionInsightPayload 的同一折叠; recent 另折最近可见条目(对话一行摘要 + 工具调用名
+ * 与参数摘要, 预算与界面轮次卡片同源, 见 recentOverviewOf)。事件源只取一次——冷会话
+ * 只付一次 inspect 读。fields 只裁输出不省读取(同一份数据一次折出); recentLimit 夹在
  * 1..OVERVIEW_RECENT_LIMIT_MAX。读不到日志时 eventsReadable=false, recent 为空。
  */
 export async function sessionOverviewPayload(

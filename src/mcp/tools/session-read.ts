@@ -9,6 +9,7 @@ import { serviceOf } from '../../host/bridge.js'
 import {
   COLD_TITLE_SCAN_LIMIT,
   COLD_TITLE_SCAN_MAX,
+  OVERVIEW_DEFAULT_FIELDS,
   OVERVIEW_FIELDS,
   OVERVIEW_RECENT_DEFAULT_LIMIT,
   OVERVIEW_RECENT_LIMIT_MAX,
@@ -156,14 +157,17 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
   )
 
   // 单会话现状概览(只读): 一次调用给界面同款"点开会话页"级别的一瞥; 字段可选裁剪
+  // 默认档/opt-in 档文案由 OVERVIEW_DEFAULT_FIELDS 推导, 与 data 层单一出处保持一致
+  const OVERVIEW_DEFAULTS_TEXT = OVERVIEW_DEFAULT_FIELDS.join(', ')
+  const OVERVIEW_OPTINS_TEXT = OVERVIEW_FIELDS.filter((f) => !OVERVIEW_DEFAULT_FIELDS.includes(f)).join(', ')
   mcp.registerTool(
     'session_overview',
     {
       title: 'Session overview',
-      description: 'One call, a GUI-style glance at a session: title, permission preset, model + reasoning effort, whether a turn is in progress, and a bounded digest of recent content (one-line conversation quotes plus tool calls by name and argument summary — the same preview normalization the UI turn cards use; no tool results). `fields` selects sections and replaces the default set (empty/omitted = title, permission, model, state, recent); opt-ins: context (token occupancy), progress (turn/step counters), preset, cwd. Persisted-only sessions fold from their log exactly like session_meta. `recent.entries[].index` doubles as a session_history `beforeIndex` paging anchor.',
+      description: 'One call, a GUI-style glance at a session: title, permission preset, model + reasoning effort, whether a turn is in progress, context occupancy (tokens + window ratio), and a bounded digest of recent content (one-line conversation quotes plus tool calls by name and argument summary — the same preview normalization the UI turn cards use; no tool results). `fields` selects sections and replaces the default set; opt-ins: progress (turn/step counters), preset, cwd. Persisted-only sessions fold from their log exactly like session_meta. `recent.entries[].index` doubles as a session_history `beforeIndex` paging anchor.',
       inputSchema: {
         sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
-        fields: z.array(z.enum(OVERVIEW_FIELDS)).min(1).optional().describe(`Sections to return; replaces the default set [${OVERVIEW_FIELDS.slice(0, 5).join(', ')}]. Opt-ins: ${OVERVIEW_FIELDS.slice(5).join(', ')}.`),
+        fields: z.array(z.enum(OVERVIEW_FIELDS)).min(1).optional().describe(`Sections to return; replaces the default set [${OVERVIEW_DEFAULTS_TEXT}]. Opt-ins: ${OVERVIEW_OPTINS_TEXT}.`),
         recentLimit: z.number().int().min(1).max(OVERVIEW_RECENT_LIMIT_MAX).optional().describe(`Entries in the recent digest (default ${OVERVIEW_RECENT_DEFAULT_LIMIT}, max ${OVERVIEW_RECENT_LIMIT_MAX}).`),
       },
       annotations: { readOnlyHint: true },

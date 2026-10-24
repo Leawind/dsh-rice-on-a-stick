@@ -558,7 +558,7 @@ try {
   checks['session_meta: live 权限预设'] = metaLiveInner.permission === 'workspace-write'
   checks['session_meta: 冷会话折叠权限预设'] = metaColdInner.permission === 'danger-full-access'
 
-  // 会话现状概览: 一次调用给齐标题/权限/模型/进行态 + 最近内容摘要
+  // 会话现状概览: 一次调用给齐标题/权限/模型/进行态/上下文占用 + 最近内容摘要
   const ovLive = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 575, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live' } } }))
   checks['session_overview: live 默认档(标题/权限/模型/进行态)'] = ovLive.title === 'Live One'
     && ovLive.permission === 'workspace-write' && ovLive.state === 'idle' && ovLive.inProgress === false
@@ -570,8 +570,10 @@ try {
     && ovRecent.some((e: any) => e.kind === 'user' && e.text === 'prompt id probe')
     && ovRecent.some((e: any) => e.kind === 'tool_call' && e.name === 'bash' && e.args === '{"command":"ls"}')
     && ovRecent.at(-1)?.kind === 'assistant' && ovRecent.at(-1)?.text === 'extra'
-  checks['session_overview: 默认档不带 context/progress(字段裁剪)'] = ovLive.context === undefined
-    && ovLive.turn === undefined && ovLive.step === undefined && ovLive.preset === undefined
+  checks['session_overview: 默认档含上下文占用(tokenMeter 口径)'] = ovLive.context?.tokens === 12345
+    && ovLive.context?.source === 'tokenMeter'
+  checks['session_overview: 默认档不带 progress/preset(字段裁剪)'] = ovLive.turn === undefined
+    && ovLive.step === undefined && ovLive.preset === undefined
   const ovFields = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 576, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['context', 'progress'] } } }))
   checks['session_overview: fields 显式选段(context/progress)'] = ovFields.context?.tokens === 12345
     && ovFields.context?.source === 'tokenMeter' && ovFields.turn?.started >= 1
@@ -677,6 +679,7 @@ try {
   checks['资源 dsh://sessions/{id}/overview 默认档概览'] = overviewRes.state === 'inactive'
     && overviewRes.title === 'Persisted Older' && Array.isArray(overviewRes.recent?.entries)
     && overviewRes.recent.entries[0]?.text === 'earlier question'
+    && overviewRes.context?.tokens === 1200
   const readStatus = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'resources/read', params: { uri: 'dsh://status' } })
   checks['资源 dsh://status 总览'] = readStatus.status === 200
   // 资源不存在 → McpError(-32602), 不返回空 contents
