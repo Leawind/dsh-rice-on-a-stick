@@ -49,6 +49,7 @@ const rpcCounts = { status: 0, 'config-update': 0, 'bridge-approvals': 0 }
 const configCalls = []
 const boot = { errors: [] }
 const mode = { statusError: false, configDelayMs: 0, pendingApprovals: 1 }
+const answeredApprovals = new Set()
 let navReport = null
 
 function snapshot() {
@@ -384,7 +385,8 @@ const server = createServer(async (req, res) => {
       }
       if (method === 'bridge-approvals') {
         // 桥写停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
-        // expiresAt 逐条错开, 末条落在 1 分钟内可目检紧急色; RPC 计数供轮询节奏断言
+        // expiresAt 逐条错开, 末条落在 1 分钟内可目检紧急色; RPC 计数供轮询节奏断言。
+        // 已应答的条目从后续轮询中剔除(与真机"答复即出清"同语义), 供目检允许/拒绝后的卡片消失
         rpcCounts['bridge-approvals']++
         const n = Math.max(0, mode.pendingApprovals | 0)
         const items = Array.from({ length: n }, (_, i) => ({
@@ -393,8 +395,18 @@ const server = createServer(async (req, res) => {
           argsPreview: JSON.stringify({ sessionId: 'mock-session-' + (i + 1) }),
           requestedAt: now() - 15_000,
           expiresAt: now() + 100_000 - i * 55_000,
-        }))
+        })).filter((a) => !answeredApprovals.has(a.approvalId))
         return json(res, 200, { approvals: items, unlimitedWait: false })
+      }
+      if (method === 'bridge-approval-answer') {
+        // 审批应答(与 src/mcp/web.ts bridge-approval-answer 同形): 记下 approvalId, 下一轮轮询出清
+        let payload
+        try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
+        if (!payload.approvalId || (payload.decision !== 'allow' && payload.decision !== 'reject')) {
+          return json(res, 400, { error: 'approvalId 与 decision(allow/reject) 必填' })
+        }
+        answeredApprovals.add(String(payload.approvalId))
+        return json(res, 200, { ok: true })
       }
       if (method === 'models') {
         // 模型目录(添加模型面板的数据源), 与 collectModelCatalog 输出同形; 模型给足一打以目检搜索/上限
@@ -466,7 +478,11 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req)
       if (typeof body.statusError === 'boolean') mode.statusError = body.statusError
       if (typeof body.configDelayMs === 'number') mode.configDelayMs = body.configDelayMs
-      if (typeof body.pendingApprovals === 'number') mode.pendingApprovals = body.pendingApprovals
+      if (typeof body.pendingApprovals === 'number') {
+        mode.pendingApprovals = body.pendingApprovals
+        // 数量翻转视为一轮新场景: 清掉已应答记录, 条目重新出现
+        answeredApprovals.clear()
+      }
       if (typeof body.listening === 'boolean') state.listening = body.listening
       if (typeof body.httpEnabled === 'boolean') state.httpEnabled = body.httpEnabled
       if (Array.isArray(body.connections)) state.connections = body.connections
