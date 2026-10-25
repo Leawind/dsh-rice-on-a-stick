@@ -437,10 +437,11 @@ interface DshModuleSpec {
     '.dcs-epgroup{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-epgroup:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.04));}',
     '.dcs-epgroup:last-child,.dcs-epr:last-child{border-bottom:none;}',
-    '.dcs-epchev{flex:none;width:12px;text-align:center;color:var(--dsw-alias-label-tertiary,#81858c);font-size:10px;}',
+    '.dcs-epchev{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-secondary,#61666b);font-size:15px;line-height:1;}',
     '.dcs-epns{font-size:12.5px;font-weight:600;}',
     '.dcs-epcount{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
-    '.dcs-epr{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    // 端点行左缩进 46px = 组头里 namespace 文本的起点(16 箭头 + 8 间距 + 14 组复选 + 8 间距), 端点复选框与 namespace 对齐成树状
+    '.dcs-epr{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-eprname{flex:none;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;}',
     '.dcs-eprdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     '.dcs-epchk{flex:none;width:14px;height:14px;margin:0;accent-color:var(--dsw-alias-brand-primary,#0f1115);cursor:pointer;}',
@@ -452,6 +453,8 @@ interface DshModuleSpec {
     '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
     '.dcs-epstale{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-epstale .dcs-eprname{color:var(--dsw-alias-state-warn-label,#dd8629);}',
+    // 自绘 tooltip(挂 body 的单例浮层, .dcs-tip 常驻仅显隐): fixed 定位不受滚动容器裁剪, pre-line 支持 \n 分行
+    '.dcs-tip{display:none;position:fixed;z-index:2147483000;max-width:460px;padding:6px 10px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);box-shadow:0 6px 20px rgba(0,0,0,.14);pointer-events:none;white-space:pre-line;word-break:break-word;}',
     // 桥写审批卡: 置于设置表单之上(动作关键面); 每条 = 端点行(等待倒计时靠右) + 参数摘要 + 允许/拒绝
     '.dcs-appr{display:flex;flex-direction:column;gap:4px;}',
     '.dcs-apprrow{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
@@ -527,13 +530,39 @@ interface DshModuleSpec {
     });
   }
 
+  // 自绘即时 tooltip(原生 title 延迟约 1 秒且部分壳不渲染): 挂 body 的单例浮层, fixed 定位不受
+  // 滚动容器裁剪; 悬停锚点下方弹出, 底部放不下翻到上方, 左右钳制在视口内
+  let tipEl;
+  function showTip(anchor, text) {
+    if (!tipEl) {
+      tipEl = document.createElement('div');
+      tipEl.className = 'dcs-tip';
+      document.body.appendChild(tipEl);
+    }
+    tipEl.textContent = text;
+    tipEl.style.display = 'block';
+    const a = anchor.getBoundingClientRect();
+    const box = tipEl.getBoundingClientRect();
+    const left = Math.max(8, Math.min(a.left, window.innerWidth - box.width - 8));
+    let top = a.bottom + 6;
+    if (top + box.height > window.innerHeight - 8) top = a.top - box.height - 6;
+    tipEl.style.left = left + 'px';
+    tipEl.style.top = Math.max(8, top) + 'px';
+  }
+  function hideTip() {
+    if (tipEl) tipEl.style.display = 'none';
+  }
+
   // ── 通用桥写白名单清单 ──
-  // 端点全量列出(按 namespace 分组, 描述内联), 点击勾选切换: 勾 = 白名单(直行), 不勾 = 停泊审批。
-  // 只读/流式/永禁行锁定(徽标标注, 不可勾)。全选 = 显式快照(一次写入全部可选端点的完整清单);
-  // 无通配符: 每个条目都是精确端点。props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, stale}。
+  // 端点全量列出(按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开)。组头 = 箭头 +
+  // 组复选 + namespace + 已选计数; 端点行只显示 method 部分(namespace 在组头), 悬停行经自绘
+  // tooltip 给出完整端点名 + 完整描述。点击勾选切换: 勾 = 白名单(直行), 不勾 = 停泊审批。
+  // 只读端点不经白名单(默认放行)显示为恒勾; 流式/永禁行锁定不可勾(徽标标注)。全选 = 显式快照
+  // (一次写入全部可选端点的完整清单); 无通配符: 每个条目都是精确端点。
+  // props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, stale}。
   function BridgeWhitelist(props) {
     const [filter, setFilter] = React.useState('');
-    // 展开的组: null = 自动(含已选或失效条目的组展开); 非空 = 显式 Set(点组头后接管)
+    // 展开的组: null = 全部收起(默认折叠, 组头的已选计数仍可见); 非空 = 显式 Set(点组头后接管)
     const [open, setOpen] = React.useState(null);
     const data = props.data;
     const endpoints = data && data.endpoints ? data.endpoints : [];
@@ -574,8 +603,7 @@ interface DshModuleSpec {
     function groupOpen(g) {
       if (q) return true; // 过滤时全部展开
       if (open !== null) return open.has(g.ns);
-      return g.items.some(function (e) { return allowedSet.has(e.endpoint); })
-        || stale.some(function (s) { return s.slice(0, s.indexOf('/')) === g.ns; });
+      return false; // 默认收起
     }
     function flipGroup(g) {
       const base = open !== null ? open : new Set(groups.filter(groupOpen).map(function (x) { return x.ns; }));
@@ -586,15 +614,21 @@ interface DshModuleSpec {
     function checkRef(indeterminate) {
       return function (el) { if (el) el.indeterminate = indeterminate; };
     }
+    React.useEffect(function () { return hideTip; }, []);
     function row(e) {
       const locked = e.kind !== 'selectable';
-      return React.createElement('div', { key: e.endpoint, className: 'dcs-epr', title: e.description || e.endpoint },
+      return React.createElement('div', {
+        key: e.endpoint,
+        className: 'dcs-epr',
+        onMouseEnter: function (ev) { showTip(ev.currentTarget, e.endpoint + (e.description ? '\n' + e.description : '')); },
+        onMouseLeave: hideTip,
+      },
         React.createElement('input', {
           className: 'dcs-epchk', type: 'checkbox', disabled: locked,
-          checked: allowedSet.has(e.endpoint),
+          checked: e.kind === 'read' || allowedSet.has(e.endpoint),
           onChange: function (ev) { toggleEndpoint(e, ev.target.checked); },
         }),
-        React.createElement('span', { className: 'dcs-eprname' }, e.endpoint),
+        React.createElement('span', { className: 'dcs-eprname' }, e.endpoint.slice(e.endpoint.indexOf('/') + 1)),
         e.description ? React.createElement('span', { className: 'dcs-eprdesc' }, e.description) : null,
         e.kind === 'read' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('bridge.readonly')) : null,
         e.kind === 'stream' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stream' }, t('bridge.stream')) : null,
