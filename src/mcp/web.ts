@@ -196,7 +196,7 @@ const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
  */
 const GUI_VOLATILE_FIELDS = new Set([
   'allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled',
-  'bridgeWriteAllowlist',
+  'bridgeEndpointAllowlist',
 ])
 
 /** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
@@ -265,13 +265,13 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !s.includes('/'))
       if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
-    } else if (key === 'bridgeWriteAllowlist') {
+    } else if (key === 'bridgeEndpointAllowlist') {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-        throw httpError(400, 'bridgeWriteAllowlist 必须是字符串数组')
+        throw httpError(400, 'bridgeEndpointAllowlist 必须是字符串数组')
       }
       const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
       const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
-      if (bad !== undefined) throw httpError(400, `bridgeWriteAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
+      if (bad !== undefined) throw httpError(400, `bridgeEndpointAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
     } else {
       throw httpError(400, `字段 ${key} 不支持在界面编辑, 请编辑 cordis.patch.yml`)
@@ -356,7 +356,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     // 通用桥端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目
     'bridge-endpoints': () => {
       const invocations = listInvocations(ctx)
-      const allow = new Set(state.config.bridgeWriteAllowlist)
+      const allow = new Set(state.config.bridgeEndpointAllowlist)
       const live = new Set<string>()
       const endpoints = invocations.map((inv) => {
         const endpoint = `${inv.namespace}/${inv.method}`

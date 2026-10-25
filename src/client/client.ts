@@ -102,8 +102,8 @@ interface DshModuleSpec {
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
       hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
-      // 通用桥写面: 白名单("namespace/method" 数组; 勾选清单 GUI 维护)
-      bridgeWriteAllowlist: Array.isArray(c.bridgeWriteAllowlist) ? c.bridgeWriteAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
+      // 通用桥端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
+      bridgeEndpointAllowlist: Array.isArray(c.bridgeEndpointAllowlist) ? c.bridgeEndpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
     };
   }
 
@@ -243,7 +243,7 @@ interface DshModuleSpec {
       'hosts.title': 'Host 头白名单',
       'hosts.hint': '额外放行的主机名，逗号或空格分隔',
       'hosts.invalid': '主机名不合法：{h}',
-      'bridge.title': '通用桥写白名单',
+      'bridge.title': '通用桥端点白名单',
       'bridge.hint': '勾选的端点经 bridge_call 直接执行；未勾选的变更端点每次调用都停到审批卡等人工确认。凭据/插件安装类永久不可桥，流式端点不适用。',
       'bridge.filter': '输入关键字过滤端点或说明',
       'bridge.selectAll': '全选',
@@ -707,14 +707,14 @@ interface DshModuleSpec {
     if (tipEl) tipEl.style.display = 'none';
   }
 
-  // ── 通用桥写白名单清单 ──
+  // ── 通用桥端点白名单清单 ──
   // 端点全量列出(按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开)。组头 = 箭头 +
   // 组复选 + namespace + 已选计数; 端点行只显示 method 部分(namespace 在组头), 悬停行经自绘
   // tooltip 给出完整端点名 + 完整描述。点击勾选切换: 勾 = 白名单(直行), 不勾 = 停泊审批。
   // 只读端点不经白名单(默认放行)显示为恒勾; 流式/永禁行锁定不可勾(徽标标注)。全选 = 显式快照
   // (一次写入全部可选端点的完整清单); 无通配符: 每个条目都是精确端点。
   // props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, stale}。
-  function BridgeWhitelist(props) {
+  function BridgeEndpointAllowlist(props) {
     const [filter, setFilter] = React.useState('');
     // 展开的组: null = 全部收起(默认折叠, 组头的已选计数仍可见); 非空 = 显式 Set(点组头后接管)
     const [open, setOpen] = React.useState(null);
@@ -1098,8 +1098,8 @@ interface DshModuleSpec {
         defaultDetail: next.defaultDetail,
         authEnabled: next.authOn === true,
         selfToolsEnabled: next.selfToolsOn === true,
-        // 通用桥写面: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
-        bridgeWriteAllowlist: (next.bridgeWriteAllowlist || []).slice(),
+        // 通用桥端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
+        bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice(),
       };
       if (arguments.length > 1) values.authToken = authToken;
       enqueue({ values: values });
@@ -1667,10 +1667,10 @@ interface DshModuleSpec {
             React.createElement('span', { className: 'dcs-label' }, t('bridge.title')),
             React.createElement('span', { className: 'dcs-hint' }, t('bridge.hint')),
           ),
-          React.createElement(BridgeWhitelist, {
+          React.createElement(BridgeEndpointAllowlist, {
             data: eps,
-            allowed: d.bridgeWriteAllowlist || [],
-            onChange: function (nextArray) { change({ bridgeWriteAllowlist: nextArray }); },
+            allowed: d.bridgeEndpointAllowlist || [],
+            onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },
           }),
         ),
         ),

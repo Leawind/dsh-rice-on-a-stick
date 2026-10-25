@@ -40,7 +40,7 @@ const state = {
     http: true, resourceFirst: false,
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
-    bridgeWriteAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
+    bridgeEndpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
     approvalControl: 'exclusive', approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
   },
   connections: DEFAULT_CONNS(),
@@ -359,7 +359,7 @@ const server = createServer(async (req, res) => {
       if (method === 'bridge-endpoints') {
         // 通用桥端点目录(与 src/mcp/web.ts bridge-endpoints 同形): 四种 kind 都给 + 失效条目 + 超长描述,
         // 供白名单清单目检(默认折叠/缩进/只读恒勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
-        const allow = new Set(state.config.bridgeWriteAllowlist)
+        const allow = new Set(state.config.bridgeEndpointAllowlist)
         const endpoints = [
           { endpoint: 'session/list', description: 'List sessions with pagination and status filters.', kind: 'read' },
           { endpoint: 'session/search', description: 'Keyword search across session titles and message transcripts.', kind: 'read' },
@@ -441,7 +441,7 @@ const server = createServer(async (req, res) => {
             if (!payload.values.http) state.connections = []
           }
           // 与后端同语义: 非 volatile 字段重载插件(前端等待重载后刷新), volatile 字段就地提交
-          const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled', 'bridgeWriteAllowlist'])
+          const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled', 'bridgeEndpointAllowlist'])
           const reloading = Object.keys(payload.values).some((k) => !VOLATILE.has(k))
           if (reloading) return json(res, 200, { updated: true, reloading: true })
         } else {

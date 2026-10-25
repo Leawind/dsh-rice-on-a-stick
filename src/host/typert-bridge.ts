@@ -9,7 +9,7 @@
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
  * 暴露面 = 人工策展的只读端点白名单(BRIDGE_READ_ENDPOINTS)默认只读; 变更类端点两条通路:
- * 配置的 bridgeWriteAllowlist(部署方预审批, 直行) 或 停泊审批(白名单外的非流式端点, 调用
+ * 配置的 bridgeEndpointAllowlist(部署方预审批, 直行) 或 停泊审批(白名单外的非流式端点, 调用
  * 挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。硬编码黑名单(凭据/插件安装等)两条
  * 通路都没有。读写性宿主不标注——白名单与黑名单都是本插件自己的策展, 逐条人工确认过语义。
  * 流式方法(@Remote mode:'stream')不进桥: MCP 工具一次请求一次响应。
@@ -173,7 +173,7 @@ export const BRIDGE_READ_ENDPOINTS: readonly string[] = [
 ]
 
 /**
- * 硬编码黑名单: 无论 bridgeWriteAllowlist 怎么配都不可经桥变更。
+ * 硬编码黑名单: 无论 bridgeEndpointAllowlist 怎么配都不可经桥变更。
  * 圈的是"信任与供应链"类操作——凭据写入、插件安装/启停、市场索引:
  * 它们要么该走宿主自己的交互流程(授权/安装确认), 要么影响整个进程的信任边界。
  */
@@ -201,7 +201,7 @@ export interface EndpointClassification {
 }
 
 /**
- * 闸门顺序: 流式 → 读白名单 → 硬编码黑名单 → 写白名单 → 停泊审批。
+ * 闸门顺序: 流式 → 读白名单 → 硬编码黑名单 → 端点白名单 → 停泊审批。
  * lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析宿主对象
  * (如 agent 参数传会话 id), 桥只透传; 解析失败由网关报清晰错误。
  */
@@ -212,7 +212,7 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   if (BRIDGE_WRITE_BLACKLIST.includes(endpoint)) {
     return { endpoint, readOnly: false, writable: false, reason: 'permanently blacklisted' }
   }
-  if (state.config.bridgeWriteAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true }
+  if (state.config.bridgeEndpointAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true }
   return {
     endpoint,
     readOnly: false,

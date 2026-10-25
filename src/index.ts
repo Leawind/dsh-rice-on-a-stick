@@ -148,7 +148,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         sessionTtlMs: state.config.sessionTtlMs,
         approvalControl: state.config.approvalControl,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
-        bridgeWriteAllowlist: state.config.bridgeWriteAllowlist,
+        bridgeEndpointAllowlist: state.config.bridgeEndpointAllowlist,
       },
       stats: {
         connections: httpServer?.connections().length ?? 0,

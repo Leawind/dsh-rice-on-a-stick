@@ -156,7 +156,7 @@ you already know.
     (the tool call blocks in the meantime) — if the human declines, or the wait times
     out, or you disconnect, nothing is executed and the error says so. Blacklisted
     endpoints (credentials, plugin installs) are refused outright: do not retry them;
-    ask the deployment to adjust `bridgeWriteAllowlist` if a write should run without
+    ask the deployment to adjust `bridgeEndpointAllowlist` if a write should run without
     per-call approval.
 
 <!-- section: errors -->
@@ -247,7 +247,7 @@ unreadable they degrade to the `session_list` row and say so with `eventsReadabl
   (the host attachment service enforces its own image limits on top); `attachment_read`
   inlines at most 8MB per image — use the host path for larger ones.
 - The bridge exposes what the deployment opened: `readOnly` endpoints from the
-  curated read-only list, `writable` endpoints from `bridgeWriteAllowlist`; other
+  curated read-only list, `writable` endpoints from `bridgeEndpointAllowlist`; other
   non-stream endpoints are callable but each call parks until a human answers on the
   deployment's settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited; a
   hard-coded blacklist — credentials, plugin installs, authorization flows — is never

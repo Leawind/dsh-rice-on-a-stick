@@ -944,7 +944,7 @@ try {
   {
     bridgeInvokes.length = 0
     const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
-      bridgeWriteAllowlist: ['schedule/update'],
+      bridgeEndpointAllowlist: ['schedule/update'],
       approvalTimeoutMs: 5000,
     })
     const dir = await phase.call('bridge_describe', {})
@@ -1056,7 +1056,7 @@ try {
     const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       approvalTimeoutMs: 1000,
       // 失效条目: 不在活性端点目录里的白名单条目要在 GUI 路由里标出来
-      bridgeWriteAllowlist: ['ghost/gone'],
+      bridgeEndpointAllowlist: ['ghost/gone'],
     })
     const epsStale = await phaseT.gui('bridge-endpoints', { httpMethod: 'GET' })
     const epsStaleBody = epsStale.status === 200 ? JSON.parse(epsStale.body) : {}
@@ -1490,7 +1490,7 @@ try {
       resourceFirst: false,
       approvalControl: 'off',
       approvalTimeoutMs: 120000,
-      bridgeWriteAllowlist: ['schedule/update'],
+      bridgeEndpointAllowlist: ['schedule/update'],
     }
     const cfgRejected: string[] = []
     for (const key of Object.keys(ConfigSchema({}) as Record<string, unknown>)) {
@@ -1574,7 +1574,7 @@ try {
     const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
     return clientSrc.includes("rpc('bridge-endpoints')")
       && clientSrc.includes("kind === 'selectable'")
-      && clientSrc.includes("bridgeWriteAllowlist: (next.bridgeWriteAllowlist || []).slice()")
+      && clientSrc.includes("bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice()")
   })()
   checks['设置面板: 审批卡走 bridge-approvals 路由'] = (() => {
     const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')

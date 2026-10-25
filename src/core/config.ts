@@ -110,13 +110,13 @@ export interface Config {
    */
   approvalTimeoutMs?: number
   /**
-   * 通用桥写白名单("namespace/method" 形式; 默认空 = 桥只读+逐次审批)。
+   * 通用桥端点白名单("namespace/method" 形式; 默认空 = 桥只读+逐次审批)。
    * 白名单内的变更类端点经 bridge_call 直接执行——等价部署方预先审批;
    * 白名单外的非流式端点不停留在"拒绝": 调用先停泊, 由部署方在设置面板的人工审批卡
    * 允许/拒绝(允许一次执行一次, 拒绝/超时/调用方断开一律失败关闭)。
    * 硬编码黑名单(凭据写入/插件安装/连接信任等)优先于本清单, 也不给审批通道。
    */
-  bridgeWriteAllowlist?: string[]
+  bridgeEndpointAllowlist?: string[]
 }
 
 /**
@@ -127,7 +127,7 @@ export interface Config {
 export interface ParsedConfig extends Omit<
   Config,
   | 'allowedModels' | 'allowedModelsEnabled' | 'defaultDetail' | 'authToken' | 'authEnabled' | 'selfToolsEnabled'
-  | 'bridgeWriteAllowlist'
+  | 'bridgeEndpointAllowlist'
 > {
   allowedModels: Volatile<string[]>
   allowedModelsEnabled: Volatile<boolean | undefined>
@@ -135,7 +135,7 @@ export interface ParsedConfig extends Omit<
   authToken: Volatile<string>
   authEnabled: Volatile<boolean | undefined>
   selfToolsEnabled: Volatile<boolean>
-  bridgeWriteAllowlist: Volatile<string[]>
+  bridgeEndpointAllowlist: Volatile<string[]>
 }
 
 /** 运行时配置默认值 */
@@ -154,7 +154,7 @@ export const DEFAULTS = {
   resourceFirst: false,
   approvalControl: 'exclusive' as 'off' | 'fallback' | 'exclusive',
   approvalTimeoutMs: 120_000,
-  bridgeWriteAllowlist: [] as string[],
+  bridgeEndpointAllowlist: [] as string[],
 }
 
 export type RuntimeConfig = typeof DEFAULTS
@@ -194,10 +194,10 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     approvalControl: parsed.approvalControl ?? DEFAULTS.approvalControl,
     // 0 = 不限时(原样保留); 其余钳制到 1000-600000(超时失败关闭)
     approvalTimeoutMs: clampApprovalTimeout(parsed.approvalTimeoutMs ?? DEFAULTS.approvalTimeoutMs),
-    bridgeWriteAllowlist: [],
+    bridgeEndpointAllowlist: [],
   }
   // 与 allowedModels 同口径: 去空白、丢空串
-  const readWriteAllowlist = () => parsed.bridgeWriteAllowlist.get().map((s) => String(s).trim()).filter(Boolean)
+  const readEndpointAllowlist = () => parsed.bridgeEndpointAllowlist.get().map((s) => String(s).trim()).filter(Boolean)
   Object.defineProperties(runtime, {
     allowedModels: { enumerable: true, configurable: true, get: readModels },
     allowedModelsEnabled: {
@@ -213,7 +213,7 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       get: () => parsed.authEnabled.get() ?? parsed.authToken.get() !== '',
     },
     selfToolsEnabled: { enumerable: true, configurable: true, get: () => parsed.selfToolsEnabled.get() },
-    bridgeWriteAllowlist: { enumerable: true, configurable: true, get: readWriteAllowlist },
+    bridgeEndpointAllowlist: { enumerable: true, configurable: true, get: readEndpointAllowlist },
   })
   return runtime
 }
@@ -244,5 +244,5 @@ export const Config = Schema.object({
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface).'),
   approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).description('Who answers approvals for sessions created by this plugin (default exclusive): off = display only, the UI handles them; fallback = UI first, the caller answers when the UI cannot; exclusive = always the caller, via approval_answer (the UI no longer shows them).'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).description('Maximum wait after an approval is parked, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Applies to both the MCP-side session approvals and the bridge-write panel approvals.'),
-  bridgeWriteAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeWriteAllowlist).volatile().description('Generic-bridge write whitelist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Whitelisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). The hard-coded blacklist (credential writes, plugin installs, connection trust) always wins and gets no approval path.'),
+  bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). The hard-coded blacklist (credential writes, plugin installs, connection trust) always wins and gets no approval path.'),
 })
