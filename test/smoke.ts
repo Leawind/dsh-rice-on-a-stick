@@ -1591,12 +1591,20 @@ try {
       && !clientSrc.includes("slots.inject('settings.section'")
       && !clientSrc.includes('installSettingsNavIcon')
   })()
-  // 审批页(静态): 空态一句话不预设读写语义; 返回会话走宿主 layout 服务
+  // 审批页(静态): 空态一句话不预设读写语义; 返回会话走宿主 layout 服务;
+  // 作弊码监听在页面级, 虚拟项答复走本地移除
   checks['审批页: 空态文案与返回会话'] = (() => {
     const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
     return clientSrc.includes("t('approvals.empty')")
       && !clientSrc.includes('approvals.emptyHint')
       && clientSrc.includes("selectPanel(null)")
+  })()
+  checks['审批页: 调试作弊码与虚拟项本地答复'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return clientSrc.includes("'osrblhh'")
+      && clientSrc.includes('addDebug')
+      && clientSrc.includes('removeDebug')
+      && clientSrc.includes('pruneDebug')
   })()
 
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
