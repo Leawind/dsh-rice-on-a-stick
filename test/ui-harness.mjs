@@ -1,6 +1,6 @@
 // Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的面板真实渲染到浏览器。
-// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/models/config-update), 状态形状与
-// src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
+// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/models/bridge-endpoints/config-update),
+// 状态形状与 src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
 //   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误
@@ -39,6 +39,7 @@ const state = {
     http: true, resourceFirst: false,
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
+    bridgeWriteAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
     approvalControl: 'exclusive', approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
   },
   connections: DEFAULT_CONNS(),
@@ -320,6 +321,32 @@ const server = createServer(async (req, res) => {
         if (mode.statusError) return json(res, 500, { error: '模拟故障(statusError)' })
         return json(res, 200, snapshot())
       }
+      if (method === 'bridge-endpoints') {
+        // 通用桥端点目录(与 src/mcp/web.ts bridge-endpoints 同形): 四种 kind 都给 + 失效条目 + 超长描述,
+        // 供白名单清单目检(默认折叠/缩进/只读恒勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
+        const allow = new Set(state.config.bridgeWriteAllowlist)
+        const endpoints = [
+          { endpoint: 'session/list', description: 'List sessions with pagination and status filters.', kind: 'read' },
+          { endpoint: 'session/search', description: 'Keyword search across session titles and message transcripts.', kind: 'read' },
+          { endpoint: 'session/rename', description: 'Rename a session by id; the title shows up in the host session switcher and archives.', kind: 'selectable' },
+          { endpoint: 'session/archive', description: 'Archive a session; archived sessions leave the active list but keep their history.', kind: 'selectable' },
+          { endpoint: 'settings/describe', description: 'Describe a settings key: type, current value, allowed range and restart requirements.', kind: 'read' },
+          { endpoint: 'workspaceFiles/read', description: 'Read a text file inside the workspace sandbox.', kind: 'read' },
+          { endpoint: 'workspaceFiles/write', description: 'Write a text file inside the workspace sandbox. Creates parent directories as needed and refuses paths outside the sandbox root; the file is left untouched when the write fails midway. This description is deliberately long to exercise truncation and the hover tooltip.', kind: 'selectable' },
+          { endpoint: 'terminal/kill', description: 'Kill a running terminal process by id.', kind: 'selectable' },
+          { endpoint: 'schedule/runNow', description: 'Trigger a scheduled task immediately, out of its normal cadence.', kind: 'selectable' },
+          { endpoint: 'terminal/stream', description: 'Stream terminal output frames as they are produced.', kind: 'stream' },
+          { endpoint: 'pluginManager/installBundle', description: 'Install a plugin bundle from a registry.', kind: 'blacklist' },
+          { endpoint: 'credentialsController/set', description: 'Store a provider credential.', kind: 'blacklist' },
+        ].map((e) => ({ ...e, allowed: allow.has(e.endpoint) }))
+        const live = new Set(endpoints.map((e) => e.endpoint))
+        return json(res, 200, {
+          available: true,
+          total: endpoints.length,
+          endpoints,
+          stale: [...allow].filter((x) => !live.has(x)).sort(),
+        })
+      }
       if (method === 'models') {
         // 模型目录(添加模型面板的数据源), 与 collectModelCatalog 输出同形; 模型给足一打以目检搜索/上限
         const many = Array.from({ length: 12 }, (_, i) => ({ id: 'm' + (i + 1), name: 'Model ' + 'ABCDEFGHIJKL'[i] }))
@@ -365,7 +392,7 @@ const server = createServer(async (req, res) => {
             if (!payload.values.http) state.connections = []
           }
           // 与后端同语义: 非 volatile 字段重载插件(前端等待重载后刷新), volatile 字段就地提交
-          const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled'])
+          const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled', 'bridgeWriteAllowlist'])
           const reloading = Object.keys(payload.values).some((k) => !VOLATILE.has(k))
           if (reloading) return json(res, 200, { updated: true, reloading: true })
         } else {
