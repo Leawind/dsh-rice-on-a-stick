@@ -708,7 +708,8 @@ interface DshModuleSpec {
   }
 
   // ── 通用桥端点白名单清单 ──
-  // 端点全量列出(按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开)。组头 = 箭头 +
+  // 端点全量列出(按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
+  // namespace 整组隐藏——组头也不出现)。组头 = 箭头 +
   // 组复选 + namespace + 已选计数; 端点行只显示 method 部分(namespace 在组头), 悬停行经自绘
   // tooltip 给出完整端点名 + 完整描述。点击勾选切换: 勾 = 白名单(直行), 不勾 = 停泊审批。
   // 只读端点不经白名单(默认放行)显示为恒勾; 流式/永禁行锁定不可勾(徽标标注)。全选 = 显式快照
@@ -741,6 +742,8 @@ interface DshModuleSpec {
     const matches = function (e) {
       return !q || e.endpoint.toLowerCase().includes(q) || String(e.description || '').toLowerCase().includes(q);
     };
+    // 搜索时空组隐藏: 无命中端点的 namespace 连组头一起不出现; 全部空时落到"没有匹配的端点"
+    const visibleGroups = q ? groups.filter(function (g) { return g.items.some(matches); }) : groups;
     function emit(nextArray) { props.onChange(nextArray); }
     function toggleEndpoint(e, checked) {
       emit(checked ? allowed.concat([e.endpoint]) : allowed.filter(function (x) { return x !== e.endpoint; }));
@@ -810,9 +813,9 @@ interface DshModuleSpec {
         }),
       );
       body = React.createElement('div', { className: 'dcs-eplist' },
-        groups.length === 0
+        visibleGroups.length === 0
           ? React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.none'))
-          : groups.map(function (g) {
+          : visibleGroups.map(function (g) {
               const isOpen = groupOpen(g);
               const sel = selectableOf(g.items);
               const picked = sel.filter(function (e) { return allowedSet.has(e.endpoint); }).length;
@@ -831,7 +834,7 @@ interface DshModuleSpec {
                   React.createElement('span', { className: 'dcs-epns' }, g.ns),
                   React.createElement('span', { className: 'dcs-epcount' }, sel.length > 0 ? picked + '/' + sel.length : ''),
                 ),
-                isOpen && visible.length > 0 ? visible.map(row) : null,
+                isOpen ? visible.map(row) : null,
               );
             }),
         staleBlock,

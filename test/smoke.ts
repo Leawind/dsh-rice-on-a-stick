@@ -1576,6 +1576,12 @@ try {
       && clientSrc.includes("kind === 'selectable'")
       && clientSrc.includes("bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice()")
   })()
+  // 白名单过滤(静态): 搜索时空 namespace 整组隐藏(组头不出现), 全空回落"没有匹配的端点"
+  checks['设置面板: 白名单过滤隐藏无命中的 namespace'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return clientSrc.includes("groups.filter(function (g) { return g.items.some(matches); })")
+      && clientSrc.includes('visibleGroups.length === 0')
+  })()
   checks['设置面板: 审批卡走 bridge-approvals 路由'] = (() => {
     const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
     return clientSrc.includes("rpc('bridge-approvals')")
