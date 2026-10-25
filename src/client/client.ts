@@ -13,8 +13,9 @@ interface DshModuleSpec {
   // dsh-rice-on-a-stick — client half(浏览器, 静态 bundle 形态)
   // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|config-update|...}(host 半注册)
   // - 侧栏面板: sidebar.panellist 出图标(米饭碗 + 待审批角标), main 按同 id 出整页; 页内两个标签:
-  //   审批(桥写停泊审批卡) / 设置(配置表单/端点卡/连接列表)。改动即保存, 经宿主 configEditor 写
-  //   profile patch; 全部字段就地生效, 只有监听级字段(http/host/port)重建监听器
+  //   审批(桥写停泊审批卡) / 设置(按常用度分组的配置表单 + 连接列表)。MCP 端点卡常驻页头
+  //   (品牌块内, 两标签共用)。改动即保存, 经宿主 configEditor 写 profile patch; 全部字段就地生效,
+  //   只有监听级字段(http/host/port)重建监听器
   // - 桥写停泊审批由模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s), 侧栏角标与页面审批卡共用;
   //   侧栏图标是本插件注册的组件(宿主侧栏只托管按钮与 label), 不需要 DOM 认领
   // - React 由模块系统种子提供; 不依赖其它 client 包
@@ -223,7 +224,6 @@ interface DshModuleSpec {
       'state.stopped': '已停止',
       'state.listeningOff': '监听关闭',
       'server.title': 'MCP 服务',
-      'service.title': '提供MCP服务以供外部访问',
       'service.hint': '让其他harness也能控制dsh',
       'self.title': '将工具注册到本dsh实例',
       'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
@@ -269,7 +269,7 @@ interface DshModuleSpec {
       'bridgeApproval.reject': '拒绝',
       'bridgeApproval.fail': '应答失败：{e}',
       'listen.title': '监听地址与端口',
-      'footnote': '以上各项在离开输入框或关闭设置时自动生效。只有“提供MCP服务”与监听地址/端口会重建监听，已连接的 MCP 客户端需要重新连接；其余各项立即生效，连接不断。',
+      'footnote': '开关与监听地址/端口保存后会重建监听，已连接的 MCP 客户端需要重新连接；页面其余各项立即生效，连接不断。',
       'footnote.approval': '以上两项立即生效；切换“审批由谁回答”会结清正在等待的审批。',
       'listen.hostRequired': '监听地址不能为空。',
       'listen.portInvalid': '端口必须是 1-65535 的整数。',
@@ -290,7 +290,7 @@ interface DshModuleSpec {
       'detail.summary': '简略（simple）',
       'detail.normal': '详细（details）',
       'detail.full': '完整（full）',
-      'auth.title': 'MCP需要令牌',
+      'auth.title': 'MCP 令牌',
       'auth.regen': '重新生成',
       'auth.show': '显示',
       'auth.hide': '隐藏',
@@ -314,6 +314,7 @@ interface DshModuleSpec {
       'tab.approvals': '审批',
       'tab.settings': '设置',
       'group.agent': 'Agent 工具面',
+      'security.title': '安全与传输',
       'approvals.empty': '当前无待审批的调用',
       'backToChat': '返回会话',
     },
@@ -327,7 +328,6 @@ interface DshModuleSpec {
       'state.stopped': 'Stopped',
       'state.listeningOff': 'Listener off',
       'server.title': 'MCP server',
-      'service.title': 'Provide the MCP service for external access',
       'service.hint': 'Let other harnesses control dsh',
       'self.title': 'Register tools into this dsh instance',
       'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
@@ -347,7 +347,7 @@ interface DshModuleSpec {
       'hosts.title': 'Host header allowlist',
       'hosts.hint': 'Extra hostnames, comma or space separated.',
       'hosts.invalid': 'Invalid hostname: {h}',
-      'bridge.title': 'Bridge write whitelist',
+      'bridge.title': 'Bridge endpoint allowlist',
       'bridge.hint': 'Checked endpoints execute directly through bridge_call; unchecked mutating endpoints park every call for manual approval. Credential and plugin-install endpoints are permanently refused; stream endpoints do not apply.',
       'bridge.filter': 'Type to filter endpoints or descriptions',
       'bridge.selectAll': 'Select all',
@@ -372,7 +372,7 @@ interface DshModuleSpec {
       'bridgeApproval.allow': 'Allow',
       'bridgeApproval.reject': 'Reject',
       'bridgeApproval.fail': 'Answer failed: {e}',
-      'footnote': 'These take effect when you leave the field or close settings. Only "Provide the MCP service" and the listen address/port restart the listener, so connected MCP clients must reconnect; every other setting applies immediately without dropping connections.',
+      'footnote': 'Toggling the service or saving the listen address/port rebuilds the listener, so connected MCP clients must reconnect; every other setting on this page applies immediately without dropping connections.',
       'footnote.approval': 'Both apply immediately; switching "Who answers approvals" settles approvals that are already waiting.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
@@ -394,7 +394,7 @@ interface DshModuleSpec {
       'detail.summary': 'Simple',
       'detail.normal': 'Details',
       'detail.full': 'Full',
-      'auth.title': 'MCP needs token',
+      'auth.title': 'MCP token',
       'auth.regen': 'Regenerate',
       'auth.show': 'Show',
       'auth.hide': 'Hide',
@@ -418,6 +418,7 @@ interface DshModuleSpec {
       'tab.approvals': 'Approvals',
       'tab.settings': 'Settings',
       'group.agent': 'Agent tool surface',
+      'security.title': 'Security & transport',
       'approvals.empty': 'No calls awaiting approval',
       'backToChat': 'Back to chat',
     },
@@ -456,8 +457,12 @@ interface DshModuleSpec {
     // 标签上的待审批计数泡: 有停泊请求时出现; 剩余时间不足 1 分钟换紧急色
     '.dcs-tabcount{display:inline-block;box-sizing:border-box;min-width:17px;height:17px;margin-left:6px;padding:0 4px;border-radius:999px;corner-shape:round;font-size:11px;font-weight:600;line-height:17px;text-align:center;font-variant-numeric:tabular-nums;vertical-align:1px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 16%,transparent);color:var(--dsw-alias-state-warn-label,#dd8629);}',
     '.dcs-tabcount-urgent{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 12%,transparent);color:var(--dsw-alias-state-error-primary,#ec1313);}',
-    // 分组标题(设置标签内: MCP 服务 / Agent 工具面 / 审批 / 通用桥)
+    // 分组标题(设置标签内: MCP 服务 / 模型白名单 / 通用桥 / MCP 令牌 / Agent 工具面 / 审批 / 安全与传输)
     '.dcs-grouphead{padding:10px 2px 0;}',
+    // 带主开关的分组标题: 标题+副标题占左, 开关居右(两个类连写抬高优先级, 盖过 sechead 的 baseline 对齐)
+    '.dcs-sechead.dcs-grouphead-ctl{align-items:center;}',
+    '.dcs-headtext{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto;overflow-wrap:anywhere;}',
+    '.dcs-headctl{flex:none;margin-left:auto;}',
     // 头部(品牌行: 图标 + 中文名 + 包名/版本, 状态徽章靠右)
     '.dcs-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
     '.dcs-icon{flex:none;width:28px;height:28px;}',
@@ -497,7 +502,6 @@ interface DshModuleSpec {
     '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;}',
     '.dcs-input-host{flex:1 1 180px;width:auto;min-width:140px;}',
     '.dcs-input-port{flex:0 0 96px;width:96px;}',
-    '.dcs-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-warn{color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 错误行
     '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
@@ -669,10 +673,17 @@ interface DshModuleSpec {
     );
   }
 
-  // 设置标签的分组标题(与连接列表的 sechead 同型)
-  function groupHead(label) {
-    return React.createElement('div', { className: 'dcs-sechead dcs-grouphead' },
-      React.createElement('span', { className: 'dcs-sectitle' }, label));
+  // 设置标签的分组标题(与连接列表的 sechead 同型): 标题(+可选副标题)占左,
+  // opts.control 是该分组的主开关时居右(MCP 服务/模型白名单/MCP 令牌)
+  function groupHead(label, opts?) {
+    const o = opts || {};
+    return React.createElement('div', { className: 'dcs-sechead dcs-grouphead' + (o.control ? ' dcs-grouphead-ctl' : '') },
+      React.createElement('div', { className: 'dcs-headtext' },
+        React.createElement('span', { className: 'dcs-sectitle' }, label),
+        o.hint ? React.createElement('span', { className: 'dcs-sub' }, o.hint) : null,
+      ),
+      o.control ? React.createElement('div', { className: 'dcs-headctl' }, o.control) : null,
+    );
   }
 
   // 表单行: 标题+副标题居左, 控件居右(官方设置行同款); err 是该字段自己的校验提示, 紧贴控件下方
@@ -983,9 +994,10 @@ interface DshModuleSpec {
     );
   }
 
-  // ── 侧栏页(main 条目): 品牌头 + 页内标签(审批 / 设置) ──
+  // ── 侧栏页(main 条目): 品牌头(含常驻 MCP 端点卡) + 页内标签(审批 / 设置) ──
   // 审批标签 = 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
-  // 设置标签 = 配置表单(按 MCP 服务 / Agent 工具面 / 审批 / 通用桥 分组) + 连接列表。
+  // 设置标签 = 配置表单(按常用度分组: MCP 服务 / 模型白名单 / 通用桥端点白名单 / MCP 令牌 /
+  // Agent 工具面 / 审批 / 安全与传输) + 连接列表。
   // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
   var PANEL_ID = 'dsh-rice-on-a-stick';
   var lastPanelTab = ''; // 页面卸载重开时记住上次所在标签(插件客户端半重载后回到默认)
@@ -1440,6 +1452,13 @@ interface DshModuleSpec {
         }),
         ),
         React.createElement('div', { className: 'dcs-tagline' }, t('plugin.tagline')),
+        // MCP 端点卡(最高频: 复制给其他客户端接入): 常驻页头, 审批/设置两标签共用, 设置表单里不再重复
+        React.createElement('div', { className: 'dcs-card' },
+          React.createElement('div', { className: 'dcs-urlrow' },
+            React.createElement('span', { className: 'dcs-url' }, state.endpoint),
+            React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
+          ),
+        ),
       ),
       // 页内标签: 审批(动作面, 停泊计数泡) / 设置(策略面)
       React.createElement('div', { className: 'dcs-tabs', role: 'tablist' },
@@ -1477,30 +1496,23 @@ interface DshModuleSpec {
         : null,
       tab !== 'settings' ? null :
       // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段重建监听器。
-      // 按性质分四组, 组内行间画发丝线(每组一个 .dcs-form 容器)
+      // 按常用度分组排序, 同类相邻: MCP 服务 → 模型白名单 → 通用桥端点白名单 → MCP 令牌 →
+      // Agent 工具面 → 审批 → 安全与传输; 组内行间画发丝线(每组一个 .dcs-form 容器)
       d ? React.createElement(React.Fragment, null,
-        // ── MCP 服务 ──
-        groupHead(t('server.title')),
-        React.createElement('div', { className: 'dcs-form' },
-        // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(切换只重建监听器)
-        React.createElement(Row, {
-          label: t('service.title'),
+        // 保存错误栏(设置标签顶部): 任何分组的写入失败都在这里提示, 不随分组位置漂移
+        cfgError ? React.createElement('div', { className: 'dcs-savebar' },
+          React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
+        ) : null,
+        // ── MCP 服务(常用度 2: 对外服务总开关; 端点卡已常驻页头, 这里不再重复) ──
+        groupHead(t('server.title'), {
           hint: t('service.hint'),
           control: React.createElement(Switch, {
             checked: d.httpOn,
-            label: t('service.title'),
+            label: t('server.title'),
             onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
           }),
         }),
-        React.createElement(Row, {
-          label: t('resource.title'),
-          hint: t('resource.hint'),
-          control: React.createElement(Switch, {
-            checked: d.resourceFirst,
-            label: t('resource.title'),
-            onChange: function (v) { changeHot({ resourceFirst: v }, { resourceFirst: v }); },
-          }),
-        }),
+        React.createElement('div', { className: 'dcs-form' },
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },
           React.createElement('div', { className: 'dcs-labels' },
             React.createElement('span', { className: 'dcs-label' }, t('listen.title')),
@@ -1528,124 +1540,19 @@ interface DshModuleSpec {
           ),
           errOf('listen') ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', errOf('listen')) : null,
         ),
-        React.createElement('div', { className: 'dcs-listwrap' },
-          React.createElement('div', { className: 'dcs-card' },
-            React.createElement('div', { className: 'dcs-urlrow' },
-              React.createElement('span', { className: 'dcs-url' }, state.endpoint),
-              React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
-            ),
-          ),
-        ),
-        React.createElement(Row, {
-          label: t('auth.title'),
-          control: React.createElement(Switch, {
-            checked: d.authOn,
-            onChange: function (v) {
-              // 开启: 已有令牌(服务端持久化或在途)只开开关; 没有令牌才生成并一并提交。
-              // 关闭: 只关开关, 令牌原样保留——重新开启即恢复校验, 不换令牌;
-              //   令牌仅在"重新生成"被替换。
-              if (v) {
-                if (d.authToken || cfg.authToken) { change({ authOn: true }); return; }
-                const token = generateToken();
-                change({ authOn: true, authToken: token }, token);
-                return;
-              }
-              change({ authOn: false });
-            },
-          }),
-        }),
-        d.authOn
-          ? React.createElement('div', { className: 'dcs-listwrap' },
-              React.createElement('div', { className: 'dcs-tokenrow' },
-                React.createElement('button', {
-                  type: 'button', className: 'dcs-btn',
-                  onClick: function () { const token = generateToken(); change({ authToken: token }, token); },
-                }, t('auth.regen')),
-                React.createElement('input', {
-                  className: 'dcs-input dcs-tokeninput',
-                  type: tokenShown ? 'text' : 'password',
-                  value: d.authToken || cfg.authToken || '',
-                  readOnly: true,
-                  spellCheck: false,
-                  onFocus: function (e) { e.target.select(); },
-                }),
-                React.createElement('button', {
-                  type: 'button', className: 'dcs-btn', disabled: !(d.authToken || cfg.authToken),
-                  onClick: function () { setTokenShown(!tokenShown); },
-                }, tokenShown ? t('auth.hide') : t('auth.show')),
-                React.createElement('button', {
-                  type: 'button', className: 'dcs-btn', disabled: !(d.authToken || cfg.authToken),
-                  onClick: function () {
-                    const tokenNow = d.authToken || cfg.authToken || '';
-                    if (!tokenNow || !navigator.clipboard) return;
-                    navigator.clipboard.writeText(tokenNow).then(function () {
-                      setTokenCopied(true);
-                      window.setTimeout(function () { setTokenCopied(false); }, 1500);
-                    }, function () { /* 剪贴板被拒即静默 */ });
-                  },
-                }, tokenCopied ? t('copied') : t('copy')),
-              ),
-            )
-          : null,
-        React.createElement(Row, {
-          label: t('ttl.title'),
-          hint: t('ttl.hint'),
-          err: errOf('sessionTtlMs'),
-          control: React.createElement('div', { className: 'dcs-inline' },
-            React.createElement('input', {
-              className: 'dcs-input',
-              type: 'number',
-              min: 0,
-              step: 60000,
-              value: d.sessionTtlMs,
-              onChange: function (e) { setHot({ sessionTtlMs: e.target.value }); },
-              onBlur: function () { commitField('sessionTtlMs'); },
-              onKeyDown: enterCommits('sessionTtlMs'),
-            }),
-          ),
-        }),
-        React.createElement(Row, {
-          label: t('hosts.title'),
-          hint: t('hosts.hint'),
-          err: errOf('allowedHosts'),
-          control: React.createElement('div', { className: 'dcs-inline' },
-            React.createElement('input', {
-              className: 'dcs-input dcs-input-wide',
-              type: 'text',
-              value: d.hostsText,
-              placeholder: 'example.com, 192.168.1.5',
-              spellCheck: false,
-              onChange: function (e) { setHot({ hostsText: e.target.value }); },
-              onBlur: function () { commitField('allowedHosts'); },
-              onKeyDown: enterCommits('allowedHosts'),
-            }),
-          ),
-        }),
         // 重连代价只说一次, 避免每条说明都挂一句"改此项会断开客户端"把行宽挤满
         React.createElement('div', { className: 'dcs-footnote' }, t('footnote')),
-        cfgError ? React.createElement('div', { className: 'dcs-savebar' },
-          React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
-        ) : null,
         ),
-        // ── Agent 工具面 ──
-        groupHead(t('group.agent')),
-        React.createElement('div', { className: 'dcs-form' },
-        React.createElement(Row, {
-          label: t('self.title'),
-          hint: t('self.hint'),
-          control: React.createElement(Switch, {
-            checked: d.selfToolsOn,
-            onChange: function (v) { change({ selfToolsOn: v }); },
-          }),
-        }),
-        React.createElement(Row, {
-          label: t('whitelist.title'),
+        // ── 模型白名单(常用度 3) ──
+        groupHead(t('whitelist.title'), {
           hint: t('whitelist.hint'),
           control: React.createElement(Switch, {
             checked: d.whitelistOn,
+            label: t('whitelist.title'),
             onChange: function (v) { change({ whitelistOn: v }); },
           }),
         }),
+        React.createElement('div', { className: 'dcs-form' },
         React.createElement('div', { className: 'dcs-listwrap' },
               // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
               d.allowedModels.length === 0
@@ -1699,6 +1606,91 @@ interface DshModuleSpec {
                             : null))
                 : null,
             ),
+        ),
+        // ── 通用桥端点白名单(常用度 4; 勾选清单组件内部自管展开/过滤) ──
+        groupHead(t('bridge.title'), { hint: t('bridge.hint') }),
+        React.createElement('div', { className: 'dcs-form' },
+        React.createElement('div', { className: 'dcs-listwrap' },
+          React.createElement(BridgeEndpointAllowlist, {
+            data: eps,
+            allowed: d.bridgeEndpointAllowlist || [],
+            onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },
+          }),
+        ),
+        ),
+        // ── MCP 令牌(常用度 5) ──
+        groupHead(t('auth.title'), {
+          control: React.createElement(Switch, {
+            checked: d.authOn,
+            label: t('auth.title'),
+            onChange: function (v) {
+              // 开启: 已有令牌(服务端持久化或在途)只开开关; 没有令牌才生成并一并提交。
+              // 关闭: 只关开关, 令牌原样保留——重新开启即恢复校验, 不换令牌;
+              //   令牌仅在"重新生成"被替换。
+              if (v) {
+                if (d.authToken || cfg.authToken) { change({ authOn: true }); return; }
+                const token = generateToken();
+                change({ authOn: true, authToken: token }, token);
+                return;
+              }
+              change({ authOn: false });
+            },
+          }),
+        }),
+        d.authOn ? React.createElement('div', { className: 'dcs-form' },
+          React.createElement('div', { className: 'dcs-listwrap' },
+            React.createElement('div', { className: 'dcs-tokenrow' },
+              React.createElement('button', {
+                type: 'button', className: 'dcs-btn',
+                onClick: function () { const token = generateToken(); change({ authToken: token }, token); },
+              }, t('auth.regen')),
+              React.createElement('input', {
+                className: 'dcs-input dcs-tokeninput',
+                type: tokenShown ? 'text' : 'password',
+                value: d.authToken || cfg.authToken || '',
+                readOnly: true,
+                spellCheck: false,
+                onFocus: function (e) { e.target.select(); },
+              }),
+              React.createElement('button', {
+                type: 'button', className: 'dcs-btn', disabled: !(d.authToken || cfg.authToken),
+                onClick: function () { setTokenShown(!tokenShown); },
+              }, tokenShown ? t('auth.hide') : t('auth.show')),
+              React.createElement('button', {
+                type: 'button', className: 'dcs-btn', disabled: !(d.authToken || cfg.authToken),
+                onClick: function () {
+                  const tokenNow = d.authToken || cfg.authToken || '';
+                  if (!tokenNow || !navigator.clipboard) return;
+                  navigator.clipboard.writeText(tokenNow).then(function () {
+                    setTokenCopied(true);
+                    window.setTimeout(function () { setTokenCopied(false); }, 1500);
+                  }, function () { /* 剪贴板被拒即静默 */ });
+                },
+              }, tokenCopied ? t('copied') : t('copy')),
+            ),
+          ),
+        ) : null,
+        // ── Agent 工具面 ──
+        groupHead(t('group.agent')),
+        React.createElement('div', { className: 'dcs-form' },
+        React.createElement(Row, {
+          label: t('self.title'),
+          hint: t('self.hint'),
+          control: React.createElement(Switch, {
+            checked: d.selfToolsOn,
+            label: t('self.title'),
+            onChange: function (v) { change({ selfToolsOn: v }); },
+          }),
+        }),
+        React.createElement(Row, {
+          label: t('resource.title'),
+          hint: t('resource.hint'),
+          control: React.createElement(Switch, {
+            checked: d.resourceFirst,
+            label: t('resource.title'),
+            onChange: function (v) { changeHot({ resourceFirst: v }, { resourceFirst: v }); },
+          }),
+        }),
         React.createElement(Row, {
           label: t('detail.title'),
           control: React.createElement('select', {
@@ -1746,20 +1738,43 @@ interface DshModuleSpec {
         }),
         React.createElement('div', { className: 'dcs-footnote' }, t('footnote.approval')),
         ),
-        // ── 通用桥(volatile 字段: 就地生效不重载) ──
-        groupHead(t('bridge.title')),
+        // ── 安全与传输(Host 头白名单 + 传输会话空闲上限, 低频的服务端防护) ──
+        groupHead(t('security.title')),
         React.createElement('div', { className: 'dcs-form' },
-        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
-          React.createElement('div', { className: 'dcs-labels' },
-            React.createElement('span', { className: 'dcs-label' }, t('bridge.title')),
-            React.createElement('span', { className: 'dcs-hint' }, t('bridge.hint')),
+        React.createElement(Row, {
+          label: t('hosts.title'),
+          hint: t('hosts.hint'),
+          err: errOf('allowedHosts'),
+          control: React.createElement('div', { className: 'dcs-inline' },
+            React.createElement('input', {
+              className: 'dcs-input dcs-input-wide',
+              type: 'text',
+              value: d.hostsText,
+              placeholder: 'example.com, 192.168.1.5',
+              spellCheck: false,
+              onChange: function (e) { setHot({ hostsText: e.target.value }); },
+              onBlur: function () { commitField('allowedHosts'); },
+              onKeyDown: enterCommits('allowedHosts'),
+            }),
           ),
-          React.createElement(BridgeEndpointAllowlist, {
-            data: eps,
-            allowed: d.bridgeEndpointAllowlist || [],
-            onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },
-          }),
-        ),
+        }),
+        React.createElement(Row, {
+          label: t('ttl.title'),
+          hint: t('ttl.hint'),
+          err: errOf('sessionTtlMs'),
+          control: React.createElement('div', { className: 'dcs-inline' },
+            React.createElement('input', {
+              className: 'dcs-input',
+              type: 'number',
+              min: 0,
+              step: 60000,
+              value: d.sessionTtlMs,
+              onChange: function (e) { setHot({ sessionTtlMs: e.target.value }); },
+              onBlur: function () { commitField('sessionTtlMs'); },
+              onKeyDown: enterCommits('sessionTtlMs'),
+            }),
+          ),
+        }),
         ),
       ) : null,
       // 连接列表(设置标签尾部): 只读观测, 10s 轮询跟随刷新
