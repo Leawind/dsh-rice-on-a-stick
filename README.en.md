@@ -89,7 +89,7 @@ The MCP server listens on `http://127.0.0.1:5642/mcp` by default, using Streamab
 
 ## Configuration
 
-All configuration can be changed in the graphical settings panel, taking effect on save. You can also edit `cordis.patch.yml` in the profile directory directly (see [src/core/config.ts](src/core/config.ts) for all fields, defaults, and descriptions):
+All configuration can be changed in the graphical settings panel and takes effect on save — no plugin or host restart. Changing the listen address, the port, or whether the MCP service is provided rebuilds only the MCP listener: connected MCP clients must reconnect, while everything else (native tools, resource subscriptions, approvals) keeps running. You can also edit `cordis.patch.yml` in the profile directory directly (see [src/core/config.ts](src/core/config.ts) for all fields, defaults, and descriptions):
 
 ```yaml
 - id: dsh-rice-on-a-stick

@@ -89,7 +89,7 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ## 配置
 
-所有配置都可在 dsh 侧栏的"白饭钓竿"页（设置标签）里改，保存即生效。也可以直接改 profile 目录下的 `cordis.patch.yml`（全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)）：
+所有配置都可在 dsh 侧栏的"白饭钓竿"页（设置标签）里改，保存即生效，不需要重启插件或宿主。改监听地址/端口/是否提供 MCP 服务这三项时，插件只重建 MCP 监听器：已连接的 MCP 客户端需要重新连接，其余能力（本实例原生工具、资源订阅、审批）不受影响。也可以直接改 profile 目录下的 `cordis.patch.yml`（全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)）：
 
 ```yaml
 - id: dsh-rice-on-a-stick

@@ -34,7 +34,7 @@ test/               冒烟、真机 e2e、UI harness
 6.  **审批失败关闭（`src/session/approvals.ts`）**：默认 `exclusive`（审批一律由调用方经 `approval_answer` 回答，界面不再显示同一项）；`fallback` 仅在宿主 answerer 返回 `unavailable` 后接手；`off` 只读展示。没有决定绝不放行；只作用于本插件创建或续接过的会话。
 7.  **Agent 认知面（`src/mcp/onboarding.ts` + `docs/onboarding/`）**：initialize instructions 与 `dsh_get_started` 正文都是英文产品文本，放在 Markdown；加载器在导入期校验节齐全，缺文件/缺节直接让插件启动失败，不静默下发空指南。
 8.  **语言一致性（`src/mcp/tools/` / `src/mcp/resources.ts`）**：面向 MCP 客户端的 title、description、参数说明与资源说明统一用英语，与 dsh 自带工具一致；smoke 中有反向断言，混入中文会失败。宿主配置 schema 的说明面向部署方，保持中文。
-9.  **侧栏页与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、页面控件、GUI 写入白名单（`parseGuiConfigValues`）——否则页面与服务端会静默分叉。结构性字段写入后重载插件并回 `reloading: true`，volatile 字段就地提交。
+9.  **侧栏页与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、页面控件、GUI 写入白名单（`parseGuiConfigValues`）——否则页面与服务端会静默分叉。所有字段都是 volatile：写入只就地提交引用，不重载插件；每个字段必须在真正的消费点现读 `state.config`（`allowedHosts` 按请求、`sessionTtlMs` 按回收轮、`approvalControl`/`approvalTimeoutMs` 按事件、`resourceFirst` 按连接与工具重注册）。只有监听级字段（`http`/`host`/`port`）由插件自己重建监听器，并让 GUI 路由回 `reloading: true` 供面板等待重连。
 10. **图片引用不传值（`src/host/attachments.ts`）**：图片字节只在 dsh 进程内流转（调用方给 path/URL 引用 → 插件读字节 → 宿主 `attachments.saveImages` 准入 → 消息里 image 块只带 `attachmentId` 引用）。任何工具参数、模型上下文、投影输出都不出现图片 base64；取回走 `attachment_read`（默认元数据 + 宿主机路径，`inline=true` 才回 MCP image 内容块且走视觉 token）。1MB 图片的 base64 ≈ 35 万 token，此约束是硬红线，新增任何图片通路都必须遵守。
 
 ## 测试
