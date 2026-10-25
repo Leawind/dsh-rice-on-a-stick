@@ -4,12 +4,16 @@
  *
  * 从 index.ts 抽出, 使插件入口只保留装配逻辑。本模块只依赖注入的 ctx 与
  * 资源订阅枢纽; 工具/资源注册、状态快照仍由调用方提供, 保证两个面同一数据源。
+ *
+ * 配置热改: 监听地址/端口由调用方重建本对象(不重载插件), 其余传输层字段
+ * (Host 白名单、传输 TTL、资源优先形态)都在消费点现读运行时视图, 见 sync* 方法。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import os from 'node:os'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { PLUGIN_NAME, PLUGIN_VERSION } from '../core/config.js'
 import { state } from '../core/state.js'
@@ -36,10 +40,6 @@ export interface McpHttpServerOptions {
   hub: NotifyHub
   /** 与工具/资源面同一份完整状态快照; 本模块在每个 McpServer 实例上用它提供资源读数据 */
   statusSnapshot: () => Record<string, unknown>
-  /** config.http !== false; false 时不创建 HTTP server(仅保留 GUI 控制面) */
-  enabled: boolean
-  /** config.allowedHosts 额外 Host 白名单 */
-  allowedHosts?: readonly string[]
 }
 
 /** 传输层控制面(status 快照共用) */
@@ -49,6 +49,10 @@ export interface McpHttpServer {
   connections(): McpConnection[]
   /** 初次监听: 失败抛错, 让插件启动失败可见 */
   listen(): Promise<void>
+  /** 配置热改: 传输会话 TTL 变化后按当前值重排回收定时器(0 = 停止回收) */
+  syncSessionTtl(): void
+  /** 配置热改: 资源优先形态切换后, 给全部在线会话重注册工具并发 tools/list_changed */
+  syncResourceFirst(): void
   /** 卸载: 清定时器并关闭 server/传输会话(幂等) */
   dispose(): void
 }
@@ -141,16 +145,22 @@ function isInitializeRpc(value: unknown): boolean {
 }
 
 export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServer {
-  const { ctx, hub, statusSnapshot, enabled } = options
+  const { ctx, hub, statusSnapshot } = options
   const host = state.config.host
   const port = state.config.port
-  const sessionTtl = state.config.sessionTtlMs
 
-  // Host 头白名单: 绑定地址 + loopback 别名 + 通配绑定的实际网卡地址 + 显式 allowedHosts
-  // (防 DNS rebinding: 恶意网页把自己域名 rebinding 到 127.0.0.1 后, Host 头仍是该域名 → 拒)
-  const allowedHostSet = new Set<string>()
-  for (const h of [host, ...wildcardHostAliases(host), 'localhost', '127.0.0.1', '::1', ...(options.allowedHosts ?? [])]) {
-    allowedHostSet.add(h.toLowerCase())
+  // Host 头白名单的固定部分: 绑定地址 + loopback 别名 + 通配绑定的实际网卡地址。
+  // allowedHosts 不在这里快照——它按请求现读 state.config, 改完立即生效(下次请求即可见)。
+  const baseAllowedHosts = new Set<string>()
+  for (const h of [host, ...wildcardHostAliases(host), 'localhost', '127.0.0.1', '::1']) {
+    baseAllowedHosts.add(h.toLowerCase())
+  }
+
+  /** Host 头放行判定: 固定白名单 + 运行时 allowedHosts */
+  const hostAllowed = (hostname: string): boolean => {
+    const name = hostname.toLowerCase()
+    if (baseAllowedHosts.has(name)) return true
+    return state.config.allowedHosts.includes(name)
   }
 
   /** Origin 头校验: 不带 Origin(非浏览器 MCP 客户端的常态)放行; 带了则主机名必须命中同一白名单 */
@@ -160,7 +170,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     try {
       const parsed = new URL(String(origin))
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-      return allowedHostSet.has(parsed.hostname.toLowerCase())
+      return hostAllowed(parsed.hostname)
     } catch {
       return false // Origin: null 等非法值一律拒(无法证明同源)
     }
@@ -169,6 +179,8 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   /** MCP 连接登记(sessionId → 观测记录); GUI 面板与 status RPC 的数据源, apply 级生命周期 */
   const connections = new Map<string, McpConnection>()
   const servers = new Map<string, McpServer>()
+  /** 每个会话注册的工具句柄: 资源优先形态热切换时先整体移除再按新形态注册 */
+  const sessionTools = new Map<string, RegisteredTool[]>()
   const transports = new Map<string, StreamableHTTPServerTransport>()
   /**
    * 打开中的 GET SSE 流(sessionId → 未结束的响应): 纯监听连接只开流不 POST, lastActivity 不再前进,
@@ -177,12 +189,14 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   const streamingGets = new Map<string, Set<http.ServerResponse>>()
   let server: http.Server | undefined
   let listening = false
+  let disposed = false
+  let sweeper: ReturnType<typeof setTimeout> | undefined
 
   /** 初次监听: 端口被占/EADDRNOTAVAIL 时抛错, 让插件启动失败可见 */
   const listenOnce = () => new Promise<void>((resolveListen, rejectListen) => {
     const s = server
     if (s === undefined) {
-      rejectListen(new Error('server not created (http disabled?)'))
+      rejectListen(new Error('server not created'))
       return
     }
     const onListenError = (e: Error) => {
@@ -198,15 +212,19 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     s.listen(port, host)
   })
 
-  // 会话空闲 TTL GC: 客户端异常退出时不会发 DELETE, transport/McpServer 会无限累积。
-  // 超时无活动的会话由服务端关闭, 客户端下次请求得 404 后按规范重新 initialize。0 = 关闭 GC。
-  // 打开中的 GET SSE 流不算空闲(纯监听连接的活跃形态是流本身, 不是 POST)。
-  const sessionSweeper = enabled && sessionTtl > 0
-    ? setInterval(() => {
-        const now = Date.now()
-        for (const [sid, conn] of connections) {
-          if (streamingGets.has(sid)) continue
-          if (now - Math.max(conn.lastActivity, conn.connectedAt) <= sessionTtl) continue
+  /**
+   * 会话空闲 TTL GC: 客户端异常退出时不会发 DELETE, transport/McpServer 会无限累积。
+   * 超时无活动的会话由服务端关闭, 客户端下次请求得 404 后按规范重新 initialize。0 = 关闭 GC。
+   * 打开中的 GET SSE 流不算空闲(纯监听连接的活跃形态是流本身, 不是 POST)。
+   * TTL 每轮现读 state.config: 面板改完只需 syncSessionTtl() 重排一次定时器。
+   */
+  const sweepIdleSessions = (): void => {
+    const ttl = state.config.sessionTtlMs
+    if (ttl > 0) {
+      const now = Date.now()
+      for (const [sid, conn] of connections) {
+        if (streamingGets.has(sid)) continue
+        if (now - Math.max(conn.lastActivity, conn.connectedAt) <= ttl) continue
         const transport = transports.get(sid)
         try { void transport?.close() } catch { /* 尽力关闭 */ }
         // close 正常会触发 onclose 清理映射; 这里兜底防泄漏
@@ -215,12 +233,26 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           const mcp = servers.get(sid)
           if (mcp) hub.unbind(mcp)
           servers.delete(sid)
+          sessionTools.delete(sid)
           connections.delete(sid)
         }
       }
-    }, Math.max(100, Math.min(60_000, Math.floor(sessionTtl / 2))))
-    : undefined
-  sessionSweeper?.unref?.()
+    }
+    scheduleSweep()
+  }
+
+  /** 按当前 TTL 重排下一轮回收: 0 = 不排(下次 syncSessionTtl 会重新排上) */
+  const scheduleSweep = (): void => {
+    if (sweeper !== undefined) {
+      clearTimeout(sweeper)
+      sweeper = undefined
+    }
+    if (disposed) return
+    const ttl = state.config.sessionTtlMs
+    if (ttl <= 0) return
+    sweeper = setTimeout(sweepIdleSessions, Math.max(100, Math.min(60_000, Math.floor(ttl / 2))))
+    sweeper.unref?.()
+  }
 
   /**
    * 请求处理主体(全程 try/catch: 传输层/SDK 的意外异常不允许变成 unhandled rejection 打崩宿主进程)。
@@ -242,7 +274,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         res.end(jsonrpcError(-32600, 'Missing Host header'))
         return
       }
-      if (!allowedHostSet.has(hostnameOf(hostHeader))) {
+      if (!hostAllowed(hostnameOf(hostHeader))) {
         res.writeHead(403, { 'Content-Type': 'application/json' })
         res.end(jsonrpcError(-32001, `Host not allowed: ${hostnameOf(hostHeader)}`))
         return
@@ -333,7 +365,8 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           instructions: serverInstructions(state.config.resourceFirst),
           capabilities: { resources: { listChanged: true, subscribe: true } },
         })
-        registerTools(mcp, ctx, { statusSnapshot })
+        // 工具句柄留档: 资源优先形态热切换时用于整体移除/重注册(见 syncResourceFirst)
+        const toolHandles = registerTools(mcp, ctx, { statusSnapshot })
         registerResources(mcp, ctx, { statusSnapshot, hub })
         const initUserAgent = String(req.headers['user-agent'] ?? '')
         const transport = new StreamableHTTPServerTransport({
@@ -341,6 +374,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           onsessioninitialized: (sid) => {
             transports.set(sid, transport)
             servers.set(sid, mcp)
+            sessionTools.set(sid, toolHandles)
             // 连接登记: 首个 initialize 请求的 User-Agent 即客户端身份; 订阅枢纽自此收发
             hub.bind(mcp)
             connections.set(sid, {
@@ -360,6 +394,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           if (sid) {
             transports.delete(sid)
             servers.delete(sid)
+            sessionTools.delete(sid)
             connections.delete(sid)
           }
         }
@@ -394,22 +429,25 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     }
   }
 
-  if (enabled) {
-    server = http.createServer((req, res) => { void handleRequest(req, res) })
-  }
+  server = http.createServer((req, res) => { void handleRequest(req, res) })
 
   const dispose = (): void => {
-    if (sessionSweeper) clearInterval(sessionSweeper)
+    disposed = true
+    if (sweeper !== undefined) {
+      clearTimeout(sweeper)
+      sweeper = undefined
+    }
     listening = false
     server?.close()
-    // 热重载确定性: HMR 换新实例卸旧 fiber 时同步切断遗留 keep-alive/SSE 连接,
-    // 5642 的释放不依赖对端空闲超时; 进行中的请求被 reset(dev 形态可接受)
+    // 热重载/监听重启确定性: 换新实例卸旧 fiber 时同步切断遗留 keep-alive/SSE 连接,
+    // 端口释放不依赖对端空闲超时; 进行中的请求被 reset(监听重启的既有语义)
     server?.closeAllConnections?.()
     for (const transport of transports.values()) {
       try { void transport.close() } catch { /* 尽力清理 */ }
     }
     transports.clear()
     servers.clear()
+    sessionTools.clear()
     connections.clear()
     streamingGets.clear()
   }
@@ -419,14 +457,32 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     connections: () => Array.from(connections.values(), (c) => ({ ...c }))
       .sort((a, b) => b.connectedAt - a.connectedAt),
     async listen() {
-      if (!enabled) return
       await listenOnce()
       listening = true
+      scheduleSweep()
       console.log(`[${PLUGIN_NAME}] MCP server listening on ${host}:${port}/mcp`)
       // 运行期错误(如 socket 异常)记日志不崩进程
       server?.on('error', (e) => {
         console.error(`[${PLUGIN_NAME}] HTTP server error:`, e.message)
       })
+    },
+    syncSessionTtl: scheduleSweep,
+    syncResourceFirst: () => {
+      // 在线会话的工具表在 initialize 时就固定了: 逐个先移除旧句柄, 再按当前形态注册,
+      // 最后推 tools/list_changed。客户端不支持通知时同样能通过下一次 tools/list 看到新表。
+      for (const [sid, mcp] of servers) {
+        const old = sessionTools.get(sid) ?? []
+        sessionTools.set(sid, [])
+        for (const handle of old) {
+          try { handle.remove() } catch { /* 已移除/未注册: 忽略 */ }
+        }
+        try {
+          sessionTools.set(sid, registerTools(mcp, ctx, { statusSnapshot }))
+          mcp.sendToolListChanged()
+        } catch (e) {
+          console.error(`[${PLUGIN_NAME}] tool re-registration failed for session ${sid}:`, (e as Error)?.message ?? e)
+        }
+      }
     },
     dispose,
   }

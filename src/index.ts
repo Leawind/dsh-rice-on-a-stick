@@ -13,6 +13,10 @@
  * 工具集 = dsh web 界面的操作清单(会话中心)+ MCP-only 的异步/审批/子代理控制面 +
  * 目录与状态类工具; 模型与 preset 均由调用方在创建会话时显式指定, 续接沿用会话原值。
  *
+ * 配置: 全部字段都是 Loader 的 volatile 引用——面板改配置不重载插件。三个监听级字段
+ * (http / host / port)由本模块自己重建 HTTP 监听器: 已连接的 MCP 客户端会断开重连,
+ * 但资源订阅、审批桥、原生工具与会话记录都不受影响(不重跑 apply)。
+ *
  * 安全: 默认仅监听本机; Bearer 常时比较; Host/Origin 白名单防 DNS rebinding; 10MB 体上限。
  * 暴露公网前必须加反代 + TLS + 认证(README「安全」)。
  */
@@ -46,13 +50,16 @@ export { Config } from './core/config.js'
  * 插件入口: 启动 MCP server(StreamableHTTP, 跨网), 通过 ctx 桥接 dsh 能力。
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  // 界面可改的字段解析后是 volatile 引用; 运行时视图每次读取都取当前快照,
-  // 所以面板写配置只更新引用, 不会重载插件(也不会中断 MCP 连接)。
   const parsed = parseConfig(config)
   state.config = bindRuntimeConfig(parsed)
 
   // 本实例自用工具控制器: 在 statusSnapshot 定义后安装(工具里的 dsh_status 要读同一份快照)
   let selfToolsController: SelfToolsController | undefined
+
+  let httpServer: McpHttpServer | undefined
+  /** 当前监听的地址/端口(与 state.config 比对, 决定是否需要重建监听器) */
+  let activeHost = ''
+  let activePort = 0
 
   // ── 资源订阅枢纽: 每连接一个 McpServer 实例的架构让订阅按连接隔离; 变更点经 state.hooks 汇入 ──
   const hub = createNotifyHub({ activityThrottleMs: 1000 })
@@ -108,17 +115,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }, 1000)
   sessionWatcher.unref?.()
 
-  // 审批接管: 默认 off(只读展示)。fallback/exclusive 才挂 waterfall 监听器;
+  // 审批接管: 默认 off(只读展示)。fallback/exclusive 才扣住; 模式与超时每次事件现读运行时视图,
+  // 面板改 approvalControl/approvalTimeoutMs 立即生效(切到 off 时在途审批按 cancelled 收敛)。
   // 只接管 state.sessionRecords 里的会话, 不劫持界面手开会话。
-  const approvalBridge = installApprovalBridge({
-    ctx,
-    mode: state.config.approvalControl,
-    timeoutMs: state.config.approvalTimeoutMs,
-  })
+  const approvalBridge = installApprovalBridge({ ctx })
   state.approvals = approvalBridge.bridge.runtime
 
   const startedAt = Date.now()
-  let httpServer: McpHttpServer | undefined
 
   /** 状态快照: 版本/监听/配置摘要/订阅观测/活跃连接(GUI 面板与 status RPC 同一数据源) */
   const statusSnapshot = () => {
@@ -128,18 +131,17 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       name,
       version: PLUGIN_VERSION,
       listening: httpServer?.listening ?? false,
-      httpEnabled: config.http !== false,
+      httpEnabled: state.config.http,
       endpoint: endpointOf(host, port),
       startedAt,
       uptimeMs: Date.now() - startedAt,
       config: {
         host,
         port,
-        // 外部 MCP 开关是装载期值(config.http), 其余字段是运行时视图: 与设置面板逐项一一对应
-        http: config.http !== false,
+        http: state.config.http,
         allowedModels: state.config.allowedModels,
         allowedModelsEnabled: state.config.allowedModelsEnabled,
-        allowedHosts: config.allowedHosts ?? [],
+        allowedHosts: state.config.allowedHosts,
         defaultDetail: state.config.defaultDetail,
         authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
@@ -162,6 +164,51 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     }
   }
 
+  // ── 监听器控制: 唯一的"重启"粒度 ──
+  // 只有 http/host/port 三个监听级字段变化才重建 HTTP server; 资源订阅、审批桥、原生工具、
+  // 状态快照都不动, 更不重跑 apply。重建按顺序串行: 面板连续点击不会并发 bind 同一个端口。
+  const stopListener = (): void => {
+    httpServer?.dispose()
+    httpServer = undefined
+    activeHost = ''
+    activePort = 0
+  }
+  const startListener = async (): Promise<void> => {
+    const next = createMcpHttpServer({ ctx, hub, statusSnapshot })
+    try {
+      await next.listen()
+    } catch (e) {
+      // 启动失败(端口占用/地址不可用): 先释放本次构建, 再把错误交给调用方决定展示方式
+      next.dispose()
+      throw e
+    }
+    httpServer = next
+    activeHost = state.config.host
+    activePort = state.config.port
+  }
+  const syncListener = async (): Promise<void> => {
+    if (!state.config.http) {
+      stopListener()
+      return
+    }
+    if (httpServer?.listening === true && activeHost === state.config.host && activePort === state.config.port) return
+    stopListener()
+    try {
+      await startListener()
+    } catch (e) {
+      // 启动期失败会抛给 apply(装载失败可见); 运行期(热改到不可监听的地址)只记日志,
+      // 面板据此看到 listening=false(已停止), 插件其余能力不受影响。
+      console.error(`[${PLUGIN_NAME}] MCP listener restart failed on ${state.config.host}:${state.config.port}:`, (e as Error)?.message ?? e)
+    }
+  }
+  let listenerSync: Promise<void> = Promise.resolve()
+  const requestListenerSync = (): Promise<void> => {
+    listenerSync = listenerSync.then(syncListener).catch((e) => {
+      console.error(`[${PLUGIN_NAME}] MCP listener sync failed:`, (e as Error)?.message ?? e)
+    })
+    return listenerSync
+  }
+
   // ── 本实例自用工具: 同一份 MCP 工具面再注册到 ctx.tools, 不走 HTTP/认证 ──
   // 原生工具是会话内直调能力; 对外 MCP 服务仍是独立的可选面。默认开启, 面板/配置可关。
   selfToolsController = installSelfTools(ctx, { statusSnapshot })
@@ -169,32 +216,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   ctx.effect(() => {
     return () => { selfToolsController?.dispose() }
   }, `${PLUGIN_NAME}: self-tools`)
-  // Loader 只改 volatile 字段时不重载插件: 监听就地提交后同步注册/撤销, 已连接的 MCP 客户端不受影响
+
+  // Loader 只改 volatile 字段时不重载插件: 就地提交后按字段同步各自的运行时面,
+  // 已连接的 MCP 客户端不受影响(监听级字段除外, 那是有意的断线重连)。
   ctx.effect(() => {
     const off = ctx.on('loader/volatile-update', (paths) => {
-      if (paths.some((path) => path[0] === 'selfToolsEnabled')) {
-        selfToolsController?.sync(state.config.selfToolsEnabled)
-      }
+      const keys = paths.map((path) => String(path[0] ?? ''))
+      if (keys.includes('selfToolsEnabled')) selfToolsController?.sync(state.config.selfToolsEnabled)
+      if (keys.some((key) => key === 'http' || key === 'host' || key === 'port')) void requestListenerSync()
+      if (keys.includes('resourceFirst')) httpServer?.syncResourceFirst()
+      if (keys.includes('sessionTtlMs')) httpServer?.syncSessionTtl()
+      if (keys.includes('approvalControl')) approvalBridge.bridge.sync()
     })
     return () => { off() }
-  }, `${PLUGIN_NAME}: self-tools config`)
-
-  // ── MCP 传输层: http:false 时 enabled=false(不建 listen server, 但 GUI 控制面仍可用) ──
-  httpServer = createMcpHttpServer({
-    ctx,
-    hub,
-    statusSnapshot,
-    enabled: config.http !== false,
-    allowedHosts: config.allowedHosts,
-  })
+  }, `${PLUGIN_NAME}: volatile config`)
 
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-rice-on-a-stick/<method>(设置页面板的数据/操作后端) ──
   registerWebRoutes(ctx, {
     statusSnapshot,
     models: () => collectModelCatalog(ctx),
-    // selfToolsEnabled 是 volatile: Loader 不重载插件, 配置落盘后立即同步原生工具注册。
+    // 配置写入落盘后立即同步(事件监听也覆盖手改配置的路径; 显式再调一次让面板点击没有轮询延迟)
     onConfigCommitted: (values) => {
       if (typeof values.selfToolsEnabled === 'boolean') selfToolsController?.sync(values.selfToolsEnabled)
+      if ('http' in values || 'host' in values || 'port' in values) void requestListenerSync()
     },
   })
 
@@ -216,12 +260,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     }
   }, PLUGIN_NAME)
 
-  // http: false 显式关闭 MCP 监听(GUI 控制面仍可用: 面板显示“监听关闭”，配置照常读写)
-  if (config.http === false) {
+  // http 显式关闭(GUI 控制面与原生工具仍可用: 面板显示“监听关闭”，配置照常读写)
+  if (!state.config.http) {
     console.log(`[${PLUGIN_NAME}] http disabled by config, MCP server not started (web panel still available)`)
     return
   }
 
   // 等待 listen 完成: 端口被占/EADDRNOTAVAIL 时 apply 直接抛错, 插件启动失败可见(不再静默成功)
-  await httpServer.listen()
+  await startListener()
 }

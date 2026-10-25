@@ -15,6 +15,10 @@
  *   - fallback 先让宿主 answerer 链(界面)处理; 只有它返回 unavailable 才扣住。
  *   - exclusive 直接把审批扣给 MCP(界面不再显示), 只建议无人值守部署。
  *   - 超时 / abort / 插件卸载一律失败关闭(unavailable/cancelled), 不静默放行。
+ *
+ * 配置热改: mode 与超时都在使用点现读 state.config(监听器恒注册, off 时直接透传 next),
+ * 面板改 approvalControl/approvalTimeoutMs 立即生效——切到 off 时在途审批按 cancelled 收敛,
+ * 已停泊的审批保留扣住时的截止时刻。
  */
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -87,9 +91,10 @@ interface ParkedEntry extends ParkedApprovalInfo {
 
 export interface ApprovalBridgeOptions {
   ctx: Context
-  mode: ApprovalControlMode
-  /** 扣住后最多等多久(毫秒); 超时失败关闭 */
-  timeoutMs: number
+  /** 覆盖运行时配置(测试/嵌入方); 缺省每次现读 state.config, 面板改完立即生效 */
+  mode?: ApprovalControlMode
+  /** 覆盖扣住后的等待上限(测试/嵌入方); 缺省每次现读 state.config */
+  timeoutMs?: number
   /** 是否接管该会话(缺省 = state.sessionRecords 里有记录); 测试可覆盖 */
   managed?: (sessionId: string) => boolean
 }
@@ -98,6 +103,8 @@ export interface ApprovalBridge {
   runtime: ApprovalRuntime
   /** waterfall 监听器本体(installApprovalBridge 注册; 测试可直接调用) */
   handle: (request: ApprovalRequestView, next?: () => Promise<ApprovalAnswer>) => Promise<ApprovalAnswer>
+  /** 配置热改后的收敛: 模式切到 off 时, 在途审批一律按 cancelled 结清(不再等超时) */
+  sync: () => void
   dispose: () => void
 }
 
@@ -106,7 +113,7 @@ export const NOOP_APPROVAL_RUNTIME: ApprovalRuntime = {
   mode: 'off',
   list: () => [],
   isAnswerable: () => false,
-  answer: () => ({ ok: false, error: 'approval control is off; set approvalControl=fallback|exclusive in the plugin config and reload' }),
+  answer: () => ({ ok: false, error: 'approval control is off; set approvalControl=fallback|exclusive in the plugin config' }),
 }
 
 /**
@@ -114,7 +121,9 @@ export const NOOP_APPROVAL_RUNTIME: ApprovalRuntime = {
  * handler 的 fallback 语义: 先调 next() 让宿主 answerer 链(界面)处理, 只有 unavailable 才扣住。
  */
 export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridge {
-  const { mode, timeoutMs } = opts
+  // 每次使用现读: 测试/嵌入方给了覆盖值就用覆盖值, 否则取运行时配置(volatile, 面板改完立即生效)
+  const modeOf = (): ApprovalControlMode => opts.mode ?? state.config.approvalControl
+  const timeoutOf = (): number => opts.timeoutMs ?? state.config.approvalTimeoutMs
   const managed = opts.managed ?? ((sessionId: string) => state.sessionRecords.has(sessionId))
   const parked = new Map<string, ParkedEntry>()
 
@@ -165,6 +174,7 @@ export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridg
     let resolvePromise!: (outcome: ApprovalAnswer) => void
     const promise = new Promise<ApprovalAnswer>((resolve) => { resolvePromise = resolve })
     const requestedAt = Date.now()
+    const timeoutMs = timeoutOf()
     const entry: ParkedEntry = {
       approvalId,
       sessionId,
@@ -197,6 +207,7 @@ export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridg
     next: () => Promise<ApprovalAnswer> = () => Promise.resolve('unavailable'),
   ): Promise<ApprovalAnswer> => {
     const sessionId = String(request.agent.session.id)
+    const mode = modeOf()
     if (mode === 'off' || !managed(sessionId)) return next()
     if (mode === 'fallback') {
       // 界面/宿主 answerer 优先; 只有“没人能答”时 MCP 才接手。
@@ -207,7 +218,7 @@ export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridg
   }
 
   const runtime: ApprovalRuntime = {
-    mode,
+    get mode() { return modeOf() },
     list: (sessionId?: string) => [...parked.values()]
       .filter((entry) => sessionId === undefined || entry.sessionId === sessionId)
       .map((entry) => ({
@@ -238,23 +249,29 @@ export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridg
     },
   }
 
+  const sync = (): void => {
+    // 切到 off = 宿主/界面重新接管审批: 已经扣住的请求必须立刻结清, 否则调用方会等到超时。
+    if (modeOf() !== 'off') return
+    for (const entry of [...parked.values()]) settle(entry, 'cancelled', 'mode-off')
+  }
+
   const dispose = (): void => {
     for (const entry of [...parked.values()]) settle(entry, 'cancelled', 'disposed')
     parked.clear()
   }
 
-  return { runtime, handle, dispose }
+  return { runtime, handle, sync, dispose }
 }
 
 /**
  * 装配审批桥并注册到宿主 waterfall(prepend: 先于界面 answerer 执行, 从而能实现 exclusive;
  * fallback 内部会主动调用 next() 把决定权交回宿主链)。
- * mode=off 时不注册监听器, 只返回只读 runtime。
+ * 监听器恒注册: 审批模式是热改的, off 时 handle 直接透传 next(), 行为与不注册一致。
  */
 export function installApprovalBridge(opts: ApprovalBridgeOptions): { bridge: ApprovalBridge; dispose: () => void } {
   const bridge = createApprovalBridge(opts)
   // 测试桩/极简嵌入方可能没有事件总线; 此时只保留只读 runtime(不影响插件其他能力)
-  if (opts.mode === 'off' || typeof opts.ctx.on !== 'function') {
+  if (typeof opts.ctx.on !== 'function') {
     return { bridge, dispose: bridge.dispose }
   }
   const off = opts.ctx.on('approval/request', bridge.handle, { prepend: true })

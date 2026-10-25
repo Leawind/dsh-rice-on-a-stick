@@ -47,8 +47,9 @@ function withIdentity(description: string): string {
 /**
  * 带身份的注册面: 只拦 registerTool 一个口, 其余成员不存在(工具域只调这一个方法)。
  * 泛型签名与 SDK 的 registerTool 逐参一致, 工具域侧的类型检查不受影响。
+ * `handles` 收集每条工具的注册句柄——资源优先形态热切换时按它整体移除旧工具表。
  */
-function brandedServer(mcp: McpServer): McpServer {
+function brandedServer(mcp: McpServer, handles: RegisteredTool[]): McpServer {
   return {
     registerTool<OutputArgs extends ZodRawShapeCompat | AnySchema, InputArgs extends undefined | ZodRawShapeCompat | AnySchema = undefined>(
       name: string,
@@ -62,19 +63,26 @@ function brandedServer(mcp: McpServer): McpServer {
       },
       cb: ToolCallback<InputArgs>,
     ): RegisteredTool {
-      return mcp.registerTool(name, { ...config, ...(config.description === undefined ? {} : { description: withIdentity(config.description) }) }, cb)
+      const handle = mcp.registerTool(name, { ...config, ...(config.description === undefined ? {} : { description: withIdentity(config.description) }) }, cb)
+      handles.push(handle)
+      return handle
     },
   } as unknown as McpServer
 }
 
-/** 在给定 McpServer 上注册全部工具 */
-export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, options?: RegisterToolsOptions): void {
-  // resourceFirst: 只读面下线开关(部署形态; 默认 false = 工具+资源并存)
+/**
+ * 在给定 McpServer 上注册全部工具, 返回每条工具的注册句柄。
+ * 句柄用于运行中切换 resourceFirst: 先对旧句柄逐个 remove(), 再按新形态注册一次。
+ */
+export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, options?: RegisterToolsOptions): RegisteredTool[] {
+  // resourceFirst: 只读面下线开关(默认读运行时视图; 原生面显式传 false)
   const resourceFirst = options?.resourceFirst ?? state.config.resourceFirst
-  const branded = brandedServer(mcp)
+  const handles: RegisteredTool[] = []
+  const branded = brandedServer(mcp, handles)
   registerCatalogTools(branded, ctx, deps, resourceFirst)
   registerSessionActionTools(branded, ctx, resourceFirst)
   registerApprovalTools(branded, ctx)
   registerSessionReadTools(branded, ctx, resourceFirst)
   registerBridgeTools(branded, ctx)
+  return handles
 }

@@ -434,15 +434,16 @@ const server = createServer(async (req, res) => {
           if ('host' in payload.values || 'port' in payload.values) {
             state.endpoint = 'http://' + state.config.host + ':' + state.config.port + '/mcp'
           }
-          // 与后端重载语义一致: http 写入后重载插件, listening 与连接列表跟随新配置
+          // 与后端监听器语义一致: http 写入后重建监听, listening 与连接列表跟随新配置
           if ('http' in payload.values) {
             state.httpEnabled = payload.values.http
             state.listening = payload.values.http
             if (!payload.values.http) state.connections = []
           }
-          // 与后端同语义: 非 volatile 字段重载插件(前端等待重载后刷新), volatile 字段就地提交
-          const VOLATILE = new Set(['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled', 'bridgeEndpointAllowlist'])
-          const reloading = Object.keys(payload.values).some((k) => !VOLATILE.has(k))
+          // 与后端同语义: 只有监听级字段(http/host/port)重建监听器(前端等待重连后刷新),
+          // 其余字段全部就地提交
+          const SERVICE = new Set(['http', 'host', 'port'])
+          const reloading = Object.keys(payload.values).some((k) => SERVICE.has(k))
           if (reloading) return json(res, 200, { updated: true, reloading: true })
         } else {
           return json(res, 400, { error: 'values 必须是对象' })

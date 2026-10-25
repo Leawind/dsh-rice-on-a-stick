@@ -1335,6 +1335,115 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase H: 配置热改(不重载插件)——每个字段在真正的消费点现读 ──
+  {
+    // H1: allowedHosts 按请求现读(改完下一条请求就放行, 不需要重建监听器)
+    const hostCtx = makeCtx({ llm: fakeLlm })
+    const hostPort = await firstBindablePort([8121, 8122])
+    const hostPhase = await startPhase(hostPort, hostCtx, {})
+    const hostInitBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'host-probe', version: '1' } } })
+    const hostHeaders = { Host: 'extra.example.com', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }
+    const deniedHost = await rawRequest(hostPort, { headers: hostHeaders, body: hostInitBody })
+    pushVolatile(hostPhase, hostCtx, { allowedHosts: ['extra.example.com'] })
+    const allowedHost = await rawRequest(hostPort, { headers: hostHeaders, body: hostInitBody })
+    checks['热改 allowedHosts: 名单外 Host 403 → 写入后立即放行'] = deniedHost.status === 403 && allowedHost.status === 200
+    await hostPhase.dispose()
+  }
+  {
+    // H2: sessionTtlMs 就地生效(回收定时器按新值重排)
+    const ttlCtx = makeCtx({ llm: fakeLlm })
+    const ttlPort = await firstBindablePort([8123, 8124])
+    const ttlPhase = await startPhase(ttlPort, ttlCtx, {})
+    pushVolatile(ttlPhase, ttlCtx, { sessionTtlMs: 200 })
+    await new Promise((r) => setTimeout(r, 900))
+    const afterTtl = await ttlPhase.call('echo', { text: 'after-ttl' })
+    checks['热改 sessionTtlMs: 缩短后空闲传输会话被回收(下次请求 404)'] = afterTtl.status === 404
+    await ttlPhase.dispose()
+  }
+  {
+    // H3: approvalControl / approvalTimeoutMs 每次事件现读; 切回 off 结清在途审批
+    const apprCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
+    state.sessionRecords.set('sess-approval', {
+      sessionId: 'sess-approval' as any,
+      cwd: FAKE_CWD,
+      selection: { provider: 'p1', model: 'm1' },
+      preset: 'standard',
+    })
+    const apprPort = await firstBindablePort([8125, 8126])
+    const apprPhase = await startPhase(apprPort, apprCtx, { approvalControl: 'off', approvalTimeoutMs: 0 })
+    approvalAgent.__events.length = 0
+    const offOutcome = await apprCtx.__fireApproval({ agent: approvalAgent, toolName: 'pwsh', callId: 'hot-off' })
+    checks['热改 approvalControl: off 时透传(不扣住)'] = offOutcome === 'unavailable' && state.approvals.list().length === 0
+    pushVolatile(apprPhase, apprCtx, { approvalControl: 'exclusive' })
+    approvalAgent.__events.push({ type: 'approval/asked', data: { id: 'ap-hot', toolName: 'pwsh', callId: 'hot-on' }, time: Date.now() })
+    const heldHot = apprCtx.__fireApproval({ agent: approvalAgent, toolName: 'pwsh', callId: 'hot-on' })
+    await new Promise((r) => setTimeout(r, 30))
+    const parkedHot = state.approvals.list()
+    checks['热改 approvalControl: 切到 exclusive 后立即扣住'] = parkedHot.length === 1 && parkedHot[0].approvalId === 'ap-hot'
+    checks['热改 approvalTimeoutMs: 0 = 不限时(扣住时无 expiresAt)'] = parkedHot[0]?.expiresAt === undefined
+    const answeredHot = await apprPhase.call('approval_answer', { sessionId: 'sess-approval', callId: 'hot-on', decision: 'allow' })
+    checks['热改 approvalControl: 扣住后经 MCP 回答传回宿主'] = innerOf(answeredHot).ok === true && await heldHot === 'allowed-once'
+    approvalAgent.__events.push({ type: 'approval/asked', data: { id: 'ap-hot-2', toolName: 'pwsh', callId: 'hot-off-2' }, time: Date.now() })
+    const heldThenOff = apprCtx.__fireApproval({ agent: approvalAgent, toolName: 'pwsh', callId: 'hot-off-2' })
+    await new Promise((r) => setTimeout(r, 30))
+    const parkedBeforeOff = state.approvals.list().length
+    pushVolatile(apprPhase, apprCtx, { approvalControl: 'off' })
+    checks['热改 approvalControl: 切回 off 结清在途审批(cancelled)'] = parkedBeforeOff === 1
+      && await heldThenOff === 'cancelled' && state.approvals.list().length === 0
+    await apprPhase.dispose()
+  }
+  {
+    // H4: resourceFirst 在线切换(已连接会话就地重注册 + 新连接同形态)
+    const resCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
+    const resPort = await firstBindablePort([8127, 8128])
+    const resPhase = await startPhase(resPort, resCtx, {})
+    const toolFirstNames = await resPhase.toolNames()
+    pushVolatile(resPhase, resCtx, { resourceFirst: true })
+    await new Promise((r) => setTimeout(r, 150))
+    const resourceFirstNames = await resPhase.toolNames()
+    const freshInit = await resPhase.initialize()
+    const freshNames = (parsePayload((await rpc(freshInit.sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, {}, `http://127.0.0.1:${resPort}/mcp`)).text).result?.tools ?? []).map((t: any) => t.name)
+    checks['热改 resourceFirst: 在线会话的工具表就地切换'] = toolFirstNames.includes('session_list')
+      && !resourceFirstNames.includes('session_list') && resourceFirstNames.includes('session_prompt')
+    checks['热改 resourceFirst: 新连接同样按新形态注册'] = !freshNames.includes('session_list') && freshNames.includes('session_prompt')
+    pushVolatile(resPhase, resCtx, { resourceFirst: false })
+    await new Promise((r) => setTimeout(r, 150))
+    const restoredNames = await resPhase.toolNames()
+    checks['热改 resourceFirst: 切回工具优先后在线会话恢复只读工具'] = restoredNames.includes('session_list')
+    await resPhase.dispose()
+  }
+  {
+    // H5: http 开关与端口热改只重建监听器(状态如实、旧端口释放、新端口立即可用)
+    const svcCtx = makeCtx({ llm: fakeLlm })
+    const svcPort = await firstBindablePort([8129, 8130])
+    const svcPhase = await startPhase(svcPort, svcCtx, {})
+    pushVolatile(svcPhase, svcCtx, { http: false })
+    await new Promise((r) => setTimeout(r, 400))
+    const stopped = JSON.parse((await svcPhase.gui('status')).body)
+    const svcPortFree = await portBindable(svcPort)
+    checks['热改 http: 关闭后停止监听(端口释放, 状态如实)'] = stopped.listening === false
+      && stopped.httpEnabled === false && svcPortFree
+    pushVolatile(svcPhase, svcCtx, { http: true })
+    await new Promise((r) => setTimeout(r, 400))
+    const resumed = await rawRequest(svcPort, {
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'resume', version: '1' } } }),
+    })
+    checks['热改 http: 重新开启后立即恢复服务'] = resumed.status === 200
+    const nextPort = await firstBindablePort([8131, 8132])
+    pushVolatile(svcPhase, svcCtx, { port: nextPort })
+    await new Promise((r) => setTimeout(r, 500))
+    const moved = JSON.parse((await svcPhase.gui('status')).body)
+    const oldPortFree = await portBindable(svcPort)
+    const onNewPort = await rawRequest(nextPort, {
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'moved', version: '1' } } }),
+    })
+    checks['热改 port: 只重建监听器(新端点生效, 旧端口释放)'] = moved.config.port === nextPort
+      && String(moved.endpoint).includes(`:${nextPort}/mcp`) && oldPortFree && onNewPort.status === 200
+    await svcPhase.dispose()
+  }
+
   // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──
   {
     const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})
@@ -1402,7 +1511,7 @@ try {
     const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
-    // 软启停已移除: 对外 MCP 服务只有配置开关 http(持久化, 写入重载插件), 不再有运行时启停
+    // 软启停已移除: 对外 MCP 服务只有配置开关 http(持久化, 写入只重建监听器), 不再有运行时启停
     const goneStop = await phase.gui('stop', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
     const goneStart = await phase.gui('start', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
     checks['GUI 路由: 软启停路由已移除(404)'] = goneStop.status === 404 && goneStart.status === 404
@@ -1426,50 +1535,50 @@ try {
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ values: { host: '0.0.0.0', port: 8096 } }),
     })
-    checks['GUI 路由: host/port 写入并标记重载'] = cfgListen.status === 200
+    checks['GUI 路由: host/port 写入并标记监听器重建'] = cfgListen.status === 200
       && JSON.parse(cfgListen.body).reloading === true
     checks['GUI 路由: host/port 写入值正确'] = edits.length === 1
       && edits[0].host === '0.0.0.0' && edits[0].port === 8096
-    // 面板与 Config 一一对应: 每个结构性字段都必须能写(并标记重载), 且校验与 schema 同向
+    // 面板与 Config 一一对应: 每个字段都必须能写(监听级标记重建), 且校验与 schema 同向
     const guiPut = (values: Record<string, unknown>) => phase.gui('config-update', {
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ values }),
     })
     const before = edits.length
     const cfgApproval = await guiPut({ approvalControl: 'exclusive' })
-    checks['GUI 路由: approvalControl 写入并标记重载'] = cfgApproval.status === 200
-      && JSON.parse(cfgApproval.body).reloading === true
+    checks['GUI 路由: approvalControl 写入(就地生效, 不重启)'] = cfgApproval.status === 200
+      && JSON.parse(cfgApproval.body).reloading !== true
       && edits.length === before + 1 && edits[edits.length - 1].approvalControl === 'exclusive'
     const cfgApprovalBad = await guiPut({ approvalControl: 'sometimes' })
     checks['GUI 路由: approvalControl 非法枚举 400'] = cfgApprovalBad.status === 400
     const cfgTimeout = await guiPut({ approvalTimeoutMs: 5000 })
-    checks['GUI 路由: approvalTimeoutMs 写入并标记重载'] = cfgTimeout.status === 200
-      && JSON.parse(cfgTimeout.body).reloading === true
+    checks['GUI 路由: approvalTimeoutMs 写入(就地生效, 不重启)'] = cfgTimeout.status === 200
+      && JSON.parse(cfgTimeout.body).reloading !== true
       && edits[edits.length - 1].approvalTimeoutMs === 5000
     const cfgTimeoutLow = await guiPut({ approvalTimeoutMs: 500 })
     checks['GUI 路由: approvalTimeoutMs 低于下限 400'] = cfgTimeoutLow.status === 400
     const cfgTimeoutHigh = await guiPut({ approvalTimeoutMs: 700000 })
     checks['GUI 路由: approvalTimeoutMs 高于上限 400'] = cfgTimeoutHigh.status === 400
     const cfgTimeoutZero = await guiPut({ approvalTimeoutMs: 0 })
-    checks['GUI 路由: approvalTimeoutMs 0(不限时)写入并标记重载'] = cfgTimeoutZero.status === 200
-      && JSON.parse(cfgTimeoutZero.body).reloading === true && edits[edits.length - 1].approvalTimeoutMs === 0
+    checks['GUI 路由: approvalTimeoutMs 0(不限时)写入'] = cfgTimeoutZero.status === 200
+      && JSON.parse(cfgTimeoutZero.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 0
     const cfgTimeoutHalfway = await guiPut({ approvalTimeoutMs: 500 })
     checks['GUI 路由: approvalTimeoutMs 0-1000 之间的值仍 400'] = cfgTimeoutHalfway.status === 400
     const cfgTtl = await guiPut({ sessionTtlMs: 0 })
-    checks['GUI 路由: sessionTtlMs 写入(0 = 永不淘汰)并标记重载'] = cfgTtl.status === 200
-      && JSON.parse(cfgTtl.body).reloading === true && edits[edits.length - 1].sessionTtlMs === 0
+    checks['GUI 路由: sessionTtlMs 写入(0 = 永不淘汰, 就地生效)'] = cfgTtl.status === 200
+      && JSON.parse(cfgTtl.body).reloading !== true && edits[edits.length - 1].sessionTtlMs === 0
     const cfgHosts = await guiPut({ allowedHosts: ['example.com', '192.168.1.5', ' example.com '] })
-    checks['GUI 路由: allowedHosts 去重写入并标记重载'] = cfgHosts.status === 200
-      && JSON.parse(cfgHosts.body).reloading === true
+    checks['GUI 路由: allowedHosts 去重写入(就地生效, 不重启)'] = cfgHosts.status === 200
+      && JSON.parse(cfgHosts.body).reloading !== true
       && JSON.stringify(edits[edits.length - 1].allowedHosts) === JSON.stringify(['example.com', '192.168.1.5'])
     const cfgHostsBad = await guiPut({ allowedHosts: ['bad host/name'] })
     checks['GUI 路由: allowedHosts 非法主机名 400'] = cfgHostsBad.status === 400
     const cfgHttp = await guiPut({ http: false })
-    checks['GUI 路由: http 开关写入并标记重载'] = cfgHttp.status === 200
+    checks['GUI 路由: http 开关写入并标记监听器重建'] = cfgHttp.status === 200
       && JSON.parse(cfgHttp.body).reloading === true && edits[edits.length - 1].http === false
     const cfgResource = await guiPut({ resourceFirst: true })
-    checks['GUI 路由: resourceFirst 写入并标记重载'] = cfgResource.status === 200
-      && JSON.parse(cfgResource.body).reloading === true && edits[edits.length - 1].resourceFirst === true
+    checks['GUI 路由: resourceFirst 写入(就地生效, 不重启)'] = cfgResource.status === 200
+      && JSON.parse(cfgResource.body).reloading !== true && edits[edits.length - 1].resourceFirst === true
     // volatile 字段只就地提交, 不重载(面板据此不做重载等待)
     const cfgVolatile = await guiPut({ defaultDetail: 'full', selfToolsEnabled: true })
     checks['GUI 路由: volatile 字段不标记重载'] = cfgVolatile.status === 200
@@ -1543,20 +1652,18 @@ try {
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {
     const c = ConfigSchema(null) as any
-    return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst === false
+    return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst.get() === false
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
-      && c.selfToolsEnabled.get() === true && c.host === '127.0.0.1' && c.port === 5642
-      && c.approvalControl === 'exclusive' && c.approvalTimeoutMs === 120000
-      && c.sessionTtlMs === 7 * 24 * 60 * 60 * 1000
-      && String(c.approvalControl) === DEFAULTS.approvalControl
+      && c.selfToolsEnabled.get() === true && c.host.get() === '127.0.0.1' && c.port.get() === 5642
+      && c.http.get() === true && c.allowedHosts.get().length === 0
+      && c.approvalControl.get() === 'exclusive' && c.approvalTimeoutMs.get() === 120000
+      && c.sessionTtlMs.get() === 7 * 24 * 60 * 60 * 1000
+      && c.approvalControl.get() === DEFAULTS.approvalControl
       && !('preset' in c) && !('allowPresetOverride' in c)
   })()
-  checks['Config schema: 界面字段是 volatile 引用(写入不重载插件)'] = (() => {
+  checks['Config schema: 全部字段是 volatile 引用(写入不重载插件)'] = (() => {
     const c = ConfigSchema(null) as any
-    return ['allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled']
-      .every((key) => typeof c[key]?.get === 'function')
-      && typeof c.sessionTtlMs.get !== 'function' && typeof c.resourceFirst.get !== 'function'
-      && typeof c.host?.get !== 'function' && typeof c.port?.get !== 'function'
+    return Object.keys(c).every((key) => typeof c[key]?.get === 'function')
   })()
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
     try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }
@@ -1766,6 +1873,30 @@ async function firstBindablePort(candidates: number[]): Promise<number> {
     if (ok) return port
   }
   throw new Error(`no bindable port among ${candidates.join(', ')}`)
+}
+
+/** 探测端口当前是否可绑定(插件没在监听) */
+function portBindable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer()
+    probe.once('error', () => resolve(false))
+    probe.once('listening', () => probe.close(() => resolve(true)))
+    probe.listen(port, '127.0.0.1')
+  })
+}
+
+/**
+ * 模拟 Loader 的 volatile 就地提交: 把新值写进 apply 时拿到的引用, 再发 `loader/volatile-update`。
+ * 与真实宿主的唯一差别是配置文件的落盘(本函数只覆盖运行时路径)。
+ */
+function pushVolatile(phase: { config: Record<string, any> }, ctx: any, values: Record<string, unknown>): void {
+  const parsed = ConfigSchema(values) as any
+  const paths: string[][] = []
+  for (const key of Object.keys(values)) {
+    updateVolatile(phase.config[key], parsed[key])
+    paths.push([key])
+  }
+  ctx.__fireVolatile(paths)
 }
 
 async function startPhase(port: number, ctx: any, config: Record<string, unknown>) {

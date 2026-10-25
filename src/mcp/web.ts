@@ -175,13 +175,13 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 // ── GUI 配置编辑(config-update 路由)的字段面 ──
 
-/** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是结构性字段, 写入后重载) */
+/** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是监听级字段) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
 /** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先; 关闭均不清除对应值) */
 const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst'])
-/** 数字字段 → 下限(apply 侧还有同向钳制, 这里前置拦截避免重载后才发现被钳; approvalTimeoutMs 有专用分支: 0 = 不限时) */
+/** 数字字段 → 下限(运行时 getter 还有同向钳制, 这里前置拦截避免写入后才被钳; approvalTimeoutMs 有专用分支: 0 = 不限时) */
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
-/** 数字字段 → 上限(与 config.ts / apply 的钳制保持一致) */
+/** 数字字段 → 上限(与 config.ts 的钳制保持一致) */
 const GUI_NUMBER_MAX: Record<string, number> = { port: 65535 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
 const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
@@ -190,14 +190,10 @@ const GUI_APPROVAL_VALUES = new Set(['off', 'fallback', 'exclusive'])
 /** 字符串数组字段(Host 头白名单) */
 const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
 /**
- * volatile 字段(Config schema 上带 volatile 标记): 写入后 Loader 就地提交引用, 插件不重载。
- * 其余字段(engine 级: 监听地址/端口/外部 MCP/资源优先/审批接管/传输 TTL/Host 白名单)会让插件重载,
- * 面板据此等待重载完成再刷新。
+ * 监听级字段: 只有这三个会让插件重建 HTTP 监听器(已连接的 MCP 客户端会断开重连)。
+ * 其余字段都是就地生效(面板按 `reloading` 决定要不要等重连), 不重载插件。
  */
-const GUI_VOLATILE_FIELDS = new Set([
-  'allowedModels', 'allowedModelsEnabled', 'defaultDetail', 'authToken', 'authEnabled', 'selfToolsEnabled',
-  'bridgeEndpointAllowlist',
-])
+const GUI_SERVICE_FIELDS = new Set(['http', 'host', 'port'])
 
 /** 监听地址合法性: 允许 IP / 主机名 / localhost; 拒绝空白和路径分隔符(端口另行校验) */
 function isValidListenHost(host: string): boolean {
@@ -287,8 +283,9 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
  */
 export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
   /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
-   * 界面可改的六个字段在 Config schema 上标了 volatile: 只改这些字段时 Loader 就地提交引用,
-   * 本插件不重载(MCP 连接不断、设置面板不阻塞); 改到其它字段(如 sessionTtlMs)才会走正常重载。
+   * 全部字段在 Config schema 上标了 volatile: Loader 就地提交引用, 插件不重载;
+   * 监听级字段(http/host/port)由插件自己重建监听器, 面板按 `reloading` 等待重连;
+   * 其余字段(资源优先/审批接管/TTL/Host 白名单...)就地生效, 面板立刻以新值刷新。
    * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
   async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean; reloading?: boolean }> {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
@@ -301,8 +298,8 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     if (editor === undefined || entry === undefined || typeof editor.edit !== 'function') {
       throw httpError(409, '配置编辑通道不可用(宿主未提供 configEditor), 请直接编辑 cordis.patch.yml')
     }
-    // host/port 是结构性字段, 写入会重载插件。先探测新端口, 避免写入一个必然启动失败的值;
-    // 只改 host、端口不变时跳过探测(当前 server 正占着该端口, 重载会先释放)。
+    // host/port 是监听级字段, 写入后插件会重建监听器。先探测新端口, 避免写入一个必然启动失败的值;
+    // 只改 host、端口不变时跳过探测(当前 server 正占着该端口, 重建要先释放)。
     const host = state.config.host
     const port = state.config.port
     const wantsListen = 'host' in nextValues || 'port' in nextValues
@@ -331,12 +328,12 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     } catch (e) {
       throw httpError(400, `配置写入被拒绝: ${(e as Error)?.message ?? String(e)}`)
     }
-    // selfToolsEnabled 是 volatile: Loader 不重载插件, 这里立即同步原生工具注册。
-    // 事件监听也覆盖手工编辑配置的路径; 显式再 call 一次让面板点击没有轮询延迟。
+    // 写入落盘后立即同步运行时面(self-tools 注册 / 监听器重建): Loader 的 volatile 事件也覆盖
+    // 手工编辑配置的路径, 这里显式再调一次让面板点击没有轮询延迟。
     deps.onConfigCommitted(nextValues)
-    // 非 volatile 字段(监听地址/端口/外部 MCP/资源优先/审批接管/TTL/Host 白名单)会重载插件:
-    // 面板据此等待重载完成再刷新, 避免读到旧值
-    const reloading = Object.keys(nextValues).some((k) => !GUI_VOLATILE_FIELDS.has(k))
+    // 监听级字段会断开已连接的 MCP 客户端(重建监听器), 面板据此等待重连后再刷新;
+    // 其余字段就地生效, 不需要等待。
+    const reloading = Object.keys(nextValues).some((key) => GUI_SERVICE_FIELDS.has(key))
     return reloading ? { updated: true, reloading: true } : { updated: true }
   }
 
