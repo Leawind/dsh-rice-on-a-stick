@@ -33,18 +33,10 @@ flowchart LR
 
 ## 特性
 
--   **操作真实会话**——新建、发送、排队、分叉、归档与恢复、切换模型等。
-    -   新建会话要求调用方 agent 显式指定模型与预设。
-    -   续接已有会话时沿用该会话原先的模型。
-    -   可以手动配置模型白名单，使客户端只能使用白名单中的模型
-    -   权限按"预设"控制（沙箱模式 + 审批策略的捆绑，与界面权限切换器、`/permission` 同源）：`permission_list` 查可用预设，`session_create.permission` 指定新会话、`session_set_permission` 切换已有会话；只调审批旋钮造成的非预设组合会显示为 `custom`。
-    -   `session_overview` 一次调用拿到"点开会话页"级别的现状概览（标题、权限、模型与推理档、是否进行中、上下文占用、最近内容摘要），字段可选裁剪，冷会话同样可读；订阅 `dsh://sessions/{id}/overview` 可在轮次边界收到推送。
--   **图片附件，引用不传值**——`session_prompt` / `session_submit` 可附带图片（宿主可读的本地路径或 http(s) URL）：字节由插件在 dsh 进程内读取、经官方附件服务准入后随消息投递，图片数据永远不进工具参数、不进模型上下文。取回用 `attachment_read`：默认只返回元数据与宿主机本地路径（零图片 token），多模态客户端可选内联为 MCP 图片块（按视觉 token 计费，而非 base64 文本）。
--   **通用桥**——长尾宿主能力的低策展覆盖：`bridge_describe` 以搜索优先的四级阶梯披露宿主 Remote 端点（`query` 关键词搜索、无参 namespace 索引、`namespace` 单域清单、`endpoint` 单端点契约），`bridge_call` 按端点引用调用。默认只读（策展只读清单）；变更类端点两条通路：配置 `bridgeEndpointAllowlist` 端点白名单内直接执行（凭据/插件安装/授权流/市场索引永久拒绝），白名单外每次调用停泊等人在侧栏页审批（拒绝/超时/断连一律失败关闭）。数据与校验走宿主自己的 Typert 体系（与 Web UI 同一契约）；详见 `docs/bridge-design.zh.md`。
--   **同步或异步**——可以让调用方 agent 原地等结果，也可以提交后先去干别的、回头再取；等待超时不会打断 dsh 里正在运行的任务，需要停止时随时能停。
--   **审批接管**——插件创建的会话里弹出的审批请求，默认交给调用方 agent 回答，界面不再重复显示；也可以改成界面优先回答，或只展示、不接管。
--   **dsh 自己也能用**——这些能力同时注册为 dsh 的内部工具，dsh 会话可直接调用；不需要时可以在设置里关闭。
--   **安全默认**——默认只监听本机，可配置访问令牌。
+-   **操作会话**：新建、发送、排队、分叉、归档与恢复、切换模型等。可以手动配置模型白名单，使客户端只能使用白名单中的模型
+-   **通用桥**：长尾宿主能力的低策展覆盖
+-   **dsh 自己也能用**：这些能力同时注册为 dsh 的内部工具，dsh 会话可直接调用。不需要时可以在设置里关闭。
+-   **安全默认**：默认只监听本机，可配置访问令牌。
 
 > [!WARNING]
 >
@@ -54,7 +46,8 @@ flowchart LR
 
 ## 环境要求
 
-dsh `0.2.1-rc.2` 及以上。图形界面（侧栏"白饭钓竿"页）和完整的会话功能需要 web 或 desktop 版 dsh；MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接。
+- dsh `0.2.1-rc.2` 及以上。图形界面（侧栏"白饭钓竿"页）和完整的会话功能需要 web 或 desktop 版 dsh
+- MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接
 
 ## 安装
 
@@ -70,7 +63,7 @@ dsh plugin --profile web add dsh-rice-on-a-stick
 git clone https://github.com/Leawind/dsh-rice-on-a-stick
 cd dsh-rice-on-a-stick
 npm install
-npm build
+npm run build
 dsh plugin --profile web add link:.
 
 # 监听源码变动并实时构建
@@ -89,17 +82,8 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ## 配置
 
-所有配置都可在 dsh 侧栏的"白饭钓竿"页（设置标签）里改，保存即生效，不需要重启插件或宿主。改监听地址/端口/是否提供 MCP 服务这三项时，插件只重建 MCP 监听器：已连接的 MCP 客户端需要重新连接，其余能力（本实例原生工具、资源订阅、审批）不受影响。也可以直接改 profile 目录下的 `cordis.patch.yml`（全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)）：
-
-```yaml
-- id: dsh-rice-on-a-stick
-  config:
-      http: true
-      port: 5642
-      host: 127.0.0.1
-      # authToken: 'your-secret-token'
-```
+所有配置都可在 dsh 侧栏的"白饭钓竿"页（设置标签）里改。profile 目录下的 `cordis.patch.yml`全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)：
 
 ## 感谢
 
-初始源码复制自 [`chushixixin/dsh-harness-mcp-server`](https://github.com/chushixixin/dsh-harness-mcp-server)（MIT，感谢 @chushixixin），现为独立项目。
+初始源码复制自 [`chushixixin/dsh-harness-mcp-server`](https://github.com/chushixixin/dsh-harness-mcp-server)（MIT，感谢 @chushixixin）。

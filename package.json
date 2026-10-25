@@ -1,7 +1,7 @@
 {
   "name": "dsh-rice-on-a-stick",
   "version": "0.2.0-rc.1",
-  "description": "Operate DeepSeek Harness (dsh) over MCP or from its own sessions: expose dsh sessions, task execution, and workspace management as MCP tools and native dsh tools.",
+  "description": "Operate DeepSeek Harness (dsh) over MCP or from its own sessions.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -37,12 +37,18 @@
   },
   "keywords": [
     "deepseek-harness",
+    "deepseek-harness-plugin",
+    "deepseek",
     "dsh",
     "dsh-plugin",
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "cordis",
-    "ai-agent"
+    "ai-agent",
+    "agent-tools",
+    "session-management",
+    "remote-control"
   ],
   "repository": {
     "type": "git",
