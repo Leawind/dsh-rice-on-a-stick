@@ -11,7 +11,7 @@ src/
   host/             宿主服务桥(bridge)与工具面/资源面共享的数据层(data)
   session/          执行引擎、异步控制面、审批、投影、请求索引、会话洞察(insight)、原生工具注册
   mcp/              Streamable HTTP、GUI 路由、工具/资源面、订阅枢纽、agent 认知面
-  client/           设置面板源码(tsc 生成 client/client.js)
+  client/           侧栏页源码(tsc 生成 client/client.js)
 docs/onboarding/    initialize 引导与 dsh_get_started 正文(Markdown，运行时读取)
 test/               冒烟、真机 e2e、UI harness
 ```
@@ -20,7 +20,7 @@ test/               冒烟、真机 e2e、UI harness
 
 ## 源码与构建产物
 
--   `src/` 是唯一源码目录，包含浏览器端设置面板 `src/client/client.ts`。
+-   `src/` 是唯一源码目录，包含浏览器端侧栏页 `src/client/client.ts`（dsh 侧栏的"白饭钓竿"入口 + 中央面板：审批/设置两个标签）。
 -   `lib/` 与 `client/` 都是构建产物，已列入 `.gitignore`。`client/` 与 dshmarket 等社区插件同约定：源码在 `src/client/`，由 `tsc -p tsconfig.client.json` 生成单文件 bundle，宿主 client-hmr 监听该产物。
 -   `docs/onboarding/*.md` 是运行时读取的产品文本（随 npm 包发布），不是编译产物；改文案不需要改 TypeScript。
 
@@ -34,13 +34,13 @@ test/               冒烟、真机 e2e、UI harness
 6.  **审批失败关闭（`src/session/approvals.ts`）**：默认 `exclusive`（审批一律由调用方经 `approval_answer` 回答，界面不再显示同一项）；`fallback` 仅在宿主 answerer 返回 `unavailable` 后接手；`off` 只读展示。没有决定绝不放行；只作用于本插件创建或续接过的会话。
 7.  **Agent 认知面（`src/mcp/onboarding.ts` + `docs/onboarding/`）**：initialize instructions 与 `dsh_get_started` 正文都是英文产品文本，放在 Markdown；加载器在导入期校验节齐全，缺文件/缺节直接让插件启动失败，不静默下发空指南。
 8.  **语言一致性（`src/mcp/tools/` / `src/mcp/resources.ts`）**：面向 MCP 客户端的 title、description、参数说明与资源说明统一用英语，与 dsh 自带工具一致；smoke 中有反向断言，混入中文会失败。宿主配置 schema 的说明面向部署方，保持中文。
-9.  **设置面板与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、面板控件、GUI 写入白名单（`parseGuiConfigValues`）——否则面板与服务端会静默分叉。结构性字段写入后重载插件并回 `reloading: true`，volatile 字段就地提交。
+9.  **侧栏页与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、页面控件、GUI 写入白名单（`parseGuiConfigValues`）——否则页面与服务端会静默分叉。结构性字段写入后重载插件并回 `reloading: true`，volatile 字段就地提交。
 10. **图片引用不传值（`src/host/attachments.ts`）**：图片字节只在 dsh 进程内流转（调用方给 path/URL 引用 → 插件读字节 → 宿主 `attachments.saveImages` 准入 → 消息里 image 块只带 `attachmentId` 引用）。任何工具参数、模型上下文、投影输出都不出现图片 base64；取回走 `attachment_read`（默认元数据 + 宿主机路径，`inline=true` 才回 MCP image 内容块且走视觉 token）。1MB 图片的 base64 ≈ 35 万 token，此约束是硬红线，新增任何图片通路都必须遵守。
 
 ## 测试
 
 -   `npm test`：build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
 -   `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
--   `npm run smoke:ui`：先 build 再跑设置面板浏览器冒烟（`test/ui-harness.mjs`）。
+-   `npm run smoke:ui`：先 build 再跑侧栏页浏览器冒烟（`test/ui-harness.mjs`）。
 
 验收线：`npm run build && npm run typecheck && npm test` 全绿；行为变化同步 smoke 断言与 README（中英）。

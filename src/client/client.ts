@@ -11,11 +11,12 @@ interface DshModuleSpec {
 (window as unknown as { __ModuleLoader__: { load(spec: DshModuleSpec): void } }).__ModuleLoader__.load({ id: 'dsh-rice-on-a-stick', factory: (require) => {
   const module: { exports: Record<string, unknown> } = { exports: {} };
   // dsh-rice-on-a-stick — client half(浏览器, 静态 bundle 形态)
-  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|config-update}(host 半注册)
-  // - 注册 settings.section 设置页面板: 品牌头(图标+中文名+徽章) / 端点卡 / 设置表单(常显, 改动即保存, 经宿主
-  //   configEditor 写 profile patch 后热重载生效) / MCP 客户端连接列表
-  // - 设置侧栏图标: 宿主的 settings.section 只投影 id/order/label(没有 icon 字段), 第三方分区
-  //   一律显示齿轮; 与 dshmarket 同法认领本分区行, 用 mask 换上米饭碗标记
+  // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|config-update|...}(host 半注册)
+  // - 侧栏面板: sidebar.panellist 出图标(米饭碗 + 待审批角标), main 按同 id 出整页; 页内两个标签:
+  //   审批(桥写停泊审批卡) / 设置(配置表单/端点卡/连接列表)。改动即保存, 经宿主 configEditor 写
+  //   profile patch 后重载生效
+  // - 桥写停泊审批由模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s), 页面审批卡使用;
+  //   侧栏图标是本插件注册的组件(宿主侧栏只托管按钮与 label), 不需要 DOM 认领
   // - React 由模块系统种子提供; 不依赖其它 client 包
   // - 视觉直接引用宿主全局 --dsw-* 主题 token(与宿主同文档, 深浅主题自动跟随), 每处 var() 带中性
   //   fallback 兜底; 控件规格对齐官方 primitives(输入 32px/radius-md, 按钮 sm 28/md 36, 开关 36×20,
@@ -113,6 +114,51 @@ interface DshModuleSpec {
     let bin = '';
     bytes.forEach(function (b) { bin += String.fromCharCode(b); });
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  // ── 桥写停泊审批的常驻观察(模块级单例) ──
+  // 侧栏图标角标与页面审批卡共用同一份数据: 首个订阅者出现时开始轮询, 最后一个退订时停止。
+  // 节奏: 有停泊请求 2s(卡片与角标要尽快露面/消失), 空闲 10s; GUI 路由缺席(插件重载窗口)静默重试。
+  // 每轮都以新数组引用发布快照: 订阅方随每轮重渲染, 审批卡倒计时与角标紧急色不需要额外时钟。
+  var approvalStore = (function () {
+    var items: Array<Record<string, unknown>> = [];
+    var unlimited = false;
+    var listeners = new Set<() => void>();
+    var timer: number | undefined;
+    var running = false;
+    function schedule(ms: number) {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(function () { timer = undefined; void load(); }, ms);
+    }
+    function load() {
+      if (!running) return undefined;
+      return rpc('bridge-approvals').then(function (r) {
+        if (!running) return;
+        items = Array.isArray(r && r.approvals) ? r.approvals : [];
+        unlimited = (r && r.unlimitedWait) === true;
+        listeners.forEach(function (fn) { try { fn(); } catch (e) { /* 订阅方异常不拖垮轮询 */ } });
+        schedule(items.length > 0 ? 2000 : 10000);
+      }, function () { if (running) schedule(10000); });
+    }
+    return {
+      subscribe: function (fn: () => void) {
+        listeners.add(fn);
+        if (listeners.size === 1 && !running) { running = true; void load(); }
+        return function () {
+          listeners.delete(fn);
+          if (listeners.size === 0 && running) {
+            running = false;
+            if (timer !== undefined) { window.clearTimeout(timer); timer = undefined; }
+          }
+        };
+      },
+      getSnapshot: function () { return items; },
+      isUnlimited: function () { return unlimited; },
+      refresh: function () { if (running) void load(); },
+    };
+  })();
+  function useApprovals() {
+    return React.useSyncExternalStore(approvalStore.subscribe, approvalStore.getSnapshot);
   }
 
   // ── 多语言: 跟随宿主语言设置(dsh 语言行, 偏好存宿主 user-settings 的 locale 命名空间) ──
@@ -219,6 +265,11 @@ interface DshModuleSpec {
       'ago': '{d}前',
       'clock.md': '{m}月{d}日 {c}',
       'loading': '载入中…',
+      'tab.approvals': '审批',
+      'tab.settings': '设置',
+      'group.agent': 'Agent 工具面',
+      'approvals.empty': '当前无待审批的调用',
+      'backToChat': '返回会话',
     },
     en: {
       'nav': 'Rice on a Stick',
@@ -315,6 +366,11 @@ interface DshModuleSpec {
       'ago': '{d} ago',
       'clock.md': '{m}/{d} {c}',
       'loading': 'Loading…',
+      'tab.approvals': 'Approvals',
+      'tab.settings': 'Settings',
+      'group.agent': 'Agent tool surface',
+      'approvals.empty': 'No calls awaiting approval',
+      'backToChat': 'Back to chat',
     },
   };
   function fillParams(template: string, params?: Record<string, unknown>) {
@@ -331,9 +387,30 @@ interface DshModuleSpec {
 
   // ── 样式: 只引用宿主 --dsw-* token(var fallback 为亮色中性值, 宿主缺失时可读性兜底) ──
   const PANEL_CSS = [
-    // 顶部留白对齐宿主设置页: 宿主把分区内容直接挂在对话框头部下方, 而其他分区首元素多为带外边距的标题,
-    // 本面板首元素是品牌行, 不加这一段会贴着对话框头
-    '.dcs-root{display:flex;flex-direction:column;gap:20px;padding-top:16px;color:var(--dsw-alias-label-primary,#0f1115);}',
+    // 整页容器(中央面板): 自己是滚动容器(height:100% + overflow-y)——宿主主栏不代滚, 内容超高时
+    // 没有这一层就上下都够不着。限宽居中保持表单行距; 样式常驻文档头(apply 注入),
+    // 侧栏角标(dcs-glyph*)在页面未打开时也要有样式
+    '.dcs-root{display:flex;flex-direction:column;gap:20px;width:100%;max-width:960px;height:100%;min-height:0;margin:0 auto;box-sizing:border-box;padding:16px 28px 48px;overflow-y:auto;overflow-x:hidden;color:var(--dsw-alias-label-primary,#0f1115);}',
+    // 顶部栏: 返回会话(弱化文本按钮, hover 才到主文字色; 沿用宿主面包屑的姿势)
+    '.dcs-topbar{display:flex;margin:-6px 0 0;}',
+    '.dcs-backbtn{display:inline-flex;align-items:center;gap:6px;padding:2px 4px;border:none;background:transparent;font-family:inherit;font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer;border-radius:var(--dsw-radius-sm,8px);transition:color .1s ease,background .1s ease;}',
+    '.dcs-backbtn:hover{color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
+    '.dcs-backbtn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;}',
+    '.dcs-backbtn svg{flex:none;}',
+    // 页内标签(审批/设置): 官方页面标签同型, 选中态底线用强调蓝
+    '.dcs-tabs{display:flex;gap:2px;border-bottom:.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12));}',
+    '.dcs-tab{position:relative;box-sizing:border-box;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-secondary,#61666b);height:36px;padding:8px 14px;cursor:pointer;border-radius:var(--dsw-radius-sm,8px) var(--dsw-radius-sm,8px) 0 0;transition:background .1s ease,color .1s ease;}',
+    '.dcs-tab:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115);}',
+    '.dcs-tab[data-on="1"]{color:var(--dsw-alias-label-primary,#0f1115);}',
+    '.dcs-tab[data-on="1"]::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;border-radius:1px;background:var(--dsw-alias-state-business-primary,#4176e6);}',
+    '.dcs-tab:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:-2px;}',
+    // 标签上的待审批计数泡: 有停泊请求时出现; 剩余时间不足 1 分钟换紧急色
+    '.dcs-tabcount{display:inline-block;box-sizing:border-box;min-width:17px;height:17px;margin-left:6px;padding:0 4px;border-radius:999px;corner-shape:round;font-size:11px;font-weight:600;line-height:17px;text-align:center;font-variant-numeric:tabular-nums;vertical-align:1px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 16%,transparent);color:var(--dsw-alias-state-warn-label,#dd8629);}',
+    '.dcs-tabcount-urgent{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 12%,transparent);color:var(--dsw-alias-state-error-primary,#ec1313);}',
+    // 分组标题(设置标签内: MCP 服务 / Agent 工具面 / 审批 / 通用桥)
+    '.dcs-grouphead{padding:10px 2px 0;}',
+    // 审批标签的空态(一句话)
+    '.dcs-approvals-empty{padding:32px 2px;font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     // 头部(品牌行: 图标 + 中文名 + 包名/版本, 状态徽章靠右)
     '.dcs-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
     '.dcs-icon{flex:none;width:28px;height:28px;}',
@@ -464,6 +541,11 @@ interface DshModuleSpec {
     '.dcs-apprwait{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
     '.dcs-apprargs{margin:0;padding:8px 10px;max-height:120px;overflow:auto;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);white-space:pre-wrap;word-break:break-all;}',
     '.dcs-apprbtns{display:flex;align-items:center;gap:8px;}',
+    // 侧栏面板图标(本插件注册的 sidebar.panellist 条目): 渲染在宿主侧栏按钮里, 不受页面开关
+    // 影响——样式必须常驻文档头而非随页面注入
+    '.dcs-glyph{position:relative;display:block;flex:none;}',
+    '.dcs-glyph-icon{display:block;width:100%;height:100%;}',
+    '.dcs-glyph-icon svg{display:block;width:100%;height:100%;}',
     // 保存错误栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
     // 连接列表
@@ -499,6 +581,24 @@ interface DshModuleSpec {
       'aria-hidden': 'true',
       dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
     });
+  }
+
+  // 侧栏面板图标(sidebar.panellist 条目的工厂产物): 米饭碗。
+  // 宿主侧栏托管按钮/label/选中态, 这里只画图标: props.size 是侧栏要的边长(wide 16 / rail 18),
+  // props.active 为选中态(描边色走 currentColor 跟随按钮态, 不需要单独处理)。
+  function PanelGlyph(props) {
+    return React.createElement('span', { className: 'dcs-glyph', style: { width: props.size, height: props.size } },
+      React.createElement('span', {
+        className: 'dcs-glyph-icon',
+        'aria-hidden': 'true',
+        dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
+      }));
+  }
+
+  // 设置标签的分组标题(与连接列表的 sechead 同型)
+  function groupHead(label) {
+    return React.createElement('div', { className: 'dcs-sechead dcs-grouphead' },
+      React.createElement('span', { className: 'dcs-sectitle' }, label));
   }
 
   // 表单行: 标题+副标题居左, 控件居右(官方设置行同款); err 是该字段自己的校验提示, 紧贴控件下方
@@ -757,7 +857,14 @@ interface DshModuleSpec {
     );
   }
 
-  function StatusPanel() {
+  // ── 侧栏页(main 条目): 品牌头 + 页内标签(审批 / 设置) ──
+  // 审批标签 = 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
+  // 设置标签 = 配置表单(按 MCP 服务 / Agent 工具面 / 审批 / 通用桥 分组) + 连接列表。
+  // 改动即保存, 写入经宿主 configEditor 落盘; volatile 字段就地生效, 结构性字段重载插件。
+  var PANEL_ID = 'dsh-rice-on-a-stick';
+  var lastPanelTab = ''; // 页面卸载重开时记住上次所在标签(插件客户端半重载后回到默认)
+  var layoutSvc: { selectPanel?: (id: string | null) => void } | null = null; // 宿主 layout 服务(apply 里赋值)
+  function PanelPage() {
     const [state, setState] = React.useState(null);
     // 最新状态镜像: 事件回调与卸载补交都要读到当前生效值(ref 在卸载后仍然有效)
     const stateRef = React.useRef(null);
@@ -809,22 +916,30 @@ interface DshModuleSpec {
       const timer = window.setInterval(load, 10000);
       return function () { alive = false; window.clearInterval(timer); };
     }, []);
-    // 桥写停泊审批(面板审批卡): 2 秒轮询——停泊中的写调用正被阻塞, 卡片要尽快露面
-    const [bApprovals, setBApprovals] = React.useState([]);
-    const [bUnlimited, setBUnlimited] = React.useState(false);
+    // 桥写停泊审批(审批标签数据源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
+    const bApprovals = useApprovals();
+    const bUnlimited = approvalStore.isUnlimited();
+    const bUrgent = bApprovals.some(function (a) { return a.expiresAt !== undefined && (a.expiresAt as number) - Date.now() < 60000; });
+    // 页内标签: 打开时停泊请求在等 → 落在审批标签; 否则回到上次所在标签(默认设置)
+    const [tab, setTab] = React.useState(function () {
+      if (lastPanelTab) return lastPanelTab;
+      return bApprovals.length > 0 ? 'approvals' : 'settings';
+    });
+    function switchTab(next: string) { lastPanelTab = next; setTab(next); }
+    // 审批标签的倒计时基准: 每秒走针(仅在有待审批项时开表), 否则审批卡的"剩 x"会冻在轮询时刻
+    const [nowTick, setNowTick] = React.useState(Date.now());
     React.useEffect(function () {
-      let alive = true;
-      const load = function () {
-        rpc('bridge-approvals').then(function (r) {
-          if (!alive) return;
-          setBApprovals(Array.isArray(r && r.approvals) ? r.approvals : []);
-          setBUnlimited((r && r.unlimitedWait) === true);
-        }).catch(function () { /* 路由缺席(重载窗口)时静默, 下一轮再试 */ });
-      };
-      load();
-      const timer = window.setInterval(load, 2000);
-      return function () { alive = false; window.clearInterval(timer); };
-    }, []);
+      if (tab !== 'approvals' || bApprovals.length === 0) return undefined;
+      const timer = window.setInterval(function () { setNowTick(Date.now()); }, 1000);
+      return function () { window.clearInterval(timer); };
+    }, [tab, bApprovals.length]);
+    // 返回会话: 宿主 layout 服务的 selectPanel(null) 把主区还给会话面板, 不改当前选中的会话;
+    // layout 服务缺席(异常宿主)时按钮是空操作
+    function backToConversation() {
+      const layout = layoutSvc;
+      if (layout === null || layout === undefined) return;
+      if (typeof layout.selectPanel === 'function') layout.selectPanel(null);
+    }
     // 字段级校验提示(结构性字段各自一行)的读写: 只显示在对应控件下方
     function setErr(key, msg) { setFieldErr({ key: key, msg: msg }); }
     function clearErr() { setFieldErr(function (cur) { return cur.msg ? { key: '', msg: '' } : cur; }); }
@@ -1076,7 +1191,7 @@ interface DshModuleSpec {
       };
     }
 
-    // 关闭设置面板会直接卸载组件: 把还没失焦的编辑补交一次(不读组件状态, 合并成一个请求)
+    // 离开页面(切到别的面板)会直接卸载组件: 把还没失焦的编辑补交一次(不读组件状态, 合并成一个请求)
     React.useEffect(function () {
       return function () {
         const draft = draftRef.current;
@@ -1098,16 +1213,15 @@ interface DshModuleSpec {
 
     if (!state) {
       return React.createElement('div', { className: 'dcs-root' },
-        React.createElement('style', null, PANEL_CSS),
         error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : t('loading'));
     }
 
-    const now = Date.now();
     const cfg = state.config || {};
     const subs = (state.stats || {}).subscriptions || {};
     const conns = state.connections || [];
     const httpOff = state.httpEnabled === false;
     const d = form !== null ? form.draft : null;
+    const now = Date.now();
 
     // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
     const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
@@ -1130,7 +1244,21 @@ interface DshModuleSpec {
     const CAND_CAP = 50;
 
     return React.createElement('div', { className: 'dcs-root' },
-      React.createElement('style', null, PANEL_CSS),
+      // 顶部栏: 返回会话(宿主 layout.selectPanel(null), 参考宿主面包屑的弱化文本样式)
+      React.createElement('div', { className: 'dcs-topbar' },
+        React.createElement('button', {
+          type: 'button', className: 'dcs-backbtn', title: t('backToChat'),
+          onClick: backToConversation,
+        },
+          React.createElement('svg', {
+            width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true',
+          }, React.createElement('path', {
+            d: 'M10 3.5 5.5 8l4.5 4.5', stroke: 'currentColor', strokeWidth: 1.6,
+            strokeLinecap: 'round', strokeLinejoin: 'round',
+          })),
+          React.createElement('span', null, t('backToChat')),
+        ),
+      ),
       // 头部: 品牌图标 + 中文名 + 包名/版本(对齐插件市场的分区头样式), 状态徽章靠右
       // (重载期间徽章变"重载中", 不新增元素、不挤动下方内容)
       React.createElement('div', { className: 'dcs-brand' },
@@ -1149,127 +1277,41 @@ interface DshModuleSpec {
         ),
         React.createElement('div', { className: 'dcs-tagline' }, t('plugin.tagline')),
       ),
+      // 页内标签: 审批(动作面, 停泊计数泡) / 设置(策略面)
+      React.createElement('div', { className: 'dcs-tabs', role: 'tablist' },
+        React.createElement('button', {
+          type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'approvals',
+          'data-on': tab === 'approvals' ? '1' : '0',
+          onClick: function () { switchTab('approvals'); },
+        }, t('tab.approvals'),
+          bApprovals.length > 0 ? React.createElement('span', {
+            className: 'dcs-tabcount' + (bUrgent ? ' dcs-tabcount-urgent' : ''),
+          }, String(bApprovals.length)) : null),
+        React.createElement('button', {
+          type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'settings',
+          'data-on': tab === 'settings' ? '1' : '0',
+          onClick: function () { switchTab('settings'); },
+        }, t('tab.settings')),
+      ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
-      // 桥写审批卡(动作关键面): 有停泊请求时置于表单之上, 免滚动直达
-      bApprovals.length > 0 ? React.createElement(BridgeApprovalCard, {
-        items: bApprovals,
-        unlimited: bUnlimited,
-        now: now,
-        onRefresh: refresh,
-      }) : null,
-      // 设置表单(常显): 改动即保存, 写入经宿主 configEditor 落盘; 字段是 volatile, 就地生效不重载
-      d ? React.createElement('div', { className: 'dcs-form' },
-        React.createElement(Row, {
-          label: t('self.title'),
-          hint: t('self.hint'),
-          control: React.createElement(Switch, {
-            checked: d.selfToolsOn,
-            onChange: function (v) { change({ selfToolsOn: v }); },
-          }),
-        }),
-        React.createElement(Row, {
-          label: t('whitelist.title'),
-          hint: t('whitelist.hint'),
-          control: React.createElement(Switch, {
-            checked: d.whitelistOn,
-            onChange: function (v) { change({ whitelistOn: v }); },
-          }),
-        }),
-        React.createElement('div', { className: 'dcs-listwrap' },
-              // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
-              d.allowedModels.length === 0
-                ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.empty'))
-                : React.createElement('div', { className: 'dcs-list' },
-                    d.allowedModels.map(function (pair) {
-                      const nm = nameOf(pair);
-                      return React.createElement('div', { key: pair, className: 'dcs-chosen' },
-                        React.createElement('span', null, pair,
-                          nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
-                        React.createElement('button', {
-                          type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }),
-                          onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.filter(function (x) { return x !== pair; }) }; }); },
-                        }, '✕'),
-                      );
-                    })),
-              // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
-              adding === null
-                ? React.createElement('div', null,
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(''); } }, t('whitelist.add')))
-                : React.createElement('div', { className: 'dcs-addrow' },
-                    React.createElement('input', {
-                      className: 'dcs-input',
-                      type: 'text',
-                      value: adding,
-                      placeholder: t('whitelist.filter'),
-                      spellCheck: false,
-                      onChange: function (e) { setAdding(e.target.value); },
-                    }),
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, t('whitelist.done')),
-                  ),
-              adding !== null
-                ? (cat === null
-                    ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.loading'))
-                    : cat === false
-                      ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.unavailable'))
-                      : React.createElement('div', { className: 'dcs-list' },
-                          candidates.length === 0
-                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.none'))
-                            : candidates.slice(0, CAND_CAP).map(function (e) {
-                                return React.createElement('button', {
-                                  key: e.pair, type: 'button', className: 'dcs-cand',
-                                  onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.concat([e.pair]) }; }); },
-                                },
-                                  e.pair,
-                                  e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
-                                );
-                              }),
-                          candidates.length > CAND_CAP
-                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.capped', { total: candidates.length, cap: CAND_CAP }))
-                            : null))
-                : null,
-            ),
-        React.createElement(Row, {
-          label: t('detail.title'),
-          control: React.createElement('select', {
-            className: 'dcs-input',
-            value: d.defaultDetail,
-            onChange: function (e) { change({ defaultDetail: e.target.value }); },
-          },
-            React.createElement('option', { value: 'summary' }, t('detail.summary')),
-            React.createElement('option', { value: 'normal' }, t('detail.normal')),
-            React.createElement('option', { value: 'full' }, t('detail.full'))),
-        }),
-        React.createElement(Row, {
-          label: t('approval.title'),
-          hint: t('approval.hint'),
-          control: React.createElement('select', {
-            className: 'dcs-input',
-            value: d.approvalControl,
-            onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
-          },
-            React.createElement('option', { value: 'off' }, t('approval.off')),
-            React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
-            React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
-        }),
-        React.createElement(Row, {
-          label: t('approvalTimeout.title'),
-          hint: t('approvalTimeout.hint'),
-          err: errOf('approvalTimeoutMs'),
-          control: React.createElement('div', { className: 'dcs-inline' },
-            React.createElement('input', {
-              className: 'dcs-input',
-              type: 'number',
-              min: 0,
-              max: 600000,
-              step: 1000,
-              value: d.approvalTimeoutMs,
-              onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
-              onBlur: function () { commitStruct('approvalTimeoutMs'); },
-              onKeyDown: enterCommits('approvalTimeoutMs'),
-            }),
-          ),
-        }),
-        // ── MCP 服务设置(通用设置在前, MCP 相关统一放后面) ──
+      // ── 审批标签: 停泊中的桥写调用逐一应答; 空态一句话 ──
+      tab === 'approvals'
+        ? (bApprovals.length === 0
+            ? React.createElement('div', { className: 'dcs-approvals-empty' }, t('approvals.empty'))
+            : React.createElement(BridgeApprovalCard, {
+                items: bApprovals,
+                unlimited: bUnlimited,
+                now: nowTick,
+                onRefresh: function () { approvalStore.refresh(); refresh(); },
+              }))
+        : null,
+      tab !== 'settings' ? null :
+      // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; volatile 字段就地生效, 结构性字段重载插件。
+      // 按性质分四组, 组内行间画发丝线(每组一个 .dcs-form 容器)
+      d ? React.createElement(React.Fragment, null,
+        // ── MCP 服务 ──
+        groupHead(t('server.title')),
+        React.createElement('div', { className: 'dcs-form' },
         // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(写入会重载插件)
         React.createElement(Row, {
           label: t('service.title'),
@@ -1289,18 +1331,6 @@ interface DshModuleSpec {
             onChange: function (v) { changeStruct({ resourceFirst: v }, { resourceFirst: v }); },
           }),
         }),
-        // ── 通用桥写面(volatile 字段: 就地生效不重载) ──
-        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
-          React.createElement('div', { className: 'dcs-labels' },
-            React.createElement('span', { className: 'dcs-label' }, t('bridge.title')),
-            React.createElement('span', { className: 'dcs-hint' }, t('bridge.hint')),
-          ),
-          React.createElement(BridgeWhitelist, {
-            data: eps,
-            allowed: d.bridgeWriteAllowlist || [],
-            onChange: function (nextArray) { change({ bridgeWriteAllowlist: nextArray }); },
-          }),
-        ),
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },
           React.createElement('div', { className: 'dcs-labels' },
             React.createElement('span', { className: 'dcs-label' }, t('listen.title')),
@@ -1426,9 +1456,143 @@ interface DshModuleSpec {
         cfgError ? React.createElement('div', { className: 'dcs-savebar' },
           React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
         ) : null,
+        ),
+        // ── Agent 工具面 ──
+        groupHead(t('group.agent')),
+        React.createElement('div', { className: 'dcs-form' },
+        React.createElement(Row, {
+          label: t('self.title'),
+          hint: t('self.hint'),
+          control: React.createElement(Switch, {
+            checked: d.selfToolsOn,
+            onChange: function (v) { change({ selfToolsOn: v }); },
+          }),
+        }),
+        React.createElement(Row, {
+          label: t('whitelist.title'),
+          hint: t('whitelist.hint'),
+          control: React.createElement(Switch, {
+            checked: d.whitelistOn,
+            onChange: function (v) { change({ whitelistOn: v }); },
+          }),
+        }),
+        React.createElement('div', { className: 'dcs-listwrap' },
+              // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
+              d.allowedModels.length === 0
+                ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.empty'))
+                : React.createElement('div', { className: 'dcs-list' },
+                    d.allowedModels.map(function (pair) {
+                      const nm = nameOf(pair);
+                      return React.createElement('div', { key: pair, className: 'dcs-chosen' },
+                        React.createElement('span', null, pair,
+                          nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
+                        React.createElement('button', {
+                          type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }),
+                          onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.filter(function (x) { return x !== pair; }) }; }); },
+                        }, '✕'),
+                      );
+                    })),
+              // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
+              adding === null
+                ? React.createElement('div', null,
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(''); } }, t('whitelist.add')))
+                : React.createElement('div', { className: 'dcs-addrow' },
+                    React.createElement('input', {
+                      className: 'dcs-input',
+                      type: 'text',
+                      value: adding,
+                      placeholder: t('whitelist.filter'),
+                      spellCheck: false,
+                      onChange: function (e) { setAdding(e.target.value); },
+                    }),
+                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, t('whitelist.done')),
+                  ),
+              adding !== null
+                ? (cat === null
+                    ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.loading'))
+                    : cat === false
+                      ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.unavailable'))
+                      : React.createElement('div', { className: 'dcs-list' },
+                          candidates.length === 0
+                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.none'))
+                            : candidates.slice(0, CAND_CAP).map(function (e) {
+                                return React.createElement('button', {
+                                  key: e.pair, type: 'button', className: 'dcs-cand',
+                                  onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.concat([e.pair]) }; }); },
+                                },
+                                  e.pair,
+                                  e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
+                                );
+                              }),
+                          candidates.length > CAND_CAP
+                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.capped', { total: candidates.length, cap: CAND_CAP }))
+                            : null))
+                : null,
+            ),
+        React.createElement(Row, {
+          label: t('detail.title'),
+          control: React.createElement('select', {
+            className: 'dcs-input',
+            value: d.defaultDetail,
+            onChange: function (e) { change({ defaultDetail: e.target.value }); },
+          },
+            React.createElement('option', { value: 'summary' }, t('detail.summary')),
+            React.createElement('option', { value: 'normal' }, t('detail.normal')),
+            React.createElement('option', { value: 'full' }, t('detail.full'))),
+        }),
+        ),
+        // ── 审批 ──
+        groupHead(t('tab.approvals')),
+        React.createElement('div', { className: 'dcs-form' },
+        React.createElement(Row, {
+          label: t('approval.title'),
+          hint: t('approval.hint'),
+          control: React.createElement('select', {
+            className: 'dcs-input',
+            value: d.approvalControl,
+            onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
+          },
+            React.createElement('option', { value: 'off' }, t('approval.off')),
+            React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
+            React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
+        }),
+        React.createElement(Row, {
+          label: t('approvalTimeout.title'),
+          hint: t('approvalTimeout.hint'),
+          err: errOf('approvalTimeoutMs'),
+          control: React.createElement('div', { className: 'dcs-inline' },
+            React.createElement('input', {
+              className: 'dcs-input',
+              type: 'number',
+              min: 0,
+              max: 600000,
+              step: 1000,
+              value: d.approvalTimeoutMs,
+              onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
+              onBlur: function () { commitStruct('approvalTimeoutMs'); },
+              onKeyDown: enterCommits('approvalTimeoutMs'),
+            }),
+          ),
+        }),
+        ),
+        // ── 通用桥(volatile 字段: 就地生效不重载) ──
+        groupHead(t('bridge.title')),
+        React.createElement('div', { className: 'dcs-form' },
+        React.createElement('div', { className: 'dcs-row dcs-row-stack' },
+          React.createElement('div', { className: 'dcs-labels' },
+            React.createElement('span', { className: 'dcs-label' }, t('bridge.title')),
+            React.createElement('span', { className: 'dcs-hint' }, t('bridge.hint')),
+          ),
+          React.createElement(BridgeWhitelist, {
+            data: eps,
+            allowed: d.bridgeWriteAllowlist || [],
+            onChange: function (nextArray) { change({ bridgeWriteAllowlist: nextArray }); },
+          }),
+        ),
+        ),
       ) : null,
-      // 连接列表
-      React.createElement('div', null,
+      // 连接列表(设置标签尾部): 只读观测, 10s 轮询跟随刷新
+      tab !== 'settings' ? null : React.createElement('div', null,
         React.createElement('div', { className: 'dcs-sechead' },
           React.createElement('span', { className: 'dcs-sectitle' },
             t('conns.count', { n: conns.length }) + (subs.subscriptions ? t('conns.subs', { n: subs.subscriptions }) : '')),
@@ -1455,109 +1619,17 @@ interface DshModuleSpec {
     );
   }
 
-  // ── 设置侧栏图标 ──
-  // 宿主的 settings.section 槽只投影 id/order/label, 没有 icon 字段; 除官方分区外一律回退齿轮。
-  // 与 dshmarket / dsh-better-sidebar 同法: 设置对话框挂载后按本分区文案认领那一行, 用 CSS
-  // 把宿主注入的齿轮换成自己的标记. 只读 DOM, 不改 React 管理的节点, 语言切换时重新认领.
-  //
+  // ── 图标内联 ──
   // 图形由 scripts/inline-icon.mjs 在构建时从根目录 icon.svg 内联, 源码里只留占位符;
   // 24 网格上的“斜竿 + 一碗白米饭”, 米饭是白色实心, 其余保持线稿.
+  // 渲染成真实 svg 节点(PanelIcon/PanelGlyph), 描边色替换成 currentColor 跟随主题文字色;
   // 这里不能用 mask: mask 只取 alpha, 白米饭会被 currentColor 涂成黑色.
-  // 因此把描边色替换成该行实际 color 后作为 background-image 输出, 米饭保持白色.
-  var NAV_ICON_MARKER = 'data-dsh-rice-nav-icon';
-  var NAV_ICON_SIZE = 16;
   var NAV_ICON_SVG = /* @dsh-inline-icon */ '';
-
-  function navIconUrl(color) {
-    return 'data:image/svg+xml,' + encodeURIComponent(NAV_ICON_SVG.replace(/#7C8798/gi, color));
-  }
-
-  function navIconCss() {
-    return [
-      '[' + NAV_ICON_MARKER + '] > svg { display: none; }',
-      '[' + NAV_ICON_MARKER + ']::before {',
-      "  content: '';",
-      '  flex: none;',
-      '  width: ' + NAV_ICON_SIZE + 'px;',
-      '  height: ' + NAV_ICON_SIZE + 'px;',
-      '  background-image: var(--dsh-nav-icon-url);',
-      '  background-repeat: no-repeat;',
-      '  background-position: center;',
-      '  background-size: ' + NAV_ICON_SIZE + 'px ' + NAV_ICON_SIZE + 'px;',
-      '}',
-    ].join('\n');
-  }
-
-  function installSettingsNavIcon(ctx) {
-    if (typeof document === 'undefined') return;
-    ctx.effect(function () {
-      var tag = document.createElement('style');
-      tag.dataset.plugin = 'dsh-rice-on-a-stick';
-      tag.dataset.pluginCss = 'dsh-rice-on-a-stick/settings-nav-icon';
-      tag.textContent = navIconCss();
-      (document.head || document.documentElement).appendChild(tag);
-
-      var disposed = false;
-      var scheduled = false;
-      function sync() {
-        if (disposed) return;
-        var wanted = String(t('nav') || '').trim();
-        var rows = document.querySelectorAll<HTMLElement>('[role="dialog"] nav button');
-        for (var i = 0; i < rows.length; i++) {
-          var row = rows[i];
-          if (wanted && String(row.textContent || '').trim() === wanted) {
-            row.setAttribute(NAV_ICON_MARKER, '');
-            var color = '';
-            if (typeof getComputedStyle === 'function') color = getComputedStyle(row).color;
-            if (!color) color = '#7C8798';
-            row.style.setProperty('--dsh-nav-icon-url', 'url("' + navIconUrl(color) + '")');
-          } else {
-            row.removeAttribute(NAV_ICON_MARKER);
-            row.style.removeProperty('--dsh-nav-icon-url');
-          }
-        }
-      }
-      function schedule() {
-        if (scheduled || disposed) return;
-        scheduled = true;
-        var run = function () { scheduled = false; sync(); };
-        if (typeof queueMicrotask === 'function') queueMicrotask(run);
-        else Promise.resolve().then(run);
-      }
-
-      sync();
-      var observer = null;
-      if (typeof MutationObserver === 'function') {
-        observer = new MutationObserver(schedule);
-        observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
-      }
-      // 主题切换通常只改 <html>/<body> 的 class 或 data-theme, 不会触发上面的正文观察.
-      var themeObserver = null;
-      if (typeof MutationObserver === 'function') {
-        themeObserver = new MutationObserver(schedule);
-        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-scheme', 'style'] });
-        if (document.body) {
-          themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-scheme', 'style'] });
-        }
-      }
-      return function () {
-        disposed = true;
-        if (observer) observer.disconnect();
-        if (themeObserver) themeObserver.disconnect();
-        var marked = document.querySelectorAll<HTMLElement>('[' + NAV_ICON_MARKER + ']');
-        for (var i = 0; i < marked.length; i++) {
-          marked[i].removeAttribute(NAV_ICON_MARKER);
-          marked[i].style.removeProperty('--dsh-nav-icon-url');
-        }
-        if (tag.parentNode) tag.parentNode.removeChild(tag);
-      };
-    }, 'dsh-rice-on-a-stick: settings nav icon');
-  }
 
   module.exports = {
     // locale 必须显式声明 inject: 真机 cordis 上下文对未声明服务的属性访问直接抛错
     // (cannot get property ... without inject), 没有软获取一说; 能跑 dshmarket 的宿主必有 locale。
-    inject: ['slots', 'locale'],
+    inject: ['slots', 'locale', 'layout'],
     async apply(ctx) {
       // slots 服务可能晚于 apply 就绪(与官方设置区插件同型等待姿势)
       let slots = ctx.slots || ctx.get('slots');
@@ -1566,21 +1638,40 @@ interface DshModuleSpec {
         slots = ctx.slots || ctx.get('slots');
       }
       if (slots === undefined) {
-        console.warn('[dsh-rice-on-a-stick] slots 服务 40s 内未就绪, 设置面板未注册');
+        console.warn('[dsh-rice-on-a-stick] slots 服务 40s 内未就绪, 侧栏页未注册');
         return;
       }
       LOCALE = ctx.locale;
+      layoutSvc = (ctx.layout || ctx.get('layout') || null) as typeof layoutSvc;
       ctx.effect(function () { return ctx.locale.register(NS_I18N, DICT); }, NS_I18N + ': dictionaries');
       t = ctx.locale.bind(NS_I18N);
-      slots.inject('settings.section', function () {
+      // 面板样式常驻文档头: 侧栏角标(dcs-glyph*)在页面未打开时也要有样式, 不能随页面渲染注入
+      ctx.effect(function () {
+        if (typeof document === 'undefined') return;
+        var tag = document.createElement('style');
+        tag.dataset.plugin = PANEL_ID;
+        tag.dataset.pluginCss = PANEL_ID + '/panel-css';
+        tag.textContent = PANEL_CSS;
+        (document.head || document.documentElement).appendChild(tag);
+        return function () {
+          if (tag.parentNode) tag.parentNode.removeChild(tag);
+        };
+      }, PANEL_ID + ': panel css');
+      // 侧栏入口与中央页面: 同一个 id 由宿主侧栏接线选中关系(sidebar.panellist 条目工厂 = 图标组件,
+      // 宿主传 {size, active}; main 条目工厂 = 页面组件)。order 20 排在官方 插件(0)/自动化任务(10) 之后;
+      // label 用 thunk + locale 元数据: 宿主在语言切换时重取侧栏文案(与官方面板同姿势)
+      slots.inject('sidebar.panellist', function () {
         return slots.register(
-          // 侧栏宽度有限, 长名会被截断; 全名保留在面板标题里。
-          // label 用 thunk + locale 元数据: 宿主在语言切换时重取侧栏文案(与官方/dshmarket 同姿势)
-          { name: 'settings.section', id: 'dsh-rice-on-a-stick', order: 110, label: function () { return t('nav'); }, locale: NS_I18N },
-          function () { return React.createElement(StatusPanel); },
+          { name: 'sidebar.panellist', id: PANEL_ID, order: 20, label: function () { return t('nav'); }, locale: NS_I18N },
+          function (owner) { return React.createElement(PanelGlyph, owner); },
         );
       });
-      installSettingsNavIcon(ctx);
+      slots.inject('main', function () {
+        return slots.register(
+          { name: 'main', key: PANEL_ID },
+          function () { return React.createElement(PanelPage); },
+        );
+      });
     },
   };
   return module.exports;

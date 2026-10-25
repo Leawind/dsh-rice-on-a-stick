@@ -1,10 +1,11 @@
-// Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的面板真实渲染到浏览器。
-// 不依赖 dsh 宿主——stub __ModuleLoader__/slots, mock GUI 路由(status/models/bridge-endpoints/config-update),
+// Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的侧栏页真实渲染到浏览器。
+// 不依赖 dsh 宿主——stub __ModuleLoader__/slots(main + sidebar.panellist 同真机契约), 假侧栏行渲染插件
+// 注册的图标组件(含待审批角标); mock GUI 路由(status/models/bridge-endpoints/bridge-approvals/config-update),
 // 状态形状与 src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
-//   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误
-//   POST /__test/mode    → body JSON: { statusError?, listening?, connections? }
+//   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误 + 侧栏行认领报告
+//   POST /__test/mode    → body JSON: { statusError?, listening?, connections?, pendingApprovals? }
 import { createServer } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -44,10 +45,10 @@ const state = {
   },
   connections: DEFAULT_CONNS(),
 }
-const rpcCounts = { status: 0, 'config-update': 0 }
+const rpcCounts = { status: 0, 'config-update': 0, 'bridge-approvals': 0 }
 const configCalls = []
 const boot = { errors: [] }
-const mode = { statusError: false, configDelayMs: 0 }
+const mode = { statusError: false, configDelayMs: 0, pendingApprovals: 1 }
 let navReport = null
 
 function snapshot() {
@@ -137,33 +138,30 @@ body[data-ds-dark-theme]{
 }
 #theme-toggle{position:fixed;right:16px;bottom:16px;padding:6px 12px;cursor:pointer;border-radius:8px;
   border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
-/* 假设置对话框: 只用于观察设置侧栏图标认领(真机槽只投影 id/order/label, 第三方分区默认齿轮) */
-#nav-preview{margin:0 0 28px;}
-#nav-preview .caption{font-size:12px;color:var(--dsw-alias-label-tertiary);margin:0 0 8px;}
-#nav-preview nav{display:flex;flex-direction:column;gap:4px;width:188px;}
-#nav-preview button{box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,12px);height:40px;
+/* 假侧栏面板行: 模拟宿主 sidebar.panellist 的渲染契约——按钮与 label 由"宿主"持有,
+   图标槽位(icon factory, 收 {size, active})由插件注册, 徽标画在图标组件里 */
+#sidebar-preview{margin:0 0 28px;}
+#sidebar-preview .caption{font-size:12px;color:var(--dsw-alias-label-tertiary);margin:0 0 8px;}
+#sidebar-preview nav{display:flex;flex-direction:column;gap:4px;width:188px;}
+#sidebar-preview button{box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,12px);height:40px;
   display:flex;align-items:center;gap:8px;width:100%;padding:9px 16px 9px 12px;background:transparent;
   color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer;}
-#nav-preview button:hover{background:var(--dsw-alias-interactive-bg-hover);}
-#nav-preview button.active{background:rgba(38,49,72,.10);}
-#nav-preview button > svg{flex:none;}
-#nav-preview .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#sidebar-preview button:hover{background:var(--dsw-alias-interactive-bg-hover);}
+#sidebar-preview button.active{background:rgba(38,49,72,.10);}
+#sidebar-preview .glyph{flex:none;width:16px;height:16px;}
+#sidebar-preview .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 /* 文档截图模式: ?clean=1 只保留面板本身(见下方脚本) */
-body.clean #nav-preview,body.clean #theme-toggle{display:none;}
+body.clean #sidebar-preview,body.clean #theme-toggle{display:none;}
 </style>
 </head>
 <body>
-<div id="nav-preview">
-  <div class="caption">设置侧栏图标（假对话框；第三方分区默认齿轮，本插件认领后换成胡萝卜钓竿）</div>
-  <div role="dialog" aria-label="设置">
+<div id="sidebar-preview">
+  <div class="caption">侧栏面板行（宿主托管按钮与 label；图标 = 本插件注册组件，含待审批角标）</div>
+  <div>
     <nav>
-      <button type="button">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2"/></svg>
-        <span class="label" id="nav-general-label">通用设置</span>
-      </button>
-      <button type="button" class="active">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M12.5 3.5l-1.2 1.2M4.7 11.3l-1.2 1.2"/></svg>
-        <span class="label" id="nav-mcp-label">白饭钓竿</span>
+      <button type="button" class="active" id="rice-panel-row">
+        <span class="glyph" id="rice-panel-glyph"></span>
+        <span class="label" id="rice-panel-label">白饭钓竿</span>
       </button>
     </nav>
   </div>
@@ -171,7 +169,7 @@ body.clean #nav-preview,body.clean #theme-toggle{display:none;}
 <div id="root"></div>
 <button id="theme-toggle" onclick="document.body.toggleAttribute('data-ds-dark-theme')">切换深浅主题</button>
 <script>
-// 文档截图用: ?clean=1 隐藏假对话框与主题切换, 页面只剩面板(README 截图由此生成; 上下留白由裁剪脚本补)
+// 文档截图用: ?clean=1 隐藏假侧栏行与主题切换, 页面只剩面板(README 截图由此生成; 上下留白由裁剪脚本补)
 if (new URLSearchParams(location.search).has('clean')) {
   document.body.classList.add('clean');
   document.body.style.margin = '0 16px';
@@ -192,9 +190,17 @@ window.__ModuleLoader__ = {
       var slots = {
         inject: function (_name, setup) { setup(); },
         register: function (meta, render) {
-          window.__boot.registered.push('slot:' + meta.id);
-          window.__boot.render = render;
-          renderPanel();
+          window.__boot.registered.push('slot:' + meta.name + ':' + (meta.id || meta.key || ''));
+          // 与真机契约同形: main 条目 = 页面组件; sidebar.panellist 条目 = 图标组件(收 {size, active});
+          // settings.section 若再出现视为回潮, 记为错误
+          if (meta.name === 'main') { window.__boot.renderMain = render; }
+          else if (meta.name === 'sidebar.panellist') {
+            window.__boot.panelIcon = render;
+            window.__boot.panelLabel = meta.label;
+          } else if (meta.name === 'settings.section') {
+            window.__boot.errors.push('settings.section registration must be gone: ' + meta.id);
+          }
+          renderMain();
           return function () {};
         },
       };
@@ -232,11 +238,23 @@ window.__ModuleLoader__ = {
         };
       })();
       window.__localeSvc = localeSvc;
+      var layoutSvc = {
+        // 与真机 layout 服务同面: selectPanel(null) = 回到会话面板; 记录调用供断言
+        selectedPanels: [],
+        selectPanel: function (id) { this.selectedPanels.push(id); },
+      };
+      window.__layoutSvc = layoutSvc;
       var ctx = {
-        // 与真机一致: inject 声明过的服务以 ctx 属性直接可取(slots/locale)
+        // 与真机一致: inject 声明过的服务以 ctx 属性直接可取(slots/locale/layout)
         slots: slots,
         locale: localeSvc,
-        get: function (name) { return name === 'slots' ? slots : name === 'locale' ? localeSvc : undefined; },
+        layout: layoutSvc,
+        get: function (name) {
+          if (name === 'slots') return slots;
+          if (name === 'locale') return localeSvc;
+          if (name === 'layout') return layoutSvc;
+          return undefined;
+        },
         // cordis 上下文的 effect: 立即执行注册体并回传 disposer(面板用它登记字典)
         effect: function (fn) {
           try { return fn(); } catch (e) { window.__boot.errors.push(String(e && e.message || e)); return function () {}; }
@@ -248,35 +266,48 @@ window.__ModuleLoader__ = {
     } catch (e) { window.__boot.errors.push(String(e && e.message || e)); }
   },
 };
-function renderPanel() {
+function renderMain() {
   try {
-    var el = window.__boot.render();
+    if (!window.__boot.renderMain) return;
+    var el = window.__boot.renderMain();
+    if (window.__root) { window.__root.render(el); return; }
     window.__root = ReactDOM.createRoot(document.getElementById('root'));
     window.__root.render(el);
   } catch (e) { window.__boot.errors.push(String(e && e.message || e)); }
 }
+// 侧栏图标槽: 把插件注册的图标组件渲染进假侧栏行(label 跟随 locale 元数据)
+function renderGlyph() {
+  try {
+    var labelEl = document.getElementById('rice-panel-label');
+    var label = window.__boot.panelLabel;
+    if (labelEl && typeof label === 'function') labelEl.textContent = label();
+    var icon = window.__boot.panelIcon;
+    if (!icon) return;
+    var holder = document.getElementById('rice-panel-glyph');
+    if (!window.__glyphRoot) window.__glyphRoot = ReactDOM.createRoot(holder);
+    window.__glyphRoot.render(icon({ size: 16, active: true }));
+  } catch (e) { window.__boot.errors.push(String(e && e.message || e)); }
+}
+setInterval(renderGlyph, 1000);
 // 轮询 harness 的语言模式, 变化时驱动 locale 桩(面板经 subscribe 收到重渲染)
 window.__localeSeen = null;
 setInterval(function () {
   fetch('/__test/locale').then(function (r) { return r.json(); }).then(function (j) {
     var en = j.locale === 'en';
-    var general = document.getElementById('nav-general-label');
-    var mcp = document.getElementById('nav-mcp-label');
-    // 假对话框跟随语言: 面板换文案后, 图标认领也要能重新匹配(验证 locale 切换路径)
-    if (general && general.textContent !== (en ? 'General' : '通用设置')) general.textContent = en ? 'General' : '通用设置';
-    if (mcp && mcp.textContent !== (en ? 'Rice on a Stick' : '白饭钓竿')) mcp.textContent = en ? 'Rice on a Stick' : '白饭钓竿';
+    var label = document.getElementById('rice-panel-label');
+    // 假侧栏行跟随语言: 面板换文案后, label thunk 重取(验证 locale 切换路径)
+    if (label && typeof window.__boot.panelLabel === 'function') label.textContent = window.__boot.panelLabel();
     if (j.locale && j.locale !== window.__localeSeen) {
       window.__localeSeen = j.locale;
       window.__localeSvc.__setActive(j.locale);
     }
   }).catch(function () { /* 首轮可能早于服务就绪 */ });
 }, 400);
-// 把假对话框的认领结果回传给测试控制面, 供 curl / __test/state 断言
+// 把假侧栏行的认领结果回传给测试控制面, 供 curl / __test/state 断言
 setInterval(function () {
-  var rows = [];
-  document.querySelectorAll('[role="dialog"] nav button').forEach(function (row) {
-    rows.push({ text: row.textContent.trim(), marked: row.hasAttribute('data-dsh-rice-nav-icon') });
-  });
+  var rows = [{
+    text: (document.getElementById('rice-panel-label') || {}).textContent || '',
+  }];
   fetch('/__test/nav', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -347,6 +378,20 @@ const server = createServer(async (req, res) => {
           stale: [...allow].filter((x) => !live.has(x)).sort(),
         })
       }
+      if (method === 'bridge-approvals') {
+        // 桥写停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
+        // expiresAt 逐条错开, 末条落在 1 分钟内可目检紧急色; RPC 计数供轮询节奏断言
+        rpcCounts['bridge-approvals']++
+        const n = Math.max(0, mode.pendingApprovals | 0)
+        const items = Array.from({ length: n }, (_, i) => ({
+          approvalId: 'mock-' + (i + 1),
+          endpoint: i % 2 === 0 ? 'schedule/runNow' : 'session/archive',
+          argsPreview: JSON.stringify({ sessionId: 'mock-session-' + (i + 1) }),
+          requestedAt: now() - 15_000,
+          expiresAt: now() + 100_000 - i * 55_000,
+        }))
+        return json(res, 200, { approvals: items, unlimitedWait: false })
+      }
       if (method === 'models') {
         // 模型目录(添加模型面板的数据源), 与 collectModelCatalog 输出同形; 模型给足一打以目检搜索/上限
         const many = Array.from({ length: 12 }, (_, i) => ({ id: 'm' + (i + 1), name: 'Model ' + 'ABCDEFGHIJKL'[i] }))
@@ -416,6 +461,7 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req)
       if (typeof body.statusError === 'boolean') mode.statusError = body.statusError
       if (typeof body.configDelayMs === 'number') mode.configDelayMs = body.configDelayMs
+      if (typeof body.pendingApprovals === 'number') mode.pendingApprovals = body.pendingApprovals
       if (typeof body.listening === 'boolean') state.listening = body.listening
       if (typeof body.httpEnabled === 'boolean') state.httpEnabled = body.httpEnabled
       if (Array.isArray(body.connections)) state.connections = body.connections

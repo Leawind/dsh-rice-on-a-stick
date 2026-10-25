@@ -1582,6 +1582,22 @@ try {
       && clientSrc.includes("rpc('bridge-approval-answer'")
       && clientSrc.includes('BridgeApprovalCard')
   })()
+  // 面板宿主(静态): 侧栏页 = sidebar.panellist 出图标 + main 同 id 出页面; settings.section 旧注册必须退场
+  checks['设置面板: 侧栏页注册(panellist+main)且设置分区退场'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return clientSrc.includes("slots.inject('sidebar.panellist'")
+      && clientSrc.includes("slots.inject('main'")
+      && clientSrc.includes("name: 'main', key: PANEL_ID")
+      && !clientSrc.includes("slots.inject('settings.section'")
+      && !clientSrc.includes('installSettingsNavIcon')
+  })()
+  // 审批页(静态): 空态一句话不预设读写语义; 返回会话走宿主 layout 服务
+  checks['审批页: 空态文案与返回会话'] = (() => {
+    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return clientSrc.includes("t('approvals.empty')")
+      && !clientSrc.includes('approvals.emptyHint')
+      && clientSrc.includes("selectPanel(null)")
+  })()
 
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
   {
