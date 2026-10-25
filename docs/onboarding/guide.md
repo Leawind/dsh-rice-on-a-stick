@@ -72,7 +72,9 @@ you already know.
   enters tool arguments or your context as base64. Attachment ids come back in the
   receipt (`session_submit.attachments`) or in `session_history` entries (`images`
   fields); `attachment_read` returns metadata plus the host file path (zero image
-  tokens), and `inline: true` adds an MCP image content block for multimodal clients.
+  tokens), and `inline: true` adds an MCP image content block for multimodal clients
+  (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were
+  inlined as base64 text).
 - **Generic bridge** â€” `bridge_describe` resolves host Remote endpoints through a
   search-first ladder: `query` keyword-searches endpoint names + descriptions
   (case-insensitive substrings, multiple words AND, optionally scoped with
@@ -203,6 +205,10 @@ entry (80 characters for user text, 160 for assistant, 100 for tool arguments â€
 normalization the UI turn cards use), enough to recognize what a session is doing, not
 to read it. Each entry's `index` doubles as a `session_history` `beforeIndex` anchor
 when you want the real text.
+
+`session_meta` and `session_overview` read persisted-only sessions by folding their log
+through the same non-activating host read as `session_history`; when a session's log is
+unreadable they degrade to the `session_list` row and say so with `eventsReadable: false`.
 
 <!-- section: limits -->
 ## Deployment-imposed limits (visible via `dsh_status` / `model_list`)

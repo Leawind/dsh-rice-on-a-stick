@@ -53,7 +53,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_list',
     {
       title: 'List sessions',
-      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model). Merges live and persisted sessions, live first, newest first; the model is known only for sessions this plugin created or saw live, and `permission` is derived for live sessions only (no log reads for persisted-only rows). Each row carries `archived` (a reversible soft mark — see `session_archive`); pass archived=true/false to filter, omit for all. Use it to pick a `sessionId` for `session_prompt`. See the guide (dsh_get_started) for shared session semantics.',
+      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_prompt`; the guide (dsh_get_started) has the shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -115,7 +115,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_history',
     {
       title: 'Session history',
-      description: 'Read a session\'s conversation digest (user and assistant messages by default — tool calls, tool results and turn boundaries are opt-in via `roles`, so the default view stays cheap in tokens). Newest first, paged back with `beforeIndex`; entry text is clipped per role in the default summary view (clipped entries carry `truncated: true`) — pass `detail: full` for untruncated text (works for persisted-only sessions too; page with `limit`/`beforeIndex` to budget tokens). Live sessions read the in-memory log; persisted-only sessions use the host `sessionController.inspect` non-activating read (does not create an agent; same data path as opening an old session in the UI).',
+      description: 'Read a session\'s conversation digest: newest-first user and assistant messages by default (`roles` opts in tool calls, results and turn boundaries), paged back with `beforeIndex`. Default `detail=summary` clips long text (`truncated: true` marks clipped entries); `detail=full` returns a whole message untruncated. Both live and persisted-only sessions are readable — cold ones are read without activating them.',
       inputSchema: {
         sessionId: z.string().describe('Session id (from a session_prompt result or session_list; both live and persisted sessions are readable).'),
         limit: z.number().int().min(1).max(50).optional().describe('Maximum number of entries to return, counted after the roles filter (default 10).'),
@@ -139,7 +139,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_meta',
     {
       title: 'Session info',
-      description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model and reasoning effort, permission preset (`custom` when the sandbox + approval combination matches no preset), live/idle/running/waiting-approval/inactive, turn and step counters (from turn/start|end and step/start|end), and context occupancy (token meter when the host provides it, otherwise the last logged usage; contextWindow from request/context or the model route). Persisted-only sessions are folded from their log via the host inspector; sessions whose log is unreadable return only the list row (eventsReadable=false).',
+      description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model + reasoning effort, permission preset (`custom` when the combination matches no preset), live state, turn/step counters, and context occupancy. Persisted-only sessions fold from their log; sessions whose log is unreadable return only the list row (`eventsReadable=false`).',
       inputSchema: {
         sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
       },
@@ -164,7 +164,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_overview',
     {
       title: 'Session overview',
-      description: 'One call, a GUI-style glance at a session: title, permission preset, model + reasoning effort, whether a turn is in progress, context occupancy (tokens + window ratio), and a bounded digest of recent content (one-line conversation quotes plus tool calls by name and argument summary — the same preview normalization the UI turn cards use; no tool results). `fields` selects sections and replaces the default set; opt-ins: progress (turn/step counters), preset, cwd. Persisted-only sessions fold from their log exactly like session_meta. `recent.entries[].index` doubles as a session_history `beforeIndex` paging anchor.',
+      description: 'One call, a GUI-style glance at a session (default set: title, permission preset, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content — one-line quotes plus tool calls, no tool results). `fields` selects sections and replaces the default set; opt-ins: progress, preset, cwd. Persisted-only sessions fold from their log like session_meta; `recent.entries[].index` doubles as a session_history `beforeIndex` anchor.',
       inputSchema: {
         sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
         fields: z.array(z.enum(OVERVIEW_FIELDS)).min(1).optional().describe(`Sections to return; replaces the default set [${OVERVIEW_DEFAULTS_TEXT}]. Opt-ins: ${OVERVIEW_OPTINS_TEXT}.`),

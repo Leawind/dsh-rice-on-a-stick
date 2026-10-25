@@ -35,7 +35,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_create',
     {
       title: 'Create session',
-      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` (a pair from `model_list`) and `preset` (from `model_list.presets` / `dsh://presets`) are all required — nothing is backfilled. `permission` selects a permission preset (see `permission_list`); omit it to inherit the host default, echoed back as `permission`. If `title` is omitted, the host generates one after the first turn.',
+      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` and `preset` are all required (values from `model_list`) — nothing is backfilled.',
       inputSchema: {
         cwd: z.string().describe('Working directory bound to the session workspace.'),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
@@ -363,7 +363,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_command',
     {
       title: 'List or run session commands',
-      description: 'List the slash commands a live session can run, or run one — without sending it to the model. Commands come from the host command registry (`ctx.commands`), the same path the UI composer uses; `/compact` is one of them and plugin-registered commands appear automatically. Execution logs `command/run`/`command/done` but creates no turn and never enters model history. Results are the command\'s own human-facing text (for example `/compact` reports busy when the session is not idle).',
+      description: 'List the slash commands a live session can run, or run one — without sending it to the model and without creating a turn (nothing enters model history). Commands follow the host registry, the same path the UI composer uses; plugin-registered commands appear automatically.',
       inputSchema: {
         sessionId: z.string().optional().describe('Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
         action: z.enum(['list', 'run']).describe('list = commands available to this session; run = execute one.'),
@@ -502,7 +502,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'attachment_read',
     {
       title: 'Read image attachment',
-      description: 'Read one image attachment of a session as a reference (never base64 text): returns its metadata (mediaType, bytes, dimensions, name) plus, when the host stores images on the local filesystem, the host file path. Default mode transfers zero image tokens — use the path locally. Pass inline=true to also return an MCP image content block: multimodal clients turn it into native vision input (~1-2k tokens for a typical screenshot, versus ~350k if base64 were inlined as text). Find attachmentId in session_submit receipts (attachments field), session_prompt confirmations, or session_history entries (images fields).',
+      description: 'Read one image attachment of a session by reference, never as base64 text: returns its metadata plus the host-local file path (zero image tokens — use the path directly on the same machine). `inline=true` additionally returns an MCP image content block for multimodal clients.',
       inputSchema: {
         sessionId: z.string().optional().describe('Session owning the image (omit only on the native rice_ tools: it targets the calling session).'),
         attachmentId: z.string().describe('Image attachment id (from a submit receipt, prompt confirmation, or session_history images).'),
