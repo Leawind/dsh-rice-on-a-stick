@@ -26,6 +26,7 @@ node_modules/
 .acl-repair/
 *.tsbuildinfo
 .npm-tmp/
+.tmp/
 commit-msg.txt
 *.tgz
 smoke-run.log
