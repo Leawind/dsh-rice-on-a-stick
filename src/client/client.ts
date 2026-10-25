@@ -1618,7 +1618,7 @@ interface DshModuleSpec {
           }),
         ),
         ),
-        // ── MCP 令牌(常用度 5) ──
+        // ── MCP 令牌(常用度 5; 令牌行常驻展开, 关闭认证时也可预生成/复制令牌) ──
         groupHead(t('auth.title'), {
           control: React.createElement(Switch, {
             checked: d.authOn,
@@ -1637,7 +1637,7 @@ interface DshModuleSpec {
             },
           }),
         }),
-        d.authOn ? React.createElement('div', { className: 'dcs-form' },
+        React.createElement('div', { className: 'dcs-form' },
           React.createElement('div', { className: 'dcs-listwrap' },
             React.createElement('div', { className: 'dcs-tokenrow' },
               React.createElement('button', {
@@ -1669,7 +1669,7 @@ interface DshModuleSpec {
               }, tokenCopied ? t('copied') : t('copy')),
             ),
           ),
-        ) : null,
+        ),
         // ── Agent 工具面 ──
         groupHead(t('group.agent')),
         React.createElement('div', { className: 'dcs-form' },
