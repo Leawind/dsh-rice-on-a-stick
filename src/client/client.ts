@@ -292,6 +292,10 @@ interface DshModuleSpec {
       'detail.full': '完整（full）',
       'auth.title': 'MCP 令牌',
       'auth.regen': '重新生成',
+      'auth.regenConfirm': '确认重新生成',
+      'auth.regenWarnOn': '重新生成会立即替换现有令牌：使用旧令牌的客户端将认证失败，需要为其配置新材料牌后重新连接。',
+      'auth.regenWarnOff': '重新生成会替换现有令牌。当前认证未启用，已连接的客户端不受影响。',
+      'cancel': '取消',
       'auth.show': '显示',
       'auth.hide': '隐藏',
       'conns.title': '客户端连接',
@@ -396,6 +400,10 @@ interface DshModuleSpec {
       'detail.full': 'Full',
       'auth.title': 'MCP token',
       'auth.regen': 'Regenerate',
+      'auth.regenConfirm': 'Confirm regenerate',
+      'auth.regenWarnOn': 'Regenerating replaces the token immediately: clients using the old token will fail authentication until they are reconfigured with the new one.',
+      'auth.regenWarnOff': 'Regenerating replaces the token. Authentication is currently off, so connected clients are not affected.',
+      'cancel': 'Cancel',
       'auth.show': 'Show',
       'auth.hide': 'Hide',
       'conns.title': 'Client connections',
@@ -502,7 +510,6 @@ interface DshModuleSpec {
     '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;}',
     '.dcs-input-host{flex:1 1 180px;width:auto;min-width:140px;}',
     '.dcs-input-port{flex:0 0 96px;width:96px;}',
-    '.dcs-warn{color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 错误行
     '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
     // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题)
@@ -553,8 +560,9 @@ interface DshModuleSpec {
     '.dcs-cand:disabled{opacity:.4;cursor:default;}',
     '.dcs-candname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
-    // MCP令牌行(生成/复制/清除; 清除与"生成后放弃"之外的清空同状态)
-    '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;}',
+    // MCP令牌行(重新生成需二次确认: 待确认时按钮临时换成"确认/取消", 警示说明挂在行下; 窄面板可换行)
+    '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;flex-wrap:wrap;}',
+    '.dcs-tokenwarn{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629);}',
     '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
     // 通用桥白名单清单: 过滤+全选行在上, 组头(组复选+namespace+计数)与端点行(复选+端点+说明+锁定徽标)在下
     '.dcs-eps{display:flex;flex-direction:column;gap:8px;width:100%;}',
@@ -1037,6 +1045,28 @@ interface DshModuleSpec {
     const [tokenCopied, setTokenCopied] = React.useState(false);
     // 令牌明文展示(默认密码式隐藏; 点击"显示"切换, 输入框只读可选可复制)
     const [tokenShown, setTokenShown] = React.useState(false);
+    // 重新生成的二次确认: 替换令牌会让使用旧令牌的客户端立即认证失败, 先经"确认重新生成"落实;
+    // 待确认 6 秒无操作自动退回, 卸载时清掉定时器
+    const [regenArm, setRegenArm] = React.useState(false);
+    const regenTimerRef: { current: number | undefined } = React.useRef(undefined);
+    function disarmRegen() {
+      setRegenArm(false);
+      if (regenTimerRef.current !== undefined) {
+        window.clearTimeout(regenTimerRef.current);
+        regenTimerRef.current = undefined;
+      }
+    }
+    function armRegen() {
+      if (regenTimerRef.current !== undefined) window.clearTimeout(regenTimerRef.current);
+      regenTimerRef.current = window.setTimeout(function () { regenTimerRef.current = undefined; setRegenArm(false); }, 6000);
+      setRegenArm(true);
+    }
+    function regenToken() {
+      const token = generateToken();
+      change({ authToken: token }, token);
+      disarmRegen();
+    }
+    React.useEffect(function () { return disarmRegen; }, []);
     // 模型白名单的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
     const [adding, setAdding] = React.useState(null);
     // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
@@ -1640,10 +1670,19 @@ interface DshModuleSpec {
         React.createElement('div', { className: 'dcs-form' },
           React.createElement('div', { className: 'dcs-listwrap' },
             React.createElement('div', { className: 'dcs-tokenrow' },
-              React.createElement('button', {
+              regenArm
+                ? React.createElement('button', {
+                    type: 'button', className: 'dcs-btn dcs-btn-danger',
+                    onClick: regenToken,
+                  }, t('auth.regenConfirm'))
+                : React.createElement('button', {
+                    type: 'button', className: 'dcs-btn',
+                    onClick: armRegen,
+                  }, t('auth.regen')),
+              regenArm ? React.createElement('button', {
                 type: 'button', className: 'dcs-btn',
-                onClick: function () { const token = generateToken(); change({ authToken: token }, token); },
-              }, t('auth.regen')),
+                onClick: disarmRegen,
+              }, t('cancel')) : null,
               React.createElement('input', {
                 className: 'dcs-input dcs-tokeninput',
                 type: tokenShown ? 'text' : 'password',
@@ -1668,6 +1707,9 @@ interface DshModuleSpec {
                 },
               }, tokenCopied ? t('copied') : t('copy')),
             ),
+            // 待确认警示: 按认证开关状态说明后果(启用中 = 客户端立即掉线; 未启用 = 无影响)
+            regenArm ? React.createElement('div', { className: 'dcs-tokenwarn' },
+              d.authOn ? t('auth.regenWarnOn') : t('auth.regenWarnOff')) : null,
           ),
         ),
         // ── Agent 工具面 ──
