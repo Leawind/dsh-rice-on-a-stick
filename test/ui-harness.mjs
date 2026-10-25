@@ -303,10 +303,14 @@ setInterval(function () {
     }
   }).catch(function () { /* 首轮可能早于服务就绪 */ });
 }, 400);
-// 把假侧栏行的认领结果回传给测试控制面, 供 curl / __test/state 断言
+// 把假侧栏行的认领结果回传给测试控制面, 供 curl / __test/state 断言(角标计数与紧急色)
 setInterval(function () {
+  var glyph = document.getElementById('rice-panel-glyph');
+  var badge = glyph ? glyph.querySelector('.dcs-glyphbadge') : null;
   var rows = [{
     text: (document.getElementById('rice-panel-label') || {}).textContent || '',
+    badge: badge ? badge.textContent.trim() : null,
+    urgent: Boolean(badge && badge.className.indexOf('urgent') >= 0),
   }];
   fetch('/__test/nav', {
     method: 'POST',

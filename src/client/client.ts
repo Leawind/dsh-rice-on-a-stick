@@ -15,7 +15,7 @@ interface DshModuleSpec {
   // - 侧栏面板: sidebar.panellist 出图标(米饭碗 + 待审批角标), main 按同 id 出整页; 页内两个标签:
   //   审批(桥写停泊审批卡) / 设置(配置表单/端点卡/连接列表)。改动即保存, 经宿主 configEditor 写
   //   profile patch 后重载生效
-  // - 桥写停泊审批由模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s), 页面审批卡使用;
+  // - 桥写停泊审批由模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s), 侧栏角标与页面审批卡共用;
   //   侧栏图标是本插件注册的组件(宿主侧栏只托管按钮与 label), 不需要 DOM 认领
   // - React 由模块系统种子提供; 不依赖其它 client 包
   // - 视觉直接引用宿主全局 --dsw-* 主题 token(与宿主同文档, 深浅主题自动跟随), 每处 var() 带中性
@@ -541,11 +541,13 @@ interface DshModuleSpec {
     '.dcs-apprwait{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
     '.dcs-apprargs{margin:0;padding:8px 10px;max-height:120px;overflow:auto;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);white-space:pre-wrap;word-break:break-all;}',
     '.dcs-apprbtns{display:flex;align-items:center;gap:8px;}',
-    // 侧栏面板图标(本插件注册的 sidebar.panellist 条目): 渲染在宿主侧栏按钮里, 不受页面开关
-    // 影响——样式必须常驻文档头而非随页面注入
+    // 侧栏面板图标(本插件注册的 sidebar.panellist 条目): 米饭碗 + 待审批计数角标。
+    // 渲染在宿主侧栏按钮里, 不受页面开关影响——样式必须常驻文档头而非随页面注入
     '.dcs-glyph{position:relative;display:block;flex:none;}',
     '.dcs-glyph-icon{display:block;width:100%;height:100%;}',
     '.dcs-glyph-icon svg{display:block;width:100%;height:100%;}',
+    '.dcs-glyphbadge{position:absolute;top:-5px;right:-7px;box-sizing:border-box;min-width:15px;height:15px;padding:0 4px;border-radius:999px;corner-shape:round;background:var(--dsw-alias-state-warn-primary,#f59e0b);color:#fff;font-size:10px;font-weight:600;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;}',
+    '.dcs-glyphbadge-urgent{background:var(--dsw-alias-state-error-primary,#ec1313);}',
     // 保存错误栏
     '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
     // 连接列表
@@ -583,16 +585,25 @@ interface DshModuleSpec {
     });
   }
 
-  // 侧栏面板图标(sidebar.panellist 条目的工厂产物): 米饭碗。
+  // 侧栏面板图标(sidebar.panellist 条目的工厂产物): 米饭碗 + 待审批计数角标。
   // 宿主侧栏托管按钮/label/选中态, 这里只画图标: props.size 是侧栏要的边长(wide 16 / rail 18),
   // props.active 为选中态(描边色走 currentColor 跟随按钮态, 不需要单独处理)。
+  // 角标数据来自 approvalStore——页未打开也持续可见; 任一停泊请求剩余不足 1 分钟换紧急色。
   function PanelGlyph(props) {
+    const items = useApprovals();
+    const count = items.length;
+    const now = Date.now();
+    const urgent = items.some(function (a) { return a.expiresAt !== undefined && (a.expiresAt as number) - now < 60000; });
     return React.createElement('span', { className: 'dcs-glyph', style: { width: props.size, height: props.size } },
       React.createElement('span', {
         className: 'dcs-glyph-icon',
         'aria-hidden': 'true',
         dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
-      }));
+      }),
+      count > 0 ? React.createElement('span', {
+        className: 'dcs-glyphbadge' + (urgent ? ' dcs-glyphbadge-urgent' : ''),
+      }, count > 99 ? '99+' : String(count)) : null,
+    );
   }
 
   // 设置标签的分组标题(与连接列表的 sechead 同型)
@@ -916,7 +927,7 @@ interface DshModuleSpec {
       const timer = window.setInterval(load, 10000);
       return function () { alive = false; window.clearInterval(timer); };
     }, []);
-    // 桥写停泊审批(审批标签数据源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
+    // 桥写停泊审批(审批标签 + 侧栏角标同源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
     const bApprovals = useApprovals();
     const bUnlimited = approvalStore.isUnlimited();
     const bUrgent = bApprovals.some(function (a) { return a.expiresAt !== undefined && (a.expiresAt as number) - Date.now() < 60000; });
