@@ -29,6 +29,14 @@
 -   开发过程中**绝对禁止**改动发布元数据：`CHANGELOG.md`（含 Unreleased 段）与版本号一律不动。开发期的变更记录由 conventional commits 的提交信息承担；解冻 CHANGELOG 与升版只在用户明确发起发布时进行。
 -   push（尤其强推）永远由用户决定，代理不主动 push。
 
+### 工作区布局（bare worktrees）
+
+-   工作区根目录不是工作树，而是容器：`.bare/` 是 bare gitdir（对象库、引用、配置、hooks），各 worktree 以子目录形式并存，根目录的 `.git` 是指向 `.bare` 的 gitfile，仅为让工具在根目录能识别仓库。
+-   git 与 npm 操作一律进入对应 worktree 目录执行；在根目录跑 `git status` 会报 "fatal: this operation must be run in a work tree"，属预期行为，`git worktree list`、`git branch` 等仓库级命令在根目录可用。
+-   新建 worktree 在根目录执行：`git worktree add <目录名> [<分支>]`——省略分支时检出同名分支，无同名分支则以目录名建新分支；`-b <分支>` 可显式建新分支。
+-   worktree 之间不共享未跟踪与忽略内容：`node_modules`、`client/`、`lib/` 产物、`.vscode/`、`.zcode/`、`AGENTS-LOCAL.md` 只存在于创建它的 worktree，新 worktree 需按需复制或重新安装。
+-   ZCode/编辑器会话应打开具体 worktree 目录作为工作区；AGENTS.md 位于 worktree 内，从容器根目录打开的会话读不到本文件。
+
 ## 踩坑记录
 
 实现中踩过并确认的坑，供后续任务避让；条目应写清现象与结论，不罗列排查过程。
