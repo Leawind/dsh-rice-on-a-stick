@@ -14,7 +14,7 @@ interface DshModuleSpec {
   // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|config-update|...}(host 半注册)
   // - 侧栏面板: sidebar.panellist 出图标(米饭碗 + 待审批角标), main 按同 id 出整页; 页内两个标签:
   //   审批(桥写停泊审批卡) / 设置(配置表单/端点卡/连接列表)。改动即保存, 经宿主 configEditor 写
-  //   profile patch 后重载生效
+  //   profile patch; 全部字段就地生效, 只有监听级字段(http/host/port)重建监听器
   // - 桥写停泊审批由模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s), 侧栏角标与页面审批卡共用;
   //   侧栏图标是本插件注册的组件(宿主侧栏只托管按钮与 label), 不需要 DOM 认领
   // - React 由模块系统种子提供; 不依赖其它 client 包
@@ -93,7 +93,7 @@ interface DshModuleSpec {
       selfToolsOn: c.selfToolsEnabled !== false,
       host: typeof c.host === 'string' && c.host ? c.host : '127.0.0.1',
       port: typeof c.port === 'number' ? c.port : 5642,
-      // 结构性字段(改动会重载插件): 与 Config 一一对应, 面板不得遗漏任何一项
+      // 监听级字段(改动会重建监听器): 与 Config 一一对应, 面板不得遗漏任何一项
       httpOn: c.http !== false,
       // 默认工具优先(false): 只认 tools 的客户端零行为变化, 资源优先需显式开启
       resourceFirst: c.resourceFirst === true,
@@ -219,7 +219,7 @@ interface DshModuleSpec {
       'plugin.tagline': '让 AI Agent 们能控制 DeepSeek Harness',
       'uptime': '已运行 {d}',
       'state.running': '运行中',
-      'state.reloading': '重载中',
+      'state.reloading': '重启中',
       'state.stopped': '已停止',
       'state.listeningOff': '监听关闭',
       'server.title': 'MCP 服务',
@@ -267,7 +267,8 @@ interface DshModuleSpec {
       'bridgeApproval.reject': '拒绝',
       'bridgeApproval.fail': '应答失败：{e}',
       'listen.title': '监听地址与端口',
-      'footnote': '以上各项在离开输入框或关闭设置时自动生效；生效会重启插件，已连接的 MCP 客户端会短暂断开。',
+      'footnote': '以上各项在离开输入框或关闭设置时自动生效。只有“提供MCP服务”与监听地址/端口会重建监听，已连接的 MCP 客户端需要重新连接；其余各项立即生效，连接不断。',
+      'footnote.approval': '以上两项立即生效；切换“审批由谁回答”会结清正在等待的审批。',
       'listen.hostRequired': '监听地址不能为空。',
       'listen.portInvalid': '端口必须是 1-65535 的整数。',
       'copy': '复制',
@@ -320,7 +321,7 @@ interface DshModuleSpec {
       'plugin.tagline': 'Let AI agents control DeepSeek Harness',
       'uptime': 'Up {d}',
       'state.running': 'Running',
-      'state.reloading': 'Reloading',
+      'state.reloading': 'Restarting',
       'state.stopped': 'Stopped',
       'state.listeningOff': 'Listener off',
       'server.title': 'MCP server',
@@ -367,7 +368,8 @@ interface DshModuleSpec {
       'bridgeApproval.allow': 'Allow',
       'bridgeApproval.reject': 'Reject',
       'bridgeApproval.fail': 'Answer failed: {e}',
-      'footnote': 'These take effect when you leave the field or close settings; applying restarts the plugin, so connected MCP clients drop briefly.',
+      'footnote': 'These take effect when you leave the field or close settings. Only "Provide the MCP service" and the listen address/port restart the listener, so connected MCP clients must reconnect; every other setting applies immediately without dropping connections.',
+      'footnote.approval': 'Both apply immediately; switching "Who answers approvals" settles approvals that are already waiting.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
       'listen.portInvalid': 'Port must be an integer between 1 and 65535.',
@@ -509,7 +511,7 @@ interface DshModuleSpec {
     // 控件列: 控件居右, 字段校验提示浮在控件下方(绝对定位, 不占据行高——出错时不会挤动其它行)
     '.dcs-controlwrap{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0;margin-left:auto;}',
     '.dcs-control{flex:none;display:flex;align-items:center;}',
-    // 行内"输入框 + 应用": 数值/主机名这类结构性字段与其它行同一套布局(标签左、控件右)
+    // 行内"输入框 + 应用": 数值/主机名这类字段与其它行同一套布局(标签左、控件右)
     '.dcs-inline{display:flex;align-items:center;gap:8px;}',
     '.dcs-inline .dcs-input{flex:none;width:130px;}',
     '.dcs-inline .dcs-input-wide{width:200px;}',
@@ -606,7 +608,7 @@ interface DshModuleSpec {
     '.dcs-empty{font-size:12.5px;color:var(--dsw-alias-label-tertiary,#81858c);padding:8px 2px;}',
   ].join('');
 
-  // 状态徽章: 运行中(绿)/已停止(琥珀)/监听关闭(红); 插件重载期间复用为"重载中",
+  // 状态徽章: 运行中(绿)/已停止(琥珀)/监听关闭(红); 监听器重建期间复用为"重启中",
   // 状态变化只改这一枚徽章的文字与配色, 不新增占位、不移动其它元素
   function Badge(props) {
     const cls = props.busy ? 'dcs-tag dcs-tag-warn'
@@ -922,7 +924,7 @@ interface DshModuleSpec {
   // ── 侧栏页(main 条目): 品牌头 + 页内标签(审批 / 设置) ──
   // 审批标签 = 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
   // 设置标签 = 配置表单(按 MCP 服务 / Agent 工具面 / 审批 / 通用桥 分组) + 连接列表。
-  // 改动即保存, 写入经宿主 configEditor 落盘; volatile 字段就地生效, 结构性字段重载插件。
+  // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
   var PANEL_ID = 'dsh-rice-on-a-stick';
   var lastPanelTab = ''; // 页面卸载重开时记住上次所在标签(插件客户端半重载后回到默认)
   var layoutSvc: { selectPanel?: (id: string | null) => void } | null = null; // 宿主 layout 服务(apply 里赋值)
@@ -948,14 +950,14 @@ interface DshModuleSpec {
     const savingRef = React.useRef(false);
     // 监听地址/端口有未应用的编辑: 轮询刷新也不覆盖, 否则用户输入会被 10 秒轮询重置
     const listenDirtyRef = React.useRef(false);
-    // 其它结构性字段(审批等待上限/TTL/Host 白名单)的未应用编辑: 同样不被轮询覆盖
+    // 其它就地生效字段(审批等待上限/TTL/Host 白名单)的未应用编辑: 同样不被轮询覆盖
     const structDirtyRef = React.useRef(false);
     const [cfgError, setCfgError] = React.useState('');
-    // 插件级重载状态(任何结构性字段写入后都会重载): 只影响面板顶部的一条提示, 不锁任何控件
+    // 监听器重启状态(只有 http/host/port 写入后会短暂重连): 只影响面板顶部的一条提示, 不锁任何控件
     const [reloading, setReloading] = React.useState(false);
     // 字段级校验提示: {key, msg}, 只显示在对应控件下方(与插件级状态分开)
     const [fieldErr, setFieldErr] = React.useState({ key: '', msg: '' });
-    // 最近一次提交的结构性字段载荷: 同一编辑的回车+失焦只写一次(窗口内去重)
+    // 最近一次提交的就地生效字段载荷: 同一编辑的回车+失焦只写一次(窗口内去重)
     const lastSubmitRef = React.useRef({ stamp: '', at: 0 });
     // 令牌复制反馈(独立于端点复制, 各自 1.5s 复位)
     const [tokenCopied, setTokenCopied] = React.useState(false);
@@ -1026,7 +1028,7 @@ interface DshModuleSpec {
       if (layout === null || layout === undefined) return;
       if (typeof layout.selectPanel === 'function') layout.selectPanel(null);
     }
-    // 字段级校验提示(结构性字段各自一行)的读写: 只显示在对应控件下方
+    // 字段级校验提示(每个可编辑字段各自一行)的读写: 只显示在对应控件下方
     function setErr(key, msg) { setFieldErr({ key: key, msg: msg }); }
     function clearErr() { setFieldErr(function (cur) { return cur.msg ? { key: '', msg: '' } : cur; }); }
     function errOf(key) { return fieldErr.key === key ? fieldErr.msg : ''; }
@@ -1084,8 +1086,8 @@ interface DshModuleSpec {
     }
 
     // 变更即保存: 控件改动 = 乐观更新草稿 + 入队提交。
-    // 界面可改的字段都是宿主 volatile 字段: Loader 就地更新引用, 不重载插件, 所以提交只有毫秒级,
-    // 不阻塞后续操作(此前每次改动都会重启插件, 面板被禁用约 0.8s)。
+    // 所有字段都是宿主 volatile 字段: Loader 就地更新引用, 插件不重载, 所以提交只有毫秒级,
+    // 不阻塞后续操作; 监听级字段另行走 changeStruct(会重建监听器, 面板提示重连)。
     // 提交失败显示在保存栏, 草稿随刷新回到服务端生效值。
     // authToken 形参存在时一并提交该只写字段(仅"重新生成"替换令牌, 开关不回传令牌)。
     // patch 可以是对象, 也可以是 (当前草稿) => 对象: 清单类的增删必须基于最新草稿,
@@ -1115,7 +1117,7 @@ interface DshModuleSpec {
 
     // 串行排空保存队列: 保证最后发出的载荷就是界面最终状态; 排空后刷新一次采纳服务端值。
     // 失败时清空队列并回到服务端生效值, 不把失败状态留在草稿里。
-    // reloading 项会重载插件, 响应可能被切断: 按"已写入、正在重载"处理并稍后刷新。
+    // reloading 项会重建监听器: 已连接的 MCP 客户端断开重连, 面板稍后刷新一次再采纳服务端值。
     async function pumpQueue() {
       const queue = queueRef.current;
       if (queue.running) return;
@@ -1170,7 +1172,7 @@ interface DshModuleSpec {
       return (Array.isArray(list) ? list : []).map(function (v) { return String(v).trim(); }).filter(Boolean).join(',');
     }
 
-    /** 草稿里的其它结构性字段是否与生效值不同: 用于轮询期间保留草稿 */
+    /** 草稿里的就地生效字段是否与生效值不同: 用于轮询期间保留草稿(这些字段失焦才提交) */
     function structDirtyOf(draft) {
       const c = effective();
       return String(draft.approvalTimeoutMs) !== String(typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS)
@@ -1186,7 +1188,7 @@ interface DshModuleSpec {
       return String(draft.host || '').trim() !== host || Number(draft.port) !== port;
     }
 
-    /** 监听地址/端口: 只改草稿; 失焦/回车/关闭设置时自动提交 */
+    /** 监听地址/端口: 只改草稿; 失焦/回车/关闭设置时自动提交(会重建监听器) */
     function setListen(patch) {
       if (!form) return;
       const next = Object.assign({}, draftRef.current || form.draft, patch);
@@ -1196,8 +1198,8 @@ interface DshModuleSpec {
       listenDirtyRef.current = listenDirtyOf(next);
     }
 
-    /** 其它结构性字段: 只改草稿; 失焦/回车/关闭设置时自动提交 */
-    function setStruct(patch) {
+    /** 就地生效字段的文本/数字输入: 只改草稿; 失焦/回车/关闭设置时自动提交 */
+    function setHot(patch) {
       if (!form) return;
       const next = Object.assign({}, draftRef.current || form.draft, patch);
       setDraft(next);
@@ -1206,9 +1208,10 @@ interface DshModuleSpec {
       structDirtyRef.current = structDirtyOf(next);
     }
 
-    // ── 结构性字段的自动提交 ──
+    // ── 字段的自动提交 ──
     // 没有"应用"按钮: 离开输入框、按回车、或关闭设置面板时自动写入。非法值只提示、不写入。
-    // 这些字段会让插件重载, 所以只在一次编辑结束时提交一次——不会边输入边重启。
+    // 监听级字段只在一次编辑结束时提交一次(会重建监听器); 其它字段就地生效, 同样等失焦再提交,
+    // 避免边输入边发请求。
     function readListen(draft) {
       const c = effective();
       const host = String(draft.host || '').trim();
@@ -1250,22 +1253,27 @@ interface DshModuleSpec {
       allowedHosts: readHosts,
     };
 
-    /** 失焦/回车提交一个结构性字段: 非法则就地提示, 与生效值相同则什么都不做 */
-    function commitStruct(key) {
+    /** 失焦/回车提交一个字段: 非法则就地提示, 与生效值相同则什么都不做。
+     * listen 会重建监听器(标记重启等待), 其余字段就地生效。 */
+    function commitField(key) {
       if (!form) return;
       const draft = draftRef.current || form.draft;
       const r = STRUCT_READERS[key](draft);
       if (r.error) { setErr(key, r.error); return; }
       clearErr();
       if (!r.values) return;
-      // 同一次编辑可能连续触发(回车 + 随后失焦): 相同载荷在短时间内只提交一次, 避免重复重载
+      // 同一次编辑可能连续触发(回车 + 随后失焦): 相同载荷在短时间内只提交一次, 避免重复提交
       const stamp = JSON.stringify(r.values);
       if (lastSubmitRef.current.stamp === stamp && Date.now() - lastSubmitRef.current.at < 5000) return;
       lastSubmitRef.current = { stamp: stamp, at: Date.now() };
-      if (key === 'listen') listenDirtyRef.current = false;
-      else structDirtyRef.current = false;
-      setReloading(true);
-      enqueue({ values: r.values }, true);
+      if (key === 'listen') {
+        listenDirtyRef.current = false;
+        setReloading(true);
+        enqueue({ values: r.values }, true);
+        return;
+      }
+      structDirtyRef.current = false;
+      enqueue({ values: r.values });
     }
 
     /** 回车 = 提交(不再额外触发失焦, 避免同一次编辑提交两遍) */
@@ -1273,7 +1281,7 @@ interface DshModuleSpec {
       return function (e) {
         if (e.key !== 'Enter') return;
         e.preventDefault();
-        commitStruct(key);
+        commitField(key);
       };
     }
 
@@ -1288,13 +1296,21 @@ interface DshModuleSpec {
       };
     }, []);
 
-    /** 开关/下拉类的结构性字段: 乐观显示 + 立即提交(会重载插件, 但不阻塞后续点击) */
+    /** 开关/下拉类的监听级字段: 乐观显示 + 立即提交(会重建监听器, 但不阻塞后续点击) */
     function changeStruct(draftPatch, values) {
       if (!form) return;
       const base = draftRef.current || form.draft;
       setDraft(Object.assign({}, base, draftPatch));
       setReloading(true);
       enqueue({ values: values }, true);
+    }
+
+    /** 开关/下拉类的就地生效字段: 乐观显示 + 立即提交(不重建监听器、不等待) */
+    function changeHot(draftPatch, values) {
+      if (!form) return;
+      const base = draftRef.current || form.draft;
+      setDraft(Object.assign({}, base, draftPatch));
+      enqueue({ values: values });
     }
 
     if (!state) {
@@ -1393,13 +1409,13 @@ interface DshModuleSpec {
               }))
         : null,
       tab !== 'settings' ? null :
-      // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; volatile 字段就地生效, 结构性字段重载插件。
+      // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段重建监听器。
       // 按性质分四组, 组内行间画发丝线(每组一个 .dcs-form 容器)
       d ? React.createElement(React.Fragment, null,
         // ── MCP 服务 ──
         groupHead(t('server.title')),
         React.createElement('div', { className: 'dcs-form' },
-        // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(写入会重载插件)
+        // 提供MCP服务(=配置 http): 唯一的对外服务开关, 持久化在配置里(切换只重建监听器)
         React.createElement(Row, {
           label: t('service.title'),
           hint: t('service.hint'),
@@ -1415,7 +1431,7 @@ interface DshModuleSpec {
           control: React.createElement(Switch, {
             checked: d.resourceFirst,
             label: t('resource.title'),
-            onChange: function (v) { changeStruct({ resourceFirst: v }, { resourceFirst: v }); },
+            onChange: function (v) { changeHot({ resourceFirst: v }, { resourceFirst: v }); },
           }),
         }),
         React.createElement('div', { className: 'dcs-row dcs-row-stack' },
@@ -1429,7 +1445,7 @@ interface DshModuleSpec {
               value: d.host,
               spellCheck: false,
               onChange: function (e) { setListen({ host: e.target.value }); },
-              onBlur: function () { commitStruct('listen'); },
+              onBlur: function () { commitField('listen'); },
               onKeyDown: enterCommits('listen'),
             }),
             React.createElement('input', {
@@ -1439,7 +1455,7 @@ interface DshModuleSpec {
               max: 65535,
               value: d.port,
               onChange: function (e) { setListen({ port: e.target.value }); },
-              onBlur: function () { commitStruct('listen'); },
+              onBlur: function () { commitField('listen'); },
               onKeyDown: enterCommits('listen'),
             }),
           ),
@@ -1515,8 +1531,8 @@ interface DshModuleSpec {
               min: 0,
               step: 60000,
               value: d.sessionTtlMs,
-              onChange: function (e) { setStruct({ sessionTtlMs: e.target.value }); },
-              onBlur: function () { commitStruct('sessionTtlMs'); },
+              onChange: function (e) { setHot({ sessionTtlMs: e.target.value }); },
+              onBlur: function () { commitField('sessionTtlMs'); },
               onKeyDown: enterCommits('sessionTtlMs'),
             }),
           ),
@@ -1532,13 +1548,13 @@ interface DshModuleSpec {
               value: d.hostsText,
               placeholder: 'example.com, 192.168.1.5',
               spellCheck: false,
-              onChange: function (e) { setStruct({ hostsText: e.target.value }); },
-              onBlur: function () { commitStruct('allowedHosts'); },
+              onChange: function (e) { setHot({ hostsText: e.target.value }); },
+              onBlur: function () { commitField('allowedHosts'); },
               onKeyDown: enterCommits('allowedHosts'),
             }),
           ),
         }),
-        // 重启代价只说一次, 避免每条说明都挂一句"改此项会重载插件"把行宽挤满
+        // 重连代价只说一次, 避免每条说明都挂一句"改此项会断开客户端"把行宽挤满
         React.createElement('div', { className: 'dcs-footnote' }, t('footnote')),
         cfgError ? React.createElement('div', { className: 'dcs-savebar' },
           React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
@@ -1637,7 +1653,7 @@ interface DshModuleSpec {
           control: React.createElement('select', {
             className: 'dcs-input',
             value: d.approvalControl,
-            onChange: function (e) { changeStruct({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
+            onChange: function (e) { changeHot({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
           },
             React.createElement('option', { value: 'off' }, t('approval.off')),
             React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
@@ -1655,12 +1671,13 @@ interface DshModuleSpec {
               max: 600000,
               step: 1000,
               value: d.approvalTimeoutMs,
-              onChange: function (e) { setStruct({ approvalTimeoutMs: e.target.value }); },
-              onBlur: function () { commitStruct('approvalTimeoutMs'); },
+              onChange: function (e) { setHot({ approvalTimeoutMs: e.target.value }); },
+              onBlur: function () { commitField('approvalTimeoutMs'); },
               onKeyDown: enterCommits('approvalTimeoutMs'),
             }),
           ),
         }),
+        React.createElement('div', { className: 'dcs-footnote' }, t('footnote.approval')),
         ),
         // ── 通用桥(volatile 字段: 就地生效不重载) ──
         groupHead(t('bridge.title')),
