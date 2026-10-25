@@ -257,9 +257,7 @@ interface DshModuleSpec {
       'bridge.loading': '端点目录加载中…',
       'bridge.unavailable': '端点目录不可用（宿主未提供 Typert），可编辑配置文件手写白名单。',
       'bridge.none': '没有匹配的端点。',
-      'bridgeApproval.title': '桥写待审批',
-      'bridgeApproval.count': '{n} 项桥写操作等待审批',
-      'bridgeApproval.hint': '白名单外的变更调用已停泊：允许一次执行一次；拒绝后调用方收到失败。超时未答按失败关闭。',
+      'bridgeApproval.count': '{n} 项待审批的调用',
       'bridgeApproval.unlimited': '不限时',
       'bridgeApproval.left': '剩 {d}',
       'bridgeApproval.waited': '已等待 {d}',
@@ -359,9 +357,7 @@ interface DshModuleSpec {
       'bridge.loading': 'Loading endpoint directory…',
       'bridge.unavailable': 'Endpoint directory unavailable (the host provides no Typert); edit the config file to maintain the whitelist by hand.',
       'bridge.none': 'No matching endpoints.',
-      'bridgeApproval.title': 'Bridge writes awaiting approval',
-      'bridgeApproval.count': '{n} bridge write(s) awaiting approval',
-      'bridgeApproval.hint': 'Mutating calls outside the whitelist are parked here: allow executes once; reject fails the call. Unanswered waits fail closed on timeout.',
+      'bridgeApproval.count': '{n} pending call(s)',
       'bridgeApproval.unlimited': 'No time limit',
       'bridgeApproval.left': '{d} left',
       'bridgeApproval.waited': 'waited {d}',
@@ -598,7 +594,6 @@ interface DshModuleSpec {
     // 连接列表
     '.dcs-sechead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding-bottom:4px;}',
     '.dcs-sectitle{font-size:13px;font-weight:600;}',
-    '.dcs-seccount{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-table{display:flex;flex-direction:column;}',
     '.dcs-tr{display:grid;grid-template-columns:minmax(110px,1fr) 56px 84px 92px 48px;gap:10px;align-items:center;padding:7px 2px;font-size:12.5px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-tr:last-child{border-bottom:none;}',
@@ -892,10 +887,8 @@ interface DshModuleSpec {
     }
     return React.createElement('div', { className: 'dcs-card dcs-appr' },
       React.createElement('div', { className: 'dcs-sechead' },
-        React.createElement('span', { className: 'dcs-sectitle' }, t('bridgeApproval.title')),
-        React.createElement('span', { className: 'dcs-seccount' }, t('bridgeApproval.count', { n: props.items.length })),
+        React.createElement('span', { className: 'dcs-sectitle' }, t('bridgeApproval.count', { n: props.items.length })),
       ),
-      React.createElement('div', { className: 'dcs-hint' }, t('bridgeApproval.hint')),
       props.items.map(function (a) {
         const left = a.expiresAt !== undefined ? t('bridgeApproval.left', { d: fmtDur(a.expiresAt - now) }) : t('bridgeApproval.unlimited');
         return React.createElement('div', { key: a.approvalId, className: 'dcs-apprrow' },
