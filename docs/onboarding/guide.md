@@ -41,8 +41,9 @@ you already know.
   archived (`session_archive`, the UI's only "delete"; an active session needs
   `stopActivity=true`). Archiving is a soft mark: the UI hides the session and the host
   refuses model steps for it and its subagent lineage, while the log stays readable.
-  `session_archive_list` lists archived sessions; `session_unarchive` restores one, and
-  the next prompt then cold-resumes it with its history intact.
+  `session_list` with `scope: "archived"` lists archived sessions (they are hidden from
+  the default `active` view and from `session_search`); `session_unarchive` restores one,
+  and the next prompt then cold-resumes it with its history intact.
 - **Native subagent** — the host can delegate work into child sessions (one-shot,
   continuable, or external). `subagent_list` reads that catalog without activating
   anything; each child is a normal session id for `session_prompt` / `session_poll` /

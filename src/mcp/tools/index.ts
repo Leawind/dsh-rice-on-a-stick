@@ -1,6 +1,6 @@
 /**
- * MCP 工具注册入口(36 个 = 会话中心 14 + 异步控制面 3 + 审批/问题控制面 5 + 子代理发现 1
- * + 目录/状态 8(含 echo 与权限预设) + 归档清单/恢复 2 + 附件取回 1 + 通用桥 2; resourceFirst 部署
+ * MCP 工具注册入口(35 个 = 会话中心 14 + 异步控制面 3 + 审批/问题控制面 5 + 子代理发现 1
+ * + 目录/状态 8(含 echo 与权限预设) + 归档恢复 1 + 附件取回 1 + 通用桥 2; resourceFirst 部署
  * 形态下只读面下线, 数据走 resources 面, 但控制面工具必须保留)。
  *
  * 本文件只做装配, 具体工具按域拆分:
@@ -9,7 +9,7 @@
  *   session-actions.ts session_create / prompt / submit / poll / result / cancel / queue /
  *                      command / select_model / rename / fork / archive / unarchive /
  *                      set_permission / attachment_read
- *   session-read.ts    session_list / session_archive_list / session_meta / session_overview /
+ *   session-read.ts    session_list / session_meta / session_overview /
  *                      session_history / session_search(resourceFirst 下下线)
  *   approval.ts        approval_list / approval_answer / approval_policy
  *   question.ts        question_list / question_answer

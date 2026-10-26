@@ -435,7 +435,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_archive',
     {
       title: 'Archive session',
-      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE} (subagent lineage included; the log stays readable via session_history / session_archive_list). An active session requires \`stopActivity=true\` (the UI's Stop-and-Archive confirmation: stops the current turn and background tasks first). ${NEEDS_WORKSPACE_CONTROLLER}`,
+      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE} (subagent lineage included; the log stays readable via session_history / session_list with scope="archived"). An active session requires \`stopActivity=true\` (the UI's Stop-and-Archive confirmation: stops the current turn and background tasks first). ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Session id to archive.'),
         stopActivity: z.boolean().optional().describe('Set true for an active session = stop its current turn first (the UI\'s Stop and Archive).'),
@@ -468,7 +468,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       title: 'Unarchive session',
       description: `Restore an archived session (the UI's Unarchive): removes the archive mark; the session rejoins the lists and \`session_prompt\` cold-resumes it with history intact (the gate covers its whole lineage). Idempotent — unarchiving a not-archived session is a no-op reported as \`wasArchived: false\`. ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
-        sessionId: z.string().describe('Session id to restore (from session_archive_list or session_list with scope="archived").'),
+        sessionId: z.string().describe('Session id to restore (from session_list with scope="archived").'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

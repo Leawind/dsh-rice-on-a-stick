@@ -46,9 +46,9 @@ Quick start:
   persisted-only sessions' titles, served from the host projection cache without log
   reads; coldScanMax caps how many cache misses may read a log per call, default 50)
   and `scope` (active default, archived, or all). Archiving is the soft delete: archived
-  sessions stay out of session_list and session_search unless scope asks for them
-  (session_archive_list is exactly scope=archived), session_unarchive restores one, and
-  an archived session keeps its readable history by id.
+  sessions stay out of session_list and session_search unless scope asks for them,
+  session_unarchive restores one, and an archived session keeps its readable history by
+  id.
   session_meta reports model+reasoning effort, agent preset, permission preset, live
   state, turn/step counters and context occupancy (token meter, else the last logged
   usage); session_history is a conversation view by default (user + assistant — pass

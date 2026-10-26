@@ -1,5 +1,5 @@
 /**
- * 会话只读工具: 清单(含归档清单)、纪要、搜索、现状概览。resourceFirst 部署下这批工具下线,
+ * 会话只读工具: 清单(归档视图用 scope="archived")、纪要、搜索、现状概览。resourceFirst 部署下这批工具下线,
  * 数据改由 dsh://sessions 等资源面提供(两者共用 host/data.ts 的同一实现)。
  */
 import { z } from 'zod'
@@ -20,7 +20,7 @@ import {
   type SessionControllerView,
   type SessionScope,
 } from '../../host/data.js'
-import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structuredOut, SOFT_ARCHIVE } from './shared.js'
+import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structuredOut } from './shared.js'
 
 const sessionListOut = z.object({
   total: z.number(),
@@ -55,7 +55,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     'session_list',
     {
       title: 'List sessions',
-      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_prompt`; the guide (dsh_get_started) has the shared session semantics.',
+      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_prompt`; the guide (dsh_get_started) has the shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -81,35 +81,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     },
   )
 
-  // 归档清单(只读): session_list({scope:"archived"}) 的专用入口, 过滤参数与其完全一致
-  mcp.registerTool(
-    'session_archive_list',
-    {
-      title: 'List archived sessions',
-      description: `List archived sessions — exactly session_list with scope="archived" (${SOFT_ARCHIVE}). Restore with session_unarchive.`,
-      inputSchema: {
-        limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
-        cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
-        title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
-        includeCold: z.boolean().optional().describe('When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Their titles come from the host projection cache when available; the result reports `titleSearch`.'),
-        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}).`),
-      },
-      annotations: { readOnlyHint: true },
-      outputSchema: sessionListOut,
-    },
-    async ({ limit, cwd, title, includeCold, coldScanMax }, extra) => {
-      try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, scope: 'archived', includeCold, coldScanMax }, extra?.signal)
-        return structuredOut({
-          total,
-          sessions: items.slice(0, limit ?? 20),
-          ...(titleSearch ? { titleSearch } : {}),
-        }, sessionListOut)
-      } catch (e) {
-        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
-      }
-    },
-  )
+
 
   // 会话纪要(只读): 默认只给对话消息(user + assistant), 工具调用过程是 opt-in 噪音;
   // 长文本按角色截断省上下文

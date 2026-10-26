@@ -121,7 +121,7 @@ try {
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
     'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
     'session_cancel', 'session_queue', 'session_command', 'session_select_model',
-    'session_rename', 'session_list', 'session_meta', 'session_overview', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
+    'session_rename', 'session_list', 'session_meta', 'session_overview', 'session_history', 'session_search', 'session_fork',
     'session_archive', 'session_unarchive',
     'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list',
     'attachment_read', 'bridge_describe', 'bridge_call']
@@ -322,8 +322,8 @@ try {
         const archived = await callTool(sid, 35, 'session_archive', { sessionId, stopActivity: true })
         report('session_archive 归档测试会话', archived.inner?.archived === true || archived.inner?.error === undefined,
           String(archived.inner?.error ?? '').slice(0, 120))
-        const archiveList = await callTool(sid, 36, 'session_archive_list', {})
-        report('session_archive_list 列出刚归档的会话', Array.isArray(archiveList.inner?.sessions)
+        const archiveList = await callTool(sid, 36, 'session_list', { scope: 'archived' })
+        report('session_list(scope=archived) 列出刚归档的会话', Array.isArray(archiveList.inner?.sessions)
           && archiveList.inner.sessions.some((s: any) => s.sessionId === sessionId && s.archived === true),
           `total=${archiveList.inner?.total ?? '?'}`)
         const unarchived = await callTool(sid, 37, 'session_unarchive', { sessionId })
