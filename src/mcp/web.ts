@@ -185,8 +185,6 @@ const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 const GUI_NUMBER_MAX: Record<string, number> = { port: 65535 }
 /** defaultDetail 合法枚举(与 config.ts schema 一致) */
 const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
-/** approvalControl 合法枚举(与 config.ts schema 一致) */
-const GUI_APPROVAL_VALUES = new Set(['off', 'fallback', 'exclusive'])
 /** 字符串数组字段(Host 头白名单) */
 const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
 /**
@@ -238,11 +236,6 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
     } else if (key === 'defaultDetail') {
       if (typeof value !== 'string' || !GUI_DETAIL_VALUES.has(value)) {
         throw httpError(400, 'defaultDetail 必须是 summary/normal/full 之一')
-      }
-      out[key] = value
-    } else if (key === 'approvalControl') {
-      if (typeof value !== 'string' || !GUI_APPROVAL_VALUES.has(value)) {
-        throw httpError(400, 'approvalControl 必须是 off/fallback/exclusive 之一')
       }
       out[key] = value
     } else if (GUI_STRING_ARRAY_FIELDS.has(key)) {

@@ -19,7 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from '../core/state.js'
-import type { ModelSelection, ModelSelectionOverride, SessionRecord, SessionRequestRecord, SessionTurnResult } from '../core/types.js'
+import type { ModelSelection, ModelSelectionOverride, PendingInput, SessionRecord, SessionRequestRecord, SessionTurnResult } from '../core/types.js'
 import { canonicalCwd, canonicalWorkdir } from '../core/paths.js'
 import { admitImages, type ImageBlockView, type ImageRefInput } from '../host/attachments.js'
 import { recordRequest, requestOf } from './requests.js'
@@ -347,6 +347,42 @@ async function awaitIdleOrAbort(pending: Promise<void>, signal?: AbortSignal): P
   })
 }
 
+/** prompt 等待的三种收敛: turn 结束 / 会话开始等输入 / 调用方取消等待 */
+type PromptWait =
+  | { kind: 'idle' }
+  | { kind: 'input'; input: PendingInput }
+  | { kind: 'aborted' }
+
+/**
+ * 同时等 "turn 结束" 与 "会话开始等输入"。
+ * 输入先到就把控制权还给调用方(turn 继续等), 不 cancel、不跳过问题;
+ * idle 先到则取消输入 waiter, 回到普通结果路径。
+ */
+async function awaitIdleOrInput(
+  idle: Promise<void>,
+  input: Promise<PendingInput | undefined> | undefined,
+  signal?: AbortSignal,
+): Promise<PromptWait> {
+  if (signal?.aborted === true) return { kind: 'aborted' }
+  return await new Promise<PromptWait>((resolve) => {
+    let settled = false
+    const finish = (outcome: PromptWait): void => {
+      if (settled) return
+      settled = true
+      signal?.removeEventListener('abort', onAbort)
+      resolve(outcome)
+    }
+    const onAbort = (): void => finish({ kind: 'aborted' })
+    signal?.addEventListener('abort', onAbort, { once: true })
+    idle.then(() => finish({ kind: 'idle' }), () => finish({ kind: 'idle' }))
+    if (input !== undefined) {
+      input.then((value) => {
+        if (value !== undefined) finish({ kind: 'input', input: value })
+      }, () => {})
+    }
+  })
+}
+
 /** submit/prompt 的公共输入 */
 export interface SubmitOptions {
   ctx: Context
@@ -474,6 +510,11 @@ export interface PromptOptions {
   attachments?: readonly ImageRefInput[]
   /** 调用方自带的幂等键; 响应丢失时可用它调 session_result 取回结果 */
   requestId?: string
+  /**
+   * 等到什么为止(默认 input): input = 会话开始等待审批/问题时提前返回, 把控制权
+   * 交给调用方回答(turn 继续等); turn = 一直等到 turn 结束。
+   */
+  waitFor?: 'turn' | 'input'
   /** MCP 客户端取消等待(只停止等待, 不停止 turn; 停 turn 用 session_cancel) */
   signal?: AbortSignal
 }
@@ -493,10 +534,24 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
   const activityTimer = setInterval(() => {
     try { state.hooks.notifySessionActivity(sessionId) } catch { /* 忽略单次失败 */ }
   }, 1000)
+  const useInputWait = (opts.waitFor ?? 'input') === 'input' && state.answers.available
+  const inputLifetime = new AbortController()
   let aborted = false
+  let input: PendingInput | undefined
   try {
-    aborted = await awaitIdleOrAbort(handle.agent.whenIdle(), signal)
+    if (useInputWait) {
+      const outcome = await awaitIdleOrInput(
+        handle.agent.whenIdle(),
+        state.answers.waitForInput(sessionId, inputLifetime.signal),
+        signal,
+      )
+      if (outcome.kind === 'aborted') aborted = true
+      else if (outcome.kind === 'input') input = outcome.input
+    } else {
+      aborted = await awaitIdleOrAbort(handle.agent.whenIdle(), signal)
+    }
   } finally {
+    inputLifetime.abort()
     clearInterval(activityTimer)
     state.hooks.notifySessionActivity(sessionId)
     state.hooks.notifySessionHistory(sessionId)
@@ -518,6 +573,12 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
   })
   // 客户端放弃等待且 turn 仍未收敛: 标记 pending(不能伪造 error)
   if (aborted && range.end === undefined) result.pending = true
+  // 会话开始等待调用方回答: 提前返回, turn 仍原样运行(没有 cancel / 没有跳过)
+  if (input !== undefined && range.end === undefined) {
+    result.pending = true
+    result.status = 'running'
+    result.waiting = input
+  }
 
   // 持久化同步: 尽力 flush(官方 whenIdle 注释: 消费者自读存储需自行 flush;
   // 不 flush 的话 durable log 只有 header, 进程重启后的续接会丢历史)。失败不阻断结果返回。

@@ -7,7 +7,7 @@
  * 本插件持有的 sessionRecords 只起"记住创建参数"的作用, 生命周期归宿主 registry。
  */
 import { DEFAULTS, type RuntimeConfig } from './config.js'
-import type { ApprovalRuntime, SessionRecord, SessionRequestRecord } from './types.js'
+import type { AnswerRuntime, SessionRecord, SessionRequestRecord } from './types.js'
 
 /**
  * apply 绑定的通知钩子(缺省 no-op, 使数据层/引擎在无 MCP 面的部署形态下零通知开销)。
@@ -40,9 +40,23 @@ interface RuntimeState {
    * 只缓存"折叠标题"这一件事, 不缓存事件体——冷搜索的开销就是读日志, 这里让它每个会话只付一次。
    */
   coldTitles: Map<string, { title: string | undefined; at: number }>
-  /** 审批接管运行时(apply 装配; 缺省 off + no-op) */
-  approvals: ApprovalRuntime
+  /** 远程回答运行时(apply 装配; 宿主无 gateway answer-client seam 时 available=false) */
+  answers: AnswerRuntime
   hooks: StateHooks
+}
+
+/** 未安装远程 answer client 时的只读运行时(回答明确失败, 查询为空) */
+const UNAVAILABLE_ANSWERS: AnswerRuntime = {
+  available: false,
+  listApprovals: () => [],
+  listQuestions: () => [],
+  findApproval: () => undefined,
+  findQuestion: () => undefined,
+  pendingInput: () => ({ approvals: [], questions: [] }),
+  waitForInput: () => new Promise(() => {}),
+  answerApproval: async () => ({ ok: false, error: 'the plugin is not acting as a Web answer client in this host' }),
+  answerQuestion: async () => ({ ok: false, error: 'the plugin is not acting as a Web answer client in this host' }),
+  dispose: () => {},
 }
 
 export const state: RuntimeState = {
@@ -51,12 +65,7 @@ export const state: RuntimeState = {
   sessionRequests: new Map(),
   latestRequestBySession: new Map(),
   coldTitles: new Map(),
-  approvals: {
-    mode: 'off',
-    list: () => [],
-    isAnswerable: () => false,
-    answer: () => ({ ok: false, error: 'approval control is not installed (plugin config approvalControl=off)' }),
-  },
+  answers: UNAVAILABLE_ANSWERS,
   hooks: {
     notifySessionActivity: () => {},
     notifySessionHistory: () => {},

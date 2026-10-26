@@ -21,10 +21,11 @@ import {
   findRequestTurn,
   lastAssistantTextOf,
   lastTurnOf,
-  pendingApprovalsOf,
   queuedCountOf,
   selectionOfEvents,
 } from './turn.js'
+import { approvalEntriesFor } from './approvals.js'
+import { questionEntriesFor } from './questions.js'
 import { renderResult } from './projection.js'
 import type { DetailLevel, ModelSelection } from '../core/types.js'
 
@@ -61,17 +62,19 @@ async function pollOne(
     | undefined
   if (live !== undefined) {
     const events = eventsOf(live.session)
-    const approvals = pendingApprovalsOf(events).map((approval) => ({
-      ...approval,
-      answerable: state.approvals.isAnswerable(sessionId, approval.requestId, approval.callId),
-    }))
+    const approvals = approvalEntriesFor(sessionId, events)
+    const questions = questionEntriesFor(sessionId, events, true)
     const lastTurn = lastTurnOf(events)
     const queued = queuedCountOf(live)
     const lastMessage = lastAssistantTextOf(events)
     const header = live.session.header
     return {
       sessionId,
-      state: approvals.length > 0 ? 'waiting-approval' : live.status === 'running' ? 'running' : 'idle',
+      state: approvals.length > 0
+        ? 'waiting-approval'
+        : questions.length > 0
+          ? 'waiting-question'
+          : live.status === 'running' ? 'running' : 'idle',
       ...(header.cwd !== undefined ? { cwd: header.cwd } : {}),
       ...(header.agentPreset !== undefined ? { preset: header.agentPreset } : {}),
       ...(header.parentSession !== undefined ? { parentSession: String(header.parentSession) } : {}),
@@ -80,6 +83,7 @@ async function pollOne(
       cursor: events.length,
       ...(lastTurn !== undefined ? { lastTurn } : {}),
       ...(approvals.length > 0 ? { pendingApprovals: approvals } : {}),
+      ...(questions.length > 0 ? { pendingQuestions: questions } : {}),
       ...(queued !== undefined ? { queued } : {}),
       ...(lastMessage !== '' ? { lastMessage: clipText(lastMessage, DETAIL_TEXT_CAP[detail]) } : {}),
     }
@@ -111,6 +115,7 @@ function fingerprintOf(sessions: Record<string, unknown>[]): string {
     String(s.queued ?? ''),
     JSON.stringify(s.lastTurn ?? null),
     JSON.stringify(s.pendingApprovals ?? null),
+    JSON.stringify(s.pendingQuestions ?? null),
   ].join('\u0000')).join('\u0001')
 }
 
@@ -227,7 +232,14 @@ export async function sessionResult(
     submittedAt: record.submittedAt,
   })
   const rendered = renderResult(result, opts.detail ?? 'summary')
-  return result.pending === true
-    ? { ...rendered, note: 'turn is still running; poll again or call session_cancel to stop it' }
-    : rendered
+  if (result.pending !== true) return rendered
+  const waiting = state.answers.pendingInput(sessionId)
+  const hasWaiting = waiting.approvals.length > 0 || waiting.questions.length > 0
+  return {
+    ...rendered,
+    ...(hasWaiting ? { waiting } : {}),
+    note: hasWaiting
+      ? 'the session is waiting for input; answer with approval_answer/question_answer, then fetch the result again'
+      : 'turn is still running; poll again or call session_cancel to stop it',
+  }
 }

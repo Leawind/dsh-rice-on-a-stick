@@ -104,24 +104,27 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_prompt',
     {
       title: 'Prompt session',
-      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). `mode` mirrors the UI\'s busy-send behavior (see the mode argument). Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
+      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). `mode` mirrors the UI\'s busy-send behavior (see the mode argument). With the default `waitFor: "input"`, the call returns early with `pending=true` and `waiting.approvals` / `waiting.questions` when the session starts waiting for an approval or a question: the turn keeps running, nothing is cancelled or skipped, and you answer with `approval_answer` / `question_answer` before fetching the final result via `session_result`. Set `waitFor: "turn"` to block until the turn ends regardless. Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
         mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
+        waitFor: z.enum(['turn', 'input']).optional().describe('What to wait for (default input): input = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: uri = reference only (the resource points at the session history; read or subscribe to it); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, attachments, mode, requestId, detail }, extra) => {
+    async ({ sessionId, task, attachments, mode, waitFor, requestId, detail }, extra) => {
       try {
-        const result = await promptSession({ ctx, sessionId, task, mode, attachments, requestId, signal: extra.signal })
+        const result = await promptSession({ ctx, sessionId, task, mode, waitFor, attachments, requestId, signal: extra.signal })
         const effDetail = detail ?? (resourceFirst ? 'uri' : state.config.defaultDetail)
-        const pendingNote = result.pending === true
-          ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
-          : undefined
+        const pendingNote = result.waiting !== undefined
+          ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
+          : result.pending === true
+            ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
+            : undefined
         if (effDetail === 'uri') {
           const uri = renderUriResult(result, resUri.sessionHistory(sessionId))
           const rendered = pendingNote !== undefined
@@ -177,7 +180,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     'session_poll',
     {
       title: 'Poll sessions',
-      description: 'Observe session state in bulk (the async control plane\'s wait primitive): pass multiple `sessionIds` and get each session\'s `state` (idle/running/waiting-approval/inactive/not-found), `lastTurn`, `queued`, `pendingApprovals`, `cursor`, and the last assistant message. With `waitMs` > 0 it waits up to 30s and returns when any watched session changes (`changed=true`), or times out (`timedOut=true` + `retryAfterMs`); call again as needed. Read-only: it does not advance a turn and does not rely on server push.',
+      description: 'Observe session state in bulk (the async control plane\'s wait primitive): pass multiple `sessionIds` and get each session\'s `state` (idle/running/waiting-approval/waiting-question/inactive/not-found), `lastTurn`, `queued`, `pendingApprovals`, `pendingQuestions`, `cursor`, and the last assistant message. With `waitMs` > 0 it waits up to 30s and returns when any watched session changes (`changed=true`), or times out (`timedOut=true` + `retryAfterMs`); call again as needed. Read-only: it does not advance a turn and does not rely on server push.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to observe (1-20).'),
         waitMs: z.number().int().min(0).max(POLL_MAX_WAIT_MS).optional().describe(`Maximum wait in milliseconds (0-${POLL_MAX_WAIT_MS}; default 0 = return immediately).`),

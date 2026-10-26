@@ -1,5 +1,5 @@
 /**
- * MCP 工具注册入口(34 个 = 会话中心 14 + 异步控制面 3 + 审批控制面 3 + 子代理发现 1
+ * MCP 工具注册入口(36 个 = 会话中心 14 + 异步控制面 3 + 审批/问题控制面 5 + 子代理发现 1
  * + 目录/状态 8(含 echo 与权限预设) + 归档清单/恢复 2 + 附件取回 1 + 通用桥 2; resourceFirst 部署
  * 形态下只读面下线, 数据走 resources 面, 但控制面工具必须保留)。
  *
@@ -12,6 +12,7 @@
  *   session-read.ts    session_list / session_archive_list / session_meta / session_overview /
  *                      session_history / session_search(resourceFirst 下下线)
  *   approval.ts        approval_list / approval_answer / approval_policy
+ *   question.ts        question_list / question_answer
  *   bridge.ts          bridge_describe / bridge_call(通用桥读面, 恒注册)
  *
  * 数据与资源面同源(host/data.ts): 同 collectSessions/sessionHistoryPayload 等实现、同一数据边界。
@@ -30,6 +31,7 @@ import type { ToolDeps } from '../../host/data.js'
 import { registerApprovalTools } from './approval.js'
 import { registerBridgeTools } from './bridge.js'
 import { registerCatalogTools } from './catalog.js'
+import { registerQuestionTools } from './question.js'
 import { registerSessionActionTools } from './session-actions.js'
 import { registerSessionReadTools } from './session-read.js'
 
@@ -82,6 +84,7 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, opt
   registerCatalogTools(branded, ctx, deps, resourceFirst)
   registerSessionActionTools(branded, ctx, resourceFirst)
   registerApprovalTools(branded, ctx)
+  registerQuestionTools(branded, ctx)
   registerSessionReadTools(branded, ctx, resourceFirst)
   registerBridgeTools(branded, ctx)
   return handles

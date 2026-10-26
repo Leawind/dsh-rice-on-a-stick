@@ -77,7 +77,6 @@ interface DshModuleSpec {
   // status 缺字段时的兜底默认(必须与 src/core/config.ts 的 DEFAULTS 一致; 正常情况服务端总会给值)
   const DEFAULT_APPROVAL_TIMEOUT_MS = 120000;
   const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const APPROVAL_MODES = ['off', 'fallback', 'exclusive'];
 
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
   // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回显。
@@ -98,7 +97,6 @@ interface DshModuleSpec {
       httpOn: c.http !== false,
       // 默认工具优先(false): 只认 tools 的客户端零行为变化, 资源优先需显式开启
       resourceFirst: c.resourceFirst === true,
-      approvalControl: APPROVAL_MODES.indexOf(c.approvalControl) >= 0 ? c.approvalControl : 'exclusive',
       approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS,
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
@@ -229,13 +227,8 @@ interface DshModuleSpec {
       'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
       'resource.title': '资源优先形态',
       'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取',
-      'approval.title': '审批由谁回答',
-      'approval.hint': '仅作用于本插件创建或续接的会话；选“只由调用方回答”时界面不再显示该审批',
-      'approval.off': '只展示，不接管',
-      'approval.fallback': '界面优先，其次调用方',
-      'approval.exclusive': '只由调用方回答',
-      'approvalTimeout.title': '审批等待上限',
-      'approvalTimeout.hint': '毫秒，0 表示不限时；其余取 1000-600000，超时按失败关闭处理',
+      'approvalTimeout.title': '桥写审批等待上限',
+      'approvalTimeout.hint': '仅作用于通用桥的写审批；毫秒，0 表示不限时，其余取 1000-600000，超时按失败关闭处理',
       'approvalTimeout.invalid': '等待上限须为 0（不限时）或 1000-600000 之间的数字。',
       'ttl.title': 'MCP 传输会话空闲上限',
       'ttl.hint': '毫秒，0 表示永不淘汰',
@@ -270,7 +263,7 @@ interface DshModuleSpec {
       'bridgeApproval.fail': '应答失败：{e}',
       'listen.title': '监听地址与端口',
       'footnote': '开关与监听地址/端口保存后会重建监听，已连接的 MCP 客户端需要重新连接；页面其余各项立即生效，连接不断。',
-      'footnote.approval': '以上两项立即生效；切换“审批由谁回答”会结清正在等待的审批。',
+      'footnote.approval': '桥写审批等待上限立即生效；会话审批由宿主 answer client 链回答，不受此项影响。',
       'listen.hostRequired': '监听地址不能为空。',
       'listen.portInvalid': '端口必须是 1-65535 的整数。',
       'copy': '复制',
@@ -337,13 +330,8 @@ interface DshModuleSpec {
       'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
       'resource.title': 'Resource-first mode',
       'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources.',
-      'approval.title': 'Who answers approvals',
-      'approval.hint': 'Only for sessions this plugin created or resumed; "Caller only" hides the request from the UI.',
-      'approval.off': 'Display only',
-      'approval.fallback': 'UI first, then caller',
-      'approval.exclusive': 'Caller only',
-      'approvalTimeout.title': 'Approval wait limit',
-      'approvalTimeout.hint': 'Milliseconds; 0 = wait indefinitely; otherwise 1000-600000. Timeouts fail closed.',
+      'approvalTimeout.title': 'Bridge write approval wait limit',
+      'approvalTimeout.hint': 'Only for generic-bridge write approvals; milliseconds, 0 = wait indefinitely, otherwise 1000-600000. Timeouts fail closed.',
       'approvalTimeout.invalid': 'The wait limit must be 0 (unlimited) or a number between 1000 and 600000.',
       'ttl.title': 'MCP transport idle TTL',
       'ttl.hint': 'Milliseconds, 0 = never reap.',
@@ -377,7 +365,7 @@ interface DshModuleSpec {
       'bridgeApproval.reject': 'Reject',
       'bridgeApproval.fail': 'Answer failed: {e}',
       'footnote': 'Toggling the service or saving the listen address/port rebuilds the listener, so connected MCP clients must reconnect; every other setting on this page applies immediately without dropping connections.',
-      'footnote.approval': 'Both apply immediately; switching "Who answers approvals" settles approvals that are already waiting.',
+      'footnote.approval': 'The bridge write wait limit applies immediately; session approvals go through the host answer-client chain and are unaffected.',
       'listen.title': 'Listen address and port',
       'listen.hostRequired': 'Listen address must not be empty.',
       'listen.portInvalid': 'Port must be an integer between 1 and 65535.',
@@ -1745,21 +1733,9 @@ interface DshModuleSpec {
             React.createElement('option', { value: 'full' }, t('detail.full'))),
         }),
         ),
-        // ── 审批 ──
+        // ── 审批桥写 ──
         groupHead(t('tab.approvals')),
         React.createElement('div', { className: 'dcs-form' },
-        React.createElement(Row, {
-          label: t('approval.title'),
-          hint: t('approval.hint'),
-          control: React.createElement('select', {
-            className: 'dcs-input',
-            value: d.approvalControl,
-            onChange: function (e) { changeHot({ approvalControl: e.target.value }, { approvalControl: e.target.value }); },
-          },
-            React.createElement('option', { value: 'off' }, t('approval.off')),
-            React.createElement('option', { value: 'fallback' }, t('approval.fallback')),
-            React.createElement('option', { value: 'exclusive' }, t('approval.exclusive'))),
-        }),
         React.createElement(Row, {
           label: t('approvalTimeout.title'),
           hint: t('approvalTimeout.hint'),

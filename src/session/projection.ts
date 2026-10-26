@@ -111,6 +111,7 @@ export function renderResult(result: SessionTurnResult, detail: DetailLevel): Re
     ...(result.status !== undefined ? { status: result.status } : {}),
     ...(result.turn !== undefined ? { turn: result.turn } : {}),
     ...(result.pending === true ? { pending: true } : {}),
+    ...(result.waiting !== undefined ? { waiting: result.waiting } : {}),
     model: projectModel(result.model),
     ...(result.preset ? { preset: result.preset } : {}),
     durationMs: result.durationMs,

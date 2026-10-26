@@ -1,7 +1,7 @@
 /**
  * dsh-rice-on-a-stick — 在 Harness 内部启动 MCP server, 把 dsh 的操作能力暴露给任意 MCP 客户端。
  *
- * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置与订阅枢纽、审批桥、
+ * 本模块只做装配: 插件导出(name/inject/apply)、运行时配置与订阅枢纽、远程回答客户端、
  * 原生工具开关、状态快照, 以及把 HTTP 传输层与 GUI 控制面挂到宿主生命周期上。
  *
  * 模块布局(职责单一, 依赖自上而下无环):
@@ -15,7 +15,7 @@
  *
  * 配置: 全部字段都是 Loader 的 volatile 引用——面板改配置不重载插件。三个监听级字段
  * (http / host / port)由本模块自己重建 HTTP 监听器: 已连接的 MCP 客户端会断开重连,
- * 但资源订阅、审批桥、原生工具与会话记录都不受影响(不重跑 apply)。
+ * 但资源订阅、远程回答客户端、原生工具与会话记录都不受影响(不重跑 apply)。
  *
  * 安全: 默认仅监听本机; Bearer 常时比较; Host/Origin 白名单防 DNS rebinding; 10MB 体上限。
  * 暴露公网前必须加反代 + TLS + 认证(README「安全」)。
@@ -29,7 +29,7 @@ import { disposeBridgePeer, resetBridgePending } from './host/typert-bridge.js'
 import { endpointOf, createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
 import { createNotifyHub } from './mcp/notify.js'
 import { registerWebRoutes } from './mcp/web.js'
-import { installApprovalBridge, NOOP_APPROVAL_RUNTIME } from './session/approvals.js'
+import { createUnavailableAnswerRuntime, installRemoteAnswerClient } from './session/answers.js'
 import { installSelfTools, type SelfToolsController } from './session/self-tools.js'
 
 /** Cordis 插件名 */
@@ -115,11 +115,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }, 1000)
   sessionWatcher.unref?.()
 
-  // 审批接管: 默认 off(只读展示)。fallback/exclusive 才扣住; 模式与超时每次事件现读运行时视图,
-  // 面板改 approvalControl/approvalTimeoutMs 立即生效(切到 off 时在途审批按 cancelled 收敛)。
-  // 只接管 state.sessionRecords 里的会话, 不劫持界面手开会话。
-  const approvalBridge = installApprovalBridge({ ctx })
-  state.approvals = approvalBridge.bridge.runtime
+  // 远程回答客户端: 本插件冒充一个普通 Web answer client, 接住 forwarded 的
+  // approval/request 与 user-questions/request; 原生卡片保持可见, 人和 agent 先答者赢。
+  // 宿主没有 gateway 的 answer-client seam 时降级为只读(工具查询为空, 回答明确报不可用)。
+  const answerClient = installRemoteAnswerClient(ctx)
+  state.answers = answerClient.runtime
 
   const startedAt = Date.now()
 
@@ -148,7 +148,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         selfToolsEnabled: state.config.selfToolsEnabled,
         resourceFirst: state.config.resourceFirst,
         sessionTtlMs: state.config.sessionTtlMs,
-        approvalControl: state.config.approvalControl,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
         bridgeEndpointAllowlist: state.config.bridgeEndpointAllowlist,
       },
@@ -158,6 +157,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         subscriptions: hub.stats(),
         // 本实例自用工具: 已注册的原生工具数(关闭时为 0)
         selfTools: selfToolsController?.names().length ?? 0,
+        // 远程 answer client 是否可用(宿主 gateway seam 缺席时为 false)
+        answerClient: state.answers.available,
       },
       // 最新连接在前(HTTP 传输层负责排序, 面板与 status/connections 资源共用此序)
       connections: httpServer?.connections() ?? [],
@@ -165,7 +166,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
 
   // ── 监听器控制: 唯一的"重启"粒度 ──
-  // 只有 http/host/port 三个监听级字段变化才重建 HTTP server; 资源订阅、审批桥、原生工具、
+  // 只有 http/host/port 三个监听级字段变化才重建 HTTP server; 资源订阅、远程回答客户端、原生工具、
   // 状态快照都不动, 更不重跑 apply。重建按顺序串行: 面板连续点击不会并发 bind 同一个端口。
   const stopListener = (): void => {
     httpServer?.dispose()
@@ -226,7 +227,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       if (keys.some((key) => key === 'http' || key === 'host' || key === 'port')) void requestListenerSync()
       if (keys.includes('resourceFirst')) httpServer?.syncResourceFirst()
       if (keys.includes('sessionTtlMs')) httpServer?.syncSessionTtl()
-      if (keys.includes('approvalControl')) approvalBridge.bridge.sync()
     })
     return () => { off() }
   }, `${PLUGIN_NAME}: volatile config`)
@@ -242,7 +242,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
   })
 
-  // 卸载时清空会话记录/订阅枢纽/审批桥, 并关闭 HTTP server 与其传输会话
+  // 卸载时清空会话记录/订阅枢纽/远程回答客户端, 并关闭 HTTP server 与其传输会话
   ctx.effect(() => {
     return () => {
       clearInterval(sessionWatcher)
@@ -250,8 +250,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       state.sessionRequests.clear()
       state.latestRequestBySession.clear()
       state.coldTitles.clear()
-      state.approvals = NOOP_APPROVAL_RUNTIME
-      approvalBridge.dispose()
+      answerClient.dispose()
+      state.answers = createUnavailableAnswerRuntime()
       httpServer?.dispose()
       hub.dispose()
       // 通用桥的调用方身份(peer)与在途写审批随插件卸载释放(在途审批全部失败关闭)

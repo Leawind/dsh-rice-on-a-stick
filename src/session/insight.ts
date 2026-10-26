@@ -16,7 +16,9 @@ import {
   serviceOf,
 } from '../host/bridge.js'
 import { knownSelectionOf } from './engine.js'
-import { pendingApprovalsOf, selectionOfEvents } from './turn.js'
+import { selectionOfEvents } from './turn.js'
+import { approvalEntriesFor } from './approvals.js'
+import { questionEntriesFor } from './questions.js'
 import { effectivePermissionOf } from './permissions.js'
 
 /** 事件日志里最新的会话标题(session/title 事件; 冷会话也能折出来) */
@@ -287,10 +289,13 @@ export async function sessionInsightPayload(
     ?? (events !== undefined ? latestTitleOf(events) : undefined)
     ?? session?.title
 
-  const approvals = events !== undefined ? pendingApprovalsOf(events) : []
+  const approvals = events !== undefined ? approvalEntriesFor(sessionId, events) : []
+  const questions = events !== undefined ? questionEntriesFor(sessionId, events, live) : []
   const state = !live
     ? 'inactive'
-    : approvals.length > 0 ? 'waiting-approval' : agent?.status === 'running' ? 'running' : 'idle'
+    : approvals.length > 0
+      ? 'waiting-approval'
+      : questions.length > 0 ? 'waiting-question' : agent?.status === 'running' ? 'running' : 'idle'
 
   const stats = turnStepStatsOf(events ?? [])
   const context = await contextOccupancyOf(ctx, session, events ?? [], model)

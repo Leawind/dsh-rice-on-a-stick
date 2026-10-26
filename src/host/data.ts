@@ -410,8 +410,8 @@ export async function sessionOverviewPayload(
   }
   if (want('state')) {
     result.state = insight.state
-    // "是否在进行中" = 打开中的 turn(running / waiting-approval); inactive 会话残留的未闭合 turn 不算
-    result.inProgress = insight.state === 'running' || insight.state === 'waiting-approval'
+    // "是否在进行中" = 打开中的 turn(running / waiting-approval / waiting-question); inactive 会话残留的未闭合 turn 不算
+    result.inProgress = insight.state === 'running' || insight.state === 'waiting-approval' || insight.state === 'waiting-question'
   }
   if (want('recent')) result.recent = recentOverviewOf(source.events ?? [], limit)
   return result
@@ -485,6 +485,8 @@ export async function activityPayload(ctx: Context, sessionId: string): Promise<
       if (text.trim()) assistantTail = text.slice(-400)
     }
   }
+  const approvals = state.answers.listApprovals(sessionId)
+  const questions = state.answers.listQuestions(sessionId)
   return {
     sessionId,
     active: turnStarts > turnEnds,
@@ -493,6 +495,8 @@ export async function activityPayload(ctx: Context, sessionId: string): Promise<
     ...(lastTool ? { lastTool } : {}),
     ...(lastEventTime !== undefined ? { lastEventTime } : {}),
     ...(assistantTail !== undefined ? { assistantTail } : {}),
+    ...(approvals.length > 0 ? { pendingApprovals: approvals.length } : {}),
+    ...(questions.length > 0 ? { pendingQuestions: questions.length } : {}),
   }
 }
 

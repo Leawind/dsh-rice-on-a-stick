@@ -1,7 +1,7 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 34 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(精确 36 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
@@ -32,7 +32,8 @@ import { ageBridgeWriteApprovalsForTest, answerBridgeWriteApproval, invokeOnBrid
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
 import { parseSummary } from '../lib/session/projection.js'
-import { approvalPolicyOfEvents, createApprovalBridge } from '../lib/session/approvals.js'
+import { approvalPolicyOfEvents } from '../lib/session/approvals.js'
+import { createAnswerRuntime } from '../lib/session/answers.js'
 import { state } from '../lib/core/state.js'
 import { pendingApprovalsOf } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
@@ -94,7 +95,7 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 34 个(rice_ 前缀)'] = nativeSchemas.length === 34
+  checks['原生自用工具: 默认注册全部 36 个(rice_ 前缀)'] = nativeSchemas.length === 36
     && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_session_archive_list', 'rice_permission_list', 'rice_session_set_permission', 'rice_session_overview']
       .every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
@@ -110,7 +111,7 @@ try {
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 34
+    && nativeStatusJson.stats?.selfTools === 36
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -161,8 +162,8 @@ try {
     'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_set_permission', 'session_list', 'session_meta', 'session_overview',
     'session_history', 'attachment_read', 'bridge_describe', 'bridge_call',
     'session_search', 'session_fork', 'session_archive', 'session_unarchive', 'session_archive_list',
-    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list', 'permission_list']
-  checks['tools/list: 精确 34 个工具(会话中心 + 异步/审批/子代理/归档/附件/权限/通用桥面)'] = toolNames.length === 34
+    'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list', 'permission_list']
+  checks['tools/list: 精确 36 个工具(会话中心 + 异步/审批/问题/子代理/归档/附件/权限/通用桥面)'] = toolNames.length === 36
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -1124,10 +1125,10 @@ try {
     const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_archive_list', 'session_meta', 'session_overview', 'session_history', 'session_search']
     const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
       'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
-      'approval_list', 'approval_answer', 'approval_policy', 'permission_list', 'session_set_permission', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
+      'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'permission_list', 'session_set_permission', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
     checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 34 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 34
+    checks['原生自用工具: resourceFirst 不影响原生 36 个'] = resourceCtx.tools.schemas()
+      .filter((s: any) => String(s.name).startsWith('rice_')).length === 36
     const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
     checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
       && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
@@ -1135,23 +1136,36 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase G2: 审批控制面(独立端口独立 ctx; exclusive 才会扣住) ──
+  // ── Phase G2: 远程回答面(审批/问题都是 forwarded answer client; 原生 UI 保留) ──
   {
     const approvalCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
-    // 插件只接管 state.sessionRecords 里的会话; 测试里显式登记(真实路径: session_create / 首次 prompt)
+    // 插件只记录 state.sessionRecords 里的会话; 测试里显式登记(真实路径: session_create / 首次 prompt)
     state.sessionRecords.set('sess-approval', {
       sessionId: 'sess-approval' as any,
       cwd: FAKE_CWD,
       selection: { provider: 'p1', model: 'm1' },
       preset: 'standard',
     })
-    const phase = await startPhase(8094, approvalCtx, { approvalControl: 'exclusive', approvalTimeoutMs: 5000 })
+    const phase = await startPhase(8094, approvalCtx, { approvalTimeoutMs: 5000 })
     approvalAgent.__events.length = 0
+
+    // 用测试 runtime 替换真实 gateway 安装: 记录 answer, 不碰网络。
+    // 真实 gateway 的 createPeer/openRemoteEvents/$events/result 链由 dev e2e 验证。
+    const sends: { eventId: string; value: unknown }[] = []
+    const runtime = createAnswerRuntime({
+      send: async (eventId, value) => {
+        sends.push({ eventId, value })
+        return { ok: true }
+      },
+      managed: () => true,
+      now: () => 1_700_000_000_000,
+    })
+    state.answers = runtime
+
     const empty = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
-    checks['approval_list: 初始无审批'] = innerOf(empty).control === 'exclusive'
-      && innerOf(empty).sessions?.[0]?.approvals?.length === 0
-    const notHeld = await phase.call('approval_answer', { sessionId: 'sess-approval', approvalId: 'nope', decision: 'allow' })
-    checks['approval_answer: 未扣住的审批明确报错'] = String(innerOf(notHeld).error ?? '').includes('no held approval')
+    checks['approval_list: 初始无审批'] = innerOf(empty).sessions?.[0]?.approvals?.length === 0
+    const notHeld = await phase.call('approval_answer', { sessionId: 'sess-approval', eventId: 'nope', decision: 'allow' })
+    checks['approval_answer: 未持有的审批明确报错'] = String(innerOf(notHeld).error ?? '').includes('no pending approval')
 
     // 真实宿主的顺序: ApprovalService 先写 approval/asked, 再 dispatch waterfall
     approvalAgent.__events.push({
@@ -1159,28 +1173,85 @@ try {
       data: { id: 'ap-1', toolName: 'pwsh', callId: 'call-1', reason: 'workspace write' },
       time: Date.now(),
     })
-    const fired = approvalCtx.__fireApproval({
-      agent: approvalAgent,
-      toolName: 'pwsh',
-      callId: 'call-1',
-      reason: 'workspace write',
+    runtime.applyFrame({
+      type: 'waterfall',
+      event: 'approval/request',
+      eventId: 'ev-1',
+      agentId: 'sess-approval',
+      request: { toolName: 'pwsh', callId: 'call-1', reason: 'workspace write' },
     })
-    await new Promise((r) => setTimeout(r, 30))
     const list = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
     const held = innerOf(list).sessions?.[0]?.approvals?.[0]
-    checks['approval_list: 扣住后 answerable=true'] = held?.approvalId === 'ap-1' && held?.answerable === true
-      && held?.callId === 'call-1' && held?.toolName === 'pwsh'
+    checks['approval_list: 持有后 answerable=true'] = held?.eventId === 'ev-1' && held?.approvalId === 'ap-1'
+      && held?.answerable === true && held?.callId === 'call-1' && held?.toolName === 'pwsh'
     const pollHeld = await phase.call('session_poll', { sessionIds: ['sess-approval'], waitMs: 0 })
-    checks['session_poll: pendingApprovals 带 answerable'] = pollHeld.status === 200
+    checks['session_poll: pendingApprovals 带 answerable/eventId'] = pollHeld.status === 200
+      && innerOf(pollHeld).sessions?.[0]?.state === 'waiting-approval'
       && innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.answerable === true
+      && innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.eventId === 'ev-1'
     const answer = await phase.call('approval_answer', { sessionId: 'sess-approval', callId: 'call-1', decision: 'reject' })
-    checks['approval_answer: 按 callId 拒绝'] = innerOf(answer).ok === true
+    checks['approval_answer: 按 callId 拒绝并经 $events/result 发送'] = innerOf(answer).ok === true
       && innerOf(answer).outcome === 'rejected'
-    const outcome = await fired
-    approvalAgent.__events.push({ type: 'approval/decided', data: { id: 'ap-1', outcome } })
-    checks['approval/request waterfall: 回答传回宿主'] = outcome === 'rejected'
+      && sends.some((s) => s.eventId === 'ev-1' && s.value === 'rejected')
+    approvalAgent.__events.push({ type: 'approval/decided', data: { id: 'ap-1', outcome: 'rejected' } })
     const cleared = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
     checks['approval_list: 答完 pending 清空'] = innerOf(cleared).sessions?.[0]?.approvals?.length === 0
+
+    // 另一个客户端(浏览器)先答: forwarded cancel 到达后条目消失
+    runtime.applyFrame({
+      type: 'waterfall',
+      event: 'approval/request',
+      eventId: 'ev-2',
+      agentId: 'sess-approval',
+      request: { toolName: 'write', callId: 'call-2' },
+    })
+    checks['approval_list: 第二个审批可见'] = innerOf(await phase.call('approval_list', { sessionIds: ['sess-approval'] }))
+      .sessions?.[0]?.approvals?.some((a: any) => a.eventId === 'ev-2' && a.answerable === true) === true
+    runtime.applyFrame({ type: 'cancel', eventId: 'ev-2' })
+    checks['approval_list: 收到 cancel 后条目消失(别处已答)'] = innerOf(await phase.call('approval_list', { sessionIds: ['sess-approval'] }))
+      .sessions?.[0]?.approvals?.length === 0
+
+    // 问题: 同一条 forwarded 流, 回答值为 { answers }
+    runtime.applyFrame({
+      type: 'waterfall',
+      event: 'user-questions/request',
+      eventId: 'qev-1',
+      agentId: 'sess-approval',
+      request: {
+        questions: [{
+          id: 'q1',
+          question: 'Continue?',
+          header: 'Confirm',
+          options: [{ label: 'yes' }, { label: 'no' }],
+        }],
+        wait: { callId: 'qcall-1' },
+      },
+    })
+    const qlist = await phase.call('question_list', { sessionIds: ['sess-approval'] })
+    const qentry = innerOf(qlist).sessions?.[0]?.questions?.[0]
+    checks['question_list: 持有后 answerable=true'] = qentry?.eventId === 'qev-1' && qentry?.answerable === true
+      && qentry?.callId === 'qcall-1' && qentry?.questions?.[0]?.question === 'Continue?'
+    const qpoll = await phase.call('session_poll', { sessionIds: ['sess-approval'], waitMs: 0 })
+    checks['session_poll: waiting-question + pendingQuestions'] = innerOf(qpoll).sessions?.[0]?.state === 'waiting-question'
+      && innerOf(qpoll).sessions?.[0]?.pendingQuestions?.[0]?.eventId === 'qev-1'
+    const qbad = await phase.call('question_answer', {
+      sessionId: 'sess-approval',
+      eventId: 'qev-1',
+      answers: [{ id: 'q1', selected: ['yes', 'no'] }],
+    })
+    checks['question_answer: 单选多标签被拒, 问题仍持有'] = String(innerOf(qbad).error ?? '').includes('single-select')
+      && innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.questions?.[0]?.answerable === true
+    const qanswer = await phase.call('question_answer', {
+      sessionId: 'sess-approval',
+      eventId: 'qev-1',
+      answers: [{ id: 'q1', selected: ['yes'] }],
+    })
+    checks['question_answer: 回答经 $events/result 发送'] = innerOf(qanswer).ok === true
+      && sends.some((s) => s.eventId === 'qev-1'
+        && Array.isArray((s.value as any)?.answers)
+        && (s.value as any).answers[0]?.selected?.[0] === 'yes')
+    checks['question_list: 答完 pending 清空'] = innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] }))
+      .sessions?.[0]?.questions?.length === 0
 
     const polGet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
     checks['approval_policy: get 返回生效策略'] = innerOf(polGet).live === true && innerOf(polGet).policy === 'ask'
@@ -1361,38 +1432,6 @@ try {
     await ttlPhase.dispose()
   }
   {
-    // H3: approvalControl / approvalTimeoutMs 每次事件现读; 切回 off 结清在途审批
-    const apprCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
-    state.sessionRecords.set('sess-approval', {
-      sessionId: 'sess-approval' as any,
-      cwd: FAKE_CWD,
-      selection: { provider: 'p1', model: 'm1' },
-      preset: 'standard',
-    })
-    const apprPort = await firstBindablePort([8125, 8126])
-    const apprPhase = await startPhase(apprPort, apprCtx, { approvalControl: 'off', approvalTimeoutMs: 0 })
-    approvalAgent.__events.length = 0
-    const offOutcome = await apprCtx.__fireApproval({ agent: approvalAgent, toolName: 'pwsh', callId: 'hot-off' })
-    checks['热改 approvalControl: off 时透传(不扣住)'] = offOutcome === 'unavailable' && state.approvals.list().length === 0
-    pushVolatile(apprPhase, apprCtx, { approvalControl: 'exclusive' })
-    approvalAgent.__events.push({ type: 'approval/asked', data: { id: 'ap-hot', toolName: 'pwsh', callId: 'hot-on' }, time: Date.now() })
-    const heldHot = apprCtx.__fireApproval({ agent: approvalAgent, toolName: 'pwsh', callId: 'hot-on' })
-    await new Promise((r) => setTimeout(r, 30))
-    const parkedHot = state.approvals.list()
-    checks['热改 approvalControl: 切到 exclusive 后立即扣住'] = parkedHot.length === 1 && parkedHot[0].approvalId === 'ap-hot'
-    checks['热改 approvalTimeoutMs: 0 = 不限时(扣住时无 expiresAt)'] = parkedHot[0]?.expiresAt === undefined
-    const answeredHot = await apprPhase.call('approval_answer', { sessionId: 'sess-approval', callId: 'hot-on', decision: 'allow' })
-    checks['热改 approvalControl: 扣住后经 MCP 回答传回宿主'] = innerOf(answeredHot).ok === true && await heldHot === 'allowed-once'
-    approvalAgent.__events.push({ type: 'approval/asked', data: { id: 'ap-hot-2', toolName: 'pwsh', callId: 'hot-off-2' }, time: Date.now() })
-    const heldThenOff = apprCtx.__fireApproval({ agent: approvalAgent, toolName: 'pwsh', callId: 'hot-off-2' })
-    await new Promise((r) => setTimeout(r, 30))
-    const parkedBeforeOff = state.approvals.list().length
-    pushVolatile(apprPhase, apprCtx, { approvalControl: 'off' })
-    checks['热改 approvalControl: 切回 off 结清在途审批(cancelled)'] = parkedBeforeOff === 1
-      && await heldThenOff === 'cancelled' && state.approvals.list().length === 0
-    await apprPhase.dispose()
-  }
-  {
     // H4: resourceFirst 在线切换(已连接会话就地重注册 + 新连接同形态)
     const resCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const resPort = await firstBindablePort([8127, 8128])
@@ -1457,7 +1496,7 @@ try {
     // 面板与 Config 完全对应: status 必须回显每个配置项(令牌只回掩码 hint, 不在此列)
     checks['GUI 路由: status 配置项覆盖面板全部字段'] = [
       'http', 'host', 'port', 'allowedModels', 'allowedModelsEnabled', 'allowedHosts', 'defaultDetail',
-      'authEnabled', 'selfToolsEnabled', 'resourceFirst', 'sessionTtlMs', 'approvalControl', 'approvalTimeoutMs',
+      'authEnabled', 'selfToolsEnabled', 'resourceFirst', 'sessionTtlMs', 'approvalTimeoutMs',
     ].every((k) => k in (stBody.config ?? {}))
     // 连接列表: 最新连接排最前(面板与 status/connections 资源同序)
     await new Promise((r) => setTimeout(r, 5))
@@ -1544,13 +1583,6 @@ try {
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ values }),
     })
-    const before = edits.length
-    const cfgApproval = await guiPut({ approvalControl: 'exclusive' })
-    checks['GUI 路由: approvalControl 写入(就地生效, 不重启)'] = cfgApproval.status === 200
-      && JSON.parse(cfgApproval.body).reloading !== true
-      && edits.length === before + 1 && edits[edits.length - 1].approvalControl === 'exclusive'
-    const cfgApprovalBad = await guiPut({ approvalControl: 'sometimes' })
-    checks['GUI 路由: approvalControl 非法枚举 400'] = cfgApprovalBad.status === 400
     const cfgTimeout = await guiPut({ approvalTimeoutMs: 5000 })
     checks['GUI 路由: approvalTimeoutMs 写入(就地生效, 不重启)'] = cfgTimeout.status === 200
       && JSON.parse(cfgTimeout.body).reloading !== true
@@ -1597,7 +1629,6 @@ try {
       allowedHosts: ['example.com'],
       sessionTtlMs: 0,
       resourceFirst: false,
-      approvalControl: 'off',
       approvalTimeoutMs: 120000,
       bridgeEndpointAllowlist: ['schedule/update'],
     }
@@ -1656,9 +1687,8 @@ try {
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
       && c.selfToolsEnabled.get() === true && c.host.get() === '127.0.0.1' && c.port.get() === 5642
       && c.http.get() === true && c.allowedHosts.get().length === 0
-      && c.approvalControl.get() === 'exclusive' && c.approvalTimeoutMs.get() === 120000
+      && c.approvalTimeoutMs.get() === 120000
       && c.sessionTtlMs.get() === 7 * 24 * 60 * 60 * 1000
-      && c.approvalControl.get() === DEFAULTS.approvalControl
       && !('preset' in c) && !('allowPresetOverride' in c)
   })()
   checks['Config schema: 全部字段是 volatile 引用(写入不重载插件)'] = (() => {
@@ -1741,8 +1771,6 @@ try {
       && /DEFAULT_SESSION_TTL_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(clientSrc)
       && DEFAULTS.approvalTimeoutMs === 120000
       && /DEFAULT_APPROVAL_TIMEOUT_MS\s*=\s*120000/.test(clientSrc)
-      && DEFAULTS.approvalControl === 'exclusive'
-      && /APPROVAL_MODES\s*=\s*\['off', 'fallback', 'exclusive'\]/.test(clientSrc)
   })()
   checks['Config schema: defaultDetail 非法枚举被拒'] = (() => {
     try { ConfigSchema({ defaultDetail: 'verbose' } as any); return false } catch { return true }
@@ -1775,7 +1803,7 @@ try {
   })()
 }
 
-// ── 审批桥纯函数/状态机(不依赖 MCP) ──
+// ── 远程回答运行时纯逻辑(不依赖 gateway) ──
 {
   checks['approvalPolicyOfEvents: 取最后一条 policy'] = (() => {
     const policy = approvalPolicyOfEvents([
@@ -1784,59 +1812,84 @@ try {
     ])
     return policy === 'never'
   })()
-  const makeBridge = (mode: 'exclusive' | 'fallback' = 'exclusive', timeoutMs = 100) => createApprovalBridge({
-    ctx: {} as any,
-    mode,
-    timeoutMs,
-    managed: () => true,
+
+  const sends: { eventId: string; value: unknown }[] = []
+  const runtime = createAnswerRuntime({
+    managed: (sessionId) => sessionId === 's1',
+    send: async (eventId, value) => { sends.push({ eventId, value }); return { ok: true } },
+    now: () => 1_700_000_000_000,
   })
-  const events: any[] = [{ type: 'approval/asked', data: { id: 'a1', toolName: 'pwsh', callId: 'c1', reason: 'write' } }]
-  const agent = { session: { id: 's1', snapshotEvents: () => events } }
-  {
-    const bridge = makeBridge()
-    const request = { agent, toolName: 'pwsh', callId: 'c1', reason: 'write' }
-    const pending = bridge.handle(request)
-    checks['approvalBridge: 扣住后可列出且 answerable'] = bridge.runtime.list('s1').length === 1
-      && bridge.runtime.isAnswerable('s1', 'a1', 'c1')
-    const answer = bridge.runtime.answer({ sessionId: 's1', callId: 'c1', decision: 'allow' })
-    checks['approvalBridge: 回答 allow → allowed-once'] = answer.ok === true
-      && answer.outcome === 'allowed-once' && await pending === 'allowed-once'
-    checks['approvalBridge: 回答后从 map 移除'] = bridge.runtime.list().length === 0
-    bridge.dispose()
-  }
-  {
-    const bridge = makeBridge('fallback')
-    const pending = bridge.handle({ agent, toolName: 'pwsh', callId: 'c1' }, async () => 'unavailable')
-    // fallback 先 await 宿主 answerer 链; 让出一个微任务/宏任务再断言扣住
-    await new Promise((r) => setTimeout(r, 0))
-    checks['approvalBridge: fallback 在宿主无人可答时接手'] = bridge.runtime.list('s1').length === 1
-    bridge.runtime.answer({ sessionId: 's1', approvalId: 'a1', decision: 'reject' })
-    checks['approvalBridge: fallback 回答 reject → rejected'] = await pending === 'rejected'
-    bridge.dispose()
-  }
-  {
-    const bridge = makeBridge('exclusive', 10)
-    const outcome = await bridge.handle({ agent, toolName: 'pwsh', callId: 'c1' })
-    checks['approvalBridge: 超时失败关闭(unavailable)'] = outcome === 'unavailable'
-      && bridge.runtime.list().length === 0
-    bridge.dispose()
-  }
-  {
-    const bridge = makeBridge()
-    const controller = new AbortController()
-    const pending = bridge.handle({ agent, toolName: 'pwsh', callId: 'c1', signal: controller.signal })
-    controller.abort()
-    checks['approvalBridge: signal abort → cancelled'] = await pending === 'cancelled'
-      && bridge.runtime.list().length === 0
-    bridge.dispose()
-  }
-  {
-    const bridge = makeBridge()
-    const pending = bridge.handle({ agent, toolName: 'pwsh', callId: 'c1' })
-    bridge.dispose()
-    checks['approvalBridge: dispose 失败关闭(cancelled)'] = await pending === 'cancelled'
-  }
+
+  runtime.applyFrame({
+    type: 'waterfall',
+    event: 'approval/request',
+    eventId: 'ev-1',
+    agentId: 's1',
+    request: { toolName: 'pwsh', callId: 'c1', reason: 'write' },
+  })
+  checks['answers: 审批帧进入 store 且可按 callId 找到'] = runtime.listApprovals('s1').length === 1
+    && runtime.findApproval('s1', undefined, 'c1')?.eventId === 'ev-1'
+  checks['answers: 未管理的会话帧被忽略'] = (() => {
+    runtime.applyFrame({
+      type: 'waterfall',
+      event: 'approval/request',
+      eventId: 'ev-other',
+      agentId: 's2',
+      request: { toolName: 'pwsh', callId: 'c2' },
+    })
+    return runtime.listApprovals('s2').length === 0
+  })()
+
+  const wait = runtime.waitForInput('s1')
+  const allow = await runtime.answerApproval({ sessionId: 's1', callId: 'c1', decision: 'allow' })
+  checks['answers: 审批 allow → allowed-once 并经 send 发出'] = allow.ok === true && allow.outcome === 'allowed-once'
+    && sends.some((s) => s.eventId === 'ev-1' && s.value === 'allowed-once')
+  checks['answers: 回答后从 store 移除'] = runtime.listApprovals('s1').length === 0
+  checks['answers: waitForInput 在已有输入时立即返回'] = JSON.stringify(await wait) === JSON.stringify({ approvals: ['ev-1'], questions: [] })
+
+  runtime.applyFrame({
+    type: 'waterfall',
+    event: 'approval/request',
+    eventId: 'ev-2',
+    agentId: 's1',
+    request: { toolName: 'write', callId: 'c2' },
+  })
+  runtime.applyFrame({ type: 'cancel', eventId: 'ev-2' })
+  checks['answers: cancel 帧(别处已答)移除条目'] = runtime.listApprovals('s1').length === 0
+
+  runtime.applyFrame({
+    type: 'waterfall',
+    event: 'user-questions/request',
+    eventId: 'qev-1',
+    agentId: 's1',
+    request: {
+      questions: [{ id: 'q1', question: 'Continue?', options: [{ label: 'yes' }, { label: 'no' }] }],
+      wait: { callId: 'qcall-1' },
+    },
+  })
+  checks['answers: 问题帧进入 store 且带 callId'] = runtime.findQuestion('s1', undefined, 'qcall-1')?.eventId === 'qev-1'
+  const bad = await runtime.answerQuestion({
+    sessionId: 's1',
+    eventId: 'qev-1',
+    answers: [{ id: 'q1', selected: ['yes', 'no'] }],
+  })
+  checks['answers: 单选多标签被拒且仍持有'] = bad.ok === false
+    && runtime.findQuestion('s1', 'qev-1') !== undefined
+  const good = await runtime.answerQuestion({
+    sessionId: 's1',
+    eventId: 'qev-1',
+    answers: [{ id: 'q1', selected: ['yes'] }],
+  })
+  checks['answers: 问题回答经 send 发出并移除'] = good.ok === true
+    && sends.some((s) => s.eventId === 'qev-1'
+      && (s.value as any)?.answers?.[0]?.selected?.[0] === 'yes')
+    && runtime.listQuestions('s1').length === 0
+
+  const unknown = await runtime.answerApproval({ sessionId: 's1', eventId: 'nope', decision: 'reject' })
+  checks['answers: 未知 eventId 明确报错'] = unknown.ok === false && unknown.error.includes('no pending approval')
+  runtime.dispose()
 }
+
 
 // ── 汇报 ──
 const failed = Object.entries(checks).filter(([, ok]) => !ok)

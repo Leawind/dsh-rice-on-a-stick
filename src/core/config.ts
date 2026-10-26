@@ -100,18 +100,10 @@ export interface Config {
    */
   resourceFirst?: boolean
   /**
-   * 审批由谁回答(默认 exclusive):
-   *   off       只读展示 pendingApprovals, 审批仍归宿主/界面(零行为变化)
-   *   fallback  先让宿主 answerer 链(界面)处理; 只有没人能答时才拦下来等调用方(经 MCP)回答
-   *   exclusive 直接拦下来等调用方回答(界面不再显示该审批)
-   * 只作用于本插件创建/续接过的会话, 不干扰用户在界面上手开的会话。
-   */
-  approvalControl?: 'off' | 'fallback' | 'exclusive'
-  /**
-   * 审批被扣住后最多等多久(毫秒; 默认 120s; 0 = 不限时)。
-   * 同时作用于两个审批面: 会话审批的 MCP 等待与桥写停泊审批的面板等待;
+   * 桥写停泊审批的等待上限(毫秒; 默认 120s; 0 = 不限时)。
+   * 只作用于通用桥的变更类调用(桥外面板审批卡); 会话审批由宿主的 answer client
+   * 链回答, 没有插件侧的等待上限。
    * 有限时超时一律失败关闭, 不限时则一直等到有人回答。
-   * 在扣住的那一刻读取, 已停泊的审批保持原截止时刻。
    */
   approvalTimeoutMs?: number
   /**
@@ -142,7 +134,6 @@ export interface ParsedConfig {
   allowedHosts: Volatile<string[]>
   sessionTtlMs: Volatile<number>
   resourceFirst: Volatile<boolean>
-  approvalControl: Volatile<NonNullable<Config['approvalControl']>>
   approvalTimeoutMs: Volatile<number>
   bridgeEndpointAllowlist: Volatile<string[]>
 }
@@ -162,7 +153,6 @@ export const DEFAULTS = {
   authEnabled: false as boolean,
   selfToolsEnabled: true as boolean,
   resourceFirst: false,
-  approvalControl: 'exclusive' as 'off' | 'fallback' | 'exclusive',
   approvalTimeoutMs: 120_000,
   allowedHosts: [] as string[],
   bridgeEndpointAllowlist: [] as string[],
@@ -206,7 +196,6 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     authEnabled: false,
     selfToolsEnabled: true,
     resourceFirst: DEFAULTS.resourceFirst,
-    approvalControl: DEFAULTS.approvalControl,
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
     bridgeEndpointAllowlist: [],
@@ -234,11 +223,6 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     },
     selfToolsEnabled: { enumerable: true, configurable: true, get: () => parsed.selfToolsEnabled.get() },
     resourceFirst: { enumerable: true, configurable: true, get: () => parsed.resourceFirst.get() === true },
-    approvalControl: {
-      enumerable: true,
-      configurable: true,
-      get: () => parsed.approvalControl.get() ?? DEFAULTS.approvalControl,
-    },
     // 0 = 不限时(原样保留); 其余钳制到 1000-600000(超时失败关闭)
     approvalTimeoutMs: {
       enumerable: true,
@@ -283,7 +267,6 @@ export const Config = Schema.object({
   allowedHosts: Schema.array(Schema.string()).default([]).volatile().description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases). Read per request: edits apply immediately.'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).volatile().description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec). Read live: edits apply to the next sweep.'),
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).volatile().description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface). Switching it re-registers tools on live sessions and sends tools/list_changed.'),
-  approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).volatile().description('Who answers approvals for sessions created by this plugin (default exclusive): off = display only, the UI handles them; fallback = UI first, the caller answers when the UI cannot; exclusive = always the caller, via approval_answer (the UI no longer shows them). Read live per request.'),
-  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Maximum wait after an approval is parked, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Read when the approval is parked: already-parked approvals keep their original deadline.'),
+  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Wait limit for a generic-bridge write parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the host answer-client chain and are not bounded by this value.'),
   bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). The hard-coded blacklist (credential writes, plugin installs, connection trust) always wins and gets no approval path.'),
 })

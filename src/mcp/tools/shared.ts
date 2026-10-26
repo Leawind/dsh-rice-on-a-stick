@@ -34,6 +34,7 @@ export function renderUriResult(result: {
   status?: string
   turn?: number
   pending?: boolean
+  waiting?: { approvals: string[]; questions: string[] }
 }, historyUri: string): Record<string, unknown> {
   return {
     detail: 'uri',
@@ -42,6 +43,7 @@ export function renderUriResult(result: {
     ...(result.status !== undefined ? { status: result.status } : {}),
     ...(result.turn !== undefined ? { turn: result.turn } : {}),
     ...(result.pending === true ? { pending: true } : {}),
+    ...(result.waiting !== undefined ? { waiting: result.waiting } : {}),
     model: projectModel(result.model),
     resource: historyUri,
     ...uriNote(),

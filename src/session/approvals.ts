@@ -1,39 +1,16 @@
 /**
- * 审批接管: 把宿主 `approval/request` waterfall 变成一个 MCP 可回答的等待面。
+ * 审批的只读折叠、策略读写与"持有/日志"合并。
  *
- * 背景(宿主契约, 见 dsh-user-approval):
- *   - 审批是 turn 内的瞬时请求: ApprovalService 先写 `approval/asked`, 再 dispatch
- *     `approval/request` waterfall, 最后写 `approval/decided`; 只有 `allowed-once` 是授权,
- *     `rejected` / `cancelled` / `unavailable` 都失败关闭。
- *   - waterfall 的 request 对象没有 asked 事件的 id; 但 dispatch 前 asked 已落日志,
- *     所以插件用 agent 的会话日志按 callId/toolName 找到那条 asked 的 id, 作为 MCP 的审批键。
- *   - answerer 返回 Promise 即可扣住请求; 插件在 MCP 侧 `approval_answer` 时 resolve。
- *
- * 安全边界:
- *   - 默认 off: 完全不改变宿主/界面的审批行为。
- *   - 只接管 state.sessionRecords 里的会话(插件创建或续接过的), 不劫持用户手开的会话。
- *   - fallback 先让宿主 answerer 链(界面)处理; 只有它返回 unavailable 才扣住。
- *   - exclusive 直接把审批扣给 MCP(界面不再显示), 只建议无人值守部署。
- *   - 超时 / abort / 插件卸载一律失败关闭(unavailable/cancelled), 不静默放行。
- *
- * 配置热改: mode 与超时都在使用点现读 state.config(监听器恒注册, off 时直接透传 next),
- * 面板改 approvalControl/approvalTimeoutMs 立即生效——切到 off 时在途审批按 cancelled 收敛,
- * 已停泊的审批保留扣住时的截止时刻。
+ * 审批回答不再由插件扣住 host waterfall, 而是走 {@link ./answers.ts} 的远程
+ * answer client——和浏览器点按钮完全同一条路径。本模块只负责:
+ *   - 读会话的 ask/never 策略(approval_policy 工具);
+ *   - 把远程客户端持有的审批与日志里的 approval/asked 折叠成同一个视图。
  */
-import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { approvalServiceOf, asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from '../host/bridge.js'
 import { state } from '../core/state.js'
 import { pendingApprovalsOf } from './turn.js'
-import type {
-  ApprovalAnswer,
-  ApprovalControlMode,
-  ApprovalOutcome,
-  ApprovalPolicy,
-  ApprovalRequestView,
-  ApprovalRuntime,
-  ParkedApprovalInfo,
-} from '../core/types.js'
+import type { ApprovalPolicy } from '../core/types.js'
 
 /** 合法审批策略(与宿主 APPROVAL_POLICIES 对齐) */
 export const APPROVAL_POLICIES = ['ask', 'never'] as const
@@ -63,10 +40,7 @@ export function effectiveApprovalPolicy(ctx: Context, session: unknown): Approva
   return approvalPolicyOfEvents(eventsOf(session))
 }
 
-/**
- * 切换 live agent 的审批策略。宿主会写 approval/policy 事件并给模型注入一条变更通知。
- * 服务缺席/旧宿主时返回 false(调用方决定是报不可用还是降级提示)。
- */
+/** 切换 live agent 的审批策略。宿主会写 approval/policy 事件并给模型注入一条变更通知。 */
 export function setApprovalPolicy(ctx: Context, agent: unknown, policy: ApprovalPolicy): boolean {
   const svc = approvalServiceOf(ctx)
   if (typeof svc?.setPolicy !== 'function') return false
@@ -78,218 +52,69 @@ export function setApprovalPolicy(ctx: Context, agent: unknown, policy: Approval
   }
 }
 
-/** 扣住一条审批的内部记录(settle 幂等; 超时/abort/回答/卸载都会走它) */
-interface ParkedEntry extends ParkedApprovalInfo {
-  promise: Promise<ApprovalAnswer>
-  resolve: (outcome: ApprovalAnswer) => void
-  settled: boolean
-  timer: ReturnType<typeof setTimeout>
-  onAbort?: () => void
-  signal?: AbortSignal
-  settle: (outcome: ApprovalAnswer, why: string) => void
-}
-
-export interface ApprovalBridgeOptions {
-  ctx: Context
-  /** 覆盖运行时配置(测试/嵌入方); 缺省每次现读 state.config, 面板改完立即生效 */
-  mode?: ApprovalControlMode
-  /** 覆盖扣住后的等待上限(测试/嵌入方); 缺省每次现读 state.config */
-  timeoutMs?: number
-  /** 是否接管该会话(缺省 = state.sessionRecords 里有记录); 测试可覆盖 */
-  managed?: (sessionId: string) => boolean
-}
-
-export interface ApprovalBridge {
-  runtime: ApprovalRuntime
-  /** waterfall 监听器本体(installApprovalBridge 注册; 测试可直接调用) */
-  handle: (request: ApprovalRequestView, next?: () => Promise<ApprovalAnswer>) => Promise<ApprovalAnswer>
-  /** 配置热改后的收敛: 模式切到 off 时, 在途审批一律按 cancelled 结清(不再等超时) */
-  sync: () => void
-  dispose: () => void
-}
-
-/** 安全默认: 没有桥时审批面仍是只读的 no-op */
-export const NOOP_APPROVAL_RUNTIME: ApprovalRuntime = {
-  mode: 'off',
-  list: () => [],
-  isAnswerable: () => false,
-  answer: () => ({ ok: false, error: 'approval control is off; set approvalControl=fallback|exclusive in the plugin config' }),
+/** 审批工具/poll/资源面共用的展示视图 */
+export interface ApprovalEntryView {
+  /** 远程 answer client 持有时可回答; 只读日志条目没有这个字段 */
+  eventId?: string
+  /** 会话日志 approval/asked 事件的 id(仅展示/审计用) */
+  approvalId?: string
+  toolName: string
+  callId?: string
+  reason?: string
+  requestedAt?: number
+  answerable: boolean
 }
 
 /**
- * 创建审批桥。不注册监听器; installApprovalBridge 负责挂到 ctx.on。
- * handler 的 fallback 语义: 先调 next() 让宿主 answerer 链(界面)处理, 只有 unavailable 才扣住。
+ * 合并"本插件持有的审批"和"日志里仍 pending 的 approval/asked"。
+ * 同一个 callId 以持有者为准(eventId + answerable=true); 只有日志的条目仍展示,
+ * 但不可回答(界面/宿主或其他客户端持有)。
  */
-export function createApprovalBridge(opts: ApprovalBridgeOptions): ApprovalBridge {
-  // 每次使用现读: 测试/嵌入方给了覆盖值就用覆盖值, 否则取运行时配置(volatile, 面板改完立即生效)
-  const modeOf = (): ApprovalControlMode => opts.mode ?? state.config.approvalControl
-  const timeoutOf = (): number => opts.timeoutMs ?? state.config.approvalTimeoutMs
-  const managed = opts.managed ?? ((sessionId: string) => state.sessionRecords.has(sessionId))
-  const parked = new Map<string, ParkedEntry>()
+export function approvalEntriesFor(sessionId: string, events: readonly unknown[]): ApprovalEntryView[] {
+  const held = state.answers.listApprovals(sessionId)
+  const log = pendingApprovalsOf(events)
+  const entries: ApprovalEntryView[] = []
+  const used = new Set<string>()
 
-  const findEntry = (sessionId: string, approvalId?: string, callId?: string): ParkedEntry | undefined => {
-    if (approvalId !== undefined && approvalId !== '') {
-      const entry = parked.get(approvalId)
-      if (entry !== undefined && entry.sessionId === sessionId) return entry
-    }
-    if (callId !== undefined && callId !== '') {
-      for (const entry of parked.values()) {
-        if (entry.sessionId === sessionId && entry.callId === callId) return entry
-      }
-    }
-    return undefined
+  for (const item of log) {
+    const match = held.find((approval) =>
+      (item.callId !== undefined && approval.callId === item.callId)
+      || (item.callId === undefined && approval.callId === undefined && approval.toolName === item.toolName && approval.reason === item.reason))
+    if (match !== undefined) used.add(match.eventId)
+    entries.push({
+      approvalId: item.requestId,
+      toolName: item.toolName,
+      ...(item.callId !== undefined ? { callId: item.callId } : {}),
+      ...(item.reason !== undefined ? { reason: item.reason } : {}),
+      ...(item.time !== undefined ? { requestedAt: item.time } : {}),
+      ...(match !== undefined ? { eventId: match.eventId } : {}),
+      answerable: match !== undefined,
+    })
   }
-
-  const settle = (entry: ParkedEntry, outcome: ApprovalAnswer, _why: string): void => {
-    if (entry.settled) return
-    entry.settled = true
-    if (parked.get(entry.approvalId) === entry) parked.delete(entry.approvalId)
-    clearTimeout(entry.timer)
-    if (entry.signal !== undefined && entry.onAbort !== undefined) {
-      entry.signal.removeEventListener('abort', entry.onAbort)
-    }
-    entry.resolve(outcome)
-    // 审批状态变化立即推给资源订阅者(不依赖下一次 poll)
-    try { state.hooks.notifySessionActivity(entry.sessionId) } catch { /* 通知失败不影响审批 */ }
+  for (const approval of held) {
+    if (used.has(approval.eventId)) continue
+    entries.push({
+      eventId: approval.eventId,
+      toolName: approval.toolName,
+      ...(approval.callId !== undefined ? { callId: approval.callId } : {}),
+      ...(approval.reason !== undefined ? { reason: approval.reason } : {}),
+      requestedAt: approval.requestedAt,
+      answerable: true,
+    })
   }
-
-  const park = (request: ApprovalRequestView): Promise<ApprovalAnswer> => {
-    if (request.signal?.aborted === true) return Promise.resolve('cancelled')
-    const sessionId = String(request.agent.session.id)
-    const events = eventsOf(request.agent.session)
-    const pending = pendingApprovalsOf(events)
-    // 日志里刚追加的 asked 是最新的一条; 优先按 callId 精确匹配, 再退回 toolName(+reason)。
-    const reversed = [...pending].reverse()
-    const match = (request.callId !== undefined
-      ? reversed.find((p) => p.callId === request.callId)
-      : undefined)
-      ?? (request.reason !== undefined
-        ? reversed.find((p) => p.toolName === request.toolName && p.reason === request.reason)
-        : undefined)
-      ?? reversed.find((p) => p.toolName === request.toolName)
-    const approvalId = match?.requestId ?? `bridge:${randomUUID()}`
-    const existing = parked.get(approvalId)
-    if (existing !== undefined) return existing.promise
-
-    let resolvePromise!: (outcome: ApprovalAnswer) => void
-    const promise = new Promise<ApprovalAnswer>((resolve) => { resolvePromise = resolve })
-    const requestedAt = Date.now()
-    const timeoutMs = timeoutOf()
-    const entry: ParkedEntry = {
-      approvalId,
-      sessionId,
-      toolName: request.toolName,
-      ...(request.callId !== undefined ? { callId: request.callId } : {}),
-      ...(request.reason !== undefined ? { reason: request.reason } : {}),
-      requestedAt,
-      // 不限时(timeoutMs=0)不给过期时刻, 也不设超时定时器
-      ...(timeoutMs > 0 ? { expiresAt: requestedAt + timeoutMs } : {}),
-      promise,
-      resolve: resolvePromise,
-      settled: false,
-      // 先占位, 下面用真正的 setTimeout 替换(闭包里引用 entry, 不能写在对象字面量里)
-      timer: undefined as unknown as ReturnType<typeof setTimeout>,
-      settle: (outcome, why) => settle(entry, outcome, why),
-    }
-    if (timeoutMs > 0) entry.timer = setTimeout(() => settle(entry, 'unavailable', 'timeout'), timeoutMs)
-    if (request.signal !== undefined) {
-      entry.signal = request.signal
-      entry.onAbort = () => settle(entry, 'cancelled', 'aborted')
-      request.signal.addEventListener('abort', entry.onAbort, { once: true })
-    }
-    parked.set(approvalId, entry)
-    try { state.hooks.notifySessionActivity(sessionId) } catch { /* 通知失败不影响审批 */ }
-    return promise
-  }
-
-  const handle = async (
-    request: ApprovalRequestView,
-    next: () => Promise<ApprovalAnswer> = () => Promise.resolve('unavailable'),
-  ): Promise<ApprovalAnswer> => {
-    const sessionId = String(request.agent.session.id)
-    const mode = modeOf()
-    if (mode === 'off' || !managed(sessionId)) return next()
-    if (mode === 'fallback') {
-      // 界面/宿主 answerer 优先; 只有“没人能答”时 MCP 才接手。
-      const outcome = await next()
-      if (outcome !== 'unavailable') return outcome
-    }
-    return park(request)
-  }
-
-  const runtime: ApprovalRuntime = {
-    get mode() { return modeOf() },
-    list: (sessionId?: string) => [...parked.values()]
-      .filter((entry) => sessionId === undefined || entry.sessionId === sessionId)
-      .map((entry) => ({
-        approvalId: entry.approvalId,
-        sessionId: entry.sessionId,
-        toolName: entry.toolName,
-        ...(entry.callId !== undefined ? { callId: entry.callId } : {}),
-        ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
-        requestedAt: entry.requestedAt,
-        expiresAt: entry.expiresAt,
-      })),
-    isAnswerable: (sessionId, approvalId, callId) => findEntry(sessionId, approvalId, callId) !== undefined,
-    answer: ({ sessionId, approvalId, callId, decision }) => {
-      if ((approvalId === undefined || approvalId === '') && (callId === undefined || callId === '')) {
-        return { ok: false, error: 'approvalId or callId is required' }
-      }
-      const entry = findEntry(sessionId, approvalId, callId)
-      if (entry === undefined) {
-        return {
-          ok: false,
-          error: `no held approval for session "${sessionId}" (${approvalId !== undefined ? `approvalId=${approvalId}` : `callId=${callId}`}); `
-            + 'it may already be answered, owned by the UI, or approvalControl is off',
-        }
-      }
-      const outcome: ApprovalOutcome = decision === 'allow' ? 'allowed-once' : 'rejected'
-      settle(entry, outcome, 'answered')
-      return { ok: true, approvalId: entry.approvalId, outcome }
-    },
-  }
-
-  const sync = (): void => {
-    // 切到 off = 宿主/界面重新接管审批: 已经扣住的请求必须立刻结清, 否则调用方会等到超时。
-    if (modeOf() !== 'off') return
-    for (const entry of [...parked.values()]) settle(entry, 'cancelled', 'mode-off')
-  }
-
-  const dispose = (): void => {
-    for (const entry of [...parked.values()]) settle(entry, 'cancelled', 'disposed')
-    parked.clear()
-  }
-
-  return { runtime, handle, sync, dispose }
+  return entries
 }
 
 /**
- * 装配审批桥并注册到宿主 waterfall(prepend: 先于界面 answerer 执行, 从而能实现 exclusive;
- * fallback 内部会主动调用 next() 把决定权交回宿主链)。
- * 监听器恒注册: 审批模式是热改的, off 时 handle 直接透传 next(), 行为与不注册一致。
+ * approval_list 的读实现: live 读内存, 冷会话经宿主 inspect 非激活读取。
+ * `answerable=true` 只来自本插件当前的远程 answer client; 日志里更早的 pending
+ * 审批仍展示(可诊断), 但由界面/宿主或其他客户端持有。
  */
-export function installApprovalBridge(opts: ApprovalBridgeOptions): { bridge: ApprovalBridge; dispose: () => void } {
-  const bridge = createApprovalBridge(opts)
-  // 测试桩/极简嵌入方可能没有事件总线; 此时只保留只读 runtime(不影响插件其他能力)
-  if (typeof opts.ctx.on !== 'function') {
-    return { bridge, dispose: bridge.dispose }
-  }
-  const off = opts.ctx.on('approval/request', bridge.handle, { prepend: true })
-  return {
-    bridge,
-    dispose: () => {
-      off()
-      bridge.dispose()
-    },
-  }
-}
-
-/** approval_list 的读实现: live 读内存, 冷会话经宿主 inspect 非激活读取 */
 export async function approvalListFor(ctx: Context, sessionIds: readonly string[]): Promise<Record<string, unknown>> {
   const sessions: Record<string, unknown>[] = []
   for (const sessionId of sessionIds) {
     const live = ctx.agents.get(asSessionId(sessionId)) as
-      | { session: { header?: { cwd?: string } }; status?: string }
+      | { session: unknown; status?: string }
       | undefined
     let events: readonly unknown[] = []
     if (live !== undefined) {
@@ -298,7 +123,6 @@ export async function approvalListFor(ctx: Context, sessionIds: readonly string[
       try {
         events = await inspectSessionEvents(ctx, asSessionId(sessionId))
       } catch {
-        // 没有持久化日志: 用 header 区分 not-found 与“日志不可读但存在”
         const header = await findSessionHeader(ctx, asSessionId(sessionId)).catch(() => undefined)
         sessions.push(header === undefined
           ? { sessionId, state: 'not-found' }
@@ -306,34 +130,23 @@ export async function approvalListFor(ctx: Context, sessionIds: readonly string[
         continue
       }
     }
-    const pending = pendingApprovalsOf(events)
+    const approvals = approvalEntriesFor(sessionId, events)
     const policy = live !== undefined
       ? effectiveApprovalPolicy(ctx, live.session)
       : approvalPolicyOfEvents(events)
-    const approvals = pending.map((p) => ({
-      approvalId: p.requestId,
-      toolName: p.toolName,
-      ...(p.callId !== undefined ? { callId: p.callId } : {}),
-      ...(p.reason !== undefined ? { reason: p.reason } : {}),
-      ...(p.time !== undefined ? { requestedAt: p.time } : {}),
-      answerable: state.approvals.isAnswerable(sessionId, p.requestId, p.callId),
-    }))
     sessions.push({
       sessionId,
-      state: pending.length > 0
+      state: approvals.length > 0
         ? 'waiting-approval'
         : live !== undefined
           ? (live.status === 'running' ? 'running' : 'idle')
           : 'inactive',
       ...(policy !== undefined ? { policy } : {}),
       approvals,
-      ...(pending.length > 0
-        ? { note: 'approval_answer can only answer entries with answerable=true; others are owned by the UI or approvalControl is off' }
+      ...(approvals.length > 0
+        ? { note: 'approval_answer can only answer entries with answerable=true; others are owned by the UI or another client' }
         : {}),
     })
   }
-  return {
-    control: state.approvals.mode,
-    sessions,
-  }
+  return { sessions }
 }

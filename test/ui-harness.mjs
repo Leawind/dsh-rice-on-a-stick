@@ -41,7 +41,7 @@ const state = {
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
     bridgeEndpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
-    approvalControl: 'exclusive', approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
+    approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
   },
   connections: DEFAULT_CONNS(),
 }

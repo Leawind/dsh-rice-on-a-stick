@@ -1,6 +1,9 @@
 /**
  * 审批控制面: 列出、回答、读取/切换审批策略。
- * 默认 approvalControl=off 时只读展示; fallback/exclusive 才可能被 approval_answer 回答。
+ *
+ * 回答不是插件扣住 host waterfall, 而是本插件作为普通 Web answer client 持有
+ * forwarded approval/request, 再用 approval_answer 通过 $events/result 回答。
+ * 原生审批卡片仍然出现, 人和 agent 先答者赢。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -15,7 +18,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_list',
     {
       title: 'List pending approvals',
-      description: 'List pending approvals for one or more sessions (folded from approval/asked/decided events in the session log): `approvalId`, `toolName`, `callId`, `reason`, `answerable`, `policy`. `answerable=true` means this plugin holds the approval and `approval_answer` can answer it; false means the UI/another answerer owns it, or `approvalControl=off`. Read-only; does not advance a turn.',
+      description: 'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` means this plugin currently holds the forwarded request and `approval_answer` can answer it; false means the UI or another answer client owns it (or the plugin is not acting as a Web answer client in this host). Read-only; does not advance a turn.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -34,18 +37,18 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_answer',
     {
       title: 'Answer an approval',
-      description: 'Answer an approval held by this plugin (only entries with `answerable=true` from `approval_list`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`; both settle the approval fail-closed. Requires the deployment\'s `approvalControl` = `fallback` or `exclusive` (see the guide). Identify the approval by `approvalId` or `callId`.',
+      description: 'Answer an approval this plugin is holding (only entries with `answerable=true` from `approval_list`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`. The plugin behaves like an ordinary Web client: the native approval card stays visible, whoever answers first wins, and the other side receives a cancel. Identify the approval by `eventId` or `callId`.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the approval.'),
-        approvalId: z.string().optional().describe('approvalId returned by approval_list (alternative to callId).'),
-        callId: z.string().optional().describe('Tool call id (alternative to approvalId; useful for aligning with session_history tool calls).'),
+        eventId: z.string().optional().describe('eventId from approval_list (the forwarded-request key; preferred).'),
+        callId: z.string().optional().describe('Tool call id (alternative to eventId; useful for aligning with session_history tool calls).'),
         decision: z.enum(['allow', 'reject']).describe('allow = grant once (allowed-once); reject = deny.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, approvalId, callId, decision }) => {
+    async ({ sessionId, eventId, callId, decision }) => {
       try {
-        const r = state.approvals.answer({ sessionId, approvalId, callId, decision })
+        const r = await state.answers.answerApproval({ sessionId, eventId, callId, decision })
         const payload = JSON.stringify({ sessionId, ...r }, null, 2)
         return r.ok ? out(payload) : outError(payload)
       } catch (e) {

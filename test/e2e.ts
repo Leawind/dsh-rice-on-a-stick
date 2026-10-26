@@ -123,7 +123,7 @@ try {
     'session_cancel', 'session_queue', 'session_command', 'session_select_model',
     'session_rename', 'session_list', 'session_meta', 'session_overview', 'session_archive_list', 'session_history', 'session_search', 'session_fork',
     'session_archive', 'session_unarchive',
-    'approval_list', 'approval_answer', 'approval_policy', 'subagent_list',
+    'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list',
     'attachment_read', 'bridge_describe', 'bridge_call']
   report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
@@ -138,14 +138,14 @@ try {
   report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
     `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
   const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
-  report('将工具注册到本dsh实例(全局表可见 34 个 rice_ 工具)', nativeNames.length === 34
+  report('将工具注册到本dsh实例(全局表可见 36 个 rice_ 工具)', nativeNames.length === 36
     && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
   `native=${nativeNames.length}`)
 
   const status = await callTool(sid, 6, 'dsh_status')
   report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
-  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 34,
+  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 36,
     `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
@@ -174,11 +174,10 @@ try {
     console.log('  SKIP  session_result 未知 requestId — 当前没有可读会话')
   }
   const approvalsMissing = await callTool(sid, 93, 'approval_list', { sessionIds: ['e2e-nonexistent-session'] })
-  report('approval_list 不可读会话 → not-found + control', approvalsMissing.inner.sessions?.[0]?.state === 'not-found'
-    && typeof approvalsMissing.inner.control === 'string',
-    `control=${approvalsMissing.inner.control ?? '?'}`)
+  report('approval_list 不可读会话 → not-found', approvalsMissing.inner.sessions?.[0]?.state === 'not-found',
+    `state=${approvalsMissing.inner.sessions?.[0]?.state ?? '?'}`)
   const approvalAnswerMissing = await callTool(sid, 94, 'approval_answer', {
-    sessionId: 'e2e-nonexistent-session', approvalId: 'e2e-nonexistent-approval', decision: 'allow',
+    sessionId: 'e2e-nonexistent-session', eventId: 'e2e-nonexistent-event', decision: 'allow',
   })
   report('approval_answer 未知审批明确报错', String(approvalAnswerMissing.inner.error ?? '').includes('no held approval'),
     String(approvalAnswerMissing.inner.error ?? '').slice(0, 160))
@@ -296,10 +295,13 @@ try {
           `policy=${approvalPolicy.inner?.policy ?? approvalPolicy.inner?.error ?? '?'} live=${approvalPolicy.inner?.live ?? '?'}`)
       }
       const approvalList = await callTool(sid, 37, 'approval_list', { sessionIds: [sessionId] })
-      report('approval_list 读 live 会话(control=off, 无挂起)', approvalList.inner?.control === 'off'
-        && approvalList.inner?.sessions?.[0]?.state !== 'not-found'
+      report('approval_list 读 live 会话(无挂起)', approvalList.inner?.sessions?.[0]?.state !== 'not-found'
         && (approvalList.inner?.sessions?.[0]?.approvals?.length ?? -1) === 0,
-        `control=${approvalList.inner?.control ?? '?'} state=${approvalList.inner?.sessions?.[0]?.state ?? '?'}`)
+        `state=${approvalList.inner?.sessions?.[0]?.state ?? '?'}`)
+      const questionList = await callTool(sid, 39, 'question_list', { sessionIds: [sessionId] })
+      report('question_list 读 live 会话(无挂起)', questionList.inner?.sessions?.[0]?.state !== 'not-found'
+        && (questionList.inner?.sessions?.[0]?.questions?.length ?? -1) === 0,
+        `state=${questionList.inner?.sessions?.[0]?.state ?? '?'}`)
       const subagents = await callTool(sid, 38, 'subagent_list', { parentSessionId: sessionId })
       report('subagent_list 读到空的原生子代理目录', Array.isArray(subagents.inner?.subagents)
         && subagents.inner?.total === 0,
