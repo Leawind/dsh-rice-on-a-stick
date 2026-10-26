@@ -6,14 +6,13 @@
  * 资源订阅枢纽; 工具/资源注册、状态快照仍由调用方提供, 保证两个面同一数据源。
  *
  * 配置热改: 监听地址/端口由调用方重建本对象(不重载插件), 其余传输层字段
- * (Host 白名单、传输 TTL、资源优先形态)都在消费点现读运行时视图, 见 sync* 方法。
+ * (Host 白名单、传输 TTL)都在消费点现读运行时视图, 见 syncSessionTtl。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import os from 'node:os'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { PLUGIN_NAME, PLUGIN_VERSION } from '../core/config.js'
 import { state } from '../core/state.js'
@@ -51,8 +50,6 @@ export interface McpHttpServer {
   listen(): Promise<void>
   /** 配置热改: 传输会话 TTL 变化后按当前值重排回收定时器(0 = 停止回收) */
   syncSessionTtl(): void
-  /** 配置热改: 资源优先形态切换后, 给全部在线会话重注册工具并发 tools/list_changed */
-  syncResourceFirst(): void
   /** 卸载: 清定时器并关闭 server/传输会话(幂等) */
   dispose(): void
 }
@@ -179,8 +176,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   /** MCP 连接登记(sessionId → 观测记录); GUI 面板与 status RPC 的数据源, apply 级生命周期 */
   const connections = new Map<string, McpConnection>()
   const servers = new Map<string, McpServer>()
-  /** 每个会话注册的工具句柄: 资源优先形态热切换时先整体移除再按新形态注册 */
-  const sessionTools = new Map<string, RegisteredTool[]>()
   const transports = new Map<string, StreamableHTTPServerTransport>()
   /**
    * 打开中的 GET SSE 流(sessionId → 未结束的响应): 纯监听连接只开流不 POST, lastActivity 不再前进,
@@ -233,7 +228,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           const mcp = servers.get(sid)
           if (mcp) hub.unbind(mcp)
           servers.delete(sid)
-          sessionTools.delete(sid)
           connections.delete(sid)
         }
       }
@@ -361,12 +355,10 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         // instructions 随 initialize result 下发: agent 在拿到工具清单前先读到整体工作流引导
         // resources 能力显式声明(subscribe 由本插件自管登记; listChanged 由 hub 合并广播)
         const mcp = new McpServer({ name: PLUGIN_NAME, version: PLUGIN_VERSION }, {
-          // resourceFirst 部署的引导文本指路资源面; 普通部署指路工具
-          instructions: serverInstructions(state.config.resourceFirst),
+          instructions: serverInstructions(),
           capabilities: { resources: { listChanged: true, subscribe: true } },
         })
-        // 工具句柄留档: 资源优先形态热切换时用于整体移除/重注册(见 syncResourceFirst)
-        const toolHandles = registerTools(mcp, ctx, { statusSnapshot })
+        registerTools(mcp, ctx, { statusSnapshot })
         registerResources(mcp, ctx, { statusSnapshot, hub })
         const initUserAgent = String(req.headers['user-agent'] ?? '')
         const transport = new StreamableHTTPServerTransport({
@@ -374,7 +366,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           onsessioninitialized: (sid) => {
             transports.set(sid, transport)
             servers.set(sid, mcp)
-            sessionTools.set(sid, toolHandles)
             // 连接登记: 首个 initialize 请求的 User-Agent 即客户端身份; 订阅枢纽自此收发
             hub.bind(mcp)
             connections.set(sid, {
@@ -394,7 +385,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           if (sid) {
             transports.delete(sid)
             servers.delete(sid)
-            sessionTools.delete(sid)
             connections.delete(sid)
           }
         }
@@ -447,7 +437,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     }
     transports.clear()
     servers.clear()
-    sessionTools.clear()
     connections.clear()
     streamingGets.clear()
   }
@@ -467,23 +456,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       })
     },
     syncSessionTtl: scheduleSweep,
-    syncResourceFirst: () => {
-      // 在线会话的工具表在 initialize 时就固定了: 逐个先移除旧句柄, 再按当前形态注册,
-      // 最后推 tools/list_changed。客户端不支持通知时同样能通过下一次 tools/list 看到新表。
-      for (const [sid, mcp] of servers) {
-        const old = sessionTools.get(sid) ?? []
-        sessionTools.set(sid, [])
-        for (const handle of old) {
-          try { handle.remove() } catch { /* 已移除/未注册: 忽略 */ }
-        }
-        try {
-          sessionTools.set(sid, registerTools(mcp, ctx, { statusSnapshot }))
-          mcp.sendToolListChanged()
-        } catch (e) {
-          console.error(`[${PLUGIN_NAME}] tool re-registration failed for session ${sid}:`, (e as Error)?.message ?? e)
-        }
-      }
-    },
     dispose,
   }
 }

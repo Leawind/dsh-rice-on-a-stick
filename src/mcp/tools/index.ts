@@ -1,7 +1,6 @@
 /**
  * MCP 工具注册入口(35 个 = 会话中心 14 + 异步控制面 3 + 审批/问题控制面 5 + 子代理发现 1
- * + 目录/状态 8(含 echo 与权限预设) + 归档恢复 1 + 附件取回 1 + 通用桥 2; resourceFirst 部署
- * 形态下只读面下线, 数据走 resources 面, 但控制面工具必须保留)。
+ * + 目录/状态 8(含 echo 与权限预设) + 归档恢复 1 + 附件取回 1 + 通用桥 2)。
  *
  * 本文件只做装配, 具体工具按域拆分:
  *   catalog.ts         echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list /
@@ -10,7 +9,7 @@
  *                      command / select_model / rename / fork / archive / unarchive /
  *                      set_permission / attachment_read
  *   session-read.ts    session_list / session_meta / session_overview /
- *                      session_history / session_search(resourceFirst 下下线)
+ *                      session_history / session_search
  *   approval.ts        approval_list / approval_answer / approval_policy
  *   question.ts        question_list / question_answer
  *   bridge.ts          bridge_describe / bridge_call(通用桥读面, 恒注册)
@@ -26,7 +25,6 @@ import type { AnySchema, ZodRawShapeCompat } from '@modelcontextprotocol/sdk/ser
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { TOOL_IDENTITY_PREFIX } from '../../core/config.js'
-import { state } from '../../core/state.js'
 import type { ToolDeps } from '../../host/data.js'
 import { registerApprovalTools } from './approval.js'
 import { registerBridgeTools } from './bridge.js'
@@ -34,12 +32,6 @@ import { registerCatalogTools } from './catalog.js'
 import { registerQuestionTools } from './question.js'
 import { registerSessionActionTools } from './session-actions.js'
 import { registerSessionReadTools } from './session-read.js'
-
-/** 工具注册选项(原生自用面需要覆盖 MCP resources 形态) */
-export interface RegisterToolsOptions {
-  /** 覆盖 state.config.resourceFirst; 原生面固定 false——它没有 MCP resources 面, 只读工具必须保留 */
-  resourceFirst?: boolean
-}
 
 /** 描述统一前置身份前缀(幂等: 已带前缀的原样返回) */
 function withIdentity(description: string): string {
@@ -49,9 +41,8 @@ function withIdentity(description: string): string {
 /**
  * 带身份的注册面: 只拦 registerTool 一个口, 其余成员不存在(工具域只调这一个方法)。
  * 泛型签名与 SDK 的 registerTool 逐参一致, 工具域侧的类型检查不受影响。
- * `handles` 收集每条工具的注册句柄——资源优先形态热切换时按它整体移除旧工具表。
  */
-function brandedServer(mcp: McpServer, handles: RegisteredTool[]): McpServer {
+function brandedServer(mcp: McpServer): McpServer {
   return {
     registerTool<OutputArgs extends ZodRawShapeCompat | AnySchema, InputArgs extends undefined | ZodRawShapeCompat | AnySchema = undefined>(
       name: string,
@@ -65,27 +56,20 @@ function brandedServer(mcp: McpServer, handles: RegisteredTool[]): McpServer {
       },
       cb: ToolCallback<InputArgs>,
     ): RegisteredTool {
-      const handle = mcp.registerTool(name, { ...config, ...(config.description === undefined ? {} : { description: withIdentity(config.description) }) }, cb)
-      handles.push(handle)
-      return handle
+      return mcp.registerTool(name, { ...config, ...(config.description === undefined ? {} : { description: withIdentity(config.description) }) }, cb)
     },
   } as unknown as McpServer
 }
 
 /**
- * 在给定 McpServer 上注册全部工具, 返回每条工具的注册句柄。
- * 句柄用于运行中切换 resourceFirst: 先对旧句柄逐个 remove(), 再按新形态注册一次。
+ * 在给定 McpServer 上注册全部工具。
  */
-export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, options?: RegisterToolsOptions): RegisteredTool[] {
-  // resourceFirst: 只读面下线开关(默认读运行时视图; 原生面显式传 false)
-  const resourceFirst = options?.resourceFirst ?? state.config.resourceFirst
-  const handles: RegisteredTool[] = []
-  const branded = brandedServer(mcp, handles)
-  registerCatalogTools(branded, ctx, deps, resourceFirst)
-  registerSessionActionTools(branded, ctx, resourceFirst)
+export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): void {
+  const branded = brandedServer(mcp)
+  registerCatalogTools(branded, ctx, deps)
+  registerSessionActionTools(branded, ctx)
   registerApprovalTools(branded, ctx)
   registerQuestionTools(branded, ctx)
-  registerSessionReadTools(branded, ctx, resourceFirst)
+  registerSessionReadTools(branded, ctx)
   registerBridgeTools(branded, ctx)
-  return handles
 }

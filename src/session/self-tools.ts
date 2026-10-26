@@ -7,8 +7,7 @@
  *   - 新增/修改 MCP 工具只改 src/mcp/tools/ 一处, 原生面自动跟随;
  *   - 原生工具与 MCP 工具同描述、同参数 schema、同实现;
  *   - 原生工具名统一加 `rice_` 前缀, 避免与宿主/第三方工具撞名;
- *   - 描述里对其它工具的引用会被自动改写成带前缀的名字;
- *   - 原生面固定 `resourceFirst: false`(它没有 MCP resources 面, 只读工具必须保留)。
+ *   - 描述里对其它工具的引用会被自动改写成带前缀的名字。
  *
  * 原生工具在 dsh 进程内直调: 不走 5642、不经过 Bearer/Host/Origin, 也不产生 MCP 连接。
  * 想只保留自用、彻底关掉外部访问时, 把配置的 `http` 设为 false。
@@ -95,8 +94,7 @@ function captureMcpTools(ctx: Context, deps?: ToolDeps): CapturedRegistration[] 
       return { name }
     },
   } as unknown as McpServer
-  // 原生面没有 resources: 只读工具不能因 resourceFirst 而下线
-  registerTools(tap, ctx, deps, { resourceFirst: false })
+  registerTools(tap, ctx, deps)
   return captured
 }
 

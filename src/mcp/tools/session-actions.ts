@@ -30,7 +30,7 @@ const ATTACHMENTS_ARG = z.array(z.object({
 })).max(8).optional()
   .describe('Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the receipt (session_submit) or session_history (images fields) and can be fetched with attachment_read.')
 
-export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourceFirst: boolean): void {
+export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'session_create',
     {
@@ -119,7 +119,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     async ({ sessionId, task, attachments, mode, waitFor, requestId, detail }, extra) => {
       try {
         const result = await promptSession({ ctx, sessionId, task, mode, waitFor, attachments, requestId, signal: extra.signal })
-        const effDetail = detail ?? (resourceFirst ? 'uri' : state.config.defaultDetail)
+        const effDetail = detail ?? state.config.defaultDetail
         const pendingNote = result.waiting !== undefined
           ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
           : result.pending === true
@@ -499,7 +499,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
     },
   )
 
-  // 图片附件取回(只读, resourceFirst 下保留——内容访问与 subagent_list 同属控制面):
+  // 图片附件取回(只读——内容访问与 subagent_list 同属控制面):
   // 默认引用模式(元数据 + 宿主本地路径, 零图片 token); inline=true 额外回 MCP image 内容块(多模态视觉输入)。
   mcp.registerTool(
     'attachment_read',

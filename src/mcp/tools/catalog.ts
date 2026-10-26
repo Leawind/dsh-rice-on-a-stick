@@ -1,6 +1,6 @@
 /**
  * 目录与状态类工具: 连通性探针、入门指南、宿主工具清单、插件状态、工作区、模型目录,
- * 以及原生子代理发现。只读面在 resourceFirst 部署下下线(echo 与 subagent_list 保留)。
+ * 以及原生子代理发现。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -22,9 +22,8 @@ export function registerCatalogTools(
   mcp: McpServer,
   ctx: Context,
   deps: ToolDeps | undefined,
-  resourceFirst: boolean,
 ): void {
-  // echo(连通性探针)在任何形态都注册
+  // echo(连通性探针)
   mcp.registerTool(
     'echo',
     {
@@ -38,85 +37,83 @@ export function registerCatalogTools(
     },
   )
 
-  if (!resourceFirst) {
-    mcp.registerTool(
-      'dsh_get_started',
-      {
-        title: 'dsh usage guide',
-        description: 'This tool set is Rice on a Stick, a bridge into a running dsh (DeepSeek Harness) process — the guide is about that harness. If you are new to dsh, call this first: concept glossary (sessions, presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path cheat sheet. Pass section to fetch just one part instead of the whole guide. Returns a static markdown guide; no side effects.',
-        inputSchema: {
-          section: z.enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits']).optional().describe('all = the full guide (default); concepts = glossary; workflows = recipes; errors = error→alternative-path table; results = detail levels and reading results; limits = deployment-imposed limits'),
-        },
-        annotations: { readOnlyHint: true },
+  mcp.registerTool(
+    'dsh_get_started',
+    {
+      title: 'dsh usage guide',
+      description: 'This tool set is Rice on a Stick, a bridge into a running dsh (DeepSeek Harness) process — the guide is about that harness. If you are new to dsh, call this first: concept glossary (sessions, presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path cheat sheet. Pass section to fetch just one part instead of the whole guide. Returns a static markdown guide; no side effects.',
+      inputSchema: {
+        section: z.enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits']).optional().describe('all = the full guide (default); concepts = glossary; workflows = recipes; errors = error→alternative-path table; results = detail levels and reading results; limits = deployment-imposed limits'),
       },
-      async ({ section }) => out(guideSectionDoc(section as GuideSection | undefined)),
-    )
+      annotations: { readOnlyHint: true },
+    },
+    async ({ section }) => out(guideSectionDoc(section as GuideSection | undefined)),
+  )
 
-    mcp.registerTool(
-      'dsh_list_tools',
-      {
-        title: 'List dsh tools',
-        description: 'List the host\'s global tool registry (name + description). Note: model tools live in preset/agent scopes, so this global table is usually empty (see the returned note); the tools a session can actually use are the toolCalls in a session_prompt result.',
-        inputSchema: {},
-        annotations: { readOnlyHint: true },
-      },
-      async () => out(JSON.stringify(hostToolsPayload(ctx))),
-    )
+  mcp.registerTool(
+    'dsh_list_tools',
+    {
+      title: 'List dsh tools',
+      description: 'List the host\'s global tool registry (name + description). Note: model tools live in preset/agent scopes, so this global table is usually empty (see the returned note); the tools a session can actually use are the toolCalls in a session_prompt result.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => out(JSON.stringify(hostToolsPayload(ctx))),
+  )
 
-    // 插件状态(只读): headless/脚本场景不开 Web 面板也能看部署状态
-    mcp.registerTool(
-      'dsh_status',
-      {
-        title: 'Plugin status',
-        description: 'Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist / result detail), subscription stats, and connected MCP clients. Same data as the Web settings panel.',
-        inputSchema: {},
-        annotations: { readOnlyHint: true },
-      },
-      async () => out(JSON.stringify(deps?.statusSnapshot?.() ?? basicStatusSnapshot(), null, 2)),
-    )
+  // 插件状态(只读): headless/脚本场景不开 Web 面板也能看部署状态
+  mcp.registerTool(
+    'dsh_status',
+    {
+      title: 'Plugin status',
+      description: 'Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist / result detail), subscription stats, and connected MCP clients. Same data as the Web settings panel.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => out(JSON.stringify(deps?.statusSnapshot?.() ?? basicStatusSnapshot(), null, 2)),
+  )
 
-    // 工作区清单(只读): workspaceRegistry 的花名册(id/路径/会话归属)
-    mcp.registerTool(
-      'workspace_list',
-      {
-        title: 'List workspaces',
-        description: 'List registered workspaces (id, path, owning sessions). A workspace is the session-grouping directory in the dsh sidebar; if the workspaceRegistry service is unavailable (headless deployments), the result says so explicitly.',
-        inputSchema: {},
-        annotations: { readOnlyHint: true },
-      },
-      async () => {
-        try {
-          return out(JSON.stringify(await workspacesPayload(ctx)))
-        } catch (e) {
-          return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
-        }
-      },
-    )
+  // 工作区清单(只读): workspaceRegistry 的花名册(id/路径/会话归属)
+  mcp.registerTool(
+    'workspace_list',
+    {
+      title: 'List workspaces',
+      description: 'List registered workspaces (id, path, owning sessions). A workspace is the session-grouping directory in the dsh sidebar; if the workspaceRegistry service is unavailable (headless deployments), the result says so explicitly.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return out(JSON.stringify(await workspacesPayload(ctx)))
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
 
-    // 模型目录: 选模型前先查这里(provider route / 模型 id / 推理档 / 宿主当前缺省)
-    mcp.registerTool(
-      'model_list',
-      {
-        title: 'List models',
-        description: 'List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host\'s current default selection. `session_create` takes its provider/model/preset from here. `source=sessionController` is the official catalog (same as the Web model picker); `source=llm` is a fallback without reasoning metadata.',
-        inputSchema: {
-          provider: z.string().optional().describe('Only list this provider (default: all).'),
-        },
-        annotations: { readOnlyHint: true },
+  // 模型目录: 选模型前先查这里(provider route / 模型 id / 推理档 / 宿主当前缺省)
+  mcp.registerTool(
+    'model_list',
+    {
+      title: 'List models',
+      description: 'List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host\'s current default selection. `session_create` takes its provider/model/preset from here. `source=sessionController` is the official catalog (same as the Web model picker); `source=llm` is a fallback without reasoning metadata.',
+      inputSchema: {
+        provider: z.string().optional().describe('Only list this provider (default: all).'),
       },
-      async ({ provider }) => {
-        const catalog = await collectModelCatalog(ctx, provider)
-        // preset 花名册并入(session_create 的另一个必填参数, 让调用方一次查齐); 缺席时省略
-        const presets = await presetsPayload(ctx)
-          .then((p) => (p.presets as { id: string }[]).map((x) => x.id))
-          .catch(() => undefined)
-        return out(JSON.stringify(presets ? { ...catalog, presets } : catalog, null, 2))
-      },
-    )
-  }
+      annotations: { readOnlyHint: true },
+    },
+    async ({ provider }) => {
+      const catalog = await collectModelCatalog(ctx, provider)
+      // preset 花名册并入(session_create 的另一个必填参数, 让调用方一次查齐); 缺席时省略
+      const presets = await presetsPayload(ctx)
+        .then((p) => (p.presets as { id: string }[]).map((x) => x.id))
+        .catch(() => undefined)
+      return out(JSON.stringify(presets ? { ...catalog, presets } : catalog, null, 2))
+    },
+  )
 
   // 权限预设目录: session_create.permission / session_set_permission 的取值来源。
-  // 与 subagent_list 一样属于控制面发现能力, resourceFirst 部署同样保留(创建会话仍需它)。
+  // 与 subagent_list 一样属于控制面发现能力(创建会话仍需它)。
   mcp.registerTool(
     'permission_list',
     {
@@ -137,7 +134,7 @@ export function registerCatalogTools(
     },
   )
 
-  // 原生子代理发现: 只读目录, 不加载也不恢复 child; resourceFirst 下仍保留(控制面能力)
+  // 原生子代理发现: 只读目录, 不加载也不恢复 child(控制面能力)
   mcp.registerTool(
     'subagent_list',
     {

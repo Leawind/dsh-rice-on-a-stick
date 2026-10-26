@@ -91,15 +91,6 @@ export interface Config {
    */
   sessionTtlMs?: number
   /**
-   * 资源优先形态(默认 false = 工具优先)。true 时只读工具面下线(dsh_get_started/dsh_list_tools/
-   * dsh_status/model_list/workspace_list/session_list/session_history/session_search), 数据一律经
-   * MCP resources 面读取(dsh://status|guide|tools|models|presets|workspaces|sessions 及各模板),
-   * session_prompt 的默认 detail 变为 'uri'(只回引用)。只对确认支持 resources 的客户端有意义;
-   * 默认 false 时工具与资源并存, 对只认 tools 的客户端零行为变化(兼容性优先)。
-   * 切换时已在线的 MCP 会话就地重注册工具并推 tools/list_changed。
-   */
-  resourceFirst?: boolean
-  /**
    * 桥写停泊审批的等待上限(毫秒; 默认 120s; 0 = 不限时)。
    * 只作用于通用桥的变更类调用(桥外面板审批卡); 会话审批由宿主的 answer client
    * 链回答, 没有插件侧的等待上限。
@@ -133,7 +124,6 @@ export interface ParsedConfig {
   selfToolsEnabled: Volatile<boolean>
   allowedHosts: Volatile<string[]>
   sessionTtlMs: Volatile<number>
-  resourceFirst: Volatile<boolean>
   approvalTimeoutMs: Volatile<number>
   bridgeEndpointAllowlist: Volatile<string[]>
 }
@@ -152,7 +142,6 @@ export const DEFAULTS = {
   authToken: '',
   authEnabled: false as boolean,
   selfToolsEnabled: true as boolean,
-  resourceFirst: false,
   approvalTimeoutMs: 120_000,
   allowedHosts: [] as string[],
   bridgeEndpointAllowlist: [] as string[],
@@ -195,7 +184,6 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     authToken: '',
     authEnabled: false,
     selfToolsEnabled: true,
-    resourceFirst: DEFAULTS.resourceFirst,
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
     bridgeEndpointAllowlist: [],
@@ -222,7 +210,6 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       get: () => parsed.authEnabled.get() ?? parsed.authToken.get() !== '',
     },
     selfToolsEnabled: { enumerable: true, configurable: true, get: () => parsed.selfToolsEnabled.get() },
-    resourceFirst: { enumerable: true, configurable: true, get: () => parsed.resourceFirst.get() === true },
     // 0 = 不限时(原样保留); 其余钳制到 1000-600000(超时失败关闭)
     approvalTimeoutMs: {
       enumerable: true,
@@ -266,7 +253,6 @@ export const Config = Schema.object({
   selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).'),
   allowedHosts: Schema.array(Schema.string()).default([]).volatile().description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases). Read per request: edits apply immediately.'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).volatile().description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec). Read live: edits apply to the next sweep.'),
-  resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).volatile().description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface). Switching it re-registers tools on live sessions and sends tools/list_changed.'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Wait limit for a generic-bridge write parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the host answer-client chain and are not bounded by this value.'),
   bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). The hard-coded blacklist (credential writes, plugin installs, connection trust) always wins and gets no approval path.'),
 })

@@ -2,9 +2,9 @@
  * Agent 认知面: initialize 的 instructions 引导 + dsh_get_started 帮助文档。
  *
  * 文本是产品文档而非代码, 因此放在 docs/onboarding/*.md, 本模块只负责读取与按节切分:
- *   instructions.md / instructions.resource-first.md → 随 initialize result 下发的 server instructions
- *   guide.md                                        → dsh_get_started 的正文; `<!-- section: id -->`
- *                                                     标记把整份文档切成概念/工作流/错误/结果/限制各节
+ *   instructions.md → 随 initialize result 下发的 server instructions
+ *   guide.md        → dsh_get_started 的正文; `<!-- section: id -->`
+ *                     标记把整份文档切成概念/工作流/错误/结果/限制各节
  * 文件路径相对本模块解析: src/mcp 与构建产物 lib/mcp 都向上两级到仓库/包根, 因此源码直跑与
  * 安装后运行一致。文本缺失时在导入期抛错(插件启动即失败, 不静默下发空指南)。
  * 改内容时同步 README 与 smoke 断言。
@@ -30,7 +30,6 @@ function readDoc(name: string): string {
 
 const GUIDE_SOURCE = readDoc('guide.md')
 const INSTRUCTIONS = readDoc('instructions.md').trimEnd() + '\n'
-const RESOURCE_FIRST_INSTRUCTIONS = readDoc('instructions.resource-first.md').trimEnd() + '\n'
 
 /**
  * 按 `<!-- section: id -->` 标记切分 guide.md。
@@ -77,10 +76,9 @@ export const GET_STARTED_DOC = GUIDE_HEADER + SECTION_IDS.map((id) => GET_STARTE
 
 /**
  * 随 MCP initialize result 下发的 server 引导文本(McpServer 第二参 serverOptions.instructions)。
- * resourceFirst 部署只读工具下线, 引导改指资源面; 两种形态经 serverInstructions() 选择。
  */
-export function serverInstructions(resourceFirst: boolean): string {
-  return resourceFirst ? RESOURCE_FIRST_INSTRUCTIONS : INSTRUCTIONS
+export function serverInstructions(): string {
+  return INSTRUCTIONS
 }
 
 /** section 参数取单节的返回值; 非法 id 由 zod schema 拦下, 这里只处理合法枚举 */

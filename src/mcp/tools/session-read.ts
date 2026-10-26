@@ -1,6 +1,6 @@
 /**
- * 会话只读工具: 清单(归档视图用 scope="archived")、纪要、搜索、现状概览。resourceFirst 部署下这批工具下线,
- * 数据改由 dsh://sessions 等资源面提供(两者共用 host/data.ts 的同一实现)。
+ * 会话只读工具: 清单(归档视图用 scope="archived")、纪要、搜索、现状概览。
+ * 与 dsh://sessions 等资源面共用 host/data.ts 的同一实现。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -48,9 +48,7 @@ const sessionListOut = z.object({
   }).optional(),
 })
 
-export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceFirst: boolean): void {
-  if (resourceFirst) return
-
+export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'session_list',
     {

@@ -37,7 +37,7 @@ const state = {
   startedAt,
   config: {
     host: '127.0.0.1', port: 5642,
-    http: true, resourceFirst: false,
+    http: true,
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
     bridgeEndpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],

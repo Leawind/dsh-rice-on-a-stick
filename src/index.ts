@@ -146,7 +146,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
         selfToolsEnabled: state.config.selfToolsEnabled,
-        resourceFirst: state.config.resourceFirst,
         sessionTtlMs: state.config.sessionTtlMs,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
         bridgeEndpointAllowlist: state.config.bridgeEndpointAllowlist,
@@ -225,7 +224,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const keys = paths.map((path) => String(path[0] ?? ''))
       if (keys.includes('selfToolsEnabled')) selfToolsController?.sync(state.config.selfToolsEnabled)
       if (keys.some((key) => key === 'http' || key === 'host' || key === 'port')) void requestListenerSync()
-      if (keys.includes('resourceFirst')) httpServer?.syncResourceFirst()
       if (keys.includes('sessionTtlMs')) httpServer?.syncSessionTtl()
     })
     return () => { off() }

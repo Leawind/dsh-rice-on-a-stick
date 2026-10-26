@@ -26,7 +26,7 @@ export function structuredOut<T>(value: unknown, schema: z.ZodType<T>): { conten
   return { content: [{ type: 'text' as const, text: JSON.stringify(parsed, null, 2) }], structuredContent: parsed }
 }
 
-/** resourceFirst 的 uri 投影: 只回引用与簿记字段, 数据本体让调用方按 resource URI 直读/订阅 */
+/** detail='uri' 档的投影: 只回引用与簿记字段, 数据本体让调用方按 resource URI 直读/订阅 */
 export function renderUriResult(result: {
   sessionId: string
   model: ModelSelection

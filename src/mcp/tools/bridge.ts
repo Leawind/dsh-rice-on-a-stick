@@ -2,7 +2,7 @@
  * 通用桥工具(读面 + 审批门控的写面): bridge_describe(搜索优先的四级解析阶梯:
  * query 关键词搜索 → 无参 namespace 索引 → namespace 单域清单 → endpoint 精确契约) + bridge_call。
  * 长尾宿主能力的零策展覆盖面——数据源与调用机制见 src/host/typert-bridge.ts。
- * 两工具恒注册(不随 resourceFirst 下线): 它们描述/调用的是宿主服务面, 没有资源面等价物。
+ * 两工具恒注册: 它们描述/调用的是宿主服务面, 没有资源面等价物。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'

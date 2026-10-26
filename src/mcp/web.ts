@@ -177,8 +177,8 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是监听级字段) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
-/** 布尔字段(白名单/认证/自用工具/外部 MCP/资源优先; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http', 'resourceFirst'])
+/** 布尔字段(白名单/认证/自用工具/外部 MCP; 关闭均不清除对应值) */
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http'])
 /** 数字字段 → 下限(运行时 getter 还有同向钳制, 这里前置拦截避免写入后才被钳; approvalTimeoutMs 有专用分支: 0 = 不限时) */
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 /** 数字字段 → 上限(与 config.ts 的钳制保持一致) */
@@ -278,7 +278,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
   /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
    * 全部字段在 Config schema 上标了 volatile: Loader 就地提交引用, 插件不重载;
    * 监听级字段(http/host/port)由插件自己重建监听器, 面板按 `reloading` 等待重连;
-   * 其余字段(资源优先/审批接管/TTL/Host 白名单...)就地生效, 面板立刻以新值刷新。
+   * 其余字段(审批接管/TTL/Host 白名单...)就地生效, 面板立刻以新值刷新。
    * 编辑通道在请求期经 serviceOf 惰性获取(不入 inject 声明: 缺 configEditor 的环境只影响本路由, 不阻塞装载)。 */
   async function guiConfigUpdate(body: unknown): Promise<{ updated: boolean; reloading?: boolean }> {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {

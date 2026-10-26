@@ -95,8 +95,6 @@ interface DshModuleSpec {
       port: typeof c.port === 'number' ? c.port : 5642,
       // 监听级字段(改动会重建监听器): 与 Config 一一对应, 面板不得遗漏任何一项
       httpOn: c.http !== false,
-      // 默认工具优先(false): 只认 tools 的客户端零行为变化, 资源优先需显式开启
-      resourceFirst: c.resourceFirst === true,
       approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS,
       sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
       allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
@@ -225,8 +223,6 @@ interface DshModuleSpec {
       'service.hint': '让其他harness也能控制dsh',
       'self.title': '将工具注册到本dsh实例',
       'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
-      'resource.title': '资源优先形态',
-      'resource.hint': '开启后只读工具下线，数据改由 MCP resources 读取',
       'approvalTimeout.title': '桥写审批等待上限',
       'approvalTimeout.hint': '仅作用于通用桥的写审批；毫秒，0 表示不限时，其余取 1000-600000，超时按失败关闭处理',
       'approvalTimeout.invalid': '等待上限须为 0（不限时）或 1000-600000 之间的数字。',
@@ -329,8 +325,6 @@ interface DshModuleSpec {
       'service.hint': 'Let other harnesses control dsh',
       'self.title': 'Register tools into this dsh instance',
       'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
-      'resource.title': 'Resource-first mode',
-      'resource.hint': 'On: read-only tools are not registered; data comes from MCP resources.',
       'approvalTimeout.title': 'Bridge write approval wait limit',
       'approvalTimeout.hint': 'Only for generic-bridge write approvals; milliseconds, 0 = wait indefinitely, otherwise 1000-600000. Timeouts fail closed.',
       'approvalTimeout.invalid': 'The wait limit must be 0 (unlimited) or a number between 1000 and 600000.',
@@ -1403,14 +1397,6 @@ interface DshModuleSpec {
       enqueue({ values: values }, true);
     }
 
-    /** 开关/下拉类的就地生效字段: 乐观显示 + 立即提交(不重建监听器、不等待) */
-    function changeHot(draftPatch, values) {
-      if (!form) return;
-      const base = draftRef.current || form.draft;
-      setDraft(Object.assign({}, base, draftPatch));
-      enqueue({ values: values });
-    }
-
     if (!state) {
       return React.createElement('div', { className: 'dcs-root' },
         error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : t('loading'));
@@ -1721,15 +1707,6 @@ interface DshModuleSpec {
             checked: d.selfToolsOn,
             label: t('self.title'),
             onChange: function (v) { change({ selfToolsOn: v }); },
-          }),
-        }),
-        React.createElement(Row, {
-          label: t('resource.title'),
-          hint: t('resource.hint'),
-          control: React.createElement(Switch, {
-            checked: d.resourceFirst,
-            label: t('resource.title'),
-            onChange: function (v) { changeHot({ resourceFirst: v }, { resourceFirst: v }); },
           }),
         }),
         React.createElement(Row, {

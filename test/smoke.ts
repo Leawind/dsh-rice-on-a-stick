@@ -10,7 +10,6 @@
  *   F. session_select_model / session_rename / session_search / session_fork / session_archive / session_unarchive
  *   G. session_list(含 archived 标记与 scope 过滤) / session_history / 资源面(models/presets/sessions/status/订阅推送)
  *   H. allowedModels 允许清单(独立 ctx)
- *   I. resourceFirst 形态(独立 ctx)——只读面下线, 控制面工具保留, prompt 默认 uri 档
  *   J. 传输层: Bearer 401 / Host 403 / 传输 TTL GC
  *   K. GUI 控制面路由: status/models/config-update 同源
  *
@@ -1223,25 +1222,6 @@ try {
     await phaseU.dispose()
   }
 
-  // ── Phase C: resourceFirst 形态(独立端口独立 ctx)——只读面下线, prompt 默认 uri 档 ──
-  {
-    const resourceCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
-    const phase = await startPhase(8091, resourceCtx, { resourceFirst: true })
-    const names = await phase.toolNames()
-    const OFFLINE = ['dsh_get_started', 'dsh_list_tools', 'dsh_status', 'model_list', 'workspace_list', 'session_list', 'session_meta', 'session_overview', 'session_history', 'session_search']
-    const KEPT = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-      'session_cancel', 'session_queue', 'session_select_model', 'session_rename', 'session_fork', 'session_archive', 'session_unarchive',
-      'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'permission_list', 'session_set_permission', 'subagent_list', 'attachment_read', 'bridge_describe', 'bridge_call', 'echo']
-    checks['resourceFirst: 只读工具下线/控制面工具保留'] = OFFLINE.every((n) => !names.includes(n)) && KEPT.every((n) => names.includes(n))
-    checks['原生自用工具: resourceFirst 不影响原生 35 个'] = resourceCtx.tools.schemas()
-      .filter((s: any) => String(s.name).startsWith('rice_')).length === 35
-    const uriRun = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'uri probe' })
-    checks['resourceFirst: prompt 默认 uri 档(引用 + note)'] = innerOf(uriRun).detail === 'uri'
-      && String(innerOf(uriRun).resource ?? '').includes('sess-live/history')
-      && String(innerOf(uriRun).note ?? '').includes('detail=summary')
-    await phase.dispose()
-  }
-
   // ── Phase G2: 远程回答面(审批/问题都是 forwarded answer client; 原生 UI 保留) ──
   {
     const approvalCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
@@ -1538,26 +1518,6 @@ try {
     await ttlPhase.dispose()
   }
   {
-    // H4: resourceFirst 在线切换(已连接会话就地重注册 + 新连接同形态)
-    const resCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
-    const resPort = await firstBindablePort([8127, 8128])
-    const resPhase = await startPhase(resPort, resCtx, {})
-    const toolFirstNames = await resPhase.toolNames()
-    pushVolatile(resPhase, resCtx, { resourceFirst: true })
-    await new Promise((r) => setTimeout(r, 150))
-    const resourceFirstNames = await resPhase.toolNames()
-    const freshInit = await resPhase.initialize()
-    const freshNames = (parsePayload((await rpc(freshInit.sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, {}, `http://127.0.0.1:${resPort}/mcp`)).text).result?.tools ?? []).map((t: any) => t.name)
-    checks['热改 resourceFirst: 在线会话的工具表就地切换'] = toolFirstNames.includes('session_list')
-      && !resourceFirstNames.includes('session_list') && resourceFirstNames.includes('session_prompt')
-    checks['热改 resourceFirst: 新连接同样按新形态注册'] = !freshNames.includes('session_list') && freshNames.includes('session_prompt')
-    pushVolatile(resPhase, resCtx, { resourceFirst: false })
-    await new Promise((r) => setTimeout(r, 150))
-    const restoredNames = await resPhase.toolNames()
-    checks['热改 resourceFirst: 切回工具优先后在线会话恢复只读工具'] = restoredNames.includes('session_list')
-    await resPhase.dispose()
-  }
-  {
     // H5: http 开关与端口热改只重建监听器(状态如实、旧端口释放、新端口立即可用)
     const svcCtx = makeCtx({ llm: fakeLlm })
     const svcPort = await firstBindablePort([8129, 8130])
@@ -1602,7 +1562,7 @@ try {
     // 面板与 Config 完全对应: status 必须回显每个配置项(令牌只回掩码 hint, 不在此列)
     checks['GUI 路由: status 配置项覆盖面板全部字段'] = [
       'http', 'host', 'port', 'allowedModels', 'allowedModelsEnabled', 'allowedHosts', 'defaultDetail',
-      'authEnabled', 'selfToolsEnabled', 'resourceFirst', 'sessionTtlMs', 'approvalTimeoutMs',
+      'authEnabled', 'selfToolsEnabled', 'sessionTtlMs', 'approvalTimeoutMs',
     ].every((k) => k in (stBody.config ?? {}))
     // 连接列表: 最新连接排最前(面板与 status/connections 资源同序)
     await new Promise((r) => setTimeout(r, 5))
@@ -1714,9 +1674,6 @@ try {
     const cfgHttp = await guiPut({ http: false })
     checks['GUI 路由: http 开关写入并标记监听器重建'] = cfgHttp.status === 200
       && JSON.parse(cfgHttp.body).reloading === true && edits[edits.length - 1].http === false
-    const cfgResource = await guiPut({ resourceFirst: true })
-    checks['GUI 路由: resourceFirst 写入(就地生效, 不重启)'] = cfgResource.status === 200
-      && JSON.parse(cfgResource.body).reloading !== true && edits[edits.length - 1].resourceFirst === true
     // volatile 字段只就地提交, 不重载(面板据此不做重载等待)
     const cfgVolatile = await guiPut({ defaultDetail: 'full', selfToolsEnabled: true })
     checks['GUI 路由: volatile 字段不标记重载'] = cfgVolatile.status === 200
@@ -1734,7 +1691,6 @@ try {
       selfToolsEnabled: true,
       allowedHosts: ['example.com'],
       sessionTtlMs: 0,
-      resourceFirst: false,
       approvalTimeoutMs: 120000,
       bridgeEndpointAllowlist: ['schedule/update'],
     }
@@ -1789,7 +1745,7 @@ try {
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {
     const c = ConfigSchema(null) as any
-    return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary' && c.resourceFirst.get() === false
+    return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary'
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
       && c.selfToolsEnabled.get() === true && c.host.get() === '127.0.0.1' && c.port.get() === 5642
       && c.http.get() === true && c.allowedHosts.get().length === 0
