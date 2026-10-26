@@ -1,4 +1,4 @@
-// 品牌图标与侧栏面板图标(米饭碗 + 待审批计数角标)。
+// 品牌图标与侧栏面板图标。
 import React from 'react';
 import { NAV_ICON_SVG } from '../icons';
 import { useApprovals } from '../approvalStore';
@@ -13,7 +13,7 @@ export function PanelIcon() {
   });
 }
 
-// 侧栏面板图标(sidebar.panellist 条目的工厂产物): 米饭碗 + 待审批计数角标。
+// 侧栏面板图标(sidebar.panellist 条目的工厂产物)。
 // 宿主侧栏托管按钮/label/选中态, 这里只画图标: props.size 是侧栏要的边长(wide 16 / rail 18),
 // props.active 为选中态(描边色走 currentColor 跟随按钮态, 不需要单独处理)。
 // 角标数据来自 approvalStore——页未打开也持续可见; 任一停泊请求剩余不足 1 分钟换紧急色。

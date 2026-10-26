@@ -1,4 +1,3 @@
-// 时长/相对时间/时刻的展示格式化(文案走 i18n)。
 import { t } from './i18n';
 
 export function fmtDur(ms) {

@@ -1,4 +1,3 @@
-// GUI 同源路由: 数据/操作全部经 POST /_dsh/dsh-rice-on-a-stick/{method}(host 半注册)。
 export const RPC_BASE = '/_dsh/dsh-rice-on-a-stick';
 
 export function rpc(method: string, args?: unknown) {

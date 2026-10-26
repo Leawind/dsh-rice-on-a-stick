@@ -1,6 +1,8 @@
 /**
  * 面板样式: 只引用宿主 --dsw-* token(var fallback 为亮色中性值, 宿主缺失时可读性兜底)。
  * 常驻文档头(apply 注入 <style>): 侧栏角标(dcs-glyph*)在页面未打开时也要有样式。
+ * 控件规格对齐官方 primitives(输入 32px/radius-md, 按钮 sm 28/md 36, 开关 36×20,
+ * 发丝分隔线 0.5px, 主按钮 = label-primary 黑白填充, 强调/焦点 = deepseek 蓝)。
  */
 export const PANEL_CSS = [
   // 整页容器(中央面板): 自己是滚动容器(height:100% + overflow-y)——宿主主栏不代滚, 内容超高时
@@ -70,7 +72,6 @@ export const PANEL_CSS = [
   '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;}',
   '.dcs-input-host{flex:1 1 180px;width:auto;min-width:140px;}',
   '.dcs-input-port{flex:0 0 96px;width:96px;}',
-  // 错误行
   '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
   // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题)
   '.dcs-form{display:flex;flex-direction:column;}',
@@ -184,9 +185,7 @@ export const PANEL_CSS = [
   '.dcs-glyph-icon svg{display:block;width:100%;height:100%;}',
   '.dcs-glyphbadge{position:absolute;top:-5px;right:-7px;box-sizing:border-box;min-width:15px;height:15px;padding:0 4px;border-radius:999px;corner-shape:round;background:var(--dsw-alias-state-warn-primary,#f59e0b);color:#fff;font-size:10px;font-weight:600;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;}',
   '.dcs-glyphbadge-urgent{background:var(--dsw-alias-state-error-primary,#ec1313);}',
-  // 保存错误栏
   '.dcs-savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 2px 2px;}',
-  // 连接列表
   '.dcs-sechead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding-bottom:4px;}',
   '.dcs-sectitle{font-size:13px;font-weight:600;}',
   '.dcs-table{display:flex;flex-direction:column;}',

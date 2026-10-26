@@ -1,7 +1,7 @@
 /**
  * 开发用 watch 组合: 同时编译宿主半(src → lib, tsc)与浏览器半(src/client → client, tsdown)。
  * 两个工程分开是因为客户端需要 DOM lib 且不做严格模式检查; 宿主与测试保持严格。
- * client/client.js 落盘即触发宿主 client-hmr; icon.svg 是 bundle 依赖, 改动经 tsdown watch 重建。
+ * client/client.js 落盘即触发宿主 client-hmr。
  */
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
