@@ -14,6 +14,7 @@
 import { createRequire } from 'node:module'
 import type { Volatile } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from './config-defaults.js'
 
 /** Cordis 插件名(= 包名, 也是 userMessage.source.plugin 的取值) */
 export const PLUGIN_NAME = 'dsh-rice-on-a-stick'
@@ -132,17 +133,17 @@ export interface ParsedConfig {
 export const DEFAULTS = {
   // 模型与 preset 都不做任何默认: 调用必须显式指定(与 web 界面一致: 新会话先选模型与预设),
   // allowedModels 只约束"能选哪些", 不提供默认。
-  host: '127.0.0.1' as string,
-  port: 5642 as number,
+  host: DEFAULT_HOST,
+  port: DEFAULT_PORT,
   http: true,
   allowedModels: [] as string[],
   allowedModelsEnabled: false as boolean,
   defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
-  sessionTtlMs: 7 * 24 * 60 * 60 * 1000,
+  sessionTtlMs: DEFAULT_SESSION_TTL_MS,
   authToken: '',
   authEnabled: false as boolean,
   selfToolsEnabled: true as boolean,
-  approvalTimeoutMs: 120_000,
+  approvalTimeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
   allowedHosts: [] as string[],
   bridgeEndpointAllowlist: [] as string[],
 }

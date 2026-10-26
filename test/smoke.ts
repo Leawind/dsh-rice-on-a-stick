@@ -38,6 +38,7 @@ import { state } from '../lib/core/state.js'
 import { pendingApprovalsOf } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { Config as ConfigSchema, DEFAULTS, TOOL_IDENTITY_PREFIX } from '../lib/core/config.js'
+import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from '../src/core/config-defaults.ts'
 
 // 面板源码按域拆分在 src/client/(locales/styles/components/数据逻辑模块), 静态检查以全部源码拼接为对象
 function readClientSource(): string {
@@ -1776,56 +1777,30 @@ try {
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
     try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }
   })()
-  // 面板完备性(静态): draftFromStatus 必须读取 Config 的每个字段, 新字段漏接会在这里失败
-  checks['设置面板: draftFromStatus 读取全部配置字段'] = (() => {
-    const clientSrc = readClientSource()
+  // ── 面板契约(静态): 只断言两侧必须同步的契约, 不钉实现形状; 面板行为验证在 ui-harness ──
+  // draftFromStatus 是 Config 字段在面板侧的唯一消费点, 新字段漏接会在这里失败
+  // (断言钉住映射里的局部名 c., 重命名该局部变量会显式失败, 属预期)
+  checks['设置面板: draftFromStatus 覆盖全部配置字段'] = (() => {
+    const draftSrc = readFileSync(new URL('../src/client/configFields.ts', import.meta.url), 'utf8')
     // authToken 是只写字段(草稿恒为空串, 令牌行另行读 cfg.authToken), 不在此列
     const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>)
-      .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
+      .filter((key) => key !== 'authToken' && !draftSrc.includes(`c.${key}`))
     return missing.length === 0
   })()
-  // 面板绑定(静态): 白名单清单走 bridge-endpoints 路由取数, 审批卡走 bridge-approvals/answer(改路由名时两边要同步)
-  checks['设置面板: 白名单清单走 bridge-endpoints 路由'] = (() => {
+  // GUI 路由是面板 ↔ web.ts 的双向契约: 客户端的每处 rpc 调用必须有服务端同名注册
+  checks['设置面板: GUI 路由客户端调用与服务端注册两侧同步'] = (() => {
     const clientSrc = readClientSource()
-    return clientSrc.includes("rpc('bridge-endpoints')")
-      && clientSrc.includes("kind === 'selectable'")
-      && clientSrc.includes("bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice()")
+    const webSrc = readFileSync(new URL('../src/mcp/web.ts', import.meta.url), 'utf8')
+    const routes = ['status', 'models', 'config-update', 'bridge-endpoints', 'bridge-approvals', 'bridge-approval-answer']
+    return routes.every((route) =>
+      clientSrc.includes(`rpc('${route}'`)
+      && new RegExp(`\\b${route}\\b['"]?\\s*:`).test(webSrc))
   })()
-  // 白名单过滤(静态): 搜索时空 namespace 整组隐藏(组头不出现), 全空回落"没有匹配的端点"
-  checks['设置面板: 白名单过滤隐藏无命中的 namespace'] = (() => {
-    const clientSrc = readClientSource()
-    return clientSrc.includes("groups.filter(function (g) { return g.items.some(matches); })")
-      && clientSrc.includes('visibleGroups.length === 0')
-  })()
-  checks['设置面板: 审批卡走 bridge-approvals 路由'] = (() => {
-    const clientSrc = readClientSource()
-    return clientSrc.includes("rpc('bridge-approvals')")
-      && clientSrc.includes("rpc('bridge-approval-answer'")
-      && clientSrc.includes('BridgeApprovalCard')
-  })()
-  // 面板宿主(静态): 侧栏页 = sidebar.panellist 出图标 + main 同 id 出页面; settings.section 旧注册必须退场
-  checks['设置面板: 侧栏页注册(panellist+main)且设置分区退场'] = (() => {
-    const clientSrc = readClientSource()
-    return clientSrc.includes("slots.inject('sidebar.panellist'")
-      && clientSrc.includes("slots.inject('main'")
-      && clientSrc.includes("name: 'main', key: PANEL_ID")
-      && !clientSrc.includes("slots.inject('settings.section'")
-      && !clientSrc.includes('installSettingsNavIcon')
-  })()
-  // 审批页(静态): 空态一句话不预设读写语义; 返回会话走宿主 layout 服务;
-  // 作弊码监听在页面级, 虚拟项答复走本地移除
-  checks['审批页: 空态文案与返回会话'] = (() => {
-    const clientSrc = readClientSource()
-    return clientSrc.includes("t('approvals.empty')")
-      && !clientSrc.includes('approvals.emptyHint')
-      && clientSrc.includes("selectPanel(null)")
-  })()
-  checks['审批页: 调试作弊码与虚拟项本地答复'] = (() => {
-    const clientSrc = readClientSource()
-    return clientSrc.includes("'osrblhh'")
-      && clientSrc.includes('addDebug')
-      && clientSrc.includes('removeDebug')
-      && clientSrc.includes('pruneDebug')
+  // 侧栏接线: panellist 条目出图标、main 条目出整页, 同 id 由宿主接线选中关系
+  checks['设置面板: 侧栏注册 sidebar.panellist 与 main'] = (() => {
+    const entrySrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    return entrySrc.includes("slots.inject('sidebar.panellist'")
+      && entrySrc.includes("slots.inject('main'")
   })()
 
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
@@ -1842,13 +1817,15 @@ try {
     for (const d of disposers.splice(0)) if (typeof d === 'function') d()
     await new Promise((r) => setTimeout(r, 150))
   }
-  // 面板无法 import 宿主配置(独立 bundle), 兜底默认必须与 DEFAULTS 同步: 文本比对常量定义
-  checks['设置面板: 兜底默认值与 DEFAULTS 一致'] = (() => {
-    const clientSrc = readClientSource()
-    return DEFAULTS.sessionTtlMs === 7 * 24 * 60 * 60 * 1000
-      && /DEFAULT_SESSION_TTL_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(clientSrc)
-      && DEFAULTS.approvalTimeoutMs === 120000
-      && /DEFAULT_APPROVAL_TIMEOUT_MS\s*=\s*120000/.test(clientSrc)
+  // 兜底默认单源: 服务端 DEFAULTS 与客户端面板都取自 src/core/config-defaults.ts,
+  // 常量漂移(有人重新内联字面量)或漏接共享模块会在这里失败
+  checks['设置面板: 兜底默认值单源(config-defaults)'] = (() => {
+    const fallbackSrc = readFileSync(new URL('../src/client/configFields.ts', import.meta.url), 'utf8')
+    return DEFAULTS.host === DEFAULT_HOST
+      && DEFAULTS.port === DEFAULT_PORT
+      && DEFAULTS.approvalTimeoutMs === DEFAULT_APPROVAL_TIMEOUT_MS
+      && DEFAULTS.sessionTtlMs === DEFAULT_SESSION_TTL_MS
+      && fallbackSrc.includes('core/config-defaults')
   })()
   checks['Config schema: defaultDetail 非法枚举被拒'] = (() => {
     try { ConfigSchema({ defaultDetail: 'verbose' } as any); return false } catch { return true }

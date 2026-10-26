@@ -2,11 +2,9 @@
 // 客户端预校验, 后端 config-update 还有白名单+schema 两道防线。
 // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回显。
 // 语义: 所有改动实时保存(改动即 config-update, 无保存按钮); 草稿只是提交在途时的乐观显示。
+// 兜底默认值单源: 与服务端 DEFAULTS 同取自 src/core/config-defaults.ts。
 import { t } from './i18n';
-
-// status 缺字段时的兜底默认(必须与 src/core/config.ts 的 DEFAULTS 一致; 正常情况服务端总会给值)
-export const DEFAULT_APPROVAL_TIMEOUT_MS = 120000;
-export const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from '../core/config-defaults';
 
 export function draftFromStatus(st) {
   const c = (st && st.config) || {};
@@ -18,8 +16,8 @@ export function draftFromStatus(st) {
     authOn: c.authEnabled === true,
     authToken: '',        // 在途令牌(只写): 重新生成的乐观值, rebase 后清空
     selfToolsOn: c.selfToolsEnabled !== false,
-    host: typeof c.host === 'string' && c.host ? c.host : '127.0.0.1',
-    port: typeof c.port === 'number' ? c.port : 5642,
+    host: typeof c.host === 'string' && c.host ? c.host : DEFAULT_HOST,
+    port: typeof c.port === 'number' ? c.port : DEFAULT_PORT,
     // 监听级字段(改动会重建监听器): 与 Config 一一对应, 面板不得遗漏任何一项
     httpOn: c.http !== false,
     approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS,
@@ -53,8 +51,8 @@ export function structDirtyOf(draft, cfg) {
 
 /** 草稿里的监听地址/端口是否与生效值不同 */
 export function listenDirtyOf(draft, cfg) {
-  const host = typeof cfg.host === 'string' && cfg.host ? cfg.host : '127.0.0.1';
-  const port = typeof cfg.port === 'number' ? cfg.port : 5642;
+  const host = typeof cfg.host === 'string' && cfg.host ? cfg.host : DEFAULT_HOST;
+  const port = typeof cfg.port === 'number' ? cfg.port : DEFAULT_PORT;
   return String(draft.host || '').trim() !== host || Number(draft.port) !== port;
 }
 
@@ -68,8 +66,8 @@ export function readListen(draft, cfg) {
   if (!host) return { error: t('listen.hostRequired') };
   const port = Number(draft.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: t('listen.portInvalid') };
-  const nowHost = typeof cfg.host === 'string' && cfg.host ? cfg.host : '127.0.0.1';
-  const nowPort = typeof cfg.port === 'number' ? cfg.port : 5642;
+  const nowHost = typeof cfg.host === 'string' && cfg.host ? cfg.host : DEFAULT_HOST;
+  const nowPort = typeof cfg.port === 'number' ? cfg.port : DEFAULT_PORT;
   if (host === nowHost && port === nowPort) return {};
   return { values: { host: host, port: port } };
 }
