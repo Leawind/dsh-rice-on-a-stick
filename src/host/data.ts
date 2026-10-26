@@ -17,7 +17,20 @@ import { state } from '../core/state.js'
 import type { ModelSelection, ModelSelectionOverride } from '../core/types.js'
 import { canonicalCwd, isWithin } from '../core/paths.js'
 import { historyTurnsOf, projectModel, recentOverviewOf, type HistoryDetail, type HistoryRole } from '../session/projection.js'
-import { archivedSessionIdsOf, asSessionId, eventsOf, headerOfSnapshot, inspectSessionEvents, serviceOf, sessionControllerOf } from './bridge.js'
+import {
+  archivedSessionIdsOf,
+  asSessionId,
+  eventsOf,
+  findSessionHeader,
+  headerOfSnapshot,
+  inspectSessionEvents,
+  serviceOf,
+  sessionControllerOf,
+  sessionPersistenceOf,
+  sessionProjectionCacheOf,
+  sessionQueryOf,
+  type ProjectionBlockView,
+} from './bridge.js'
 import { latestTitleOf, sessionEventSourceOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
 import { currentPermissionOf } from '../session/permissions.js'
@@ -170,11 +183,13 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
 
 // ── 会话(session_list / session_history / dsh://sessions[/…]) ──
 
-/** 冷会话标题缓存的 TTL / 容量, 与单次搜索扫描的默认预算 / 允许上限(冷搜索成本 = 每会话一次日志读) */
+/** 冷会话标题缓存的 TTL / 容量, 与单次搜索扫描的默认预算 / 允许上限(冷搜索成本 = 每个未命中会话一次日志读) */
 export const COLD_TITLE_TTL_MS = 60_000
-const COLD_TITLE_CACHE_MAX = 500
+const COLD_TITLE_CACHE_MAX = 2000
 export const COLD_TITLE_SCAN_MAX = 50
 export const COLD_TITLE_SCAN_LIMIT = 500
+/** 批量折叠门槛: 要读日志的会话达到这个数时, 一次宿主批量折叠比逐个 inspect 划算 */
+const COLD_TITLE_BATCH_MIN = 4
 
 /** 会话清单的查询条件(全部可选; 缺省 = 现有行为: 全部 live + 持久化会话) */
 export interface SessionQuery {
@@ -184,11 +199,12 @@ export interface SessionQuery {
   title?: string
   /**
    * 标题过滤时是否把持久化-only 会话也纳入(默认 false)。
-   * 冷会话没有内存标题, 必须读日志折 session/title——每次搜索每个会话付一次读日志成本,
-   * 因此默认关闭; 打开时单次最多扫描 coldScanMax 个(默认 COLD_TITLE_SCAN_MAX), 结果带 titleSearch 报告。
+   * 冷会话没有内存标题; 解析顺序是"插件缓存 → 宿主持久投影检查点(零 I/O) → 读日志",
+   * 所以常见部署里它并不付日志读。读日志的兜底仍受单次预算 coldScanMax 限制,
+   * 结果带 titleSearch 报告(含真正读日志的条数 coldLogReads)。
    */
   includeCold?: boolean
-  /** includeCold 的单次扫描预算(默认 COLD_TITLE_SCAN_MAX, 夹在 1..COLD_TITLE_SCAN_LIMIT; 无 title 时不生效) */
+  /** includeCold 的单次预算(默认 COLD_TITLE_SCAN_MAX, 夹在 1..COLD_TITLE_SCAN_LIMIT; 无 title 时不生效) */
   coldScanMax?: number
   /**
    * 归档过滤: true = 只列已归档会话, false = 只列未归档会话; 省略 = 不过滤(行上仍带 archived 标记)。
@@ -197,38 +213,195 @@ export interface SessionQuery {
   archived?: boolean
 }
 
-/** 冷会话标题: 读日志折 session/title, TTL 内复用; 读不到(无 sessionController/读取失败)记 undefined */
-async function coldTitleOf(ctx: Context, sessionId: string): Promise<string | undefined> {
-  const now = Date.now()
-  const hit = state.coldTitles.get(sessionId)
-  if (hit !== undefined && now - hit.at < COLD_TITLE_TTL_MS) return hit.title
-  let title: string | undefined
-  try {
-    title = latestTitleOf(await inspectSessionEvents(ctx, asSessionId(sessionId)))
-  } catch {
-    // 无 sessionController / 会话不可读: 当作"没有标题", 让调用方继续
-    title = undefined
+/** 会话清单一行的来源(整份清单与单会话读取共用同一份行投影) */
+interface RowSources {
+  /** live 会话对象; undefined = 持久化-only(权限预设不为其推导, 那需要读日志) */
+  liveOf: (sessionId: string) => unknown
+  /** 已知标题(内存日志/投影缓存); undefined = 未知, 需要时再读日志 */
+  titleOf: (sessionId: string) => string | undefined
+}
+
+/** 持久化快照的 revision(旧宿主没有版本化元数据时缺失); 冷标题缓存的失效键 */
+function revisionOfSnapshot(snap: unknown): string | undefined {
+  const revision = (snap as { revision?: unknown } | null | undefined)?.revision
+  return typeof revision === 'string' && revision !== '' ? revision : undefined
+}
+
+/** 一行会话的投影: 清单整表与单会话读取同一份字段(改字段只动这里) */
+function projectRow(
+  ctx: Context,
+  header: SessionHeader,
+  sources: RowSources,
+  archivedIds: ReadonlySet<string>,
+): Record<string, unknown> {
+  const model = knownSelectionOf(ctx, header.id)
+  const title = sources.titleOf(header.id)
+  // 权限预设只对 live 行推导(宿主投影读取; 冷会话推导需要读日志, 清单面不为它付 I/O)
+  const liveSession = sources.liveOf(header.id)
+  const permission = liveSession === undefined ? undefined : currentPermissionOf(ctx, liveSession)
+  return {
+    sessionId: header.id,
+    createdAt: header.createdAt,
+    archived: archivedIds.has(header.id),
+    ...(title !== undefined ? { title } : {}),
+    ...(header.cwd ? { cwd: header.cwd } : {}),
+    ...(header.agentPreset ? { agentPreset: header.agentPreset } : {}),
+    ...(permission !== undefined ? { permission } : {}),
+    // 原生子代理/分叉的持久谱系字段(SessionHeader 自带; 之前没投影, 外部调用方看不到树)
+    ...(header.parentSession !== undefined ? { parentSession: String(header.parentSession) } : {}),
+    ...(header.origin !== undefined ? { origin: header.origin } : {}),
+    ...(header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {}),
+    ...(model ? { model: projectModel(model) } : {}),
   }
-  if (state.coldTitles.size >= COLD_TITLE_CACHE_MAX) state.coldTitles.clear()
-  state.coldTitles.set(sessionId, { title, at: now })
-  return title
+}
+
+/**
+ * live 会话的标题: 会话对象字段(机会式)优先, 缺失时折内存日志(零 I/O; 0.2.x 实测只在日志里写 session/title)。
+ * 读不到不抛错——标题是锦上添花, 不该让整份清单失败。
+ */
+function liveTitleOf(session: unknown): string | undefined {
+  const direct = (session as { title?: unknown } | null | undefined)?.title
+  if (typeof direct === 'string' && direct !== '') return direct
+  try {
+    return latestTitleOf(eventsOf(session))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 从宿主持久化投影检查点读标题: 零 I/O, 与官方会话列表同一数据源(sessionProjectionCache)。
+ * known=false 表示"这份检查点答不了"(没有记录/格式代际不符/服务缺席), 调用方才需要考虑读日志;
+ * known=true 且没有 title 是权威的"这个会话没有标题"(title 投影的初始态就是 null)。
+ * 旧格式代际(迁移前)只放行标题, 所以这里两个入口都用。
+ */
+function projectedTitleOf(ctx: Context, header: SessionHeader | undefined): { known: boolean; title?: string } {
+  if (header === undefined) return { known: false }
+  const cache = sessionProjectionCacheOf(ctx)
+  if (cache === undefined) return { known: false }
+  let block: ProjectionBlockView | undefined
+  try {
+    block = cache.cachedSnapshot?.(header, ['title']) ?? cache.cachedPredecessorTitle?.(header)
+  } catch {
+    return { known: false }
+  }
+  const values = block?.values
+  if (values === undefined || !Object.prototype.hasOwnProperty.call(values, 'title')) return { known: false }
+  const value = values.title
+  if (value === null) return { known: true }
+  if (typeof value === 'string' && value.trim() !== '') return { known: true, title: value }
+  return { known: false }
+}
+
+/** 记一条冷标题(带 revision 时按它精确失效); 满了淘汰最旧的一条, 不清整表 */
+function rememberColdTitle(sessionId: string, title: string | undefined, revision: string | undefined): void {
+  if (!state.coldTitles.has(sessionId) && state.coldTitles.size >= COLD_TITLE_CACHE_MAX) {
+    const oldest = state.coldTitles.keys().next()
+    if (!oldest.done) state.coldTitles.delete(oldest.value)
+  }
+  state.coldTitles.set(sessionId, { title, at: Date.now(), ...(revision !== undefined ? { revision } : {}) })
+}
+
+/** 缓存是否还能用: 有 revision 时只认精确匹配(日志变了 revision 必变), 没有时退回 TTL */
+function rememberedColdTitle(sessionId: string, revision: string | undefined): { hit: boolean; title?: string } {
+  const entry = state.coldTitles.get(sessionId)
+  if (entry === undefined) return { hit: false }
+  if (revision !== undefined) return entry.revision === revision ? { hit: true, title: entry.title } : { hit: false }
+  return Date.now() - entry.at < COLD_TITLE_TTL_MS ? { hit: true, title: entry.title } : { hit: false }
+}
+
+/** 读日志折标题(兜底路径); 读不到(无 sessionController/读取失败)记 undefined */
+async function coldTitleFromLog(ctx: Context, sessionId: string, signal?: AbortSignal): Promise<string | undefined> {
+  try {
+    return latestTitleOf(await inspectSessionEvents(ctx, asSessionId(sessionId), signal))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 宿主批量折叠标题(sessionQuery.readTitleSnapshots): 一次语料观察 + 有限并发冷读 + 只折叠标题,
+ * 不走会话恢复(比逐个 inspect 轻一个量级)。逐会话隔离失败, 缺席/整体失败返回空表交给调用方兜底。
+ */
+async function batchTitlesOf(ctx: Context, sessionIds: readonly string[], signal?: AbortSignal): Promise<Map<string, string | undefined>> {
+  const titles = new Map<string, string | undefined>()
+  const query = sessionQueryOf(ctx)
+  if (typeof query?.readTitleSnapshots !== 'function' || sessionIds.length === 0) return titles
+  try {
+    const results = await query.readTitleSnapshots(sessionIds.map(asSessionId), signal)
+    for (const result of results) {
+      const id = typeof result?.sessionId === 'string' ? result.sessionId : undefined
+      if (id === undefined || result?.status !== 'fulfilled') continue
+      const title = result.value?.title?.title
+      titles.set(id, typeof title === 'string' && title.trim() !== '' ? title : undefined)
+    }
+  } catch {
+    // 批量路径不可用: 全部落回逐个 inspect
+  }
+  return titles
+}
+
+/**
+ * 解析冷会话标题: 插件缓存(按 revision 精确失效) → 宿主持久投影检查点(零 I/O)
+ * → 日志(命中数达到门槛时批量折叠, 否则逐个 inspect)。返回标题表与真正读日志的会话数。
+ * 只有最后一层付日志读, 预算已由调用方(coldScanMax)裁好。
+ */
+async function resolveColdTitles(
+  ctx: Context,
+  sessionIds: readonly string[],
+  revisions: ReadonlyMap<string, string | undefined>,
+  headerOf: (sessionId: string) => SessionHeader | undefined,
+  signal?: AbortSignal,
+): Promise<{ titles: Map<string, string | undefined>; logReads: number }> {
+  const titles = new Map<string, string | undefined>()
+  const pending: string[] = []
+  for (const sessionId of sessionIds) {
+    const revision = revisions.get(sessionId)
+    const remembered = rememberedColdTitle(sessionId, revision)
+    if (remembered.hit) {
+      titles.set(sessionId, remembered.title)
+      continue
+    }
+    const projected = projectedTitleOf(ctx, headerOf(sessionId))
+    if (projected.known) {
+      titles.set(sessionId, projected.title)
+      rememberColdTitle(sessionId, projected.title, revision)
+      continue
+    }
+    pending.push(sessionId)
+  }
+  if (pending.length === 0) return { titles, logReads: 0 }
+
+  const batched = pending.length >= COLD_TITLE_BATCH_MIN
+    ? await batchTitlesOf(ctx, pending, signal)
+    : new Map<string, string | undefined>()
+  for (const sessionId of pending) {
+    signal?.throwIfAborted()
+    const title = batched.has(sessionId) ? batched.get(sessionId) : await coldTitleFromLog(ctx, sessionId, signal)
+    titles.set(sessionId, title)
+    rememberColdTitle(sessionId, title, revisions.get(sessionId))
+  }
+  return { titles, logReads: pending.length }
 }
 
 /**
  * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd/归档过滤
  * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
  * 标题过滤: live 会话的标题走内存(会话对象字段优先, 缺失时折内存日志), 零 I/O;
- * 冷会话默认不参与匹配, 显式 includeCold 才读日志(单次预算由 coldScanMax 给, 默认 COLD_TITLE_SCAN_MAX)。
+ * 冷会话默认不参与匹配, 显式 includeCold 才解析标题——解析链是"插件缓存 → 宿主持久投影检查点
+ * (零 I/O) → 读日志(批量折叠优先)", 只有最后一层付日志读, 且由 coldScanMax 限定条数。
  * 归档: 每行带 archived 标记(workspaceRegistry 的全局归档集合); archived 参数为
  * true/false 时只列归档/未归档, 省略时不过滤(与"全部"视图一致)。
  */
-export async function collectSessions(ctx: Context, query: SessionQuery = {}): Promise<{
+export async function collectSessions(ctx: Context, query: SessionQuery = {}, signal?: AbortSignal): Promise<{
   total: number
   sessions: Record<string, unknown>[]
-  titleSearch?: { coldScanned: number; coldTruncated: boolean }
+  titleSearch?: { coldScanned: number; coldTruncated: boolean; coldLogReads: number }
 }> {
   // live 优先合并: live 优先, 持久化侧兼容快照/裸 header 两种形状
   const headers = new Map<string, SessionHeader>()
+  /** 持久化快照的 revision: 冷标题缓存的精确失效键(没有版本化元数据的旧宿主缺失) */
+  const revisions = new Map<string, string | undefined>()
   const liveTitles = new Map<string, string>()
   const liveById = new Map<string, unknown>()
   const sessions = ctx.get('sessions') as {
@@ -241,10 +414,13 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
     // live 会话对象可能带 title(sessionTitle 服务维护); 机会式读取
     if (typeof session.title === 'string' && session.title) liveTitles.set(session.header.id, session.title)
   }
-  const persistence = ctx.get('sessionPersistence') as { list?: () => Promise<readonly unknown[]> } | undefined
-  for (const snap of (await persistence?.list?.()) ?? []) {
+  const persistence = sessionPersistenceOf(ctx)
+  for (const snap of (await persistence?.list?.(signal === undefined ? undefined : { signal })) ?? []) {
     const header = headerOfSnapshot(snap)
-    if (header && !headers.has(header.id)) headers.set(header.id, header)
+    if (!header || headers.has(header.id)) continue
+    headers.set(header.id, header)
+    const revision = revisionOfSnapshot(snap)
+    if (revision !== undefined) revisions.set(header.id, revision)
   }
   /**
    * live 会话的标题: 会话对象不一定带 title(实测 0.2.x 只在日志里写 session/title),
@@ -259,11 +435,7 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
     if (listed === undefined) return undefined
     let title: string | undefined
     for (const candidate of [sessions?.get?.(sessionId), listed]) {
-      try {
-        title = latestTitleOf(eventsOf(candidate))
-      } catch {
-        title = undefined
-      }
+      title = candidate === undefined ? undefined : liveTitleOf(candidate)
       if (title !== undefined) break
     }
     if (title !== undefined) liveTitles.set(sessionId, title)
@@ -280,77 +452,82 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}): P
       const sessionCwd = h.cwd
       return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
     })
+  const sources: RowSources = { liveOf: (id) => sessions?.get?.(id), titleOf: knownLiveTitle }
   const items = visible
     .sort((a, b) => b.createdAt - a.createdAt)
-    .map((h) => {
-      const model = knownSelectionOf(ctx, h.id)
-      const title = knownLiveTitle(h.id)
-      // 权限预设只对 live 行推导(宿主投影读取; 冷会话推导需要读日志, 清单面不为它付 I/O)
-      const liveSession = sessions?.get?.(h.id)
-      const permission = liveSession === undefined ? undefined : currentPermissionOf(ctx, liveSession)
-      return {
-        sessionId: h.id,
-        createdAt: h.createdAt,
-        archived: archivedIds.has(h.id),
-        ...(title !== undefined ? { title } : {}),
-        ...(h.cwd ? { cwd: h.cwd } : {}),
-        ...(h.agentPreset ? { agentPreset: h.agentPreset } : {}),
-        ...(permission !== undefined ? { permission } : {}),
-        // 原生子代理/分叉的持久谱系字段(SessionHeader 自带; 之前没投影, 外部调用方看不到树)
-        ...(h.parentSession !== undefined ? { parentSession: String(h.parentSession) } : {}),
-        ...(h.origin !== undefined ? { origin: h.origin } : {}),
-        ...(h.delegationDepth !== undefined ? { delegationDepth: h.delegationDepth } : {}),
-        ...(model ? { model: projectModel(model) } : {}),
-      }
-    })
+    .map((h) => projectRow(ctx, h, sources, archivedIds))
 
   const titleQuery = query.title?.trim().toLowerCase() ?? ''
   if (titleQuery === '') return { total: visible.length, sessions: items }
 
-  // 扫描预算: 调用方可按会话总量调大(每个冷会话 = 一次日志读), 夹在 1..COLD_TITLE_SCAN_LIMIT 防呆
+  // 预算: 调用方可按会话总量调大(只有"缓存与投影都答不了"的会话才真读日志), 夹在 1..COLD_TITLE_SCAN_LIMIT 防呆
   const requested = typeof query.coldScanMax === 'number' && Number.isFinite(query.coldScanMax)
     ? query.coldScanMax
     : COLD_TITLE_SCAN_MAX
   const coldScanMax = Math.min(COLD_TITLE_SCAN_LIMIT, Math.max(1, Math.floor(requested)))
 
-  const matched: Record<string, unknown>[] = []
-  let coldScanned = 0
+  // 预算按清单顺序(= createdAt 新→旧)取: 没有内存标题的冷会话, 用尽即标记截断。
+  // live 会话的标题在行投影时已经折过内存日志(零 I/O), 再"读"一次还是同一份内存日志, 不占预算。
+  const selected: string[] = []
   let coldTruncated = false
+  if (query.includeCold === true) {
+    for (const item of items) {
+      const sessionId = String(item.sessionId)
+      if (typeof item.title === 'string' && item.title !== '') continue
+      if (sources.liveOf(sessionId) !== undefined) continue
+      if (selected.length >= coldScanMax) {
+        coldTruncated = true
+        continue
+      }
+      selected.push(sessionId)
+    }
+  }
+  const resolved = selected.length === 0
+    ? { titles: new Map<string, string | undefined>(), logReads: 0 }
+    : await resolveColdTitles(ctx, selected, revisions, (id) => headers.get(id), signal)
+
+  const matched: Record<string, unknown>[] = []
   for (const item of items) {
     const known = typeof item.title === 'string' ? item.title : ''
     if (known !== '') {
       if (known.toLowerCase().includes(titleQuery)) matched.push(item)
       continue
     }
-    // 没有内存标题 = 冷会话(或从未生成过标题): 只有显式 includeCold 才为它读一次日志
-    if (query.includeCold !== true) continue
-    if (coldScanned >= coldScanMax) {
-      coldTruncated = true
-      continue
-    }
-    coldScanned++
-    const title = await coldTitleOf(ctx, String(item.sessionId))
+    const title = resolved.titles.get(String(item.sessionId))
     if (title !== undefined && title.toLowerCase().includes(titleQuery)) matched.push({ ...item, title })
   }
   return {
     total: matched.length,
     sessions: matched,
-    titleSearch: { coldScanned, coldTruncated },
+    titleSearch: { coldScanned: selected.length, coldTruncated, coldLogReads: resolved.logReads },
   }
 }
 
+/**
+ * 单会话清单行: 只读这一行(live 读内存 header, 持久化-only 走后端 stat 单点观察),
+ * 不再为找一个会话付整份语料 listing 的代价。标题优先取宿主持久投影检查点(零 I/O);
+ * 冷会话不为标题读日志(与清单行一致)。
+ */
+export async function sessionRowOf(ctx: Context, sessionId: string): Promise<Record<string, unknown>> {
+  const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
+  const live = sessions?.get?.(sessionId)
+  const header = await findSessionHeader(ctx, asSessionId(sessionId))
+  if (header === undefined) throw new Error(`session not found: ${sessionId}`)
+  const sources: RowSources = live === undefined
+    ? { liveOf: () => undefined, titleOf: () => projectedTitleOf(ctx, header).title }
+    : { liveOf: (id) => (id === sessionId ? live : undefined), titleOf: () => liveTitleOf(live) }
+  return projectRow(ctx, header, sources, new Set(archivedSessionIdsOf(ctx)))
+}
+
 /** 单会话元数据(dsh://sessions/{id}): 白名单内即可读(persisted-only 也行), 附 historyReadable 指路 */
-export async function sessionMetaPayload(ctx: Context, sessionId: string): Promise<Record<string, unknown>> {
-  const { sessions } = await collectSessions(ctx)
-  const item = sessions.find((s) => String(s.sessionId) === sessionId)
-  if (!item) {
-    throw new Error(`session not found: ${sessionId}`)
-  }
+export async function sessionMetaPayload(ctx: Context, sessionId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  // 只读这一行: 不再为找一个会话列整份语料
+  const row = await sessionRowOf(ctx, sessionId)
   // 冷会话经宿主 sessionController.inspect 非激活读取事件日志, 与界面打开旧会话同一数据面
   const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
   const readable = live !== undefined || typeof sessionControllerOf(ctx)?.inspect === 'function'
   // 元信息与活动/历史面同源: 标题/模型/preset + 轮步计数 + 上下文占用(读不到日志时只回清单行)
-  const insight = await sessionInsightPayload(ctx, sessionId, item)
+  const insight = await sessionInsightPayload(ctx, sessionId, row, undefined, signal)
   return { ...insight, historyReadable: readable }
 }
 
@@ -378,6 +555,7 @@ export async function sessionOverviewPayload(
   sessionId: string,
   fields?: readonly string[],
   recentLimit?: number,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const wanted = fields !== undefined && fields.length > 0 ? fields : OVERVIEW_DEFAULT_FIELDS
   for (const field of wanted) {
@@ -386,10 +564,8 @@ export async function sessionOverviewPayload(
     }
   }
   const limit = Math.min(OVERVIEW_RECENT_LIMIT_MAX, Math.max(1, Math.floor(recentLimit ?? OVERVIEW_RECENT_DEFAULT_LIMIT)))
-  const { sessions: rows } = await collectSessions(ctx)
-  const row = rows.find((s) => String(s.sessionId) === sessionId)
-  if (row === undefined) throw new Error(`session not found: ${sessionId}`)
-  const source = await sessionEventSourceOf(ctx, sessionId)
+  const row = await sessionRowOf(ctx, sessionId)
+  const source = await sessionEventSourceOf(ctx, sessionId, signal)
   const insight = await sessionInsightPayload(ctx, sessionId, row, source)
 
   const want = (field: OverviewField) => wanted.includes(field)
@@ -428,7 +604,7 @@ export const HISTORY_DEFAULT_ROLES: readonly HistoryRole[] = ['user', 'assistant
  * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
  * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
  */
-export async function sessionHistoryPayload(ctx: Context, sessionId: string, limit: number, beforeIndex?: number, roles?: HistoryRole[], detail?: HistoryDetail): Promise<Record<string, unknown>> {
+export async function sessionHistoryPayload(ctx: Context, sessionId: string, limit: number, beforeIndex?: number, roles?: HistoryRole[], detail?: HistoryDetail, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
   const session = sessions?.get?.(sessionId)
   const live = session !== undefined
@@ -437,7 +613,7 @@ export async function sessionHistoryPayload(ctx: Context, sessionId: string, lim
     events = eventsOf(session)
   } else {
     try {
-      events = await inspectSessionEvents(ctx, sessionId as SessionId)
+      events = await inspectSessionEvents(ctx, sessionId as SessionId, signal)
     } catch (e) {
       // 透出宿主原因(不存在 / 格式迁移待完成 / 无 sessionController), 不给"只支持 live"的误导
       throw new Error(`session not readable: ${sessionId} (${(e as Error)?.message ?? String(e)}); `

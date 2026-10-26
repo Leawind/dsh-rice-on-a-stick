@@ -18,6 +18,8 @@ export const injected = []
 export const resolvedAgents = []
 // 非激活读取: 走宿主 sessionController.inspect 的会话 id(冷会话历史)
 export const inspectedSessions = []
+// 持久化后端调用计数: 断言单会话读取走 stat(一次), 而不是为一行列全语料(list)
+export const persistenceCalls = { list: 0, stat: 0 }
 // 每次 followup 一条(按 agent id): 断言"任务实际执行了几次"
 export const followups = []
 // 会话中心新增面的记录: 搜索/分叉/归档
@@ -488,6 +490,7 @@ export const fakeConnection = {
  * 提供假 webServer: 捕获 GUI 控制面注册的 handler, 供 Phase J 直接调用路由(同源校验/启停)。
  * extraSessions: [{id, cwd}] → 合成 live agent+session(cwd 可在白名单外, 供 Phase W);
  * extraPersisted: [{id, cwd}] → 合成持久化-only 会话(进 persistence.list, 不在 agents.get)。
+ * projectionCache / sessionQuery: 宿主的持久化投影检查点与批量标题折叠面(可选), 供冷标题零 I/O 路径的用例注入。
  */
 export function makeCtx(opts: {
   sessionController?: any
@@ -502,8 +505,10 @@ export function makeCtx(opts: {
   permissionPresets?: any
   extraSessions?: { id: string; cwd?: string }[]
   extraPersisted?: { id: string; cwd?: string }[]
+  projectionCache?: any
+  sessionQuery?: any
 } = {}): any {
-  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, tokenMeter = fakeTokenMeter, commands = fakeCommands, permissionPresets = fakePermissionPresets, extraSessions = [], extraPersisted = [] } = opts
+  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, tokenMeter = fakeTokenMeter, commands = fakeCommands, permissionPresets = fakePermissionPresets, extraSessions = [], extraPersisted = [], projectionCache, sessionQuery } = opts
   const permissionService = permissionPresets === null ? undefined : permissionPresets
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
@@ -517,15 +522,25 @@ export function makeCtx(opts: {
     flush: async (session) => { flushed.push(session.id); return true },
   }
   // 0.1.5+ 的 SessionPersistenceSnapshot(header 在 .header) + 一条旧版裸 header 形状(+ phase 注入的额外持久化会话)
-  // sess-persisted 带原始 agentPreset('reviewer'): 验证 resume 恢复会话原 preset 而非部署默认
+  // sess-persisted 带原始 agentPreset('reviewer'): 验证 resume 恢复会话原 preset 而非部署默认。
+  // revision 让冷标题缓存按它精确失效(与真实后端的 SessionPersistenceSnapshot 一致)。
+  const persistedSnapshots = [
+    { header: { version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' }, revision: 'rev-sess-persisted' },
+    { header: { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD }, revision: 'rev-sess-legacy' },
+    // 比 sess-persisted 更新, 但没有会话对象: 验证 includeCold 的扫描顺序与 coldScanMax 预算耗尽
+    { header: { version: 0, id: 'sess-persisted2', createdAt: 5, cwd: FAKE_CWD }, revision: 'rev-sess-persisted2' },
+    ...extraPersisted.map((s, i) => ({ header: { version: 0, id: s.id, createdAt: 3 + i, cwd: s.cwd }, revision: `rev-${s.id}` })),
+  ]
   const fakePersistence = {
-    list: async () => [
-      { header: { version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' } },
-      { header: { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD } },
-      // 比 sess-persisted 更新, 但没有会话对象: 验证 includeCold 的扫描顺序与 coldScanMax 预算耗尽
-      { header: { version: 0, id: 'sess-persisted2', createdAt: 5, cwd: FAKE_CWD } },
-      ...extraPersisted.map((s, i) => ({ header: { version: 0, id: s.id, createdAt: 3 + i, cwd: s.cwd } })),
-    ],
+    list: async () => {
+      persistenceCalls.list++
+      return persistedSnapshots
+    },
+    // 单会话观察: 不列语料, 只回这一个会话的快照(真实后端同名字段)
+    stat: async (id) => {
+      persistenceCalls.stat++
+      return persistedSnapshots.find((snap) => snap.header.id === String(id))
+    },
   }
   const fakeWebServer = {
     register: ({ path, handler }) => {
@@ -610,6 +625,8 @@ export function makeCtx(opts: {
     },
     sessions: fakeSessions,
     sessionPersistence: fakePersistence,
+    ...(projectionCache !== undefined ? { sessionProjectionCache: projectionCache } : {}),
+    ...(sessionQuery !== undefined ? { sessionQuery } : {}),
     workspaceRegistry: wsRegistry,
     approval: approvalService,
     ...(permissionService !== undefined ? { permissionPresets: permissionService } : {}),
@@ -646,9 +663,11 @@ export function makeCtx(opts: {
             : name === 'commands' ? commands
             : name === 'agentDefaultModel' ? fakeAgentDefaultModel
               : name === 'sessionTitle' ? sessionTitle
-                : name === 'workspaceController' ? workspaceController
-                  : name === 'configEditor' ? configEditor
-                    : undefined),
+                : name === 'sessionProjectionCache' ? projectionCache
+                  : name === 'sessionQuery' ? sessionQuery
+                    : name === 'workspaceController' ? workspaceController
+                      : name === 'configEditor' ? configEditor
+                        : undefined),
   }
   return ctx
 }

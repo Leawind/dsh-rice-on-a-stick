@@ -43,6 +43,7 @@ const sessionListOut = z.object({
   titleSearch: z.object({
     coldScanned: z.number(),
     coldTruncated: z.boolean(),
+    coldLogReads: z.number(),
   }).optional(),
 })
 
@@ -59,15 +60,15 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
         archived: z.boolean().optional().describe('true = only archived sessions; false = only non-archived ones; omit = all (rows always carry the archived flag).'),
-        includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). Cold sessions are scanned newest first and each one costs one log read; the result reports `titleSearch`.'),
-        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to scan per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Raise it to search further back when the workspace has many sessions; ignored without a title filter.`),
+        includeCold: z.boolean().optional().describe('When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Titles come from the host projection cache first, so this is normally free; only sessions the cache cannot answer cost one log read, bounded by `coldScanMax`. The result reports `titleSearch` (including how many log reads were needed).'),
+        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Only sessions without a cached title actually read a log; raise it to search further back, ignored without a title filter.`),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
-    async ({ limit, cwd, title, archived, includeCold, coldScanMax }) => {
+    async ({ limit, cwd, title, archived, includeCold, coldScanMax }, extra) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived, includeCold, coldScanMax })
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived, includeCold, coldScanMax }, extra?.signal)
         return structuredOut({
           total,
           sessions: items.slice(0, limit ?? 20),
@@ -89,15 +90,15 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
-        includeCold: z.boolean().optional().describe('When filtering by title, also read persisted-only sessions to fold their titles (default false: live sessions only, no log reads). The result reports `titleSearch`.'),
-        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to scan per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}).`),
+        includeCold: z.boolean().optional().describe('When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Their titles come from the host projection cache when available; the result reports `titleSearch`.'),
+        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}).`),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
-    async ({ limit, cwd, title, includeCold, coldScanMax }) => {
+    async ({ limit, cwd, title, includeCold, coldScanMax }, extra) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived: true, includeCold, coldScanMax })
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived: true, includeCold, coldScanMax }, extra?.signal)
         return structuredOut({
           total,
           sessions: items.slice(0, limit ?? 20),
@@ -125,9 +126,9 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionId, limit, roles, beforeIndex, detail }) => {
+    async ({ sessionId, limit, roles, beforeIndex, detail }, extra) => {
       try {
-        return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles, detail)))
+        return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles, detail, extra?.signal)))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -149,7 +150,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
-        return out(JSON.stringify(await sessionMetaPayload(ctx, target.sessionId), null, 2))
+        return out(JSON.stringify(await sessionMetaPayload(ctx, target.sessionId, extra?.signal), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -176,7 +177,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
-        return out(JSON.stringify(await sessionOverviewPayload(ctx, target.sessionId, fields, recentLimit), null, 2))
+        return out(JSON.stringify(await sessionOverviewPayload(ctx, target.sessionId, fields, recentLimit, extra?.signal), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }

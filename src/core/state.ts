@@ -36,10 +36,10 @@ interface RuntimeState {
   /** 每个会话最近一次请求(省略 requestId 时 session_result 用它) */
   latestRequestBySession: Map<string, string>
   /**
-   * 冷会话标题缓存(按标题搜索时折叠持久化日志的结果; TTL 内复用, 上限到了整表清空)。
+   * 冷会话标题缓存(按标题搜索时折叠持久化日志的结果; 有 revision 时按它精确失效, 否则退回 TTL)。
    * 只缓存"折叠标题"这一件事, 不缓存事件体——冷搜索的开销就是读日志, 这里让它每个会话只付一次。
    */
-  coldTitles: Map<string, { title: string | undefined; at: number }>
+  coldTitles: Map<string, { title: string | undefined; at: number; revision?: string }>
   /** 远程回答运行时(apply 装配; 宿主无 gateway answer-client seam 时 available=false) */
   answers: AnswerRuntime
   hooks: StateHooks

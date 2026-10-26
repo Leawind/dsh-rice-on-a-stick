@@ -27,7 +27,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
-import { sessionOverviewPayload } from '../lib/host/data.js'
+import { collectSessions, sessionMetaPayload, sessionOverviewPayload } from '../lib/host/data.js'
 import { ageBridgeWriteApprovalsForTest, answerBridgeWriteApproval, invokeOnBridge, listBridgeWriteApprovals } from '../lib/host/typert-bridge.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
@@ -69,6 +69,7 @@ import {
   mounted,
   openSse,
   parsePayload,
+  persistenceCalls,
   permissionPresetCalls,
   PORT,
   rawRequest,
@@ -495,6 +496,95 @@ try {
   checks['session_list: coldScanMax 放大预算后命中较旧会话'] = slCapBigInner.total === 1
     && slCapBigInner.sessions?.[0]?.sessionId === 'sess-persisted'
     && slCapBigInner.titleSearch?.coldScanned > 1 && slCapBigInner.titleSearch?.coldTruncated === false
+
+  // ── 冷标题零 I/O 路径: 宿主持久化投影检查点优先, 检查点答不了才读日志 ──
+  // (独立 ctx 直调数据层: 与 MCP 面同一实现, 断言只关心"有没有读日志/列语料")
+  state.coldTitles.clear()
+  const projectionReads: string[] = []
+  const cachedTitles: Record<string, string | null> = {
+    'sess-cold-a': 'Cached Needle A',
+    'sess-cold-b': null, // 检查点权威地"没有标题"(title 投影初始态): 不该为它读日志
+    'sess-cold-c': null,
+    'sess-cold-d': null,
+    'sess-persisted': null,
+    'sess-persisted2': null,
+  }
+  const perfCtx = makeCtx({
+    sessionController: fakeSessionController,
+    llm: fakeLlm,
+    extraPersisted: [{ id: 'sess-cold-a' }, { id: 'sess-cold-b' }, { id: 'sess-cold-c' }, { id: 'sess-cold-d' }],
+    projectionCache: {
+      // 覆盖除 sess-legacy 之外的每个冷会话: 现实里持久化检查点就是这个覆盖率
+      cachedSnapshot: (meta: any) => {
+        projectionReads.push(String(meta.id))
+        const id = String(meta.id)
+        return Object.prototype.hasOwnProperty.call(cachedTitles, id) ? { asOfSeq: 5, values: { title: cachedTitles[id] } } : undefined
+      },
+      // 旧格式代际(迁移前)只放行标题, 走这个入口
+      cachedPredecessorTitle: (meta: any) => {
+        if (String(meta.id) !== 'sess-legacy') return undefined
+        projectionReads.push(`predecessor:${String(meta.id)}`)
+        return { asOfSeq: 3, values: { title: 'Legacy Migrated Title' } }
+      },
+    },
+  })
+  const inspectedBeforeProjection = inspectedSessions.length
+  const cachedHit = await collectSessions(perfCtx, { title: 'cached needle', includeCold: true })
+  checks['冷标题: 投影检查点命中即命中, 一次日志都不读'] = cachedHit.total === 1
+    && cachedHit.sessions?.[0]?.sessionId === 'sess-cold-a'
+    && cachedHit.titleSearch?.coldLogReads === 0
+    && inspectedSessions.length === inspectedBeforeProjection
+  const predecessorHit = await collectSessions(perfCtx, { title: 'legacy migrated', includeCold: true })
+  checks['冷标题: 旧格式代际走 cachedPredecessorTitle'] = predecessorHit.total === 1
+    && predecessorHit.sessions?.[0]?.sessionId === 'sess-legacy'
+    && predecessorHit.titleSearch?.coldLogReads === 0
+  checks['冷标题: 检查点覆盖的冷会话不再逐个 inspect'] = projectionReads.length > 0
+    && projectionReads.includes('predecessor:sess-legacy')
+
+  // 检查点答不了(无投影缓存)时仍能落回日志, 并如实计数
+  state.coldTitles.clear()
+  const missCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
+  const projectionMiss = await collectSessions(missCtx, { title: 'persisted newer', includeCold: true })
+  checks['冷标题: 检查点答不了才落回日志(并计数)'] = projectionMiss.total === 1
+    && projectionMiss.sessions?.[0]?.sessionId === 'sess-persisted2'
+    && (projectionMiss.titleSearch?.coldLogReads ?? 0) > 0
+
+  // ── 批量折叠: 未命中数达到门槛时一次批量, 不逐个 inspect ──
+  state.coldTitles.clear()
+  const batchCalls: string[][] = []
+  const batchCtx = makeCtx({
+    sessionController: fakeSessionController,
+    llm: fakeLlm,
+    extraPersisted: [{ id: 'sess-batch-a' }, { id: 'sess-batch-b' }, { id: 'sess-batch-c' }, { id: 'sess-batch-d' }],
+    sessionQuery: {
+      readTitleSnapshots: async (ids: readonly any[]) => {
+        batchCalls.push(ids.map(String))
+        return ids.map((id: any) => ({ sessionId: String(id), status: 'fulfilled', value: { title: { title: `Batch ${String(id)}` } } }))
+      },
+    },
+  })
+  const inspectedBeforeBatch = inspectedSessions.length
+  const batched = await collectSessions(batchCtx, { title: 'batch sess-batch-b', includeCold: true })
+  checks['冷标题: 达到门槛时一次批量折叠, 不逐个 inspect'] = batched.total === 1
+    && batched.sessions?.[0]?.sessionId === 'sess-batch-b'
+    && batchCalls.length === 1 && batchCalls[0].length >= 4
+    && inspectedSessions.length === inspectedBeforeBatch
+
+  // ── 单会话读取: stat 单点观察 + 投影检查点取标题, 不再列全语料 ──
+  const listCallsBefore = persistenceCalls.list
+  const statCallsBefore = persistenceCalls.stat
+  const coldMeta = await sessionMetaPayload(perfCtx, 'sess-cold-a')
+  checks['session_meta: 单会话读取用 stat, 不列全语料'] = persistenceCalls.list === listCallsBefore
+    && persistenceCalls.stat > statCallsBefore
+  checks['session_meta: 冷会话标题取自投影检查点'] = coldMeta.title === 'Cached Needle A'
+    && coldMeta.eventsReadable === false
+  let coldMissing = ''
+  try {
+    await sessionMetaPayload(perfCtx, 'sess-does-not-exist')
+  } catch (e) {
+    coldMissing = String((e as Error)?.message ?? e)
+  }
+  checks['session_meta: stat 查不到时仍明确报 session not found'] = coldMissing.includes('session not found')
 
   // ── 归档三件套: 行标记 / archived 过滤 / session_archive_list / session_unarchive ──
   // (此时 sess-live 已在 id46 被归档; 桩的归档集合 = 种子 sess-legacy + sess-live)

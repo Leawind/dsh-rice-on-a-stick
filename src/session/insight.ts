@@ -243,15 +243,16 @@ export interface SessionEventSource {
 /**
  * 取一个会话的事件源: live(agent.session 优先, sessions.get 兜底)读内存日志;
  * 否则经宿主 sessionController.inspect 非激活读取(读不到 = events undefined, 不抛)。
+ * `signal` 只作用于冷读——live 会话的事件本来就在内存里。
  */
-export async function sessionEventSourceOf(ctx: Context, sessionId: string): Promise<SessionEventSource> {
+export async function sessionEventSourceOf(ctx: Context, sessionId: string, signal?: AbortSignal): Promise<SessionEventSource> {
   const agent = ctx.agents.get(asSessionId(sessionId)) as LiveAgentLike | undefined
   const stored = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
   const session = agent?.session ?? (stored as LiveAgentLike['session'])
   const live = agent !== undefined || stored !== undefined
   if (session !== undefined) return { live, session, events: eventsOf(session) }
   try {
-    return { live, session: undefined, events: await inspectSessionEvents(ctx, asSessionId(sessionId)) }
+    return { live, session: undefined, events: await inspectSessionEvents(ctx, asSessionId(sessionId), signal) }
   } catch {
     // 冷会话不可读(无 sessionController / 读取失败): events 记 undefined
     return { live, session: undefined, events: undefined }
@@ -268,9 +269,10 @@ export async function sessionInsightPayload(
   sessionId: string,
   row: SessionRow = {},
   source?: SessionEventSource,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const agent = ctx.agents.get(asSessionId(sessionId)) as LiveAgentLike | undefined
-  const acquired = source ?? await sessionEventSourceOf(ctx, sessionId)
+  const acquired = source ?? await sessionEventSourceOf(ctx, sessionId, signal)
   const session = acquired.session as LiveAgentLike['session']
   const events = acquired.events
   const live = acquired.live

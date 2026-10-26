@@ -178,11 +178,64 @@ export function commandsOf(ctx: Context): CommandServiceView | undefined {
  * 两个方法在 0.2.x 的 SessionController 上都是 Host 公共方法(非 Remote)。
  */
 export interface SessionControllerHostView {
-  inspect?: (sessionId: SessionId) => Promise<SessionInspectionView | undefined>
+  inspect?: (sessionId: SessionId, signal?: AbortSignal) => Promise<SessionInspectionView | undefined>
   resolveAgent?: (sessionId: SessionId) => Promise<{
     agent?: LiveAgentView
     error?: { code?: string; message?: string }
   } | undefined>
+}
+
+// ── 持久化后端与会话查询(单点读取 / 零 I/O 投影 / 批量标题) ──
+
+/** sessionPersistence 的读面: list 是整份语料扫描(每个工件读一次头), stat 只观察一个会话 */
+export interface SessionPersistenceView {
+  list?: (options?: { signal?: AbortSignal }) => Promise<readonly unknown[]>
+  stat?: (id: SessionId, options?: { signal?: AbortSignal }) => Promise<unknown>
+}
+
+/** 取持久化后端(可选依赖; 缺席 = 没有持久化会话可读) */
+export function sessionPersistenceOf(ctx: Context): SessionPersistenceView | undefined {
+  return serviceOf<SessionPersistenceView>(ctx, 'sessionPersistence')
+}
+
+/** 一段持久化投影检查点(只声明本插件读的字段); values 是已过 schema 的客户端视图 */
+export interface ProjectionBlockView {
+  asOfSeq?: number
+  values?: Record<string, unknown>
+}
+
+/**
+ * sessionProjectionCache 的读面(可选依赖; web/base 画像常驻):
+ *   cachedSnapshot          当前格式代际的持久化投影值(标题等), 零 I/O
+ *   cachedPredecessorTitle  旧格式代际(迁移前)只放行标题
+ * 官方会话列表读标题走的就是这两个方法(见 dsh-api-session-controller 的 projectionsFor)。
+ */
+export interface SessionProjectionCacheView {
+  cachedSnapshot?: (meta: SessionHeader, keys?: readonly string[]) => ProjectionBlockView | undefined
+  cachedPredecessorTitle?: (meta: SessionHeader) => ProjectionBlockView | undefined
+}
+
+/** 取持久化投影缓存(可选依赖; 缺席 = 标题只能靠读日志) */
+export function sessionProjectionCacheOf(ctx: Context): SessionProjectionCacheView | undefined {
+  return serviceOf<SessionProjectionCacheView>(ctx, 'sessionProjectionCache')
+}
+
+/** 批量标题观察的一条结果(宿主 SessionTitleObservationResult 的读面) */
+export interface TitleObservationResultView {
+  sessionId?: unknown
+  status?: string
+  value?: { title?: { title?: unknown } | null } | undefined
+  reason?: unknown
+}
+
+/** sessionQuery 的读面: 只折叠标题, 不恢复会话(比 inspect 轻一个量级) */
+export interface SessionQueryView {
+  readTitleSnapshots?: (ids: readonly SessionId[], signal?: AbortSignal) => Promise<readonly TitleObservationResultView[]>
+}
+
+/** 取会话查询服务(可选依赖; 缺席时标题退化为逐个 inspect) */
+export function sessionQueryOf(ctx: Context): SessionQueryView | undefined {
+  return serviceOf<SessionQueryView>(ctx, 'sessionQuery')
 }
 
 /** 取 sessionController 视图(可选依赖; 缺席 = headless 等无 Web 会话控制器的部署) */
@@ -222,13 +275,14 @@ export function presetOfAgent(ctx: Context, agent: unknown): string {
   }
 }
 
-/** 非激活读取一个会话的事件日志(冷会话经官方 inspect); 服务缺席或读取失败时抛错(带宿主原因)。 */
-export async function inspectSessionEvents(ctx: Context, sessionId: SessionId): Promise<readonly unknown[]> {
+/** 非激活读取一个会话的事件日志(冷会话经官方 inspect); 服务缺席或读取失败时抛错(带宿主原因)。
+ * `signal` 传到底: 客户端断开后不再继续读日志(宿主 inspect 接受可选取消信号)。 */
+export async function inspectSessionEvents(ctx: Context, sessionId: SessionId, signal?: AbortSignal): Promise<readonly unknown[]> {
   const controller = sessionControllerOf(ctx)
   if (typeof controller?.inspect !== 'function') {
     throw new Error('the host session controller does not expose inspect (a web profile is required to read persisted sessions)')
   }
-  const inspection = await controller.inspect(sessionId)
+  const inspection = signal === undefined ? await controller.inspect(sessionId) : await controller.inspect(sessionId, signal)
   return inspection?.events ?? []
 }
 
@@ -294,12 +348,22 @@ export function headerOfSnapshot(snap: unknown): SessionHeader | undefined {
   return rec.header ?? rec
 }
 
-/** 找会话 header: live 优先, 其次持久化 list(轻量元数据扫描, 不加载整日志) */
+/** 单会话 header: live 读内存, 持久化-only 走后端 stat(只观察这一个会话, 不列语料);
+ * 后端没有 stat(旧宿主/极简桩)或 stat 失败时退回 list 扫描——行为与旧实现一致。 */
 export async function findSessionHeader(ctx: Context, sessionId: SessionId): Promise<SessionHeader | undefined> {
   const sessions = ctx.get('sessions') as { get?: (id: SessionId) => { header: SessionHeader } | undefined } | undefined
   const live = sessions?.get?.(sessionId)
   if (live !== undefined) return live.header
-  const persistence = ctx.get('sessionPersistence') as { list?: () => Promise<readonly unknown[]> } | undefined
+  const persistence = sessionPersistenceOf(ctx)
+  if (typeof persistence?.stat === 'function') {
+    try {
+      const snapshot = await persistence.stat(sessionId)
+      const header = snapshot === undefined ? undefined : headerOfSnapshot(snapshot)
+      if (header !== undefined) return header
+    } catch {
+      // 坏日志/后端拒绝: 退回清单扫描, 由 list 的容错决定这一行是否可见
+    }
+  }
   for (const snap of (await persistence?.list?.()) ?? []) {
     if (headerOfSnapshot(snap)?.id === sessionId) return headerOfSnapshot(snap)
   }
