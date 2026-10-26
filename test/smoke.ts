@@ -18,9 +18,10 @@
  */
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:net'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { apply } from '../lib/index.js'
@@ -37,6 +38,21 @@ import { state } from '../lib/core/state.js'
 import { pendingApprovalsOf } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { Config as ConfigSchema, DEFAULTS, TOOL_IDENTITY_PREFIX } from '../lib/core/config.js'
+
+// 面板源码按域拆分在 src/client/(locales/styles/components/数据逻辑模块), 静态检查以全部源码拼接为对象
+function readClientSource(): string {
+  const root = fileURLToPath(new URL('../src/client', import.meta.url))
+  const parts: string[] = []
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) walk(p)
+      else if (e.name.endsWith('.ts') && !e.name.endsWith('.d.ts')) parts.push(readFileSync(p, 'utf8'))
+    }
+  }
+  walk(root)
+  return parts.join('\n')
+}
 import {
   approvalAgent,
   approvalPolicyCalls,
@@ -1762,7 +1778,7 @@ try {
   })()
   // 面板完备性(静态): draftFromStatus 必须读取 Config 的每个字段, 新字段漏接会在这里失败
   checks['设置面板: draftFromStatus 读取全部配置字段'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     // authToken 是只写字段(草稿恒为空串, 令牌行另行读 cfg.authToken), 不在此列
     const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>)
       .filter((key) => key !== 'authToken' && !clientSrc.includes(`c.${key}`))
@@ -1770,26 +1786,26 @@ try {
   })()
   // 面板绑定(静态): 白名单清单走 bridge-endpoints 路由取数, 审批卡走 bridge-approvals/answer(改路由名时两边要同步)
   checks['设置面板: 白名单清单走 bridge-endpoints 路由'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return clientSrc.includes("rpc('bridge-endpoints')")
       && clientSrc.includes("kind === 'selectable'")
       && clientSrc.includes("bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice()")
   })()
   // 白名单过滤(静态): 搜索时空 namespace 整组隐藏(组头不出现), 全空回落"没有匹配的端点"
   checks['设置面板: 白名单过滤隐藏无命中的 namespace'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return clientSrc.includes("groups.filter(function (g) { return g.items.some(matches); })")
       && clientSrc.includes('visibleGroups.length === 0')
   })()
   checks['设置面板: 审批卡走 bridge-approvals 路由'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return clientSrc.includes("rpc('bridge-approvals')")
       && clientSrc.includes("rpc('bridge-approval-answer'")
       && clientSrc.includes('BridgeApprovalCard')
   })()
   // 面板宿主(静态): 侧栏页 = sidebar.panellist 出图标 + main 同 id 出页面; settings.section 旧注册必须退场
   checks['设置面板: 侧栏页注册(panellist+main)且设置分区退场'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return clientSrc.includes("slots.inject('sidebar.panellist'")
       && clientSrc.includes("slots.inject('main'")
       && clientSrc.includes("name: 'main', key: PANEL_ID")
@@ -1799,13 +1815,13 @@ try {
   // 审批页(静态): 空态一句话不预设读写语义; 返回会话走宿主 layout 服务;
   // 作弊码监听在页面级, 虚拟项答复走本地移除
   checks['审批页: 空态文案与返回会话'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return clientSrc.includes("t('approvals.empty')")
       && !clientSrc.includes('approvals.emptyHint')
       && clientSrc.includes("selectPanel(null)")
   })()
   checks['审批页: 调试作弊码与虚拟项本地答复'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return clientSrc.includes("'osrblhh'")
       && clientSrc.includes('addDebug')
       && clientSrc.includes('removeDebug')
@@ -1828,7 +1844,7 @@ try {
   }
   // 面板无法 import 宿主配置(独立 bundle), 兜底默认必须与 DEFAULTS 同步: 文本比对常量定义
   checks['设置面板: 兜底默认值与 DEFAULTS 一致'] = (() => {
-    const clientSrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
+    const clientSrc = readClientSource()
     return DEFAULTS.sessionTtlMs === 7 * 24 * 60 * 60 * 1000
       && /DEFAULT_SESSION_TTL_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(clientSrc)
       && DEFAULTS.approvalTimeoutMs === 120000

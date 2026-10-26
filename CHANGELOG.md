@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+-   构建：客户端半由裸 tsc 换为 tsdown 打包（官方 client 插件同款工具链），`src/client/` 按域拆分为 locales / styles / components 与数据逻辑模块——CSS 与中英文案不再是 UI 逻辑文件里的内嵌数据，中英键一致性由类型检查保证；icon.svg 改在打包时经插件内联，`scripts/inline-icon.mjs` 移除；产物仍为 `client/client.js` 单文件（cjs + banner/footer 包进宿主 `__ModuleLoader__` 工厂，react/@deepseek-ai/* 外部化），exports 路径与宿主 client-hmr 监听不变
+
 ## 0.2.0-rc.1 (2026-10-23)
 
 新增通用桥与图片附件两条能力；权限改用宿主预设表达，工具面有若干破坏性调整。

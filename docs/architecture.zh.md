@@ -11,7 +11,7 @@ src/
   host/             宿主服务桥(bridge)与工具面/资源面共享的数据层(data)
   session/          执行引擎、异步控制面、远程回答客户端(answers)、审批/问题、投影、请求索引、会话洞察(insight)、原生工具注册
   mcp/              Streamable HTTP、GUI 路由、工具/资源面、订阅枢纽、agent 认知面
-  client/           侧栏页源码(tsc 生成 client/client.js)
+  client/           侧栏页源码, 按域拆分(tsdown 打包为单文件 client/client.js)
 docs/onboarding/    initialize 引导与 dsh_get_started 正文(Markdown，运行时读取)
 test/               冒烟、真机 e2e、UI harness
 ```
@@ -20,8 +20,8 @@ test/               冒烟、真机 e2e、UI harness
 
 ## 源码与构建产物
 
--   `src/` 是唯一源码目录，包含浏览器端侧栏页 `src/client/client.ts`（dsh 侧栏的"白饭钓竿"入口 + 中央面板：审批/设置两个标签）。
--   `lib/` 与 `client/` 都是构建产物，已列入 `.gitignore`。`client/` 与 dshmarket 等社区插件同约定：源码在 `src/client/`，由 `tsc -p tsconfig.client.json` 生成单文件 bundle，宿主 client-hmr 监听该产物。
+-   `src/` 是唯一源码目录，浏览器端侧栏页在 `src/client/`：入口 `client.ts`（dsh 侧栏的"白饭钓竿"入口 + 中央面板：审批/设置/连接三个标签）+ 按域拆分的模块（`locales/` 中英文案、`styles/` 面板样式、`components/` 面板与控件、`approvalStore`/`configFields`/`rpc`/`format`/`i18n` 数据与逻辑）。
+-   `lib/` 与 `client/` 都是构建产物，已列入 `.gitignore`。`client/` 与官方/社区插件同约定：源码在 `src/client/`，由 tsdown（`tsdown.config.ts`）打包为单文件 bundle——cjs + banner/intro/footer 包进宿主 `__ModuleLoader__` 工厂闭包，react/@deepseek-ai/* 外部化（宿主经模块表播种），icon.svg 经 svgText 插件在打包时内联；宿主 client-hmr 监听该产物。
 -   `docs/onboarding/*.md` 是运行时读取的产品文本（随 npm 包发布），不是编译产物；改文案不需要改 TypeScript。
 
 ## 设计约束
@@ -34,7 +34,7 @@ test/               冒烟、真机 e2e、UI harness
 6.  **像普通 Web 用户一样回答（`src/session/answers.ts`）**：插件用进程内 owner Peer（`connection.createPeer({ interactions: 'answer' })`）打开 gateway 的 `$events` 流，接收 forwarded 的 `approval/request` / `user-questions/request`，回答经 `$events/result` 提交——与浏览器点按钮完全同一条路径。gateway 会同时投递给所有 answer client，所以原生卡片照常显示，人和 agent 先答者赢，输的一方收到 `cancel`；插件不隐藏 UI，也不独占回答权。`openRemoteEvents` / `dispatchRpc` 不是公开契约，必须 feature-detect，缺席时 runtime 降级为只读。只记录 `state.sessionRecords` 里的会话，不劫持用户在界面上手开的会话。
 7.  **Agent 认知面（`src/mcp/onboarding.ts` + `docs/onboarding/`）**：initialize instructions 与 `dsh_get_started` 正文都是英文产品文本，放在 Markdown；加载器在导入期校验节齐全，缺文件/缺节直接让插件启动失败，不静默下发空指南。
 8.  **语言一致性（`src/mcp/tools/` / `src/mcp/resources.ts`）**：面向 MCP 客户端的 title、description、参数说明与资源说明统一用英语，与 dsh 自带工具一致；smoke 中有反向断言，混入中文会失败。宿主配置 schema 的说明面向部署方，保持中文。
-9.  **侧栏页与配置一一对应（`src/client/client.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、页面控件、GUI 写入白名单（`parseGuiConfigValues`）——否则页面与服务端会静默分叉。所有字段都是 volatile：写入只就地提交引用，不重载插件；每个字段必须在真正的消费点现读 `state.config`（`allowedHosts` 按请求、`sessionTtlMs` 按回收轮、`approvalTimeoutMs` 按桥写停泊）。只有监听级字段（`http`/`host`/`port`）由插件自己重建监听器，并让 GUI 路由回 `reloading: true` 供面板等待重连。
+9.  **侧栏页与配置一一对应（`src/client/components/panelPage.ts` + `src/client/configFields.ts` / `src/core/config.ts` / `src/mcp/web.ts`）**：`Config` 每新增一个字段，必须同时落到三处——`status` 快照回显、页面控件、GUI 写入白名单（`parseGuiConfigValues`）——否则页面与服务端会静默分叉。所有字段都是 volatile：写入只就地提交引用，不重载插件；每个字段必须在真正的消费点现读 `state.config`（`allowedHosts` 按请求、`sessionTtlMs` 按回收轮、`approvalTimeoutMs` 按桥写停泊）。只有监听级字段（`http`/`host`/`port`）由插件自己重建监听器，并让 GUI 路由回 `reloading: true` 供面板等待重连。
 10. **图片引用不传值（`src/host/attachments.ts`）**：图片字节只在 dsh 进程内流转（调用方给 path/URL 引用 → 插件读字节 → 宿主 `attachments.saveImages` 准入 → 消息里 image 块只带 `attachmentId` 引用）。任何工具参数、模型上下文、投影输出都不出现图片 base64；取回走 `attachment_read`（默认元数据 + 宿主机路径，`inline=true` 才回 MCP image 内容块且走视觉 token）。1MB 图片的 base64 ≈ 35 万 token，此约束是硬红线，新增任何图片通路都必须遵守。
 
 ## 测试
