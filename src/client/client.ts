@@ -79,6 +79,16 @@ interface DshModuleSpec {
   const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const APPROVAL_MODES = ['off', 'fallback', 'exclusive'];
 
+  // 简介表("provider/model" 或 provider id → 一段话): 只留非空字符串键值
+  function descTableOf(v) {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (k !== '' && typeof val === 'string' && val !== '') out[k] = val;
+    }
+    return out;
+  }
+
   // ── 配置: 草稿与请求载荷(客户端预校验, 后端 config-update 还有白名单+schema 两道防线) ──
   // status 生效值 → 草稿初值; authToken 是只写字段: 恒不回显。
   // 语义: 所有改动实时保存(改动即 config-update, 无保存按钮); 草稿只是提交在途时的乐观显示。
@@ -105,6 +115,9 @@ interface DshModuleSpec {
       hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
       // 通用桥端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
       bridgeEndpointAllowlist: Array.isArray(c.bridgeEndpointAllowlist) ? c.bridgeEndpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
+      // 模型/提供商简介(键值表; 面板编辑, 随 model_list / dsh://models 透出)
+      modelDescriptions: descTableOf(c.modelDescriptions),
+      providerDescriptions: descTableOf(c.providerDescriptions),
     };
   }
 
@@ -1179,6 +1192,9 @@ interface DshModuleSpec {
         selfToolsEnabled: next.selfToolsOn === true,
         // 通用桥端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
         bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice(),
+        // 模型/提供商简介: 键值表原样提交, 服务端清理空键空值
+        modelDescriptions: next.modelDescriptions || {},
+        providerDescriptions: next.providerDescriptions || {},
       };
       if (arguments.length > 1) values.authToken = authToken;
       enqueue({ values: values });

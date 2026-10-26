@@ -37,6 +37,7 @@ flowchart LR
     -   新建会话要求调用方 agent 显式指定模型与预设。
     -   续接已有会话时沿用该会话原先的模型。
     -   可以手动配置模型白名单，使客户端只能使用白名单中的模型
+    -   可以在侧栏页为模型和模型提供商各写一段简介，简介随 `model_list` / `dsh://models` 提供给调用方
     -   权限按"预设"控制（沙箱模式 + 审批策略的捆绑，与界面权限切换器、`/permission` 同源）：`permission_list` 查可用预设，`session_create.permission` 指定新会话、`session_set_permission` 切换已有会话；只调审批旋钮造成的非预设组合会显示为 `custom`。
     -   `session_overview` 一次调用拿到"点开会话页"级别的现状概览（标题、权限、模型与推理档、是否进行中、上下文占用、最近内容摘要），字段可选裁剪，冷会话同样可读；订阅 `dsh://sessions/{id}/overview` 可在轮次边界收到推送。
 -   **图片附件，引用不传值**——`session_prompt` / `session_submit` 可附带图片（宿主可读的本地路径或 http(s) URL）：字节由插件在 dsh 进程内读取、经官方附件服务准入后随消息投递，图片数据永远不进工具参数、不进模型上下文。取回用 `attachment_read`：默认只返回元数据与宿主机本地路径（零图片 token），多模态客户端可选内联为 MCP 图片块（按视觉 token 计费，而非 base64 文本）。

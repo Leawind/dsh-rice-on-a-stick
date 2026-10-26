@@ -123,6 +123,17 @@ export interface Config {
    * 只是在面板上单列并标注危险, 提醒部署方谨慎勾选。
    */
   bridgeEndpointAllowlist?: string[]
+  /**
+   * 模型简介("provider/model" → 一段话简介; 侧栏页编辑)。
+   * 随 model_list / dsh://models 透出给调用方, 让 AI 在选模型时能看到部署方写的介绍。
+   * 只对目录里存在的模型有意义; 目录外的条目保留但不展示。
+   */
+  modelDescriptions?: Record<string, string>
+  /**
+   * 模型提供商简介(provider id → 一段话简介; 侧栏页编辑)。
+   * 随 model_list / dsh://models 的 provider 行透出, 语义同 modelDescriptions。
+   */
+  providerDescriptions?: Record<string, string>
 }
 
 /**
@@ -146,6 +157,8 @@ export interface ParsedConfig {
   approvalControl: Volatile<NonNullable<Config['approvalControl']>>
   approvalTimeoutMs: Volatile<number>
   bridgeEndpointAllowlist: Volatile<string[]>
+  modelDescriptions: Volatile<Record<string, string>>
+  providerDescriptions: Volatile<Record<string, string>>
 }
 
 /** 运行时配置默认值 */
@@ -167,6 +180,8 @@ export const DEFAULTS = {
   approvalTimeoutMs: 120_000,
   allowedHosts: [] as string[],
   bridgeEndpointAllowlist: [] as string[],
+  modelDescriptions: {} as Record<string, string>,
+  providerDescriptions: {} as Record<string, string>,
 }
 
 export type RuntimeConfig = typeof DEFAULTS
@@ -195,6 +210,16 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
   // 与 allowedModels 同口径: 去空白、丢空串; Host 头比较一律小写
   const readHosts = () => parsed.allowedHosts.get().map((s) => String(s).trim().toLowerCase()).filter(Boolean)
   const readEndpointAllowlist = () => parsed.bridgeEndpointAllowlist.get().map((s) => String(s).trim()).filter(Boolean)
+  // 简介表: 键与值都去空白, 丢空值与空键(界面写入口已清理, 这里兜住手改配置)
+  const readDescriptionTable = (raw: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(raw ?? {})) {
+      const k = String(key).trim()
+      const v = String(value ?? '').trim()
+      if (k !== '' && v !== '') out[k] = v
+    }
+    return out
+  }
   const runtime: RuntimeConfig = {
     host: DEFAULTS.host,
     port: DEFAULTS.port,
@@ -211,6 +236,8 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
     bridgeEndpointAllowlist: [],
+    modelDescriptions: {},
+    providerDescriptions: {},
   }
   Object.defineProperties(runtime, {
     http: { enumerable: true, configurable: true, get: () => parsed.http.get() !== false },
@@ -254,6 +281,16 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     },
     allowedHosts: { enumerable: true, configurable: true, get: readHosts },
     bridgeEndpointAllowlist: { enumerable: true, configurable: true, get: readEndpointAllowlist },
+    modelDescriptions: {
+      enumerable: true,
+      configurable: true,
+      get: () => readDescriptionTable(parsed.modelDescriptions.get() ?? {}),
+    },
+    providerDescriptions: {
+      enumerable: true,
+      configurable: true,
+      get: () => readDescriptionTable(parsed.providerDescriptions.get() ?? {}),
+    },
   })
   return runtime
 }
@@ -287,4 +324,6 @@ export const Config = Schema.object({
   approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).volatile().description('Who answers approvals for sessions created by this plugin (default exclusive): off = display only, the UI handles them; fallback = UI first, the caller answers when the UI cannot; exclusive = always the caller, via approval_answer (the UI no longer shows them). Read live per request.'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Maximum wait after an approval is parked, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Read when the approval is parked: already-parked approvals keep their original deadline.'),
   bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.'),
+  modelDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.modelDescriptions).volatile().description('Per-model blurbs keyed by "provider/model", written on the settings panel and surfaced through model_list / dsh://models so callers can see them when picking a model. Entries outside the live catalog are kept but not shown.'),
+  providerDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.providerDescriptions).volatile().description('Per-provider blurbs keyed by provider id, surfaced on the provider rows of model_list / dsh://models (same semantics as modelDescriptions).'),
 })

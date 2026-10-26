@@ -270,6 +270,18 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
       if (bad !== undefined) throw httpError(400, `bridgeEndpointAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
+    } else if (key === 'modelDescriptions' || key === 'providerDescriptions') {
+      // 模型/提供商简介("provider/model" 或 provider id → 一段话): 空键空值直接丢弃
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw httpError(400, `${key} 必须是字符串键值对象`)
+      }
+      const cleaned: Record<string, string> = {}
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        const keyText = String(k).trim()
+        const text = typeof v === 'string' ? v.trim() : ''
+        if (keyText !== '' && text !== '') cleaned[keyText] = text
+      }
+      out[key] = cleaned
     } else {
       throw httpError(400, `字段 ${key} 不支持在界面编辑, 请编辑 cordis.patch.yml`)
     }

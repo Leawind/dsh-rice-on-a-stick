@@ -1624,6 +1624,8 @@ try {
       approvalControl: 'off',
       approvalTimeoutMs: 120000,
       bridgeEndpointAllowlist: ['schedule/update'],
+      modelDescriptions: { 'p1/m1': 'Provider One 的快速模型' },
+      providerDescriptions: { p1: '面向测试的假提供商' },
     }
     const cfgRejected: string[] = []
     for (const key of Object.keys(ConfigSchema({}) as Record<string, unknown>)) {
@@ -1632,6 +1634,30 @@ try {
       if (r.status !== 200) cfgRejected.push(`${key}(${r.status})`)
     }
     checks['GUI 路由: 写入白名单覆盖 Config 全部字段'] = cfgRejected.length === 0
+    // 简介载荷清理: 空键/空值丢弃, 键值去空白
+    const cfgDesc = await guiPut({ modelDescriptions: { ' p1/m1 ': '  有效的简介  ', '': '空键', 'p1/m9': '   ' }, providerDescriptions: { p2: '提供商简介' } })
+    checks['GUI 路由: 模型简介对象清理空键空值后写入'] = cfgDesc.status === 200
+      && JSON.stringify(edits[edits.length - 1].modelDescriptions) === JSON.stringify({ 'p1/m1': '有效的简介' })
+      && JSON.stringify(edits[edits.length - 1].providerDescriptions) === JSON.stringify({ p2: '提供商简介' })
+    await phase.dispose()
+  }
+
+  // ── Phase F2b: 模型/提供商简介随目录透出(model_list / GUI models 同源) ──
+  {
+    const phase = await startPhase(8073, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      modelDescriptions: { 'p1/m1': 'Provider One 的快速模型', 'p9/ghost': '目录外条目' },
+      providerDescriptions: { p1: '面向测试的假提供商' },
+    })
+    const ml = await phase.call('model_list', {})
+    const payload = innerOf(ml) as any
+    const p1 = (payload.providers ?? []).find((p: any) => p.id === 'p1')
+    checks['model_list: 部署方简介并入 provider/model 行'] = p1?.description === '面向测试的假提供商'
+      && (p1.models ?? []).find((m: any) => m.id === 'm1')?.description === 'Provider One 的快速模型'
+      && (p1.models ?? []).find((m: any) => m.id === 'm2')?.description === undefined
+    checks['model_list: 宿主自带长描述不透出(简介只认部署方配置)'] = JSON.stringify(payload).includes('LONG-DESCRIPTION-MUST-NOT-LEAK') === false
+    const modelsRoute = await phase.gui('models')
+    checks['GUI 路由: models 目录带部署方简介'] = modelsRoute.status === 200
+      && modelsRoute.body.includes('面向测试的假提供商') && modelsRoute.body.includes('Provider One 的快速模型')
     await phase.dispose()
   }
 
