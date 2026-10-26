@@ -474,7 +474,8 @@ export const fakeGateway = {
     if (`${request.namespace}/${request.method}` === 'schedule/update') return { updated: true }
     if (`${request.namespace}/${request.method}` === 'goals/get') return { agentArg: request.args.agent ?? null }
     if (`${request.namespace}/${request.method}` === 'session/prompt') return { prompted: true }
-    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/update, goals/get and session/prompt')
+    if (`${request.namespace}/${request.method}` === 'credentialsController/set') return { set: true }
+    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/update, goals/get, session/prompt and credentialsController/set')
   },
 }
 let bridgePeerSeq = 0

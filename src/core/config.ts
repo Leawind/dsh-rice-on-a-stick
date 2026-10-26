@@ -119,7 +119,8 @@ export interface Config {
    * 白名单内的变更类端点经 bridge_call 直接执行——等价部署方预先审批;
    * 白名单外的非流式端点不停留在"拒绝": 调用先停泊, 由部署方在设置面板的人工审批卡
    * 允许/拒绝(允许一次执行一次, 拒绝/超时/调用方断开一律失败关闭)。
-   * 硬编码黑名单(凭据写入/插件安装/连接信任等)优先于本清单, 也不给审批通道。
+   * 开发期端点元数据标了 dangerous 的端点(凭据写入/插件安装/连接信任等)同样走这两条通路,
+   * 只是在面板上单列并标注危险, 提醒部署方谨慎勾选。
    */
   bridgeEndpointAllowlist?: string[]
 }
@@ -285,5 +286,5 @@ export const Config = Schema.object({
   resourceFirst: Schema.boolean().default(DEFAULTS.resourceFirst).volatile().description('Resource-first mode (default false = tools first, so clients that only understand tools are unaffected; true = read-only tools are not registered and data is read through the MCP resources surface). Switching it re-registers tools on live sessions and sends tools/list_changed.'),
   approvalControl: Schema.union(['off', 'fallback', 'exclusive'] as const).default(DEFAULTS.approvalControl).volatile().description('Who answers approvals for sessions created by this plugin (default exclusive): off = display only, the UI handles them; fallback = UI first, the caller answers when the UI cannot; exclusive = always the caller, via approval_answer (the UI no longer shows them). Read live per request.'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Maximum wait after an approval is parked, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Read when the approval is parked: already-parked approvals keep their original deadline.'),
-  bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). The hard-coded blacklist (credential writes, plugin installs, connection trust) always wins and gets no approval path.'),
+  bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.'),
 })
