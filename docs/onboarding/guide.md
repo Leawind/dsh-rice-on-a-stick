@@ -121,9 +121,10 @@ you already know.
    otherwise). The command list comes from the host registry, so plugin commands appear
    automatically.
 5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title;
-   `includeCold: true` also folds persisted-only sessions' titles, at the cost of one
-   log read per candidate, and `coldScanMax` raises or lowers the per-call scan budget
-   — default 50, cap 500), `session_overview` for a one-call, GUI-style glance (title,
+   `includeCold: true` also matches persisted-only sessions' titles, which come from the
+   host's durable projection cache without reading logs; only sessions the cache cannot
+   answer cost a log read, and `coldScanMax` caps those per call — default 50, cap 500),
+   `session_overview` for a one-call, GUI-style glance (title,
    permission, model + reasoning effort, in-progress state, context occupancy, recent
    content digest; `fields` opts into turn/step counters, preset, cwd),
    `session_meta` for the full record — model+reasoning effort, presets, live
@@ -226,9 +227,10 @@ normalization the UI turn cards use), enough to recognize what a session is doin
 to read it. Each entry's `index` doubles as a `session_history` `beforeIndex` anchor
 when you want the real text.
 
-`session_meta` and `session_overview` read persisted-only sessions by folding their log
-through the same non-activating host read as `session_history`; when a session's log is
-unreadable they degrade to the `session_list` row and say so with `eventsReadable: false`.
+`session_meta` and `session_overview` locate a single session with one host-side `stat`
+(no corpus listing) and read persisted-only sessions by folding their log through the
+same non-activating host read as `session_history`; when a session's log is unreadable
+they degrade to the `session_list` row and say so with `eventsReadable: false`.
 
 <!-- section: limits -->
 ## Deployment-imposed limits (visible via `dsh_status` / `model_list`)

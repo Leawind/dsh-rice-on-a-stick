@@ -42,9 +42,10 @@ Quick start:
   session_overview is the one-call glance when you only need to know where a session
   stands (title, permission, model + reasoning effort, in-progress state, context
   occupancy, recent content digest; fields opts into turn/step counters, preset, cwd).
-  session_list takes cwd or title (case-insensitive; includeCold=true also folds
-  persisted-only sessions' titles, one log read per candidate, coldScanMax sets how many
-  to scan per call, default 50). Rows carry `archived`: archived=true lists only archived
+  session_list takes cwd or title (case-insensitive; includeCold=true also matches
+  persisted-only sessions' titles, served from the host projection cache without log
+  reads; coldScanMax caps how many cache misses may read a log per call, default 50).
+  Rows carry `archived`: archived=true lists only archived
   sessions (session_archive_list is the same list), session_unarchive restores one —
   archiving is the UI's only delete, and an archived session keeps its readable history.
   session_meta reports model+reasoning effort, agent preset, permission preset, live
