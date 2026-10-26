@@ -5,7 +5,7 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
-import { serviceOf } from '../../host/bridge.js'
+import { archivedSessionIdsOf, serviceOf } from '../../host/bridge.js'
 import {
   COLD_TITLE_SCAN_LIMIT,
   COLD_TITLE_SCAN_MAX,
@@ -18,6 +18,7 @@ import {
   sessionMetaPayload,
   sessionOverviewPayload,
   type SessionControllerView,
+  type SessionScope,
 } from '../../host/data.js'
 import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structuredOut, SOFT_ARCHIVE } from './shared.js'
 
@@ -59,16 +60,16 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
-        archived: z.boolean().optional().describe('true = only archived sessions; false = only non-archived ones; omit = all (rows always carry the archived flag).'),
+        scope: z.enum(['active', 'archived', 'all']).optional().describe('Which sessions to list: active (default) = non-archived only, archived = archived only, all = both. Archiving is the soft delete, so archived sessions are hidden from lists and searches unless asked for.'),
         includeCold: z.boolean().optional().describe('When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Titles come from the host projection cache first, so this is normally free; only sessions the cache cannot answer cost one log read, bounded by `coldScanMax`. The result reports `titleSearch` (including how many log reads were needed).'),
         coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Only sessions without a cached title actually read a log; raise it to search further back, ignored without a title filter.`),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
-    async ({ limit, cwd, title, archived, includeCold, coldScanMax }, extra) => {
+    async ({ limit, cwd, title, scope, includeCold, coldScanMax }, extra) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived, includeCold, coldScanMax }, extra?.signal)
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, scope, includeCold, coldScanMax }, extra?.signal)
         return structuredOut({
           total,
           sessions: items.slice(0, limit ?? 20),
@@ -80,12 +81,12 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     },
   )
 
-  // 归档清单(只读): session_list({archived:true}) 的专用入口, 过滤参数与其完全一致
+  // 归档清单(只读): session_list({scope:"archived"}) 的专用入口, 过滤参数与其完全一致
   mcp.registerTool(
     'session_archive_list',
     {
       title: 'List archived sessions',
-      description: `List archived sessions — exactly session_list with archived=true (${SOFT_ARCHIVE}). Restore with session_unarchive.`,
+      description: `List archived sessions — exactly session_list with scope="archived" (${SOFT_ARCHIVE}). Restore with session_unarchive.`,
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -98,7 +99,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     },
     async ({ limit, cwd, title, includeCold, coldScanMax }, extra) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, archived: true, includeCold, coldScanMax }, extra?.signal)
+        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, scope: 'archived', includeCold, coldScanMax }, extra?.signal)
         return structuredOut({
           total,
           sessions: items.slice(0, limit ?? 20),
@@ -184,18 +185,19 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
     },
   )
 
-  // 会话搜索(界面搜索框同源: 字面短语匹配消息内容)
+  // 会话搜索(界面搜索框同源: 字面短语匹配消息内容; 归档默认排除)
   mcp.registerTool(
     'session_search',
     {
       title: 'Search sessions',
-      description: `Search session content by literal phrase (same as the UI search box; goes through \`sessionController.search\`); returns matching sessions and snippet excerpts. ${NEEDS_SESSION_CONTROLLER}`,
+      description: `Search session content by literal phrase (same as the UI search box; goes through \`sessionController.search\`); returns matching sessions and snippet excerpts. Archived sessions are excluded by default (archiving is the soft delete); pass \`scope\` to include them. The host returns one bounded page, so filtering archived hits can shrink or empty a page — \`hasMore\` is the host's page flag, not a filtered count. ${NEEDS_SESSION_CONTROLLER}`,
       inputSchema: {
         query: z.string().describe('Search phrase (literal match against message content).'),
+        scope: z.enum(['active', 'archived', 'all']).optional().describe('Which sessions the hits may come from: active (default) = non-archived only, archived = archived only, all = both.'),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ query }, extra) => {
+    async ({ query, scope }, extra) => {
       const sc = serviceOf<SessionControllerView>(ctx, 'sessionController')
       if (typeof sc?.search !== 'function') {
         return outError(JSON.stringify({ error: 'sessionController service unavailable (session_search needs the web profile session controller)' }))
@@ -204,7 +206,20 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context, resourceF
         // 0.2.x 的 Remote search(request, signal) 必须带取消信号(宿主入口直接 throwIfAborted)
         const signal = extra?.signal ?? new AbortController().signal
         const res = await sc.search({ query }, signal)
-        return out(JSON.stringify({ query, results: res?.items ?? [], hasMore: res?.hasMore === true }, null, 2))
+        const found = res?.items ?? []
+        // 归档集合是宿主 registry 的全局字段(纯内存), 在这里裁掉归档命中
+        const wanted: SessionScope = scope ?? 'active'
+        const archivedIds = new Set(archivedSessionIdsOf(ctx))
+        const results = wanted === 'all'
+          ? found
+          : found.filter((item) => archivedIds.has(String(item.sessionId)) === (wanted === 'archived'))
+        return out(JSON.stringify({
+          query,
+          scope: wanted,
+          results,
+          hasMore: res?.hasMore === true,
+          ...(results.length !== found.length ? { filteredArchived: found.length - results.length } : {}),
+        }, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: `session_search failed: ${(e as Error)?.message ?? String(e)}` }))
       }

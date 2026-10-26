@@ -191,7 +191,13 @@ export const COLD_TITLE_SCAN_LIMIT = 500
 /** 批量折叠门槛: 要读日志的会话达到这个数时, 一次宿主批量折叠比逐个 inspect 划算 */
 const COLD_TITLE_BATCH_MIN = 4
 
-/** 会话清单的查询条件(全部可选; 缺省 = 现有行为: 全部 live + 持久化会话) */
+/**
+ * 会话范围: active = 未归档(默认), archived = 只看已归档, all = 两者都列。
+ * 归档是软删除——归档会话不出现在清单与检索里, 但按 id 直接读取(session_meta/overview/history)照常可读。
+ */
+export type SessionScope = 'active' | 'archived' | 'all'
+
+/** 会话清单的查询条件(全部可选; 缺省 = 未归档的 live + 持久化会话) */
 export interface SessionQuery {
   /** 只列该目录(含子目录)下的会话 */
   cwd?: string
@@ -207,10 +213,10 @@ export interface SessionQuery {
   /** includeCold 的单次预算(默认 COLD_TITLE_SCAN_MAX, 夹在 1..COLD_TITLE_SCAN_LIMIT; 无 title 时不生效) */
   coldScanMax?: number
   /**
-   * 归档过滤: true = 只列已归档会话, false = 只列未归档会话; 省略 = 不过滤(行上仍带 archived 标记)。
-   * 归档集合来自 workspaceRegistry(registry 全局, 不分 workspace); 缺席时视为没有会话被归档。
+   * 归档范围(默认 active): 归档集合来自 workspaceRegistry(registry 全局, 不分 workspace);
+   * 缺席时视为没有会话被归档, active 与 all 等价。行上仍带 archived 标记。
    */
-  archived?: boolean
+  scope?: SessionScope
 }
 
 /** 会话清单一行的来源(整份清单与单会话读取共用同一份行投影) */
@@ -390,8 +396,8 @@ async function resolveColdTitles(
  * 标题过滤: live 会话的标题走内存(会话对象字段优先, 缺失时折内存日志), 零 I/O;
  * 冷会话默认不参与匹配, 显式 includeCold 才解析标题——解析链是"插件缓存 → 宿主持久投影检查点
  * (零 I/O) → 读日志(批量折叠优先)", 只有最后一层付日志读, 且由 coldScanMax 限定条数。
- * 归档: 每行带 archived 标记(workspaceRegistry 的全局归档集合); archived 参数为
- * true/false 时只列归档/未归档, 省略时不过滤(与"全部"视图一致)。
+ * 归档: 每行带 archived 标记(workspaceRegistry 的全局归档集合); scope 决定列哪一档——
+ * 默认 active(不含归档), archived 只看归档, all 两者都列。
  */
 export async function collectSessions(ctx: Context, query: SessionQuery = {}, signal?: AbortSignal): Promise<{
   total: number
@@ -445,10 +451,12 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}, si
   const filterRoot = query.cwd ? await canonicalCwd(resolve(query.cwd)) : undefined
   // 归档集合(registry 全局字段): 行标记与过滤共用一次读取; registry 缺席 = 空集
   const archivedIds = new Set(archivedSessionIdsOf(ctx))
+  // 范围默认 active: 归档 = 软删除, 不主动出现在清单里
+  const scope: SessionScope = query.scope ?? 'active'
   const visible = [...headers.values()]
     .filter((h) => {
-      // 归档过滤只看归档集合本身, 不影响 cwd/标题过滤的语义
-      if (query.archived !== undefined && archivedIds.has(h.id) !== query.archived) return false
+      // 归档范围只看归档集合本身, 不影响 cwd/标题过滤的语义
+      if (scope !== 'all' && archivedIds.has(h.id) !== (scope === 'archived')) return false
       const sessionCwd = h.cwd
       return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
     })

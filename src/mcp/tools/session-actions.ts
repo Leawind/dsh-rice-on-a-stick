@@ -468,7 +468,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context, resourc
       title: 'Unarchive session',
       description: `Restore an archived session (the UI's Unarchive): removes the archive mark; the session rejoins the lists and \`session_prompt\` cold-resumes it with history intact (the gate covers its whole lineage). Idempotent — unarchiving a not-archived session is a no-op reported as \`wasArchived: false\`. ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
-        sessionId: z.string().describe('Session id to restore (from session_archive_list or session_list with archived=true).'),
+        sessionId: z.string().describe('Session id to restore (from session_archive_list or session_list with scope="archived").'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

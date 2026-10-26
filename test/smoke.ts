@@ -455,14 +455,23 @@ try {
   // ── session_list / session_history ──
   const sl = await rpc(init.sid, { jsonrpc: '2.0', id: 50, method: 'tools/call', params: { name: 'session_list', arguments: {} } })
   const slInner = sl.status === 200 ? innerOf(sl) : { sessions: [] }
-  checks['session_list 合并 live+持久化'] = slInner.total >= 3
-    && slInner.sessions?.some((s: any) => s.sessionId === 'sess-live') && slInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted')
-  const live2Row = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
+  // 默认 active: 归档会话不出现(sess-live 与 sess-legacy 已在前面归档)
+  checks['session_list 合并 live+持久化(默认排除归档)'] = slInner.total >= 3
+    && slInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted')
+    && slInner.sessions?.every((s: any) => s.archived === false)
+    && !slInner.sessions?.some((s: any) => s.sessionId === 'sess-live')
+    && !slInner.sessions?.some((s: any) => s.sessionId === 'sess-legacy')
+  // scope=all 才把归档行放回来(行上带 archived 标记, 供下面的断言用)
+  const slAll = await rpc(init.sid, { jsonrpc: '2.0', id: 501, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'all' } } })
+  const slAllInner = innerOf(slAll)
+  checks['session_list: scope=all 同时列出归档'] = slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-live' && s.archived === true)
+    && slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted' && s.archived === false)
+  const live2Row = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
   checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live'
     && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
   // 权限预设: live 行经宿主推导; 冷会话行不读日志(字段省略)
-  checks['session_list: live 行回报权限预设'] = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write'
-    && slInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === undefined
+  checks['session_list: live 行回报权限预设'] = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write'
+    && slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === undefined
   // 标题检索: live 标题在内存里; 冷会话默认不读日志, includeCold 才折叠
   const slTitle = await rpc(init.sid, { jsonrpc: '2.0', id: 53, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live two' } } })
   const slTitleInner = innerOf(slTitle)
@@ -471,8 +480,8 @@ try {
     && slTitleInner.titleSearch?.coldScanned === 0
   // 真实 0.2.x 形态: live 会话对象不带 title, 标题只在日志里 → 清单行与过滤都折内存日志(零 I/O)
   checks['session_list: 清单行折叠 live 日志标题'] =
-    slInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.title === 'Live One'
-  const slFolded = await rpc(init.sid, { jsonrpc: '2.0', id: 532, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live one' } } })
+    slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.title === 'Live One'
+  const slFolded = await rpc(init.sid, { jsonrpc: '2.0', id: 532, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live one', scope: 'all' } } })
   const slFoldedInner = innerOf(slFolded)
   checks['session_list: title 过滤折叠 live 日志标题(不扫冷会话)'] = slFoldedInner.total === 1
     && slFoldedInner.sessions?.[0]?.sessionId === 'sess-live'
@@ -534,7 +543,7 @@ try {
     && cachedHit.sessions?.[0]?.sessionId === 'sess-cold-a'
     && cachedHit.titleSearch?.coldLogReads === 0
     && inspectedSessions.length === inspectedBeforeProjection
-  const predecessorHit = await collectSessions(perfCtx, { title: 'legacy migrated', includeCold: true })
+  const predecessorHit = await collectSessions(perfCtx, { title: 'legacy migrated', includeCold: true, scope: 'all' })
   checks['冷标题: 旧格式代际走 cachedPredecessorTitle'] = predecessorHit.total === 1
     && predecessorHit.sessions?.[0]?.sessionId === 'sess-legacy'
     && predecessorHit.titleSearch?.coldLogReads === 0
@@ -586,29 +595,41 @@ try {
   }
   checks['session_meta: stat 查不到时仍明确报 session not found'] = coldMissing.includes('session not found')
 
-  // ── 归档三件套: 行标记 / archived 过滤 / session_archive_list / session_unarchive ──
+  // ── 归档三件套: 行标记 / scope 过滤 / session_archive_list / session_unarchive ──
   // (此时 sess-live 已在 id46 被归档; 桩的归档集合 = 种子 sess-legacy + sess-live)
-  checks['session_list: 全量视图行带 archived 标记'] = (() => {
-    const liveRow = slInner.sessions?.find((s: any) => s.sessionId === 'sess-live')
-    const legacyRow = slInner.sessions?.find((s: any) => s.sessionId === 'sess-legacy')
+  checks['session_list: all 视图行带 archived 标记'] = (() => {
+    const liveRow = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')
+    const legacyRow = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-legacy')
     return liveRow?.archived === true && legacyRow?.archived === true
-      && slInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.archived === false
+      && slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.archived === false
   })()
-  const slArch = await rpc(init.sid, { jsonrpc: '2.0', id: 60, method: 'tools/call', params: { name: 'session_list', arguments: { archived: true } } })
+  const slArch = await rpc(init.sid, { jsonrpc: '2.0', id: 60, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'archived' } } })
   const slArchInner = innerOf(slArch)
-  checks['session_list: archived=true 只列归档'] = slArchInner.total === 2
+  checks['session_list: scope=archived 只列归档'] = slArchInner.total === 2
     && slArchInner.sessions?.every((s: any) => s.archived === true)
     && ['sess-legacy', 'sess-live'].every((id) => slArchInner.sessions?.some((s: any) => s.sessionId === id))
-  const slActive = await rpc(init.sid, { jsonrpc: '2.0', id: 61, method: 'tools/call', params: { name: 'session_list', arguments: { archived: false, limit: 100 } } })
+  const slActive = await rpc(init.sid, { jsonrpc: '2.0', id: 61, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'active', limit: 100 } } })
   const slActiveInner = innerOf(slActive)
-  checks['session_list: archived=false 排除归档'] = slActiveInner.total >= 3
+  checks['session_list: scope=active 排除归档'] = slActiveInner.total >= 3
     && slActiveInner.sessions?.every((s: any) => s.archived === false)
     && !slActiveInner.sessions?.some((s: any) => s.sessionId === 'sess-live')
   const archiveList = await rpc(init.sid, { jsonrpc: '2.0', id: 62, method: 'tools/call', params: { name: 'session_archive_list', arguments: {} } })
   const archiveListInner = innerOf(archiveList)
-  checks['session_archive_list: 等价 session_list(archived=true)'] = archiveListInner.total === 2
+  checks['session_archive_list: 等价 session_list(scope=archived)'] = archiveListInner.total === 2
     && archiveListInner.sessions?.every((s: any) => s.archived === true)
     && ['sess-legacy', 'sess-live'].every((id) => archiveListInner.sessions?.some((s: any) => s.sessionId === id))
+  // 内容检索同样默认排除归档(宿主 page 后过滤: 本页唯一命中 sess-live 被裁掉)
+  const searchDefault = await rpc(init.sid, { jsonrpc: '2.0', id: 621, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle' } } })
+  const searchDefaultInner = innerOf(searchDefault)
+  checks['session_search: 默认排除归档命中'] = (searchDefaultInner.results?.length ?? 0) === 0
+    && searchDefaultInner.filteredArchived === 1 && searchDefaultInner.scope === 'active'
+  const searchAll = await rpc(init.sid, { jsonrpc: '2.0', id: 622, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle', scope: 'all' } } })
+  const searchAllInner = innerOf(searchAll)
+  checks['session_search: scope=all 保留归档命中'] = searchAllInner.results?.[0]?.sessionId === 'sess-live'
+    && searchAllInner.scope === 'all' && searchAllInner.filteredArchived === undefined
+  const searchArchived = await rpc(init.sid, { jsonrpc: '2.0', id: 623, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle', scope: 'archived' } } })
+  checks['session_search: scope=archived 只回归档'] = innerOf(searchArchived).results?.[0]?.sessionId === 'sess-live'
+    && innerOf(searchArchived).scope === 'archived'
   const unarchive = await rpc(init.sid, { jsonrpc: '2.0', id: 63, method: 'tools/call', params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } } })
   const unarchiveInner = innerOf(unarchive)
   checks['session_unarchive: 恢复并回传剩余集合'] = unarchiveInner.ok === true && unarchiveInner.archived === false
