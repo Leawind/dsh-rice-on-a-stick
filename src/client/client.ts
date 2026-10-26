@@ -293,16 +293,19 @@ interface DshModuleSpec {
       'copy': '复制',
       'copied': '已复制',
       'whitelist.title': '模型白名单',
-      'whitelist.hint': '开启：仅限清单内模型；关闭：不限制。',
-      'whitelist.empty': '清单为空，可使用任意模型。',
-      'whitelist.remove': '移除 {m}',
-      'whitelist.add': '添加模型…',
-      'whitelist.filter': '输入关键字过滤 provider / 模型 / 名称',
-      'whitelist.done': '完成',
+      'whitelist.hint': '开启：仅限清单内模型；关闭：不限制。每行的“编辑简介”会随 model_list 提供给调用方。',
+      'whitelist.filter': '输入关键字过滤提供商 / 模型 / 简介',
+      'whitelist.selectAll': '全选',
+      'whitelist.selected': '已选 {n}/{m}',
+      'whitelist.none': '没有匹配的模型。',
+      'whitelist.staleTitle': '失效条目（已不在模型目录中）',
+      'whitelist.staleBadge': '已失效',
+      'whitelist.staleRemove': '移除失效条目 {m}',
+      'desc.edit': '编辑简介',
+      'desc.modelPlaceholder': '用一两句话介绍这个模型；简介会随 model_list 提供给 AI 调用方。',
+      'desc.providerPlaceholder': '用一两句话介绍这个提供商；简介会随 model_list 提供给 AI 调用方。',
       'cat.loading': '模型目录加载中…',
       'cat.unavailable': '模型目录不可用（宿主未提供），请稍后重试或编辑配置文件。',
-      'cat.none': '没有匹配的候选模型。',
-      'cat.capped': '共 {total} 个匹配，仅显示前 {cap} 个——请继续输入关键字缩小范围。',
       'detail.title': '返回结果的初始详略程度',
       'detail.summary': '简略（simple）',
       'detail.normal': '详细（details）',
@@ -401,16 +404,19 @@ interface DshModuleSpec {
       'copy': 'Copy',
       'copied': 'Copied',
       'whitelist.title': 'Model whitelist',
-      'whitelist.hint': 'On: only listed models. Off: unrestricted.',
-      'whitelist.empty': 'No models listed — any model may be used.',
-      'whitelist.remove': 'Remove {m}',
-      'whitelist.add': 'Add model…',
-      'whitelist.filter': 'Type to filter by provider / model / name',
-      'whitelist.done': 'Done',
+      'whitelist.hint': 'On: only listed models. Off: unrestricted. Per-row "Edit description" is surfaced to callers through model_list.',
+      'whitelist.filter': 'Type to filter by provider / model / description',
+      'whitelist.selectAll': 'Select all',
+      'whitelist.selected': '{n}/{m} selected',
+      'whitelist.none': 'No matching models.',
+      'whitelist.staleTitle': 'Stale entries (no longer in the model catalog)',
+      'whitelist.staleBadge': 'Stale',
+      'whitelist.staleRemove': 'Remove stale entry {m}',
+      'desc.edit': 'Edit description',
+      'desc.modelPlaceholder': 'Describe this model in a sentence or two; it is surfaced to AI callers through model_list.',
+      'desc.providerPlaceholder': 'Describe this provider in a sentence or two; it is surfaced to AI callers through model_list.',
       'cat.loading': 'Loading model catalog…',
       'cat.unavailable': 'Model catalog unavailable (not provided by the host). Retry later or edit the config file.',
-      'cat.none': 'No matching models.',
-      'cat.capped': '{total} matches, showing the first {cap} — refine the keyword to narrow down.',
       'detail.title': 'Initial detail level for results',
       'detail.summary': 'Simple',
       'detail.normal': 'Details',
@@ -562,20 +568,11 @@ interface DshModuleSpec {
     '.dcs-switch[data-on="1"]::after{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground,#fff);}',
     '.dcs-switch:disabled{opacity:.5;cursor:default;}',
     '.dcs-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:2px;}',
-    // 模型白名单: 已选清单 + 添加面板(开关右侧不放文字, 状态由下方内容表达, 布局不随文案跳动)
+    // 模型白名单: 多选分层树与桥端点清单同构(dcs-eplist), 只多出简介编辑钮与行下编辑器
     '.dcs-listwrap{padding:0 2px 12px;display:flex;flex-direction:column;gap:8px;}',
-    '.dcs-list{display:flex;flex-direction:column;max-height:220px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
-    '.dcs-chosen{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;height:30px;padding:0;font-size:13px;}',
-    '.dcs-chosenname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);margin-left:8px;}',
     '.dcs-x{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:14px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
     '.dcs-x:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-state-error-primary,#ec1313);}',
     '.dcs-x:disabled{opacity:.4;cursor:default;}',
-    '.dcs-addrow{display:flex;align-items:center;gap:8px;}',
-    '.dcs-addrow .dcs-input{flex:1;width:auto;min-width:0;}',
-    '.dcs-cand{display:flex;align-items:center;gap:8px;flex:none;width:100%;height:30px;padding:0 2px;border:none;background:transparent;font-family:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--dsw-alias-label-primary,#0f1115);border-radius:6px;transition:background .1s ease;}',
-    '.dcs-cand:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
-    '.dcs-cand:disabled{opacity:.4;cursor:default;}',
-    '.dcs-candname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
     // MCP令牌行(生成/复制/清除; 清除与"生成后放弃"之外的清空同状态)
     '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;}',
@@ -609,6 +606,20 @@ interface DshModuleSpec {
     '.dcs-epdangerhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:2px 2px 0;}',
     '.dcs-epdangerhead .dcs-sectitle{color:var(--dsw-alias-state-error-primary,#ec1313);}',
     '.dcs-epdangerhead .dcs-sub{flex:1;min-width:160px;}',
+    // 模型白名单树: 与桥端点清单同构(组头 = 箭头+组复选+名称+计数; 行 = 复选+名称+简介+编辑钮)。
+    // 简介编辑钮(✎)是弱化幽灵按钮, 悬停才浮出; 编辑行是行下展开的 textarea, 失焦即存
+    '.dcs-mrow{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-mpair{display:flex;align-items:baseline;gap:6px;min-width:0;}',
+    '.dcs-mname{flex:none;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;}',
+    '.dcs-mdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.dcs-pen{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:12px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
+    '.dcs-pen:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115);}',
+    '.dcs-pen[data-on="1"]{color:var(--dsw-alias-state-business-primary,#4176e6);}',
+    '.dcs-descedit{display:flex;flex-direction:column;gap:4px;padding:4px 0 8px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+    '.dcs-descedit.dcs-descedit-provider{padding-left:24px;}',
+    '.dcs-descedit textarea{box-sizing:border-box;width:100%;min-height:52px;max-height:160px;padding:6px 8px;font-family:inherit;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;resize:vertical;transition:border-color .1s ease;}',
+    '.dcs-descedit textarea:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
+    '.dcs-descedit textarea::placeholder{color:var(--dsw-alias-label-dimmed,#979da6);}',
     '.dcs-epstale{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
     '.dcs-epstale .dcs-eprname{color:var(--dsw-alias-state-warn-label,#dd8629);}',
     // 自绘 tooltip(挂 body 的单例浮层, .dcs-tip 常驻仅显隐): fixed 定位不受滚动容器裁剪, pre-line 支持 \n 分行
@@ -965,6 +976,199 @@ interface DshModuleSpec {
     );
   }
 
+  // ── 模型白名单多选树 ──
+  // 与桥端点清单同构: 按 provider 分组(默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
+  // provider 整组隐藏), 组头 = 箭头 + 组复选 + 提供商名 + 已选计数, 模型行 = 复选 + 模型 id +
+  // 展示名 + 简介 + 编辑钮。勾选切换 allowedModels(无通配符, 逐条 "provider/model"); 全选 =
+  // 显式快照。白名单里已不在目录中的条目单列"失效条目"(可移除)。
+  // 每行"编辑简介"(✎)在行下展开 textarea, 失焦即存: 模型简介写入 modelDescriptions, 提供商
+  // 简介写入 providerDescriptions——两者都随 model_list / dsh://models 透出给调用方。
+  // props.catalog: null = 加载中, false = 目录不可用, 否则 {providers:[{id,name,models:[{id,name}]}]}。
+  // props.descriptions: { models, providers } 两张简介表(草稿); onDescription(kind, key, text) 提交。
+  function ModelAllowlistTree(props) {
+    const [filter, setFilter] = React.useState('');
+    const [open, setOpen] = React.useState(null);
+    // 简介编辑态: null = 关闭; {kind, key, text} = 行下展开的 textarea(text 是受控草稿, 失焦提交)
+    const [editing, setEditing] = React.useState(null);
+    const catalog = props.catalog;
+    const providers = catalog && Array.isArray(catalog.providers) ? catalog.providers : [];
+    const allowed = props.allowed || [];
+    const allowedSet = new Set(allowed);
+    const descModels = (props.descriptions && props.descriptions.models) || {};
+    const descProviders = (props.descriptions && props.descriptions.providers) || {};
+    const q = filter.trim().toLowerCase();
+
+    // 分组(保持服务端顺序)
+    const groups = [];
+    const byId = new Map();
+    providers.forEach(function (p) {
+      let g = byId.get(p.id);
+      if (!g) { g = { id: p.id, name: p.name ?? p.id, items: [] }; byId.set(p.id, g); groups.push(g); }
+      (p.models || []).forEach(function (m) { g.items.push({ pair: p.id + '/' + m.id, id: m.id, name: m.name ?? m.id }); });
+    });
+    const allPairs = [];
+    groups.forEach(function (g) { g.items.forEach(function (m) { allPairs.push(m.pair); }); });
+    const allSelected = allPairs.length > 0 && allPairs.every(function (p) { return allowedSet.has(p); });
+    const someSelected = !allSelected && allPairs.some(function (p) { return allowedSet.has(p); });
+    const matches = function (g, m) {
+      if (!q) return true;
+      const hay = (g.id + ' ' + g.name + ' ' + m.pair + ' ' + m.name + ' ' + (descProviders[g.id] || '') + ' ' + (descModels[m.pair] || '')).toLowerCase();
+      return hay.includes(q);
+    };
+    // 搜索时空组隐藏: 无命中模型的 provider 连组头一起不出现; 全部空时落到"没有匹配的模型"
+    const visibleGroups = q ? groups.filter(function (g) { return g.items.some(function (m) { return matches(g, m); }); }) : groups;
+    // 失效条目: 白名单里有、目录里没有的条目(编辑不了简介, 只能移除)
+    const livePairs = new Set(allPairs);
+    const stale = allowed.filter(function (p) { return !livePairs.has(p); });
+    function emit(nextArray) { props.onAllowed(nextArray); }
+    function toggleModel(pair, checked) {
+      emit(checked ? allowed.concat([pair]) : allowed.filter(function (x) { return x !== pair; }));
+    }
+    function toggleGroup(g, checked) {
+      const names = g.items.map(function (m) { return m.pair; });
+      const rest = allowed.filter(function (x) { return names.indexOf(x) === -1; });
+      emit(checked ? rest.concat(names) : rest);
+    }
+    function toggleAll() {
+      emit(allSelected ? [] : allPairs.slice());
+    }
+    function groupOpen(g) {
+      if (q) return true;
+      if (open !== null) return open.has(g.id);
+      return false;
+    }
+    function flipGroup(g) {
+      const base = open !== null ? open : new Set(groups.filter(groupOpen).map(function (x) { return x.id; }));
+      const next = new Set(base);
+      if (next.has(g.id)) next.delete(g.id); else next.add(g.id);
+      setOpen(next);
+    }
+    function checkRef(indeterminate) {
+      return function (el) { if (el) el.indeterminate = indeterminate; };
+    }
+    function openEditor(kind, key) {
+      const current = String((kind === 'model' ? descModels : descProviders)[key] || '');
+      setEditing({ kind: kind, key: key, text: current });
+    }
+    function commitEditor() {
+      if (editing !== null) {
+        props.onDescription(editing.kind, editing.key, editing.text);
+        setEditing(null);
+      }
+    }
+    function descButton(kind, key, opts?) {
+      const o = opts || {};
+      return React.createElement('button', {
+        type: 'button', className: 'dcs-pen', 'data-on': editing !== null && editing.kind === kind && editing.key === key ? '1' : '0',
+        title: t('desc.edit'), 'aria-label': t('desc.edit'),
+        onClick: function (ev) {
+          if (o.stopProp) ev.stopPropagation();
+          if (editing !== null && editing.kind === kind && editing.key === key) { setEditing(null); return; }
+          openEditor(kind, key);
+        },
+      }, '✎');
+    }
+    function editorRow(kind, key, providerLevel) {
+      if (editing === null || editing.kind !== kind || editing.key !== key) return null;
+      return React.createElement('div', { className: 'dcs-descedit' + (providerLevel ? ' dcs-descedit-provider' : '') },
+        React.createElement('textarea', {
+          value: editing.text, autoFocus: true, spellCheck: false,
+          placeholder: t(kind === 'model' ? 'desc.modelPlaceholder' : 'desc.providerPlaceholder'),
+          onChange: function (e) { setEditing({ kind: kind, key: key, text: e.target.value }); },
+          onBlur: commitEditor,
+        }),
+      );
+    }
+    function modelRow(g, m) {
+      return React.createElement(React.Fragment, { key: m.pair },
+        React.createElement('div', { className: 'dcs-mrow' },
+          React.createElement('input', {
+            className: 'dcs-epchk', type: 'checkbox',
+            checked: allowedSet.has(m.pair),
+            onChange: function (ev) { toggleModel(m.pair, ev.target.checked); },
+          }),
+          React.createElement('span', { className: 'dcs-mpair' },
+            React.createElement('span', { className: 'dcs-mname' }, m.id),
+            m.name !== m.id ? React.createElement('span', { className: 'dcs-eprdesc' }, m.name) : null,
+          ),
+          descModels[m.pair] ? React.createElement('span', { className: 'dcs-mdesc' }, descModels[m.pair]) : null,
+          descButton('model', m.pair),
+        ),
+        editorRow('model', m.pair, false),
+      );
+    }
+    let body;
+    if (catalog === null) {
+      body = React.createElement('div', { className: 'dcs-listmsg' }, t('cat.loading'));
+    } else if (catalog === false) {
+      body = React.createElement('div', { className: 'dcs-listmsg' }, t('cat.unavailable'));
+    } else {
+      const staleBlock = stale.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
+        React.createElement('span', { className: 'dcs-epcount' }, t('whitelist.staleTitle')),
+        stale.map(function (s) {
+          return React.createElement(React.Fragment, { key: s },
+            React.createElement('span', { className: 'dcs-eprname' }, s),
+            React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('whitelist.staleBadge')),
+            React.createElement('button', {
+              type: 'button', className: 'dcs-x', title: t('whitelist.staleRemove', { m: s }),
+              onClick: function () { emit(allowed.filter(function (x) { return x !== s; })); },
+            }, '✕'),
+          );
+        }),
+      );
+      body = React.createElement('div', { className: 'dcs-eplist' },
+        visibleGroups.length === 0
+          ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.none'))
+          : visibleGroups.map(function (g) {
+              const isOpen = groupOpen(g);
+              const picked = g.items.filter(function (m) { return allowedSet.has(m.pair); }).length;
+              const gAll = g.items.length > 0 && picked === g.items.length;
+              const gSome = !gAll && picked > 0;
+              const visible = g.items.filter(function (m) { return matches(g, m); });
+              return React.createElement('div', { key: g.id },
+                React.createElement('div', { className: 'dcs-epgroup', onClick: function () { flipGroup(g); } },
+                  React.createElement('span', { className: 'dcs-epchev' }, isOpen ? '▾' : '▸'),
+                  React.createElement('input', {
+                    className: 'dcs-epchk', type: 'checkbox', disabled: g.items.length === 0,
+                    checked: gAll, ref: checkRef(gSome),
+                    onClick: function (ev) { ev.stopPropagation(); },
+                    onChange: function (ev) { toggleGroup(g, ev.target.checked); },
+                  }),
+                  React.createElement('span', { className: 'dcs-epns' }, g.name !== g.id ? g.name : g.id),
+                  g.name !== g.id ? React.createElement('span', { className: 'dcs-epcount' }, g.id) : null,
+                  descProviders[g.id] ? React.createElement('span', { className: 'dcs-mdesc' }, descProviders[g.id]) : null,
+                  descButton('provider', g.id, { stopProp: true }),
+                  React.createElement('span', { className: 'dcs-epcount' }, g.items.length > 0 ? picked + '/' + g.items.length : ''),
+                ),
+                isOpen ? visible.map(function (m) { return modelRow(g, m); }) : null,
+                isOpen ? editorRow('provider', g.id, true) : null,
+              );
+            }),
+        staleBlock,
+      );
+    }
+
+    return React.createElement('div', { className: 'dcs-eps' },
+      React.createElement('div', { className: 'dcs-epbar' },
+        React.createElement('input', {
+          className: 'dcs-input', type: 'text', value: filter,
+          placeholder: t('whitelist.filter'), spellCheck: false,
+          onChange: function (ev) { setFilter(ev.target.value); },
+        }),
+        React.createElement('label', { className: 'dcs-epall' },
+          React.createElement('input', {
+            className: 'dcs-epchk', type: 'checkbox',
+            checked: allSelected, ref: checkRef(someSelected),
+            onChange: toggleAll,
+          }),
+          t('whitelist.selectAll'),
+        ),
+        React.createElement('span', { className: 'dcs-epcount' }, t('whitelist.selected', { n: allowed.length, m: allPairs.length })),
+      ),
+      body,
+    );
+  }
+
   // ── 桥写审批列表 ──
   // 停泊在插件台账里的桥写请求逐一列出: 头部(标题 + 停泊计数 + 全部拒绝) + 每条一张独立小卡
   // (端点 + 等待/剩余时长 + 参数摘要 + 允许/拒绝), 卡顶细条按剩余占比收缩、不足 1 分钟转紧急红。
@@ -1046,6 +1250,7 @@ interface DshModuleSpec {
           }) : null,
           React.createElement('div', { className: 'dcs-apprhead' },
             React.createElement('span', { className: 'dcs-apprendpoint' }, a.endpoint),
+            a.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('bridge.dangerous')) : null,
             React.createElement('span', { className: 'dcs-apprwait' + (urgent ? ' dcs-apprwait-urgent' : '') },
               t('bridgeApproval.waited', { d: fmtDur(Math.max(0, now - a.requestedAt)) }) + ' · ' + left),
           ),
@@ -1109,9 +1314,7 @@ interface DshModuleSpec {
     const [tokenCopied, setTokenCopied] = React.useState(false);
     // 令牌明文展示(默认密码式隐藏; 点击"显示"切换, 输入框只读可选可复制)
     const [tokenShown, setTokenShown] = React.useState(false);
-    // 模型白名单的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
-    const [adding, setAdding] = React.useState(null);
-    // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
+    // 模型目录(模型白名单树的数据源): null = 未加载, false = 加载失败; 进入模型标签页时(重)拉
     const [cat, setCat] = React.useState(null);
     // 通用桥端点目录(白名单清单的数据源): null = 加载中, false = 不可用, 否则 {endpoints, stale}
     const [eps, setEps] = React.useState(null);
@@ -1205,15 +1408,16 @@ interface DshModuleSpec {
       };
     }, [refresh]);
 
-    // 添加模型面板打开时才需要目录: 惰性拉一次
+    // 模型白名单树只在模型标签页需要目录: 每次进入标签页重新拉(保持目录新鲜, 退出即释放)
     React.useEffect(function () {
-      if (adding === null || cat !== null) return;
+      if (tab !== 'models') return undefined;
       let alive = true;
+      setCat(null);
       rpc('models')
         .then(function (m) { if (alive) setCat(m && Array.isArray(m.providers) ? m : false); })
         .catch(function () { if (alive) setCat(false); });
       return function () { alive = false; };
-    }, [adding, cat]);
+    }, [tab]);
 
     function copyEndpoint() {
       if (state && state.endpoint && navigator.clipboard) {
@@ -1475,25 +1679,15 @@ interface DshModuleSpec {
     const d = form !== null ? form.draft : null;
     const now = Date.now();
 
-    // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
-    const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
-    const catalogPairs = [];
-    catProviders.forEach(function (p) {
-      (p.models || []).forEach(function (m) {
-        catalogPairs.push({ pair: p.id + '/' + m.id, name: m.name && m.name !== m.id ? m.name : '' });
+    /** 模型/提供商简介编辑: 合并进对应简介表(清空文本 = 删除该条目), 随 change() 提交 */
+    function setDescription(kind, key, text) {
+      change(function (cur) {
+        const table = Object.assign({}, kind === 'model' ? cur.modelDescriptions : cur.providerDescriptions);
+        const trimmed = String(text || '').trim();
+        if (trimmed === '') delete table[key]; else table[key] = trimmed;
+        return kind === 'model' ? { modelDescriptions: table } : { providerDescriptions: table };
       });
-    });
-    const nameOf = function (pair) {
-      const hit = catalogPairs.find(function (e) { return e.pair === pair; });
-      return hit ? hit.name : '';
-    };
-    // 添加面板候选项: 目录全量 - 已选, 按关键字过滤(pair/展示名不区分大小写子串); 无关键字时也列出(上限 50, 提示继续过滤)
-    const chosenSet = d ? d.allowedModels : [];
-    const q = adding !== null ? adding.trim().toLowerCase() : '';
-    const candidates = adding === null ? [] : catalogPairs
-      .filter(function (e) { return chosenSet.indexOf(e.pair) === -1; })
-      .filter(function (e) { return !q || e.pair.toLowerCase().includes(q) || e.name.toLowerCase().includes(q); });
-    const CAND_CAP = 50;
+    }
 
     return React.createElement('div', { className: 'dcs-root' },
       // 顶部栏: 返回会话(宿主 layout.selectPanel(null), 参考宿主面包屑的弱化文本样式)
@@ -1640,10 +1834,9 @@ interface DshModuleSpec {
                 }),
           )
         : null,
-      // ── 模型白名单标签: 白名单开关 + 已选清单/添加面板 ──
+      // ── 模型白名单标签: 白名单开关 + 多选分层树(勾选限制可选模型, 每行可编辑简介) ──
       tab !== 'models' ? null :
       d ? React.createElement(React.Fragment, null,
-        // ── 模型白名单 ──
         groupHead(t('whitelist.title'), {
           hint: t('whitelist.hint'),
           control: React.createElement(Switch, {
@@ -1654,58 +1847,14 @@ interface DshModuleSpec {
         }),
         React.createElement('div', { className: 'dcs-form' },
         React.createElement('div', { className: 'dcs-listwrap' },
-              // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
-              d.allowedModels.length === 0
-                ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.empty'))
-                : React.createElement('div', { className: 'dcs-list' },
-                    d.allowedModels.map(function (pair) {
-                      const nm = nameOf(pair);
-                      return React.createElement('div', { key: pair, className: 'dcs-chosen' },
-                        React.createElement('span', null, pair,
-                          nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
-                        React.createElement('button', {
-                          type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }),
-                          onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.filter(function (x) { return x !== pair; }) }; }); },
-                        }, '✕'),
-                      );
-                    })),
-              // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
-              adding === null
-                ? React.createElement('div', null,
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(''); } }, t('whitelist.add')))
-                : React.createElement('div', { className: 'dcs-addrow' },
-                    React.createElement('input', {
-                      className: 'dcs-input',
-                      type: 'text',
-                      value: adding,
-                      placeholder: t('whitelist.filter'),
-                      spellCheck: false,
-                      onChange: function (e) { setAdding(e.target.value); },
-                    }),
-                    React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, t('whitelist.done')),
-                  ),
-              adding !== null
-                ? (cat === null
-                    ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.loading'))
-                    : cat === false
-                      ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.unavailable'))
-                      : React.createElement('div', { className: 'dcs-list' },
-                          candidates.length === 0
-                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.none'))
-                            : candidates.slice(0, CAND_CAP).map(function (e) {
-                                return React.createElement('button', {
-                                  key: e.pair, type: 'button', className: 'dcs-cand',
-                                  onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.concat([e.pair]) }; }); },
-                                },
-                                  e.pair,
-                                  e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
-                                );
-                              }),
-                          candidates.length > CAND_CAP
-                            ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.capped', { total: candidates.length, cap: CAND_CAP }))
-                            : null))
-                : null,
-            ),
+          React.createElement(ModelAllowlistTree, {
+            catalog: cat,
+            allowed: d.allowedModels || [],
+            descriptions: { models: d.modelDescriptions || {}, providers: d.providerDescriptions || {} },
+            onAllowed: function (nextArray) { change({ allowedModels: nextArray }); },
+            onDescription: setDescription,
+          }),
+        ),
         ),
       ) : null,
       tab !== 'settings' ? null :
