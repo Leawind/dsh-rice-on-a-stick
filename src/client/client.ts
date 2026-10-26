@@ -12,10 +12,10 @@ interface DshModuleSpec {
   const module: { exports: Record<string, unknown> } = { exports: {} };
   // dsh-rice-on-a-stick — client half(浏览器, 静态 bundle 形态)
   // - 数据/操作全部经 GUI 同源路由: POST /_dsh/dsh-rice-on-a-stick/{status|models|config-update|...}(host 半注册)
-  // - 侧栏面板: sidebar.panellist 出图标(米饭碗 + 待审批角标), main 按同 id 出整页; 页内两个标签:
-  //   审批(桥写停泊审批卡) / 设置(按常用度分组的配置表单 + 连接列表)。MCP 端点卡常驻页头
-  //   (品牌块内, 两标签共用)。改动即保存, 经宿主 configEditor 写 profile patch; 全部字段就地生效,
-  //   只有监听级字段(http/host/port)重建监听器
+  // - 侧栏面板: sidebar.panellist 出图标(米饭碗 + 待审批角标), main 按同 id 出整页; 页内三个标签:
+  //   审批(桥写停泊审批卡) / 设置(按常用度分组的配置表单) / 连接(客户端连接列表)。MCP 端点卡
+  //   常驻页头(品牌块内, 各标签共用)。改动即保存, 经宿主 configEditor 写 profile patch; 全部字段
+  //   就地生效, 只有监听级字段(http/host/port)重建监听器
   // - 桥写停泊审批由模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s), 侧栏角标与页面审批卡共用;
   //   侧栏图标是本插件注册的组件(宿主侧栏只托管按钮与 label), 不需要 DOM 认领
   // - React 由模块系统种子提供; 不依赖其它 client 包
@@ -310,6 +310,7 @@ interface DshModuleSpec {
       'loading': '载入中…',
       'tab.approvals': '审批',
       'tab.settings': '设置',
+      'tab.conns': '连接',
       'group.agent': 'Agent 工具面',
       'security.title': '安全与传输',
       'approvals.empty': '当前无待审批的调用',
@@ -413,6 +414,7 @@ interface DshModuleSpec {
       'loading': 'Loading…',
       'tab.approvals': 'Approvals',
       'tab.settings': 'Settings',
+      'tab.conns': 'Connections',
       'group.agent': 'Agent tool surface',
       'security.title': 'Security & transport',
       'approvals.empty': 'No calls awaiting approval',
@@ -467,7 +469,8 @@ interface DshModuleSpec {
     '.dcs-ver{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
     // 品牌块: 品牌行 + 一句话用途介绍, 整体作为一个行组参与根布局
     '.dcs-brand{display:flex;flex-direction:column;gap:6px;}',
-    '.dcs-tagline{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+    // 标语与下方端点卡之间在 6px 行距外再加一段呼吸空间
+    '.dcs-tagline{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);margin-bottom:10px;}',
     '.dcs-spacer{flex:1;}',
     // 状态徽章(官方 Tag 同型: 状态色 12% color-mix 底 + 同色文字 + 6px 点)
     '.dcs-tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;corner-shape:round;font-size:12px;font-weight:500;}',
@@ -488,6 +491,8 @@ interface DshModuleSpec {
     '.dcs-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l3,rgba(0,0,0,.12)));}',
     '.dcs-urlrow{display:flex;align-items:center;gap:8px;}',
     '.dcs-url{flex:1;min-width:0;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;word-break:break-all;}',
+    // 端点卡不占满整行: 宽度随 URL 自适应(上限 520px)并在品牌块内水平居中, 长 URL 由 .dcs-url 断行
+    '.dcs-endpoint{align-self:center;width:fit-content;max-width:520px;}',
     // 监听地址/端口: 标签与说明占整行, 输入框和按钮在下一行; 面板窄时按钮可换行。
     // 选择器必须带 .dcs-row(同为 0,1,0 但 .dcs-row 在下方, 单写 .dcs-row-stack 会被它覆盖成 align-items:center,
     // 竖排时就是"标签水平居中"); 标签在竖排里不参与收缩, 否则 flex-basis 会变成高度。
@@ -990,10 +995,11 @@ interface DshModuleSpec {
     );
   }
 
-  // ── 侧栏页(main 条目): 品牌头(含常驻 MCP 端点卡) + 页内标签(审批 / 设置) ──
+  // ── 侧栏页(main 条目): 品牌头(含常驻 MCP 端点卡) + 页内标签(审批 / 设置 / 连接) ──
   // 审批标签 = 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
   // 设置标签 = 配置表单(按常用度分组: MCP 服务 / 模型白名单 / 通用桥端点白名单 / MCP 令牌 /
-  // Agent 工具面 / 审批 / 安全与传输) + 连接列表。
+  // Agent 工具面 / 审批 / 安全与传输);
+  // 连接标签 = 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免设置页被拉长)。
   // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
   var PANEL_ID = 'dsh-rice-on-a-stick';
   var lastPanelTab = ''; // 页面卸载重开时记住上次所在标签(插件客户端半重载后回到默认)
@@ -1471,14 +1477,14 @@ interface DshModuleSpec {
         ),
         React.createElement('div', { className: 'dcs-tagline' }, t('plugin.tagline')),
         // MCP 端点卡(最高频: 复制给其他客户端接入): 常驻页头, 审批/设置两标签共用, 设置表单里不再重复
-        React.createElement('div', { className: 'dcs-card' },
+        React.createElement('div', { className: 'dcs-card dcs-endpoint' },
           React.createElement('div', { className: 'dcs-urlrow' },
             React.createElement('span', { className: 'dcs-url' }, state.endpoint),
             React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
           ),
         ),
       ),
-      // 页内标签: 审批(动作面, 停泊计数泡) / 设置(策略面)
+      // 页内标签: 审批(动作面, 停泊计数泡) / 设置(策略面) / 连接(观测面)
       React.createElement('div', { className: 'dcs-tabs', role: 'tablist' },
         React.createElement('button', {
           type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'approvals',
@@ -1493,6 +1499,11 @@ interface DshModuleSpec {
           'data-on': tab === 'settings' ? '1' : '0',
           onClick: function () { switchTab('settings'); },
         }, t('tab.settings')),
+        React.createElement('button', {
+          type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'conns',
+          'data-on': tab === 'conns' ? '1' : '0',
+          onClick: function () { switchTab('conns'); },
+        }, t('tab.conns')),
       ),
       error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
       // ── 审批标签: 停泊中的桥写调用逐一应答; 空态为居中虚线框(文案保持一句话) ──
@@ -1795,8 +1806,8 @@ interface DshModuleSpec {
         }),
         ),
       ) : null,
-      // 连接列表(设置标签尾部): 只读观测, 10s 轮询跟随刷新
-      tab !== 'settings' ? null : React.createElement('div', null,
+      // ── 连接标签: 客户端连接列表(只读观测, 10s 轮询跟随刷新); 条目可能很多, 独立成标签不挤占设置页 ──
+      tab !== 'conns' ? null : React.createElement('div', null,
         React.createElement('div', { className: 'dcs-sechead' },
           React.createElement('span', { className: 'dcs-sectitle' },
             t('conns.count', { n: conns.length }) + (subs.subscriptions ? t('conns.subs', { n: subs.subscriptions }) : '')),
