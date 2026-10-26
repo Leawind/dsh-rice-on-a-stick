@@ -34,6 +34,7 @@ flowchart LR
 ## Features
 
 -   **Operate sessions** — create, send, queue, fork, archive and restore, switch models, and more. A model allowlist can be manually configured so that clients can only use models on the list.
+-   **Answer like a normal Web user** — the plugin joins as a Web answer client for approvals and `ask_user_question`: the native cards stay visible and whoever answers first wins. Polling surfaces what is pending, and `approval_answer` / `question_answer` submit the decision.
 -   **Generic bridge** — low-curation coverage for the long tail of host capabilities.
 -   **dsh can use it too** — these capabilities are also registered as internal dsh tools, callable directly from dsh sessions; they can be disabled in settings if not needed.
 -   **Secure by default** — listens only on localhost by default, with an optional access token.

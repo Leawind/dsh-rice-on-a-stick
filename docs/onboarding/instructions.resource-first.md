@@ -12,9 +12,10 @@ Read them with resources/read; subscribe with resources/subscribe to get
 notifications/resources/updated (turn activity and history updates — no polling).
 Control-plane tools stay available: session_submit / session_poll / session_result
 (async fan-out), approval_list / approval_answer / approval_policy (approval gate),
-permission_list / session_set_permission (permission presets), subagent_list (native
-child catalog), session_command (list/run the session's slash commands, e.g. /compact),
-plus session_create / session_cancel / session_select_model.
+question_list / question_answer (ask_user_question gate), permission_list /
+session_set_permission (permission presets), subagent_list (native child catalog),
+session_command (list/run the session's slash commands, e.g. /compact), plus
+session_create / session_cancel / session_select_model.
 
 Quick start:
 - Read dsh://models before picking a model and dsh://presets for valid preset ids;
@@ -28,9 +29,13 @@ Quick start:
 - For fan-out, session_submit returns a requestId immediately, session_poll observes
   many sessions at once with a bounded waitMs, and session_result fetches the
   structured result. Cancelling a wait never cancels the dsh turn; use session_cancel.
-- If a turn stops on an approval, approval_list shows the pending entries and
-  approval_answer answers one when the deployment enabled approvalControl
-  (fallback/exclusive); approval_policy reads or switches ask|never.
+- This plugin is an ordinary Web answer client: the native approval/question cards stay
+  visible, and whoever answers first wins. When session_poll reports waiting-approval or
+  waiting-question, approval_list / question_list show what this plugin holds
+  (answerable=true); approval_answer allows/rejects, question_answer answers the whole
+  ask_user_question batch. approval_policy reads or switches ask|never.
+- session_prompt defaults to waitFor=input and returns pending=true with `waiting` while
+  the session waits for input; answer it, then fetch the result with session_result.
 - session_cancel stops the current turn (queued messages are kept);
   session_select_model switches the session's model in place.
 - Rosters: dsh://sessions, dsh://presets, dsh://models, dsh://workspaces.

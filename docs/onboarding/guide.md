@@ -48,13 +48,23 @@ you already know.
   anything; each child is a normal session id for `session_prompt` / `session_poll` /
   `session_result`. Starting a child stays with the host/model-side subagent tools.
 - **Approval policy** — the host may ask for confirmation before a sensitive operation
-  (`ask`) or reject it deterministically (`never`). With the default
-  `approvalControl=off`, this plugin only reports pending approvals
-  (`approval_list` / `session_poll.pendingApprovals`) and the UI/host answers them.
-  With `fallback` (UI first, MCP when nobody can answer) or `exclusive` (MCP only),
-  `approval_answer` grants `allowed-once` or `rejected`; unanswered requests fail
-  closed when the wait expires. `approval_policy` reads or switches the session's
-  `ask`/`never` policy knob.
+  (`ask`) or reject it deterministically (`never`). This plugin is an ordinary Web answer
+  client: it receives the same `approval/request` the browser does, **the native approval
+  card stays visible**, and whoever answers first wins (the other side gets a cancel).
+  `session_poll` reports `waiting-approval` with `pendingApprovals`; `approval_list`
+  returns `eventId` / `approvalId` / `toolName` / `callId` / `reason` / `answerable`.
+  `approval_answer` grants `allowed-once` or `rejected` for entries with
+  `answerable=true` (by `eventId` or `callId`). Entries held by the UI or another client
+  are read-only for you. `approval_policy` reads or switches the session's `ask`/`never`
+  knob.
+- **User questions** — when a session calls `ask_user_question`, `session_poll` reports
+  `waiting-question` with `pendingQuestions`; `question_list` returns the question batch,
+  `callId`, `state` (`open`/`continued`) and `answerable`. `question_answer` answers the
+  whole batch (every question id exactly once) and the child turn continues with that
+  answer as the tool result — the same as clicking the card. The native card stays
+  visible and the human may answer first. In a timed deployment the question can become
+  `continued` after its foreground wait; then pass the `callId` and the host's
+  late-answer path is used (the reply arrives as a user message, not the tool result).
 - **Permission preset** — what the UI's permission switcher shows: a bundle of sandbox
   mode + approval policy (for example `workspace-write` = write inside the workspace
   with approval prompts, `danger-full-access` = full file access with no approval
@@ -135,11 +145,16 @@ you already know.
    faster than that. Once a session reports `lastTurn.reason`, call `session_result`
    with its `requestId`; `status` tells you completed/blocked/errored/cancelled.
    `session_cancel` stops one worker; `session_archive` retires it.
-8. **Approval gate** — when `session_poll` reports `waiting-approval`, call
-   `approval_list` with the session id. If the entry is `answerable`, decide with
-   `approval_answer` (allow/reject) and keep polling; otherwise the UI/host owns it.
-   To avoid gates up front, create the session with a full-access `permission` preset
-   (see `permission_list`) or switch an existing session with `session_set_permission`.
+8. **Human-input gate** — when `session_poll` reports `waiting-approval` or
+   `waiting-question`, call `approval_list` / `question_list` with the session id. If the
+   entry is `answerable`, answer it with `approval_answer` (allow/reject) or
+   `question_answer` (the whole batch), then keep polling. Otherwise the UI or another
+   client holds it; the native card is still the human's path. `session_prompt` defaults
+   to `waitFor: "input"`: it returns early with `pending=true` and `waiting` when the
+   session starts waiting, so you can answer and then call `session_result` for the final
+   result. To avoid approval gates up front, create the session with a full-access
+   `permission` preset (see `permission_list`) or switch it with
+   `session_set_permission`.
 9. **Native subagents** — `subagent_list({ parentSessionId })` returns direct children
    (recursive=true adds descendants). Then treat each child id like any other session:
    `session_poll`, `session_result`, `session_prompt`. The catalog read is passive;
@@ -171,6 +186,7 @@ you already know.
 | model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from `model_list` that appears there |
 | "session is not running" (cancel/queue) | the session has no live agent right now; send a `session_prompt` / `session_submit` first |
 | turn ends `blocked` | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_prompt` |
+| `pending: true` with `waiting` | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling) |
 | "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history` |
 | `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
 | `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
@@ -191,8 +207,12 @@ model/preset that actually answered.
 Async results carry `requestId`, `status` (completed / blocked / errored / cancelled;
 running/pending while not settled), `turn`, and `pending`. A `session_result` call that
 succeeds with `status: "errored"` is still a successful tool call — inspect the payload,
-not only `isError`. `session_prompt` keeps the blocking convenience shape and marks a
-client-cancelled wait with `pending: true` plus the `requestId` to fetch later.
+not only `isError`. `session_prompt` defaults to `waitFor: "input"`: a session that starts
+waiting for an approval/question returns `pending: true` plus
+`waiting: { approvals, questions }` while the turn keeps running; answer it and call
+`session_result` for the final result. A client-cancelled wait also returns
+`pending: true` with the `requestId` to fetch later (use `waitFor: "turn"` to always
+block until the turn ends).
 
 `session_history` follows the same budget idea: its default view clips each entry's text
 (assistant messages at 600 characters, less for tool entries; clipped entries carry
@@ -230,10 +250,15 @@ unreadable they degrade to the `session_list` row and say so with `eventsReadabl
   can rebuild its position from the session log after a restart.
 - `session_poll` reports live sessions from memory; a persisted-only session returns
   `state: "inactive"` (its log is still readable with `session_history`).
-- Pending approvals are always exposed read-only in `session_poll` (`pendingApprovals`)
-  and `approval_list`. Answering requires the deployment to set
-  `approvalControl=fallback|exclusive`; only entries marked `answerable=true` can be
-  answered, and the default `off` leaves every decision to the host/UI.
+- Pending approvals and questions are exposed in `session_poll`
+  (`pendingApprovals` / `pendingQuestions`), `approval_list` and `question_list`. This
+  plugin is an ordinary Web answer client: it only answers requests it currently holds
+  (`answerable=true`); the native card stays visible for the human, and the UI or another
+  client may answer first. When the host has no answer-client seam the plugin degrades to
+  read-only and every `answerable` is false.
+- `ask_user_question` is answered in the child turn (same tool result) while it is
+  `open`; a timed deployment may turn it into `continued` after the foreground wait, in
+  which case the host late-answer path is used and the reply arrives as a user message.
 - `subagent_list` is discovery only: it reads the host's child catalog and treats each
   child as a normal session. Starting native children remains a host/model-side tool.
 - `session_command` needs a live agent (`ctx.commands` is per agent): a persisted-only

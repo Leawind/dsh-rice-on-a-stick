@@ -8,10 +8,12 @@ Quick start:
 - Call model_list first — it holds both the model catalog and the preset roster
   (its `presets` field); create a session with session_create
   (cwd, provider+model pair, preset — all explicit, no defaults are backfilled).
-- session_prompt sends a message into a session and waits for the turn to finish,
-  returning a structured result ({changes, verification, leftovers, ...}); failures come
-  back with isError:true. Reuse the same sessionId to keep the conversation going
-  (its full history is the agent's context — send only the delta in context).
+- session_prompt sends a message into a session and waits for the turn to finish
+  (waitFor=turn), returning a structured result ({changes, verification, leftovers, ...});
+  with the default waitFor=input it returns early (pending=true + waiting) as soon as the
+  session waits for an approval or a question, so you can answer it and continue.
+  Failures come back with isError:true. Reuse the same sessionId to keep the conversation
+  going (its full history is the agent's context — send only the delta in context).
 - While a session is busy, another session_prompt queues into the host inbox (durable)
   or interrupts the current step with mode=steer; session_cancel stops the current turn
   and keeps the queue; session_queue inspects/edits/removes queued messages.
@@ -20,13 +22,18 @@ Quick start:
   waitMs, returns changed/timedOut); session_result fetches the structured result by
   requestId. Cancelling a wait (client timeout / notifications/cancelled) only stops the
   wait — the dsh turn keeps running; use session_cancel to stop it.
-- If a turn stops on an approval, approval_list shows the pending entries (approvalId,
-  toolName, callId, reason, answerable). approval_answer allows/rejects one; this only
-  works when the deployment set approvalControl=fallback|exclusive, and only for
-  entries marked answerable. approval_policy reads or switches the ask|never knob; for a
-  named permission level (a sandbox + approval bundle, e.g. full access) use
-  permission_list, session_create.permission, or session_set_permission — the same
-  presets the UI's permission switcher shows (knob-only changes can read as `custom`).
+- This plugin is an ordinary Web answer client: it receives the same approval/question
+  cards the browser does, the native cards stay visible, and whoever answers first wins.
+  session_poll reports waiting-approval / waiting-question with pendingApprovals /
+  pendingQuestions; approval_list and question_list show what this plugin currently
+  holds (answerable=true). approval_answer allows/rejects one approval; question_answer
+  answers the whole ask_user_question batch (the child turn continues with that answer).
+  session_prompt defaults to waitFor=input, so it returns pending=true with `waiting`
+  instead of blocking while the session waits; answer, then call session_result.
+  approval_policy reads or switches the ask|never knob; for a named permission level
+  (a sandbox + approval bundle, e.g. full access) use permission_list,
+  session_create.permission, or session_set_permission — the same presets the UI's
+  permission switcher shows (knob-only changes can read as `custom`).
 - Native subagents: subagent_list reads a session's child catalog (recursive=true adds
   descendants). Once you have a child sessionId, drive it with the same session tools;
   spawning stays with the host/model-side subagent tools.
