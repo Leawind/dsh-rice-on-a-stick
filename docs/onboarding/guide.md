@@ -120,10 +120,12 @@ you already know.
    example `name: "compact"` runs `/compact`; it is idle-only and reports busy
    otherwise). The command list comes from the host registry, so plugin commands appear
    automatically.
-5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title;
-   `includeCold: true` also matches persisted-only sessions' titles, which come from the
-   host's durable projection cache without reading logs; only sessions the cache cannot
-   answer cost a log read, and `coldScanMax` caps those per call — default 50, cap 500),
+5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title, and by
+   `scope`: `active` by default, `archived`, or `all` — archived sessions are the soft
+   delete and stay out of lists and searches unless asked for; `includeCold: true` also
+   matches persisted-only sessions' titles, which come from the host's durable projection
+   cache without reading logs, and only sessions the cache cannot answer cost a log read,
+   capped per call by `coldScanMax` — default 50, cap 500),
    `session_overview` for a one-call, GUI-style glance (title,
    permission, model + reasoning effort, in-progress state, context occupancy, recent
    content digest; `fields` opts into turn/step counters, preset, cwd),
