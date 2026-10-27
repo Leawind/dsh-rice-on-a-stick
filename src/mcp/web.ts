@@ -206,7 +206,7 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
       out[key] = value
     } else if (key === 'approvalTimeoutMs') {
-      // 专用分支: 只拒收负值; 0 = 不限时原样保留, 其余按运行时同一口径静默钳制进 1000-600000
+      // 专用分支: 只拒收负值; 0 = 不限时原样保留, 其余按运行时同一口径静默钳制到不低于 1000(无上限)
       const n = typeof value === 'number' ? value : Number(value)
       if (!Number.isFinite(n) || n < 0) throw httpError(400, 'approvalTimeoutMs 必须是不小于 0 的数字')
       out[key] = clampApprovalTimeout(n)

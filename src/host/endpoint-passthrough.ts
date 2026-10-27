@@ -499,7 +499,8 @@ function parkCall(endpoint: string, args: Record<string, unknown>, signal: Abort
     entry.settle = resolve
   })
   if (timeoutMs > 0) {
-    entry.timer = setTimeout(() => settleCall(entry, 'timeout'), timeoutMs)
+    // Node 的 setTimeout 超过 2^31-1 ms 会溢出并立即触发, 巨大配置值在这里再钳一道
+    entry.timer = setTimeout(() => settleCall(entry, 'timeout'), Math.min(timeoutMs, 2_147_483_647))
   }
   if (signal !== undefined) {
     entry.signal = signal

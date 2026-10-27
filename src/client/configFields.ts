@@ -87,7 +87,7 @@ export function readListen(draft, cfg) {
 }
 
 export function readTimeout(draft, cfg) {
-  // 界面单位是秒: 输入框只放行数字(空 = 尚未输入, 不提交); 无上限——超出运行时区间由服务端按同一口径静默钳制
+  // 界面单位是秒: 输入框只放行数字(空 = 尚未输入, 不提交); 无上限——低于 1s 的值由服务端按同一口径钳到 1000
   const raw = draft.approvalTimeoutS;
   if (raw === '' || raw === null || raw === undefined) return {};
   const s = Number(raw);

@@ -2472,7 +2472,7 @@ try {
     checks['GUI 路由: approvalTimeoutMs 低于下限静默钳制到 1000'] =
       cfgTimeoutLow.status === 200 && JSON.parse(cfgTimeoutLow.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 1000
     const cfgTimeoutHigh = await guiPut({ approvalTimeoutMs: 700000 })
-    checks['GUI 路由: approvalTimeoutMs 高于上限静默钳制到 600000'] = cfgTimeoutHigh.status === 200 && edits[edits.length - 1].approvalTimeoutMs === 600000
+    checks['GUI 路由: approvalTimeoutMs 高值原样写入(无上限)'] = cfgTimeoutHigh.status === 200 && edits[edits.length - 1].approvalTimeoutMs === 700000
     const cfgTimeoutZero = await guiPut({ approvalTimeoutMs: 0 })
     checks['GUI 路由: approvalTimeoutMs 0(不限时)写入'] =
       cfgTimeoutZero.status === 200 && JSON.parse(cfgTimeoutZero.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 0

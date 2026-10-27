@@ -235,7 +235,7 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       get: () => parsed.authEnabled.get() ?? parsed.authToken.get() !== '',
     },
     selfToolsEnabled: { enumerable: true, configurable: true, get: () => parsed.selfToolsEnabled.get() },
-    // 0 = 不限时(原样保留); 其余钳制到 1000-600000(超时失败关闭)
+    // 0 = 不限时(原样保留); 其余钳制到不低于 1000(超时失败关闭, 无上限)
     approvalTimeoutMs: {
       enumerable: true,
       configurable: true,
@@ -263,10 +263,10 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
   return runtime
 }
 
-/** approvalTimeoutMs 的运行时钳制: 0 = 不限时原样保留; 其余收进 1000-600000(GUI 写入同口径, 不拒收) */
+/** approvalTimeoutMs 的运行时钳制: 0 = 不限时原样保留; 其余收进不低于 1000(GUI 写入同口径, 不拒收) */
 export function clampApprovalTimeout(value: number): number {
   if (value === 0) return 0
-  return Math.max(1000, Math.min(600_000, value))
+  return Math.max(1000, value)
 }
 
 /**
