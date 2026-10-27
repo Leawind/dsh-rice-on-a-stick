@@ -9,14 +9,13 @@ import { archivedSessionIdsOf, serviceOf } from '../../host/bridge.js'
 import {
   COLD_TITLE_SCAN_LIMIT,
   COLD_TITLE_SCAN_MAX,
-  OVERVIEW_DEFAULT_FIELDS,
-  OVERVIEW_FIELDS,
-  OVERVIEW_RECENT_DEFAULT_LIMIT,
-  OVERVIEW_RECENT_LIMIT_MAX,
+  INSPECT_DEFAULT_FIELDS,
+  INSPECT_FIELDS,
+  INSPECT_RECENT_DEFAULT_LIMIT,
+  INSPECT_RECENT_LIMIT_MAX,
   collectSessions,
   sessionHistoryPayload,
-  sessionMetaPayload,
-  sessionOverviewPayload,
+  sessionInspectPayload,
   type SessionControllerView,
   type SessionScope,
 } from '../../host/data.js'
@@ -60,7 +59,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List sessions',
       description:
-        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_send`; the guide (dsh_get_started) has the shared session semantics.',
+        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_send`; the guide (dsh_guide) has the shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -147,44 +146,18 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
-  // 单会话元信息(只读): 标题/模型/preset + 轮步计数 + 上下文占用; 冷会话经 inspect 折日志
+  // 单会话检查(只读): 一次调用给界面同款"点开会话页"级别的一瞥; 字段可选裁剪。
+  // 合并原 session_meta/session_overview: 同一实现, 簿记字段(archived/live/eventsReadable/
+  // historyReadable)恒在, 内容字段由 fields 裁剪。
+  // 默认档/opt-in 档文案由 INSPECT_DEFAULT_FIELDS 推导, 与 data 层单一出处保持一致
+  const INSPECT_DEFAULTS_TEXT = INSPECT_DEFAULT_FIELDS.join(', ')
+  const INSPECT_OPTINS_TEXT = INSPECT_FIELDS.filter((f) => !INSPECT_DEFAULT_FIELDS.includes(f)).join(', ')
   mcp.registerTool(
-    'session_meta',
+    'session_inspect',
     {
-      title: 'Session info',
+      title: 'Inspect session',
       description:
-        "Read one session's metadata and runtime state: title, cwd, preset, model + reasoning effort, permission preset (`custom` when the combination matches no preset), live state, turn/step counters, and context occupancy. Persisted-only sessions fold from their log; sessions whose log is unreadable return only the list row (`eventsReadable=false`).",
-      inputSchema: {
-        sessionId: z
-          .string()
-          .optional()
-          .describe(
-            'Session id (from session_list or a session_send result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
-          ),
-      },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ sessionId }, extra) => {
-      const target = resolveSessionTarget(sessionId, extra)
-      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
-      try {
-        return out(JSON.stringify(await sessionMetaPayload(ctx, target.sessionId, extra?.signal), null, 2))
-      } catch (e) {
-        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
-      }
-    },
-  )
-
-  // 单会话现状概览(只读): 一次调用给界面同款"点开会话页"级别的一瞥; 字段可选裁剪
-  // 默认档/opt-in 档文案由 OVERVIEW_DEFAULT_FIELDS 推导, 与 data 层单一出处保持一致
-  const OVERVIEW_DEFAULTS_TEXT = OVERVIEW_DEFAULT_FIELDS.join(', ')
-  const OVERVIEW_OPTINS_TEXT = OVERVIEW_FIELDS.filter((f) => !OVERVIEW_DEFAULT_FIELDS.includes(f)).join(', ')
-  mcp.registerTool(
-    'session_overview',
-    {
-      title: 'Session overview',
-      description:
-        'One call, a GUI-style glance at a session (default set: title, permission preset, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content — one-line quotes plus tool calls, no tool results). `fields` selects sections and replaces the default set; opt-ins: progress, preset, cwd. Persisted-only sessions fold from their log like session_meta; `recent.entries[].index` doubles as a session_history `beforeIndex` anchor.',
+        'One call, a GUI-style glance at a session (default set: title, permission preset, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content — one-line quotes plus tool calls, no tool results). Bookkeeping is always included: archived, live, eventsReadable, historyReadable. `fields` selects sections and replaces the default set; opt-ins: progress (turn/step counters), preset, cwd. Persisted-only sessions fold from their log; `recent.entries[].index` doubles as a session_history `beforeIndex` anchor.',
       inputSchema: {
         sessionId: z
           .string()
@@ -193,17 +166,17 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
             'Session id (from session_list or a session_send result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
           ),
         fields: z
-          .array(z.enum(OVERVIEW_FIELDS))
+          .array(z.enum(INSPECT_FIELDS))
           .min(1)
           .optional()
-          .describe(`Sections to return; replaces the default set [${OVERVIEW_DEFAULTS_TEXT}]. Opt-ins: ${OVERVIEW_OPTINS_TEXT}.`),
+          .describe(`Sections to return; replaces the default set [${INSPECT_DEFAULTS_TEXT}]. Opt-ins: ${INSPECT_OPTINS_TEXT}.`),
         recentLimit: z
           .number()
           .int()
           .min(1)
-          .max(OVERVIEW_RECENT_LIMIT_MAX)
+          .max(INSPECT_RECENT_LIMIT_MAX)
           .optional()
-          .describe(`Entries in the recent digest (default ${OVERVIEW_RECENT_DEFAULT_LIMIT}, max ${OVERVIEW_RECENT_LIMIT_MAX}).`),
+          .describe(`Entries in the recent digest (default ${INSPECT_RECENT_DEFAULT_LIMIT}, max ${INSPECT_RECENT_LIMIT_MAX}).`),
       },
       annotations: { readOnlyHint: true },
     },
@@ -211,7 +184,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
-        return out(JSON.stringify(await sessionOverviewPayload(ctx, target.sessionId, fields, recentLimit, extra?.signal), null, 2))
+        return out(JSON.stringify(await sessionInspectPayload(ctx, target.sessionId, fields, recentLimit, extra?.signal), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }

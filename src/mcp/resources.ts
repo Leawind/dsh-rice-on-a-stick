@@ -25,6 +25,7 @@ import { McpError, ErrorCode, SubscribeRequestSchema, UnsubscribeRequestSchema, 
 import type { Context } from '@deepseek-ai/cordis'
 import { GET_STARTED_DOC, GET_STARTED_SECTIONS, type GuideSection } from './onboarding.js'
 import {
+  INSPECT_FIELDS,
   activityPayload,
   collectModelCatalog,
   collectSessions,
@@ -33,8 +34,7 @@ import {
   resUri,
   sessionEventsPayload,
   sessionHistoryPayload,
-  sessionMetaPayload,
-  sessionOverviewPayload,
+  sessionInspectPayload,
   workspaceDetailPayload,
   workspacesPayload,
   type ToolDeps,
@@ -181,7 +181,8 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   const readWorkspaces: ReadFn = (uri) => workspacesPayload(ctx).then((v) => json(uri, v))
   const readWorkspace: ReadFn = (uri, vars) => workspaceDetailPayload(ctx, decodeVar(vars.id)).then((v) => json(uri, v))
   const readSessions: ReadFn = (uri) => collectSessions(ctx).then((v) => json(uri, v))
-  const readSession: ReadFn = (uri, vars) => sessionMetaPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
+  // dsh://sessions/{id}: 全字段档(无 recent——元数据资源不付内容摘要的 token)
+  const readSession: ReadFn = (uri, vars) => sessionInspectPayload(ctx, decodeVar(vars.sessionId), INSPECT_FIELDS).then((v) => json(uri, v))
   const guarded =
     (fn: ReadFn): ReadFn =>
     async (uri, vars) => {
@@ -194,7 +195,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   const readHistory: ReadFn = (uri, vars) => sessionHistoryPayload(ctx, decodeVar(vars.sessionId), 10, parseIndex(vars.before)).then((v) => json(uri, v))
   const readEvents: ReadFn = (uri, vars) => sessionEventsPayload(ctx, decodeVar(vars.sessionId), parseIndex(vars.after)).then((v) => json(uri, v))
   const readActivity: ReadFn = (uri, vars) => activityPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
-  const readOverview: ReadFn = (uri, vars) => sessionOverviewPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
+  const readOverview: ReadFn = (uri, vars) => sessionInspectPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
   const readTools: ReadFn = (uri) => json(uri, hostToolsPayload(ctx))
 
   // ── 静态资源 ──
@@ -415,7 +416,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     {
       title: 'Session metadata',
       description:
-        "One session's metadata (model/reasoning effort, preset, permission preset, live state, turn/step counters, context occupancy, historyReadable; same data as session_meta; persisted-only sessions are readable too)",
+        "One session's metadata (same data as session_inspect with all fields, recent digest excluded: model/reasoning effort, preset, permission preset, live state, turn/step counters, context occupancy, historyReadable; persisted-only sessions are readable too)",
       mimeType: 'application/json',
       annotations: ann.data,
     },
@@ -516,7 +517,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     {
       title: 'Session overview',
       description:
-        'One-call, GUI-style glance at a session (default sections: title, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; same data as session_overview)',
+        'One-call, GUI-style glance at a session (default sections: title, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; same data as session_inspect)',
       mimeType: 'application/json',
       annotations: ann.hot,
     },

@@ -27,7 +27,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
-import { collectSessions, sessionMetaPayload, sessionOverviewPayload } from '../lib/host/data.js'
+import { collectSessions, sessionInspectPayload } from '../lib/host/data.js'
 import { ageParkedCallsForTest, answerParkedCall, invokeEndpoint, listParkedCalls } from '../lib/host/endpoint-passthrough.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
@@ -123,7 +123,7 @@ try {
       'rice_session_unarchive',
       'rice_permission_list',
       'rice_session_set_permission',
-      'rice_session_overview',
+      'rice_session_inspect',
     ].every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_send')?.description ?? ''
@@ -148,19 +148,16 @@ try {
   checks['原生自用工具: dsh_guide 无参默认回节索引'] =
     nativeGuideIndexText.includes('Sections') && nativeGuideIndexText.length < nativeGuideText.length && !nativeGuideIndexText.includes('## Concepts')
   // 原生面"当前会话": exec.agent 由宿主 agent 循环给出, 省略 sessionId 即落到调用方会话
-  const nativeMetaDef = ctx.tools.get('rice_session_meta')
-  const nativeMetaValue = await nativeMetaDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
-  const nativeMetaJson = JSON.parse(nativeMetaDef.output.render({}, nativeMetaValue)[0]?.text ?? '{}')
-  checks['原生自用工具: session_meta 省略 sessionId 取当前会话'] =
-    nativeMetaJson.sessionId === 'sess-live' && nativeMetaJson.live === true && nativeMetaJson.model?.model === 'live-m'
-  const nativeOverviewDef = ctx.tools.get('rice_session_overview')
-  const nativeOverviewValue = await nativeOverviewDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
-  const nativeOverviewJson = JSON.parse(nativeOverviewDef.output.render({}, nativeOverviewValue)[0]?.text ?? '{}')
-  checks['原生自用工具: session_overview 省略 sessionId 取当前会话'] =
-    nativeOverviewJson.sessionId === 'sess-live' &&
-    nativeOverviewJson.title === 'Live One' &&
-    nativeOverviewJson.recent?.entries?.length === 1 &&
-    nativeOverviewJson.recent.entries[0]?.kind === 'assistant'
+  const nativeInspectDef = ctx.tools.get('rice_session_inspect')
+  const nativeInspectValue = await nativeInspectDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
+  const nativeInspectJson = JSON.parse(nativeInspectDef.output.render({}, nativeInspectValue)[0]?.text ?? '{}')
+  checks['原生自用工具: session_inspect 省略 sessionId 取当前会话'] =
+    nativeInspectJson.sessionId === 'sess-live' &&
+    nativeInspectJson.live === true &&
+    nativeInspectJson.model?.model === 'live-m' &&
+    nativeInspectJson.title === 'Live One' &&
+    nativeInspectJson.recent?.entries?.length === 1 &&
+    nativeInspectJson.recent.entries[0]?.kind === 'assistant'
   const nativeCmdDef = ctx.tools.get('rice_session_command')
   const nativeCmdValue = await nativeCmdDef.execute({ action: 'list' }, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeCmdJson = JSON.parse(nativeCmdDef.output.render({}, nativeCmdValue)[0]?.text ?? '{}')
@@ -168,7 +165,7 @@ try {
   // 没有调用方 agent(= MCP 面): 不猜会话, 明确报错
   let nativeNoAgentError = ''
   try {
-    await nativeMetaDef.execute({}, { signal: new AbortController().signal } as any)
+    await nativeInspectDef.execute({}, { signal: new AbortController().signal } as any)
   } catch (e) {
     nativeNoAgentError = String((e as Error)?.message ?? e)
   }
@@ -203,8 +200,7 @@ try {
     'session_rename',
     'session_set_permission',
     'session_list',
-    'session_meta',
-    'session_overview',
+    'session_inspect',
     'session_history',
     'attachment_read',
     'endpoint_describe',
@@ -999,16 +995,16 @@ try {
   // ── 单会话读取: stat 单点观察 + 投影检查点取标题, 不再列全语料 ──
   const listCallsBefore = persistenceCalls.list
   const statCallsBefore = persistenceCalls.stat
-  const coldMeta = await sessionMetaPayload(perfCtx, 'sess-cold-a')
-  checks['session_meta: 单会话读取用 stat, 不列全语料'] = persistenceCalls.list === listCallsBefore && persistenceCalls.stat > statCallsBefore
-  checks['session_meta: 冷会话标题取自投影检查点'] = coldMeta.title === 'Cached Needle A' && coldMeta.eventsReadable === false
+  const coldMeta = await sessionInspectPayload(perfCtx, 'sess-cold-a')
+  checks['session_inspect: 单会话读取用 stat, 不列全语料'] = persistenceCalls.list === listCallsBefore && persistenceCalls.stat > statCallsBefore
+  checks['session_inspect: 冷会话标题取自投影检查点'] = coldMeta.title === 'Cached Needle A' && coldMeta.eventsReadable === false
   let coldMissing = ''
   try {
-    await sessionMetaPayload(perfCtx, 'sess-does-not-exist')
+    await sessionInspectPayload(perfCtx, 'sess-does-not-exist')
   } catch (e) {
     coldMissing = String((e as Error)?.message ?? e)
   }
-  checks['session_meta: stat 查不到时仍明确报 session not found'] = coldMissing.includes('session not found')
+  checks['session_inspect: stat 查不到时仍明确报 session not found'] = coldMissing.includes('session not found')
 
   // ── 归档三件套: 行标记 / scope 过滤 / session_unarchive ──
   // (此时 sess-live 已在 id46 被归档; 桩的归档集合 = 种子 sess-legacy + sess-live)
@@ -1093,15 +1089,15 @@ try {
   checks['session_list(scope=archived): 恢复后不再列出'] =
     innerOf(archiveListAfter).total === 1 && innerOf(archiveListAfter).sessions?.[0]?.sessionId === 'sess-legacy'
   checks['归档集合与宿主 registry 同步(unarchive 已生效)'] = archivedSessionIds.includes('sess-legacy') && !archivedSessionIds.includes('sess-live')
-  // 会话元信息: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志)
+  // 会话检查: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志); 轮步走 progress 选段
   const metaLive = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 56,
     method: 'tools/call',
-    params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } },
+    params: { name: 'session_inspect', arguments: { sessionId: 'sess-live', fields: ['model', 'state', 'context', 'progress', 'permission'] } },
   })
   const metaLiveInner = innerOf(metaLive)
-  checks['session_meta: live 会话模型/状态/轮步'] =
+  checks['session_inspect: live 会话模型/状态/轮步'] =
     metaLiveInner.live === true &&
     metaLiveInner.state === 'idle' &&
     metaLiveInner.model?.provider === 'live-p' &&
@@ -1111,15 +1107,18 @@ try {
     metaLiveInner.step?.total >= 1 &&
     metaLiveInner.step?.inCurrentTurn === 1 &&
     metaLiveInner.step?.open === false
-  checks['session_meta: 上下文占用优先 tokenMeter'] = metaLiveInner.context?.tokens === 12345 && metaLiveInner.context?.source === 'tokenMeter'
+  checks['session_inspect: 上下文占用优先 tokenMeter'] = metaLiveInner.context?.tokens === 12345 && metaLiveInner.context?.source === 'tokenMeter'
   const metaCold = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 57,
     method: 'tools/call',
-    params: { name: 'session_meta', arguments: { sessionId: 'sess-persisted' } },
+    params: {
+      name: 'session_inspect',
+      arguments: { sessionId: 'sess-persisted', fields: ['title', 'preset', 'model', 'state', 'context', 'progress', 'permission'] },
+    },
   })
   const metaColdInner = innerOf(metaCold)
-  checks['session_meta: 冷会话按日志折标题/模型/轮数/上下文'] =
+  checks['session_inspect: 冷会话按日志折标题/模型/轮数/上下文'] =
     metaColdInner.live === false &&
     metaColdInner.state === 'inactive' &&
     metaColdInner.eventsReadable === true &&
@@ -1136,21 +1135,21 @@ try {
     jsonrpc: '2.0',
     id: 58,
     method: 'tools/call',
-    params: { name: 'session_meta', arguments: { sessionId: 'sess-nope' } },
+    params: { name: 'session_inspect', arguments: { sessionId: 'sess-nope' } },
   })
-  checks['session_meta: 未知会话明确报错'] = String(innerOf(metaMissing).error ?? '').includes('session not found')
-  const metaNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'session_meta', arguments: {} } })
-  checks['session_meta: MCP 面省略 sessionId 明确报错'] = String(innerOf(metaNoId).error ?? '').includes('sessionId is required')
+  checks['session_inspect: 未知会话明确报错'] = String(innerOf(metaMissing).error ?? '').includes('session not found')
+  const metaNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'session_inspect', arguments: {} } })
+  checks['session_inspect: MCP 面省略 sessionId 明确报错'] = String(innerOf(metaNoId).error ?? '').includes('sessionId is required')
 
   // 权限预设读口径: live 用宿主推导(含 custom), 冷会话折叠日志里记录的预设
-  checks['session_meta: live 权限预设'] = metaLiveInner.permission === 'workspace-write'
-  checks['session_meta: 冷会话折叠权限预设'] = metaColdInner.permission === 'danger-full-access'
+  checks['session_inspect: live 权限预设'] = metaLiveInner.permission === 'workspace-write'
+  checks['session_inspect: 冷会话折叠权限预设'] = metaColdInner.permission === 'danger-full-access'
 
   // 会话现状概览: 一次调用给齐标题/权限/模型/进行态/上下文占用 + 最近内容摘要
   const ovLive = innerOf(
-    await rpc(init.sid, { jsonrpc: '2.0', id: 575, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live' } } }),
+    await rpc(init.sid, { jsonrpc: '2.0', id: 575, method: 'tools/call', params: { name: 'session_inspect', arguments: { sessionId: 'sess-live' } } }),
   )
-  checks['session_overview: live 默认档(标题/权限/模型/进行态)'] =
+  checks['session_inspect: live 默认档(标题/权限/模型/进行态)'] =
     ovLive.title === 'Live One' &&
     ovLive.permission === 'workspace-write' &&
     ovLive.state === 'idle' &&
@@ -1160,24 +1159,24 @@ try {
     ovLive.eventsReadable === true &&
     ovLive.archived === false
   const ovRecent = ovLive.recent?.entries ?? []
-  checks['session_overview: recent 混排对话与工具调用(时间正序)'] =
+  checks['session_inspect: recent 混排对话与工具调用(时间正序)'] =
     ovRecent.length === 5 &&
     ovRecent.every((e: any, i: number) => i === 0 || e.index > ovRecent[i - 1].index) &&
     ovRecent.some((e: any) => e.kind === 'user' && e.text === 'prompt id probe') &&
     ovRecent.some((e: any) => e.kind === 'tool_call' && e.name === 'bash' && e.args === '{"command":"ls"}') &&
     ovRecent.at(-1)?.kind === 'assistant' &&
     ovRecent.at(-1)?.text === 'extra'
-  checks['session_overview: 默认档含上下文占用(tokenMeter 口径)'] = ovLive.context?.tokens === 12345 && ovLive.context?.source === 'tokenMeter'
-  checks['session_overview: 默认档不带 progress/preset(字段裁剪)'] = ovLive.turn === undefined && ovLive.step === undefined && ovLive.preset === undefined
+  checks['session_inspect: 默认档含上下文占用(tokenMeter 口径)'] = ovLive.context?.tokens === 12345 && ovLive.context?.source === 'tokenMeter'
+  checks['session_inspect: 默认档不带 progress/preset(字段裁剪)'] = ovLive.turn === undefined && ovLive.step === undefined && ovLive.preset === undefined
   const ovFields = innerOf(
     await rpc(init.sid, {
       jsonrpc: '2.0',
       id: 576,
       method: 'tools/call',
-      params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['context', 'progress'] } },
+      params: { name: 'session_inspect', arguments: { sessionId: 'sess-live', fields: ['context', 'progress'] } },
     }),
   )
-  checks['session_overview: fields 显式选段(context/progress)'] =
+  checks['session_inspect: fields 显式选段(context/progress)'] =
     ovFields.context?.tokens === 12345 &&
     ovFields.context?.source === 'tokenMeter' &&
     ovFields.turn?.started >= 1 &&
@@ -1189,22 +1188,22 @@ try {
     jsonrpc: '2.0',
     id: 577,
     method: 'tools/call',
-    params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['nope'] } },
+    params: { name: 'session_inspect', arguments: { sessionId: 'sess-live', fields: ['nope'] } },
   })
   let ovBadFieldError = ''
   try {
-    await sessionOverviewPayload(ctx, 'sess-live', ['nope'])
+    await sessionInspectPayload(ctx, 'sess-live', ['nope'])
   } catch (e) {
     ovBadFieldError = String((e as Error)?.message ?? e)
   }
-  checks['session_overview: 未知字段名被拒(schema 层 + 载荷层兜底)'] =
-    String(innerOf(ovBadField).error ?? '') !== '' && ovBadFieldError.includes('unknown overview field')
+  checks['session_inspect: 未知字段名被拒(schema 层 + 载荷层兜底)'] =
+    String(innerOf(ovBadField).error ?? '') !== '' && ovBadFieldError.includes('unknown inspect field')
   const ovCold = innerOf(
-    await rpc(init.sid, { jsonrpc: '2.0', id: 578, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-persisted' } } }),
+    await rpc(init.sid, { jsonrpc: '2.0', id: 578, method: 'tools/call', params: { name: 'session_inspect', arguments: { sessionId: 'sess-persisted' } } }),
   )
   const ovColdEntries = ovCold.recent?.entries ?? []
   const ovColdLong = ovColdEntries.at(-1)
-  checks['session_overview: 冷会话经 inspect 折默认档'] =
+  checks['session_inspect: 冷会话经 inspect 折默认档'] =
     ovCold.state === 'inactive' &&
     ovCold.inProgress === false &&
     ovCold.title === 'Persisted Older' &&
@@ -1213,7 +1212,7 @@ try {
     ovCold.model?.model === 'm1' &&
     ovColdEntries[0]?.kind === 'user' &&
     ovColdEntries[0]?.text === 'earlier question'
-  checks['session_overview: 长文本按界面同源预算截断(160 + …)'] =
+  checks['session_inspect: 长文本按界面同源预算截断(160 + …)'] =
     ovColdLong?.kind === 'assistant' &&
     ovColdLong?.text?.startsWith(LONG_HEAD) === true &&
     ovColdLong?.text?.length === 160 &&
@@ -1223,11 +1222,11 @@ try {
     jsonrpc: '2.0',
     id: 579,
     method: 'tools/call',
-    params: { name: 'session_overview', arguments: { sessionId: 'sess-nope' } },
+    params: { name: 'session_inspect', arguments: { sessionId: 'sess-nope' } },
   })
-  checks['session_overview: 未知会话明确报错'] = String(innerOf(ovMissing).error ?? '').includes('session not found')
-  const ovNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 580, method: 'tools/call', params: { name: 'session_overview', arguments: {} } })
-  checks['session_overview: MCP 面省略 sessionId 明确报错'] = String(innerOf(ovNoId).error ?? '').includes('sessionId is required')
+  checks['session_inspect: 未知会话明确报错'] = String(innerOf(ovMissing).error ?? '').includes('session not found')
+  const ovNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 580, method: 'tools/call', params: { name: 'session_inspect', arguments: {} } })
+  checks['session_inspect: MCP 面省略 sessionId 明确报错'] = String(innerOf(ovNoId).error ?? '').includes('sessionId is required')
 
   // 权限预设切换(界面 /permission 的服务端语义): live 直接切, 冷会话先官方恢复
   const permSetLive = await rpc(init.sid, {
@@ -1242,9 +1241,14 @@ try {
     permSetLiveInner.permission === 'danger-full-access' &&
     permissionPresetCalls.some((c) => c.id === 'sess-live' && c.preset === 'danger-full-access')
   const metaLiveAfterPerm = innerOf(
-    await rpc(init.sid, { jsonrpc: '2.0', id: 572, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } }),
+    await rpc(init.sid, {
+      jsonrpc: '2.0',
+      id: 572,
+      method: 'tools/call',
+      params: { name: 'session_inspect', arguments: { sessionId: 'sess-live', fields: ['model', 'state', 'context', 'progress', 'permission'] } },
+    }),
   )
-  checks['session_set_permission: 切换后 session_meta 反映新预设'] = metaLiveAfterPerm.permission === 'danger-full-access'
+  checks['session_set_permission: 切换后 session_inspect 反映新预设'] = metaLiveAfterPerm.permission === 'danger-full-access'
   const permSetBad = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 573,
@@ -1471,8 +1475,8 @@ try {
     const mkPlain = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     const mkPlainInner = innerOf(mkPlain)
     checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string' && mkPlainInner.permission === undefined
-    const meta = await phase.call('session_meta', { sessionId: 'sess-live' })
-    checks['权限预设缺席: session_meta 省略 permission 字段'] = innerOf(meta).permission === undefined
+    const meta = await phase.call('session_inspect', { sessionId: 'sess-live' })
+    checks['权限预设缺席: session_inspect 省略 permission 字段'] = innerOf(meta).permission === undefined
     const setOut = await phase.call('session_set_permission', { sessionId: 'sess-live', permission: 'danger-full-access' })
     checks['权限预设缺席: session_set_permission 明确报不可用'] = String(innerOf(setOut).error ?? '').includes('permission-presets service is unavailable')
     await phase.dispose()

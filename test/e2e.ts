@@ -145,8 +145,7 @@ try {
     'session_select_model',
     'session_rename',
     'session_list',
-    'session_meta',
-    'session_overview',
+    'session_inspect',
     'session_history',
     'session_search',
     'session_fork',
@@ -421,8 +420,8 @@ try {
       )
       report('结果带会话纪要资源引用', String(prompt.inner.resource ?? '').includes(`${sessionId}/history`), String(prompt.inner.resource ?? ''))
       if (PERMISSION_PRESET) {
-        const meta = await callTool(sid, 36, 'session_meta', { sessionId })
-        report('session_meta 回报权限预设', meta.inner?.permission === PERMISSION_PRESET, `permission=${meta.inner?.permission ?? meta.inner?.error ?? '?'}`)
+        const meta = await callTool(sid, 36, 'session_inspect', { sessionId })
+        report('session_inspect 回报权限预设', meta.inner?.permission === PERMISSION_PRESET, `permission=${meta.inner?.permission ?? meta.inner?.error ?? '?'}`)
         const approvalPolicy = await callTool(sid, 38, 'approval_policy', { sessionId, action: 'get' })
         report(
           'approval_policy 读取生效策略(预设捆绑的审批旋钮)',

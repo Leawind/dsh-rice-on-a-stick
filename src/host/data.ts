@@ -3,10 +3,9 @@
  * 从 mcp/tools/index.ts 抽出(消除"工具↔资源"潜在环), 并承载资源面新增的载荷:
  *   presetsPayload      preset 花名册(dsh://presets; session_create 的 preset 参数取值来源)
  *   workspacesPayload   工作区清单/单工作区(dsh://workspaces[/id])
- *   sessionMetaPayload  单会话元数据(dsh://sessions/{id}; persisted-only 也可读)
+ *   sessionInspectPayload 单会话检查(dsh://sessions/{id} 与 {id}/overview; 字段可选)
  *   activityPayload     当前 turn 活动窗口(dsh://sessions/{id}/activity; 订阅核心场景)
  *   sessionEventsPayload 原始事件流(dsh://sessions/{id}/events; JSONL, after 游标翻页)
- *   sessionOverviewPayload 单会话现状概览(dsh://sessions/{id}/overview; 字段可选)
  *   hostToolsPayload    宿主全局工具注册表(dsh://tools)
  * 本层抛普通 Error(带可诊断信息); 资源面统一转 McpError(-32602), 工具面转 isError 结果。
  */
@@ -551,60 +550,54 @@ export async function sessionRowOf(ctx: Context, sessionId: string): Promise<Rec
   return projectRow(ctx, header, sources, new Set(archivedSessionIdsOf(ctx)))
 }
 
-/** 单会话元数据(dsh://sessions/{id}): 白名单内即可读(persisted-only 也行), 附 historyReadable 指路 */
-export async function sessionMetaPayload(ctx: Context, sessionId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-  // 只读这一行: 不再为找一个会话列整份语料
-  const row = await sessionRowOf(ctx, sessionId)
-  // 冷会话经宿主 sessionController.inspect 非激活读取事件日志, 与界面打开旧会话同一数据面
-  const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
-  const readable = live !== undefined || typeof sessionControllerOf(ctx)?.inspect === 'function'
-  // 元信息与活动/历史面同源: 标题/模型/preset + 轮步计数 + 上下文占用(读不到日志时只回清单行)
-  const insight = await sessionInsightPayload(ctx, sessionId, row, undefined, signal)
-  return { ...insight, historyReadable: readable }
-}
+// ── 单会话检查(session_inspect 工具 / dsh://sessions/{id} 与 {id}/overview 资源同实现) ──
 
-// ── 单会话现状概览(session_overview / dsh://sessions/{id}/overview) ──
-
-/** 概览的可选字段; 显式传 fields 时整体替换默认档(未知字段名直接报错) */
-export const OVERVIEW_FIELDS = ['title', 'permission', 'model', 'state', 'context', 'recent', 'progress', 'preset', 'cwd'] as const
-export type OverviewField = (typeof OVERVIEW_FIELDS)[number]
+/** 检查面的可选字段; 显式传 fields 时整体替换默认档(未知字段名直接报错) */
+export const INSPECT_FIELDS = ['title', 'permission', 'model', 'state', 'context', 'recent', 'progress', 'preset', 'cwd'] as const
+export type InspectField = (typeof INSPECT_FIELDS)[number]
 /** 默认档: 界面同款"一眼看全"——标题/权限/模型+推理档/进行态/上下文占用/最近内容 */
-export const OVERVIEW_DEFAULT_FIELDS: readonly OverviewField[] = ['title', 'permission', 'model', 'state', 'context', 'recent']
+export const INSPECT_DEFAULT_FIELDS: readonly InspectField[] = ['title', 'permission', 'model', 'state', 'context', 'recent']
 /** recent 摘要的条数: 默认与上限(条目是一行摘要, 上限防长日志灌穿) */
-export const OVERVIEW_RECENT_DEFAULT_LIMIT = 5
-export const OVERVIEW_RECENT_LIMIT_MAX = 20
+export const INSPECT_RECENT_DEFAULT_LIMIT = 5
+export const INSPECT_RECENT_LIMIT_MAX = 20
 
 /**
- * 单会话现状概览: 一次调用给齐"点开会话页"级别的信息(工具面与资源面同数据)。
+ * 单会话检查: 一次调用给齐"点开会话页"级别的信息(工具面与资源面同数据)。
  * 头部字段(标题/权限/模型/推理档)、底部状态(state/inProgress)与上下文占用来自
  * sessionInsightPayload 的同一折叠; recent 另折最近可见条目(对话一行摘要 + 工具调用名
  * 与参数摘要, 预算与界面轮次卡片同源, 见 recentOverviewOf)。事件源只取一次——冷会话
  * 只付一次 inspect 读。fields 只裁输出不省读取(同一份数据一次折出); recentLimit 夹在
- * 1..OVERVIEW_RECENT_LIMIT_MAX。读不到日志时 eventsReadable=false, recent 为空。
+ * 1..INSPECT_RECENT_LIMIT_MAX。读不到日志时 eventsReadable=false, recent 为空。
+ * 簿记字段恒在: archived / live / eventsReadable / historyReadable(历史资源可读性指路)。
  */
-export async function sessionOverviewPayload(
+export async function sessionInspectPayload(
   ctx: Context,
   sessionId: string,
   fields?: readonly string[],
   recentLimit?: number,
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  const wanted = fields !== undefined && fields.length > 0 ? fields : OVERVIEW_DEFAULT_FIELDS
+  const wanted = fields !== undefined && fields.length > 0 ? fields : INSPECT_DEFAULT_FIELDS
   for (const field of wanted) {
-    if (!(OVERVIEW_FIELDS as readonly string[]).includes(field)) {
-      throw new Error(`unknown overview field "${field}" (valid fields: ${OVERVIEW_FIELDS.join(', ')})`)
+    if (!(INSPECT_FIELDS as readonly string[]).includes(field)) {
+      throw new Error(`unknown inspect field "${field}" (valid fields: ${INSPECT_FIELDS.join(', ')})`)
     }
   }
-  const limit = Math.min(OVERVIEW_RECENT_LIMIT_MAX, Math.max(1, Math.floor(recentLimit ?? OVERVIEW_RECENT_DEFAULT_LIMIT)))
+  const limit = Math.min(INSPECT_RECENT_LIMIT_MAX, Math.max(1, Math.floor(recentLimit ?? INSPECT_RECENT_DEFAULT_LIMIT)))
   const row = await sessionRowOf(ctx, sessionId)
   const source = await sessionEventSourceOf(ctx, sessionId, signal)
   const insight = await sessionInsightPayload(ctx, sessionId, row, source)
+  // historyReadable: 历史资源(dsh://sessions/{id}/history)可读性——live 或宿主具备非激活 inspect 通道
+  const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
+  const readable = live !== undefined || typeof sessionControllerOf(ctx)?.inspect === 'function'
 
-  const want = (field: OverviewField) => wanted.includes(field)
+  const want = (field: InspectField) => wanted.includes(field)
   const result: Record<string, unknown> = {
     sessionId,
     archived: insight.archived === true,
+    live: insight.live === true,
     eventsReadable: insight.eventsReadable === true,
+    historyReadable: readable,
   }
   if (want('title') && insight.title !== undefined) result.title = insight.title
   if (want('permission') && insight.permission !== undefined) result.permission = insight.permission

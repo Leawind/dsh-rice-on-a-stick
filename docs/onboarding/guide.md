@@ -139,11 +139,10 @@ you already know.
    matches persisted-only sessions' titles, which come from the host's durable projection
    cache without reading logs, and only sessions the cache cannot answer cost a log read,
    capped per call by `coldScanMax` — default 50, cap 500),
-   `session_overview` for a one-call, GUI-style glance (title,
+   `session_inspect` for a one-call, GUI-style glance (title,
    permission, model + reasoning effort, in-progress state, context occupancy, recent
-   content digest; `fields` opts into turn/step counters, preset, cwd),
-   `session_meta` for the full record — model+reasoning effort, presets, live
-   state, turn/step counters and context occupancy, `session_history` for recent turns
+   content digest; bookkeeping like historyReadable is always included; `fields` opts
+   into turn/step counters, preset, cwd), `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you
    are debugging; `detail: "full"` returns entry text untruncated), `session_search` to
    find sessions by content.
@@ -242,16 +241,16 @@ block until the turn ends).
 read a whole long message (it works for persisted-only sessions too); page back with
 `limit` / `beforeIndex` instead of pulling an entire history at full detail.
 
-`session_overview` is the tightest budget of all: its `recent` digest keeps one line per
+`session_inspect` is the tightest budget of all: its `recent` digest keeps one line per
 entry (80 characters for user text, 160 for assistant, 100 for tool arguments — the same
 normalization the UI turn cards use), enough to recognize what a session is doing, not
 to read it. Each entry's `index` doubles as a `session_history` `beforeIndex` anchor
 when you want the real text.
 
-`session_meta` and `session_overview` locate a single session with one host-side `stat`
-(no corpus listing) and read persisted-only sessions by folding their log through the
+`session_inspect` locates a single session with one host-side `stat`
+(no corpus listing) and reads persisted-only sessions by folding their log through the
 same non-activating host read as `session_history`; when a session's log is unreadable
-they degrade to the `session_list` row and say so with `eventsReadable: false`.
+it degrades to the `session_list` row and says so with `eventsReadable: false`.
 
 <!-- section: limits -->
 
@@ -288,7 +287,7 @@ they degrade to the `session_list` row and say so with `eventsReadable: false`.
 - `session_command` needs a live agent (`ctx.commands` is per agent): a persisted-only
   session has no command list until it is prompted once. Execution is logged
   (`command/run`/`command/done`) but creates no turn and never enters model history.
-- `session_meta` context occupancy prefers the host token meter; a persisted-only session
+- `session_inspect` context occupancy prefers the host token meter; a persisted-only session
   (or a deployment without the meter) falls back to the last logged request usage, and
   the window comes from the newest `request/context` or the model route. Omit `sessionId`
   only from native `rice_` tools — an MCP call has no "current session".
