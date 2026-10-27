@@ -54,6 +54,13 @@ export function ToolAllowlist(props) {
   function checkRef(indeterminate) {
     return function (el) { if (el) el.indeterminate = indeterminate; };
   }
+  // 行尾徽标与悬停 tooltip 共用同一份胶囊(端点清单同款: dcs-epbadge 胶囊样式是全局类, tooltip 挂在 body 下同样生效)
+  function badgePill(x) {
+    const s = document.createElement('span');
+    s.className = 'dcs-epbadge ' + (x.readOnly === true ? 'dcs-epbadge-read' : 'dcs-epbadge-write');
+    s.textContent = x.readOnly === true ? t('endpoint.readonly') : t('endpoint.write');
+    return s;
+  }
   React.useEffect(function () { return hideTip; }, []);
   function row(x) {
     const checked = allowedSet.has(x.name);
@@ -63,9 +70,9 @@ export function ToolAllowlist(props) {
       className: 'dcs-epr dcs-epr-live dcs-epr-nogroup',
       onClick: function () { toggleTool(x, !checked); },
       onMouseEnter: function (ev) {
-        // tooltip = 徽标 + 完整描述(行内描述是截断的), 靠右弹出, 不盖住左侧名称列
+        // tooltip = 徽标胶囊 + 完整描述(行内描述是截断的), 靠右弹出, 不盖住左侧名称列
         const frag = document.createDocumentFragment();
-        frag.appendChild(document.createTextNode(x.readOnly === true ? t('endpoint.readonly') : t('endpoint.write')));
+        frag.appendChild(badgePill(x));
         if (x.title) frag.appendChild(document.createTextNode('\n' + x.title));
         if (desc) frag.appendChild(document.createTextNode('\n' + desc));
         showTip(ev.currentTarget, frag, { align: 'right' });
