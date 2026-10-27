@@ -1,6 +1,6 @@
 // ── 侧栏页(main 条目): 品牌头(含整合了 MCP 服务开关/监听地址/端点/复制的端点卡) + 页内标签 ──
 // 审批标签 = 端点写审批等待上限(秒) + 停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
-// 模型白名单标签 = 白名单开关 + 多选分层树(每行可编辑模型/提供商简介);
+// 模型标签 = 只允许特定模型开关 + 多选分层树(每行可编辑模型/提供商简介);
 // 设置标签 = 配置表单(按常用度分组: MCP 令牌 / dsh 端点白名单 / Agent 工具面 / 审批 /
 // 安全与传输); 连接标签 = 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免设置页被拉长)。
 // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
@@ -477,7 +477,7 @@ export function PanelPage() {
             React.createElement('div', { className: 'dcs-endpoint' }, React.createElement('span', null, state.endpoint || ''))),
       ),
     ),
-    // 页内标签: 审批(动作面, 停泊计数泡) / 模型白名单(选模面) / 设置(策略面) / 连接(观测面)
+    // 页内标签: 审批(动作面, 停泊计数泡) / 模型(选模面) / 设置(策略面) / 连接(观测面)
     React.createElement('div', { className: 'dcs-tabs', role: 'tablist' },
       React.createElement('button', {
         type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'approvals',
@@ -551,11 +551,10 @@ export function PanelPage() {
               }),
         )
       : null,
-    // ── 模型白名单标签: 白名单开关 + 多选分层树(勾选限制可选模型, 每行可编辑简介) ──
+    // ── 模型标签: 只允许特定模型开关 + 多选分层树(勾选限制可选模型, 每行可编辑简介) ──
     tab !== 'models' ? null :
     d ? React.createElement(React.Fragment, null,
       groupHead(t('whitelist.title'), {
-        hint: t('whitelist.hint'),
         control: React.createElement(Switch, {
           checked: d.whitelistOn,
           label: t('whitelist.title'),
