@@ -22,6 +22,8 @@ npm run smoke:ui   # 构建后把侧栏页渲染进浏览器桩(test/ui-harness.
 -   `dangerous: true` —— 信任与供应链类操作（凭据写入、插件安装/启停、连接信任、市场索引）。危险端点**不会被永久拒绝**：它和普通变更端点走相同的两条通路（`bridgeEndpointAllowlist` 白名单直行 / 停泊等人在面板审批），但面板会把它单列成独立清单并醒目标注。
 -   `description: { zh, en }` —— 中英文描述，面板清单按界面语言显示；缺失时回退 descriptor 自带描述（通常只有英文）。
 
+另有 `BRIDGE_NAMESPACE_META`：每个命名空间的中英文一句话描述（纯界面数据，面板组头显示）。表的基准是 dsh 0.2.1-rc.2 web profile 的实机端点目录（可用 `bridge_describe` 无参调用枚举当前进程的 namespace 索引逐域核对）。
+
 约定：
 
 -   **不要求列全所有端点**：表外的端点按"变更类"处理（每次调用停泊等审批），行为安全，只是少一些便利。

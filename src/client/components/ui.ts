@@ -56,19 +56,24 @@ export function Switch(props) {
 }
 
 // 自绘即时 tooltip(原生 title 延迟约 1 秒且部分壳不渲染): 挂 body 的单例浮层, fixed 定位不受
-// 滚动容器裁剪; 悬停锚点下方弹出, 底部放不下翻到上方, 左右钳制在视口内
+// 滚动容器裁剪; 悬停锚点下方弹出, 底部放不下翻到上方, 左右钳制在视口内。
+// content 是字符串时按纯文本渲染(\n 分行); 也可以传 DOM Node(如带胶囊样式的徽标片段)。
+// opts.align 'right' = 浮层右缘对齐锚点右缘(清单行用: 靠右弹出, 不盖住左侧的端点名称)
 let tipEl;
-export function showTip(anchor, text) {
+export function showTip(anchor, content, opts?) {
   if (!tipEl) {
     tipEl = document.createElement('div');
     tipEl.className = 'dcs-tip';
     document.body.appendChild(tipEl);
   }
-  tipEl.textContent = text;
+  if (typeof content === 'string') tipEl.textContent = content;
+  else { tipEl.textContent = ''; tipEl.appendChild(content); }
   tipEl.style.display = 'block';
   const a = anchor.getBoundingClientRect();
   const box = tipEl.getBoundingClientRect();
-  const left = Math.max(8, Math.min(a.left, window.innerWidth - box.width - 8));
+  const left = (opts && opts.align === 'right')
+    ? Math.max(8, Math.min(a.right - box.width, window.innerWidth - box.width - 8))
+    : Math.max(8, Math.min(a.left, window.innerWidth - box.width - 8));
   let top = a.bottom + 6;
   if (top + box.height > window.innerHeight - 8) top = a.top - box.height - 6;
   tipEl.style.left = left + 'px';

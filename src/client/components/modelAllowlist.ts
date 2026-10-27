@@ -105,11 +105,15 @@ export function ModelAllowlistTree(props) {
     );
   }
   function modelRow(g, m) {
+    const checked = allowedSet.has(m.pair);
     return React.createElement(React.Fragment, { key: m.pair },
-      React.createElement('div', { className: 'dcs-mrow' },
+      React.createElement('div', {
+        className: 'dcs-mrow dcs-epr-live',
+        onClick: function () { toggleModel(m.pair, !checked); },
+      },
         React.createElement('input', {
-          className: 'dcs-epchk', type: 'checkbox',
-          checked: allowedSet.has(m.pair),
+          className: 'dcs-epchk', type: 'checkbox', checked: checked,
+          onClick: function (ev) { ev.stopPropagation(); },
           onChange: function (ev) { toggleModel(m.pair, ev.target.checked); },
         }),
         React.createElement('span', { className: 'dcs-mpair' },
@@ -117,7 +121,9 @@ export function ModelAllowlistTree(props) {
           m.name !== m.id ? React.createElement('span', { className: 'dcs-eprdesc' }, m.name) : null,
         ),
         descModels[m.pair] ? React.createElement('span', { className: 'dcs-mdesc' }, descModels[m.pair]) : null,
-        descButton('model', m.pair),
+        // 弹性占位: 无简介时编辑钮也恒靠右
+        React.createElement('span', { className: 'dcs-eprfill' }),
+        descButton('model', m.pair, { stopProp: true }),
       ),
       editorRow('model', m.pair, false),
     );
@@ -141,7 +147,7 @@ export function ModelAllowlistTree(props) {
         );
       }),
     );
-    body = React.createElement('div', { className: 'dcs-eplist' },
+    body = React.createElement('div', { className: 'dcs-eplist dcs-eplist-flat' },
       visibleGroups.length === 0
         ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.none'))
         : visibleGroups.map(function (g) {
@@ -162,11 +168,14 @@ export function ModelAllowlistTree(props) {
                 React.createElement('span', { className: 'dcs-epns' }, g.name !== g.id ? g.name : g.id),
                 g.name !== g.id ? React.createElement('span', { className: 'dcs-epcount' }, g.id) : null,
                 descProviders[g.id] ? React.createElement('span', { className: 'dcs-mdesc' }, descProviders[g.id]) : null,
+                // 弹性占位: 无简介时编辑钮与计数也恒靠右
+                React.createElement('span', { className: 'dcs-eprfill' }),
                 descButton('provider', g.id, { stopProp: true }),
                 React.createElement('span', { className: 'dcs-epcount' }, g.items.length > 0 ? picked + '/' + g.items.length : ''),
               ),
+              // 提供商简介编辑器紧贴组头之下(先于全部模型行)
+              editorRow('provider', g.id, true),
               isOpen ? visible.map(function (m) { return modelRow(g, m); }) : null,
-              isOpen ? editorRow('provider', g.id, true) : null,
             );
           }),
       staleBlock,

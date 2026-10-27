@@ -459,7 +459,7 @@ const bridgeDescriptors = [
   { id: 'd3', service: 'sessionController', namespace: 'session', method: 'prompt', description: 'Send a prompt.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
   { id: 'd4', service: 'sessionController', namespace: 'session', method: 'follow', mode: 'stream', description: 'Follow a session.', parameters: [], result: { spec: {} } },
   { id: 'd5', service: 'sessionController', namespace: 'session', method: 'page', description: 'Read one session page.', parameters: [{ name: 'session', wire: 'session', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
-  { id: 'd6', service: 'credentialsController', namespace: 'credentialsController', method: 'set', description: 'Write a credential.', parameters: [{ name: 'ref', wire: 'ref', source: 'json' }, { name: 'value', wire: 'value', source: 'json' }], result: { spec: {} } },
+  { id: 'd6', service: 'credentials', namespace: 'credentials', method: 'set', description: 'Write a credential.', parameters: [{ name: 'ref', wire: 'ref', source: 'json' }, { name: 'value', wire: 'value', source: 'json' }], result: { spec: {} } },
   { id: 'd7', service: 'schedule', namespace: 'schedule', method: 'update', description: 'Update a schedule.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
   { id: 'd8', service: 'goal', namespace: 'goals', method: 'get', description: 'Read the session goal.', parameters: [{ name: 'agent', wire: 'agent', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
 ]
@@ -476,8 +476,8 @@ export const fakeGateway = {
     if (`${request.namespace}/${request.method}` === 'schedule/update') return { updated: true }
     if (`${request.namespace}/${request.method}` === 'goals/get') return { agentArg: request.args.agent ?? null }
     if (`${request.namespace}/${request.method}` === 'session/prompt') return { prompted: true }
-    if (`${request.namespace}/${request.method}` === 'credentialsController/set') return { set: true }
-    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/update, goals/get, session/prompt and credentialsController/set')
+    if (`${request.namespace}/${request.method}` === 'credentials/set') return { set: true }
+    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/update, goals/get, session/prompt and credentials/set')
   },
 }
 let bridgePeerSeq = 0

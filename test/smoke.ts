@@ -998,7 +998,7 @@ try {
       && byEndpoint['session/modelCatalog']?.readOnly === true
       && byEndpoint['session/prompt']?.approvalRequired === true && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
-    const credNs = await phase.call('bridge_describe', { namespace: 'credentialsController' })
+    const credNs = await phase.call('bridge_describe', { namespace: 'credentials' })
     const credEp = ((innerOf(credNs) as any).endpoints ?? [])[0]
     checks['桥单域清单: 危险端点标 dangerous 且走审批闸门(无永久拒绝)'] = credEp?.dangerous === true
       && credEp?.approvalRequired === true && credEp?.blockedBy === 'requires approval'
@@ -1060,16 +1060,16 @@ try {
       && callLookupPayload.agentArg === 'sess-live'
     // 危险端点(元数据标注)未入白名单: 同样停泊等审批, 台账条目带 dangerous 标注; 允许后执行
     let heldDangerous: { approvalId: string; endpoint: string } | undefined
-    const callDangerous = phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
+    const callDangerous = phase.call('bridge_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
     checks['桥调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] = await waitFor(() => {
-      heldDangerous = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentialsController/set')
+      heldDangerous = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentials/set')
       return heldDangerous !== undefined && (heldDangerous as any).dangerous === true
     }) && bridgeInvokes.length === 2
     answerBridgeWriteApproval(heldDangerous!.approvalId, 'allow')
     const dangerousOutcome = await callDangerous
     checks['桥调用: 危险端点经人工允许后执行'] = dangerousOutcome.status === 200
       && (innerOf(dangerousOutcome) as any).set === true
-      && bridgeInvokes.length === 3 && bridgeInvokes[2].endpoint === 'credentialsController/set'
+      && bridgeInvokes.length === 3 && bridgeInvokes[2].endpoint === 'credentials/set'
       && listBridgeWriteApprovals().length === 0
     const callUnknown = await phase.call('bridge_call', { endpoint: 'nope/missing' })
     checks['桥调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
@@ -1088,7 +1088,7 @@ try {
     const sessNs = innerOf(await phase.call('bridge_describe', { namespace: 'session' })) as any
     const prompt = (sessNs.endpoints ?? []).find((m: any) => m.endpoint === 'session/prompt')
     const schedNs = innerOf(await phase.call('bridge_describe', { namespace: 'schedule' })) as any
-    const credNs = innerOf(await phase.call('bridge_describe', { namespace: 'credentialsController' })) as any
+    const credNs = innerOf(await phase.call('bridge_describe', { namespace: 'credentials' })) as any
     checks['写桥目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] = dirPayload.writable === 1
       && (schedNs.endpoints ?? [])[0]?.writable === true
       && prompt?.writable !== true && prompt?.approvalRequired === true && prompt?.blockedBy === 'requires approval'
@@ -1101,9 +1101,9 @@ try {
 
     // 危险端点也可以入白名单直行(永久黑名单已移除): 白名单内的危险端点无审批直接执行
     let heldCred: any
-    const credParked = phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
+    const credParked = phase.call('bridge_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
     checks['写桥: 危险端点未入白名单先停泊(台账带 dangerous)'] = await waitFor(() => {
-      heldCred = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentialsController/set')
+      heldCred = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentials/set')
       return heldCred !== undefined && heldCred.dangerous === true
     }) && bridgeInvokes.length === 1
     answerBridgeWriteApproval(heldCred.approvalId, 'allow')
@@ -1119,14 +1119,16 @@ try {
       && epsBody.total === 8 && (epsBody.endpoints ?? []).length === 8
       && epsMap['session/modelCatalog']?.kind === 'read'
       && epsMap['session/follow']?.kind === 'stream'
-      && epsMap['credentialsController/set']?.kind === 'selectable' && epsMap['credentialsController/set']?.dangerous === true
+      && epsMap['credentials/set']?.kind === 'selectable' && epsMap['credentials/set']?.dangerous === true
       && epsMap['session/prompt']?.kind === 'selectable' && epsMap['session/prompt']?.allowed === false
       && epsMap['schedule/update']?.kind === 'selectable' && epsMap['schedule/update']?.allowed === true
       && Array.isArray(epsBody.stale) && epsBody.stale.length === 0
       && typeof epsMap['session/modelCatalog']?.description === 'string'
       // 端点元数据的中英文描述透出(面板按界面语言选用)
       && typeof epsMap['session/modelCatalog']?.descriptionZh === 'string'
-      && typeof epsMap['credentialsController/set']?.descriptionEn === 'string'
+      && typeof epsMap['credentials/set']?.descriptionEn === 'string'
+      // 命名空间一句话描述透出(面板组头显示)
+      && typeof epsBody.namespaces?.session?.zh === 'string' && typeof epsBody.namespaces?.session?.en === 'string'
 
     // 停泊 → 允许 → 执行
     let held: any
@@ -1695,14 +1697,16 @@ try {
       && JSON.parse(cfgTimeout.body).reloading !== true
       && edits[edits.length - 1].approvalTimeoutMs === 5000
     const cfgTimeoutLow = await guiPut({ approvalTimeoutMs: 500 })
-    checks['GUI 路由: approvalTimeoutMs 低于下限 400'] = cfgTimeoutLow.status === 400
+    checks['GUI 路由: approvalTimeoutMs 低于下限静默钳制到 1000'] = cfgTimeoutLow.status === 200
+      && JSON.parse(cfgTimeoutLow.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 1000
     const cfgTimeoutHigh = await guiPut({ approvalTimeoutMs: 700000 })
-    checks['GUI 路由: approvalTimeoutMs 高于上限 400'] = cfgTimeoutHigh.status === 400
+    checks['GUI 路由: approvalTimeoutMs 高于上限静默钳制到 600000'] = cfgTimeoutHigh.status === 200
+      && edits[edits.length - 1].approvalTimeoutMs === 600000
     const cfgTimeoutZero = await guiPut({ approvalTimeoutMs: 0 })
     checks['GUI 路由: approvalTimeoutMs 0(不限时)写入'] = cfgTimeoutZero.status === 200
       && JSON.parse(cfgTimeoutZero.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 0
-    const cfgTimeoutHalfway = await guiPut({ approvalTimeoutMs: 500 })
-    checks['GUI 路由: approvalTimeoutMs 0-1000 之间的值仍 400'] = cfgTimeoutHalfway.status === 400
+    const cfgTimeoutNeg = await guiPut({ approvalTimeoutMs: -1 })
+    checks['GUI 路由: approvalTimeoutMs 负值仍 400'] = cfgTimeoutNeg.status === 400
     const cfgTtl = await guiPut({ sessionTtlMs: 0 })
     checks['GUI 路由: sessionTtlMs 写入(0 = 永不淘汰, 就地生效)'] = cfgTtl.status === 200
       && JSON.parse(cfgTtl.body).reloading !== true && edits[edits.length - 1].sessionTtlMs === 0

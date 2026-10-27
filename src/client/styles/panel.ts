@@ -73,6 +73,10 @@ export const PANEL_CSS = [
   '.dcs-urlseg::placeholder{color:var(--dsw-alias-label-dimmed,#979da6);}',
   // 端点卡的说明小字(服务用途 + 监听重建代价)
   '.dcs-endhint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
+  // 端点卡第二行: 自用工具开关(标签 + 说明居左, 开关居右), 与端点行之间画发丝线
+  '.dcs-selfrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding-top:10px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+  '.dcs-selflabels{display:flex;flex-direction:column;gap:2px;min-width:0;}',
+  '.dcs-selfname{font-size:12.5px;font-weight:600;}',
   '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
   // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题)
   '.dcs-form{display:flex;flex-direction:column;}',
@@ -90,6 +94,8 @@ export const PANEL_CSS = [
   '.dcs-inline{display:flex;align-items:center;gap:8px;}',
   '.dcs-inline .dcs-input{flex:none;width:130px;}',
   '.dcs-inline .dcs-input-wide{width:200px;}',
+  // 输入框右侧的单位后缀(如审批等待时长的"秒")
+  '.dcs-unit{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);}',
   '.dcs-err-right{position:absolute;top:100%;right:0;margin-top:4px;max-width:320px;text-align:right;pointer-events:none;}',
   // 表单脚注: "改动会重启插件"只说一次, 不再挂在每条说明里挤占行宽
   '.dcs-footnote{padding:10px 2px 2px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
@@ -123,22 +129,35 @@ export const PANEL_CSS = [
   '.dcs-epbar .dcs-input{flex:1 1 200px;width:auto;min-width:160px;height:28px;font-size:12px;}',
   '.dcs-epall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);white-space:nowrap;cursor:pointer;}',
   // 清单独立滚动: overscroll-behavior:contain 阻断滚动链接——滚到顶/底后继续滚不会带动外层页面,
-  // 面板不会因"外层接着滚"而整体位移(鼠标在清单内时滚动始终由清单自己消费)
+  // 面板不会因"外层接着滚"而整体位移(鼠标在清单内时滚动始终由清单自己消费)。
+  // 桥端点白名单的两个清单(-flat)不限高: 完整展示, 页面整体滚动
   '.dcs-eplist{display:flex;flex-direction:column;max-height:320px;overflow:auto;overscroll-behavior:contain;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
+  '.dcs-eplist-flat{max-height:none;overflow:visible;overscroll-behavior:auto;}',
   '.dcs-epgroup{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   '.dcs-epgroup:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.04));}',
   '.dcs-epgroup:last-child,.dcs-epr:last-child{border-bottom:none;}',
+  // 分组折叠/展开: grid-rows 0fr→1fr 过渡(内容高未知也能平滑动画), 内容层 overflow:hidden 裁剪
+  '.dcs-epbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .2s ease;}',
+  '.dcs-epbody-open{grid-template-rows:1fr;}',
+  '.dcs-epbodyin{overflow:hidden;min-height:0;}',
   '.dcs-epchev{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-secondary,#61666b);font-size:15px;line-height:1;}',
   '.dcs-epns{font-size:12.5px;font-weight:600;}',
-  '.dcs-epcount{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
+  '.dcs-epnsdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+  '.dcs-epcount{flex:none;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
   // 端点行左缩进 46px = 组头里 namespace 文本的起点(16 箭头 + 8 间距 + 14 组复选 + 8 间距), 端点复选框与 namespace 对齐成树状
   '.dcs-epr{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+  // 整行可点(流式行除外, 不加指针): 点行任意处 = 切换该行勾选
+  '.dcs-epr-live{cursor:pointer;}',
+  '.dcs-epr-live:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.04));}',
   '.dcs-eprname{flex:none;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;}',
-  '.dcs-eprdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+  // 描述只占自然宽度(超长收缩省略), 后随弹性占位把徽标恒推到行右端——描述缺失时徽标同样靠右
+  '.dcs-eprdesc{flex:0 1 auto;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+  '.dcs-eprfill{flex:1 1 0;}',
   '.dcs-epchk{flex:none;width:14px;height:14px;margin:0;accent-color:var(--dsw-alias-brand-primary,#0f1115);cursor:pointer;}',
   '.dcs-epchk:disabled{opacity:.35;cursor:default;}',
   '.dcs-epbadge{flex:none;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;corner-shape:round;font-size:11px;}',
   '.dcs-epbadge-read{color:var(--dsw-alias-state-success-primary,#22c55e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 12%,transparent);}',
+  '.dcs-epbadge-write{color:var(--dsw-alias-state-business-primary,#4176e6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 12%,transparent);}',
   '.dcs-epbadge-stream{color:var(--dsw-alias-label-tertiary,#81858c);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
   '.dcs-epbadge-danger{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
   '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
@@ -151,7 +170,7 @@ export const PANEL_CSS = [
   '.dcs-mrow{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   '.dcs-mpair{display:flex;align-items:baseline;gap:6px;min-width:0;}',
   '.dcs-mname{flex:none;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;}',
-  '.dcs-mdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+  '.dcs-mdesc{flex:0 1 auto;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
   '.dcs-pen{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:12px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
   '.dcs-pen:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115);}',
   '.dcs-pen[data-on="1"]{color:var(--dsw-alias-state-business-primary,#4176e6);}',
@@ -162,8 +181,11 @@ export const PANEL_CSS = [
   '.dcs-descedit textarea::placeholder{color:var(--dsw-alias-label-dimmed,#979da6);}',
   '.dcs-epstale{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   '.dcs-epstale .dcs-eprname{color:var(--dsw-alias-state-warn-label,#dd8629);}',
-  // 自绘 tooltip(挂 body 的单例浮层, .dcs-tip 常驻仅显隐): fixed 定位不受滚动容器裁剪, pre-line 支持 \n 分行
+  // 自绘 tooltip(挂 body 的单例浮层, .dcs-tip 常驻仅显隐): fixed 定位不受滚动容器裁剪, pre-line 支持 \n 分行;
+  // 内容可含胶囊徽标(与行内徽标同款), 徽标之间留 6px 间距
   '.dcs-tip{display:none;position:fixed;z-index:2147483000;max-width:460px;padding:6px 10px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);box-shadow:0 6px 20px rgba(0,0,0,.14);pointer-events:none;white-space:pre-line;word-break:break-word;}',
+  '.dcs-tip .dcs-epbadge{vertical-align:-4px;}',
+  '.dcs-tip .dcs-epbadge + .dcs-epbadge,.dcs-tip .dcs-epbadge + *{margin-left:6px;}',
   // 桥写审批列表(动作关键面): 头部(标题 + 停泊计数 + 全部拒绝) + 说明行 + 每条停泊请求一张独立小卡;
   // 卡顶细条按剩余时间占比收缩, 不足 1 分钟转紧急红; 新卡轻轻浮入(prefers-reduced-motion 时关闭)
   '.dcs-apprs{display:flex;flex-direction:column;gap:8px;}',

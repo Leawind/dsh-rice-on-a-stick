@@ -360,8 +360,9 @@ const server = createServer(async (req, res) => {
         return json(res, 200, snapshot())
       }
       if (method === 'bridge-endpoints') {
-        // 通用桥端点目录(与 src/mcp/web.ts bridge-endpoints 同形): kind 锁定行 + 危险端点标注 + 失效条目 + 超长描述,
-        // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读恒勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
+        // 通用桥端点目录(与 src/mcp/web.ts bridge-endpoints 同形): kind 锁定行 + 危险端点标注 + 失效条目 + 超长描述
+        // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
+        // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读默认勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
         const allow = new Set(state.config.bridgeEndpointAllowlist)
         const endpoints = [
           { endpoint: 'session/list', description: 'List sessions with pagination and status filters.', descriptionZh: '列出会话（分页与状态过滤）。', descriptionEn: 'List sessions with pagination and status filters.', kind: 'read' },
@@ -374,14 +375,25 @@ const server = createServer(async (req, res) => {
           { endpoint: 'terminal/kill', description: 'Kill a running terminal process by id.', descriptionZh: '按 id 终止正在运行的终端进程。', descriptionEn: 'Kill a running terminal process by id.', kind: 'selectable' },
           { endpoint: 'schedule/runNow', description: 'Trigger a scheduled task immediately, out of its normal cadence.', descriptionZh: '立即触发一次定时任务（脱离其正常节奏）。', descriptionEn: 'Trigger a scheduled task immediately, out of its normal cadence.', kind: 'selectable' },
           { endpoint: 'terminal/stream', description: 'Stream terminal output frames as they are produced.', descriptionZh: '以流式返回终端输出帧。', descriptionEn: 'Stream terminal output frames as they are produced.', kind: 'stream' },
+          { endpoint: 'mcpManager/getToolFilter', kind: 'selectable' },
           { endpoint: 'pluginManager/installBundle', description: 'Install a plugin bundle from a registry.', descriptionZh: '从注册源安装插件捆绑包（引入新代码，影响进程信任边界）。', descriptionEn: 'Install a plugin bundle from a registry (introduces new code; affects the process trust boundary).', kind: 'selectable', dangerous: true },
-          { endpoint: 'credentialsController/set', description: 'Store a provider credential.', descriptionZh: '写入提供商凭据。', descriptionEn: 'Store a provider credential.', kind: 'selectable', dangerous: true },
+          { endpoint: 'credentials/set', description: 'Store a provider credential.', descriptionZh: '写入提供商凭据。', descriptionEn: 'Store a provider credential.', kind: 'selectable', dangerous: true },
         ].map((e) => ({ ...e, allowed: allow.has(e.endpoint) }))
         const live = new Set(endpoints.map((e) => e.endpoint))
         return json(res, 200, {
           available: true,
           total: endpoints.length,
           endpoints,
+          namespaces: {
+            session: { zh: '会话与轮次', en: 'Sessions and turns' },
+            settings: { zh: '设置', en: 'Settings' },
+            workspaceFiles: { zh: '工作区文件', en: 'Workspace files' },
+            terminal: { zh: '终端', en: 'Terminals' },
+            schedule: { zh: '定时任务', en: 'Scheduled tasks' },
+            mcpManager: { zh: 'MCP 服务器管理', en: 'MCP server management' },
+            pluginManager: { zh: '插件管理', en: 'Plugin management' },
+            credentials: { zh: '提供商凭据', en: 'Provider credentials' },
+          },
           stale: [...allow].filter((x) => !live.has(x)).sort(),
         })
       }

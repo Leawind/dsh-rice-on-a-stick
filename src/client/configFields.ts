@@ -88,9 +88,11 @@ export function readListen(draft, cfg) {
 }
 
 export function readTimeout(draft, cfg) {
-  const s = Number(draft.approvalTimeoutS);
-  // 界面单位是秒: 0 = 不限时; 其余 1-600 整数秒(与服务端 1000-600000ms 钳制同向)
-  if (!Number.isInteger(s) || s < 0 || s > 600) return { error: t('approvalTimeout.invalid') };
+  // 界面单位是秒: 输入框只放行数字(空 = 尚未输入, 不提交); 无上限——超出运行时区间由服务端按同一口径静默钳制
+  const raw = draft.approvalTimeoutS;
+  if (raw === '' || raw === null || raw === undefined) return {};
+  const s = Number(raw);
+  if (!Number.isInteger(s) || s < 0) return {};
   const now = typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS;
   return s * 1000 === now ? {} : { values: { approvalTimeoutMs: s * 1000 } };
 }

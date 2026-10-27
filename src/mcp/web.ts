@@ -9,11 +9,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
-import { PLUGIN_NAME } from '../core/config.js'
+import { PLUGIN_NAME, clampApprovalTimeout } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from '../host/bridge.js'
 import { answerBridgeWriteApproval, classifyInvocation, listBridgeWriteApprovals, listInvocations } from '../host/typert-bridge.js'
-import { endpointMetaOf } from '../host/bridge-endpoints.js'
+import { BRIDGE_NAMESPACE_META, endpointMetaOf } from '../host/bridge-endpoints.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
 interface WebServerView {
@@ -221,11 +221,10 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       if (typeof value !== 'boolean') throw httpError(400, `${key} 必须是布尔值`)
       out[key] = value
     } else if (key === 'approvalTimeoutMs') {
-      // 专用分支: 0 = 不限时放行; 其余必须是 1000-600000(与 apply 钳制同向)
+      // 专用分支: 只拒收负值; 0 = 不限时原样保留, 其余按运行时同一口径静默钳制进 1000-600000
       const n = typeof value === 'number' ? value : Number(value)
       if (!Number.isFinite(n) || n < 0) throw httpError(400, 'approvalTimeoutMs 必须是不小于 0 的数字')
-      if (n !== 0 && (n < 1000 || n > 600_000)) throw httpError(400, 'approvalTimeoutMs 必须是 0(不限时)或 1000-600000 之间的数字')
-      out[key] = n
+      out[key] = clampApprovalTimeout(n)
     } else if (key in GUI_NUMBER_MIN) {
       const n = typeof value === 'number' ? value : Number(value)
       const min = GUI_NUMBER_MIN[key]
@@ -359,6 +358,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     // 通用桥端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目。
     // descriptionZh/descriptionEn 来自开发期端点元数据(bridge-endpoints.ts), 缺失时面板回退 descriptor 描述;
     // dangerous = 元数据标注的危险端点(信任与供应链类), 面板单列清单。
+    // namespaces = 各命名空间的中英文一句话描述(面板组头显示), 同样来自开发期元数据。
     'bridge-endpoints': () => {
       const invocations = listInvocations(ctx)
       const allow = new Set(state.config.bridgeEndpointAllowlist)
@@ -382,6 +382,9 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         available: invocations.length > 0,
         total: invocations.length,
         endpoints,
+        namespaces: Object.fromEntries(
+          Object.entries(BRIDGE_NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }]),
+        ),
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
