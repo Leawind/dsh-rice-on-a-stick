@@ -449,11 +449,11 @@ export const fakeAttachments = {
   imageHostPath: (ref) => `C:\\fake\\store\\${ref.attachmentId}.png`,
 }
 
-// ── 通用桥桩(typert / typertGateway / connection): 对齐真机 descriptor 形状 ——
+// ── 端点直通桩(typert / typertGateway / connection): 对齐真机 descriptor 形状 ——
 // local.list() 回 InvocationDescriptor[](namespace/method/mode/parameters[source json|lookup]/result.spec);
 // gateway.invoke 记录请求并按端点返回; connection.createPeer 回可 dispose 的 peer ──
-export const bridgeInvokes = []
-const bridgeDescriptors = [
+export const endpointInvokes = []
+const endpointDescriptors = [
   { id: 'd1', service: 'sessionController', namespace: 'session', method: 'modelCatalog', description: 'Describe every routable model. Returns the catalog.', parameters: [], result: { spec: { description: 'the catalog', jsonSchema: { type: 'object' } } } },
   { id: 'd2', service: 'sessionController', namespace: 'session', method: 'list', description: 'List sessions.', parameters: [{ name: 'request', wire: 'request', source: 'json', description: 'list filters' }], result: { spec: {} } },
   { id: 'd3', service: 'sessionController', namespace: 'session', method: 'prompt', description: 'Send a prompt.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
@@ -465,13 +465,13 @@ const bridgeDescriptors = [
 ]
 export const fakeTypert = {
   local: {
-    list: () => bridgeDescriptors,
-    get: (endpoint) => bridgeDescriptors.find((d) => `${d.namespace}/${d.method}` === endpoint),
+    list: () => endpointDescriptors,
+    get: (endpoint) => endpointDescriptors.find((d) => `${d.namespace}/${d.method}` === endpoint),
   },
 }
 export const fakeGateway = {
   invoke: async (request) => {
-    bridgeInvokes.push({ endpoint: `${request.namespace}/${request.method}`, args: request.args, peerKind: request.peer?.principal?.kind, interactions: request.peer?.interactions })
+    endpointInvokes.push({ endpoint: `${request.namespace}/${request.method}`, args: request.args, peerKind: request.peer?.principal?.kind, interactions: request.peer?.interactions })
     if (`${request.namespace}/${request.method}` === 'session/modelCatalog') return { ok: true, models: ['m1'] }
     if (`${request.namespace}/${request.method}` === 'schedule/update') return { updated: true }
     if (`${request.namespace}/${request.method}` === 'goals/get') return { agentArg: request.args.agent ?? null }
@@ -480,9 +480,9 @@ export const fakeGateway = {
     throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/update, goals/get, session/prompt and credentials/set')
   },
 }
-let bridgePeerSeq = 0
+let callerPeerSeq = 0
 export const fakeConnection = {
-  createPeer: (options) => ({ id: `bridge-peer-${++bridgePeerSeq}`, principal: options?.principal, interactions: options?.interactions, dispose: async () => {} }),
+  createPeer: (options) => ({ id: `caller-peer-${++callerPeerSeq}`, principal: options?.principal, interactions: options?.interactions, dispose: async () => {} }),
 }
 
 /**

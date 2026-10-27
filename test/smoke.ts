@@ -28,7 +28,7 @@ import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
 import { collectSessions, sessionMetaPayload, sessionOverviewPayload } from '../lib/host/data.js'
-import { ageBridgeWriteApprovalsForTest, answerBridgeWriteApproval, invokeOnBridge, listBridgeWriteApprovals } from '../lib/host/typert-bridge.js'
+import { ageParkedWritesForTest, answerParkedWrite, invokeEndpoint, listParkedWrites } from '../lib/host/endpoint-passthrough.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
 import { parseSummary } from '../lib/session/projection.js'
@@ -61,7 +61,7 @@ import {
   archivedSessionIds,
   attachedIds,
   attachmentCalls,
-  bridgeInvokes,
+  endpointInvokes,
   checks,
   commandCalls,
   chunkedRequest,
@@ -180,7 +180,7 @@ try {
     'session_history', 'attachment_read', 'bridge_describe', 'bridge_call',
     'session_search', 'session_fork', 'session_archive', 'session_unarchive',
     'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list', 'permission_list']
-  checks['tools/list: 精确 35 个工具(会话中心 + 异步/审批/问题/子代理/归档/附件/权限/通用桥面)'] = toolNames.length === 35
+  checks['tools/list: 精确 35 个工具(会话中心 + 异步/审批/问题/子代理/归档/附件/权限/端点直通面)'] = toolNames.length === 35
     && SESSION_TOOLS.every((n) => toolNames.includes(n))
     && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
@@ -980,13 +980,13 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase B2: 通用桥(读面 + 写面闸门) —— 目录/契约/只读调用/闸门分类 ──
+  // ── Phase B2: dsh 端点直通(读面 + 写面闸门) —— 目录/契约/只读调用/闸门分类 ──
   {
     const phase = await startPhase(8096, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
     const dir = await phase.call('bridge_describe', {})
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
-    checks['桥索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 8 && dirPayload.readable === 4 && dirPayload.writable === 0
+    checks['端点索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 8 && dirPayload.readable === 4 && dirPayload.writable === 0
       && sessionGroup?.methods === 5 && sessionGroup?.readable === 3 && sessionGroup?.approvalRequired === 1
       && sessionGroup?.endpoints === undefined
       && (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'goals')?.methods === 1
@@ -994,91 +994,91 @@ try {
     const nsList = await phase.call('bridge_describe', { namespace: 'session' })
     const nsPayload = innerOf(nsList) as any
     const byEndpoint = Object.fromEntries((nsPayload.endpoints ?? []).map((m: any) => [m.endpoint, m]))
-    checks['桥单域清单: 逐端点 readOnly/approvalRequired/blockedBy 标记正确'] = nsPayload.total === 5
+    checks['端点单域清单: 逐端点 readOnly/approvalRequired/blockedBy 标记正确'] = nsPayload.total === 5
       && byEndpoint['session/modelCatalog']?.readOnly === true
       && byEndpoint['session/prompt']?.approvalRequired === true && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
     const credNs = await phase.call('bridge_describe', { namespace: 'credentials' })
     const credEp = ((innerOf(credNs) as any).endpoints ?? [])[0]
-    checks['桥单域清单: 危险端点标 dangerous 且走审批闸门(无永久拒绝)'] = credEp?.dangerous === true
+    checks['端点单域清单: 危险端点标 dangerous 且走审批闸门(无永久拒绝)'] = credEp?.dangerous === true
       && credEp?.approvalRequired === true && credEp?.blockedBy === 'requires approval'
 
     const hit = await phase.call('bridge_describe', { query: 'routable model' })
     const hitPayload = innerOf(hit) as any
-    checks['桥搜索: 多词 AND 同时命中端点名与描述'] = hitPayload.total === 1 && hitPayload.endpoints?.[0]?.endpoint === 'session/modelCatalog'
+    checks['端点搜索: 多词 AND 同时命中端点名与描述'] = hitPayload.total === 1 && hitPayload.endpoints?.[0]?.endpoint === 'session/modelCatalog'
     const scoped = await phase.call('bridge_describe', { query: 'list', namespace: 'session' })
-    checks['桥搜索: namespace 参数把搜索收窄到单域'] = (innerOf(scoped) as any).total === 1
+    checks['端点搜索: namespace 参数把搜索收窄到单域'] = (innerOf(scoped) as any).total === 1
       && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
     const zero = await phase.call('bridge_describe', { query: 'zzz-nothing' })
     const zeroPayload = innerOf(zero) as any
-    checks['桥搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 4
+    checks['端点搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 4
     const mixed = await phase.call('bridge_describe', { endpoint: 'session/list', query: 'x' })
-    checks['桥解析: endpoint 与 query/namespace 互斥'] = String(innerOf(mixed).error ?? '').includes('at most one')
+    checks['端点解析: endpoint 与 query/namespace 互斥'] = String(innerOf(mixed).error ?? '').includes('at most one')
     const badNs = await phase.call('bridge_describe', { namespace: 'nope' })
-    checks['桥解析: 未知 namespace 报错列出可用域'] = String(innerOf(badNs).error ?? '').includes('available namespaces')
+    checks['端点解析: 未知 namespace 报错列出可用域'] = String(innerOf(badNs).error ?? '').includes('available namespaces')
 
     const contract = await phase.call('bridge_describe', { endpoint: 'session/modelCatalog' })
     const contractPayload = innerOf(contract) as any
-    checks['桥契约: 单端点给参数表与 result schema'] = contractPayload.endpoint === 'session/modelCatalog'
+    checks['端点契约: 单端点给参数表与 result schema'] = contractPayload.endpoint === 'session/modelCatalog'
       && contractPayload.readOnly === true
       && Array.isArray(contractPayload.parameters) && contractPayload.parameters.length === 0
       && contractPayload.result?.jsonSchema?.type === 'object'
 
     const contractWrite = await phase.call('bridge_describe', { endpoint: 'session/prompt' })
     const contractWritePayload = innerOf(contractWrite) as any
-    checks['桥契约: 停泊端点带 approvalRequired'] = contractWritePayload.endpoint === 'session/prompt'
+    checks['端点契约: 停泊端点带 approvalRequired'] = contractWritePayload.endpoint === 'session/prompt'
       && contractWritePayload.writable === false && contractWritePayload.approvalRequired === true
 
     const unknown = await phase.call('bridge_describe', { endpoint: 'nope/missing' })
-    checks['桥契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
+    checks['端点契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
 
     const callOk = await phase.call('bridge_call', { endpoint: 'session/modelCatalog' })
     const callOkPayload = innerOf(callOk) as any
-    checks['桥调用: 只读端点经 gateway 成功返回'] = callOk.status === 200
+    checks['端点调用: 只读端点经 gateway 成功返回'] = callOk.status === 200
       && callOkPayload.ok === true && callOkPayload.models?.[0] === 'm1'
-    checks['桥调用: 以 owner 身份(peer)发起'] = bridgeInvokes.length === 1
-      && bridgeInvokes[0].endpoint === 'session/modelCatalog'
-      && bridgeInvokes[0].peerKind === 'owner'
+    checks['端点调用: 以 owner 身份(peer)发起'] = endpointInvokes.length === 1
+      && endpointInvokes[0].endpoint === 'session/modelCatalog'
+      && endpointInvokes[0].peerKind === 'owner'
 
     // 清单外写端点: 不再直接拒绝, 停泊等审批(拒绝收尾, 顺便覆盖 decline 路径)
     let heldWrite: { approvalId: string; endpoint: string } | undefined
     const callWrite = phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: {} } })
-    checks['桥调用: 清单外写端点停泊进台账(不执行)'] = await waitFor(() => {
-      heldWrite = listBridgeWriteApprovals().find((p) => p.endpoint === 'session/prompt')
+    checks['端点调用: 清单外写端点停泊进台账(不执行)'] = await waitFor(() => {
+      heldWrite = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
       return heldWrite !== undefined && typeof heldWrite.approvalId === 'string'
-    }) && bridgeInvokes.length === 1
-    answerBridgeWriteApproval(heldWrite!.approvalId, 'reject')
+    }) && endpointInvokes.length === 1
+    answerParkedWrite(heldWrite!.approvalId, 'reject')
     const writeOutcome = await callWrite
-    checks['桥调用: 停泊被拒后失败关闭(declined)'] = String(innerOf(writeOutcome).error ?? '').includes('declined')
-      && bridgeInvokes.length === 1
-      && listBridgeWriteApprovals().length === 0
+    checks['端点调用: 停泊被拒后失败关闭(declined)'] = String(innerOf(writeOutcome).error ?? '').includes('declined')
+      && endpointInvokes.length === 1
+      && listParkedWrites().length === 0
     const callStream = await phase.call('bridge_call', { endpoint: 'session/follow' })
-    checks['桥调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not bridge-callable')
+    checks['端点调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not callable')
     const callLookup = await phase.call('bridge_call', { endpoint: 'goals/get', args: { agent: 'sess-live' } })
     const callLookupPayload = innerOf(callLookup) as any
-    checks['桥调用: lookup 参数透传给网关解析(不再拒绝)'] = callLookup.status === 200
+    checks['端点调用: lookup 参数透传给网关解析(不再拒绝)'] = callLookup.status === 200
       && callLookupPayload.agentArg === 'sess-live'
     // 危险端点(元数据标注)未入白名单: 同样停泊等审批, 台账条目带 dangerous 标注; 允许后执行
     let heldDangerous: { approvalId: string; endpoint: string } | undefined
     const callDangerous = phase.call('bridge_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
-    checks['桥调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] = await waitFor(() => {
-      heldDangerous = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentials/set')
+    checks['端点调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] = await waitFor(() => {
+      heldDangerous = listParkedWrites().find((p) => p.endpoint === 'credentials/set')
       return heldDangerous !== undefined && (heldDangerous as any).dangerous === true
-    }) && bridgeInvokes.length === 2
-    answerBridgeWriteApproval(heldDangerous!.approvalId, 'allow')
+    }) && endpointInvokes.length === 2
+    answerParkedWrite(heldDangerous!.approvalId, 'allow')
     const dangerousOutcome = await callDangerous
-    checks['桥调用: 危险端点经人工允许后执行'] = dangerousOutcome.status === 200
+    checks['端点调用: 危险端点经人工允许后执行'] = dangerousOutcome.status === 200
       && (innerOf(dangerousOutcome) as any).set === true
-      && bridgeInvokes.length === 3 && bridgeInvokes[2].endpoint === 'credentials/set'
-      && listBridgeWriteApprovals().length === 0
+      && endpointInvokes.length === 3 && endpointInvokes[2].endpoint === 'credentials/set'
+      && listParkedWrites().length === 0
     const callUnknown = await phase.call('bridge_call', { endpoint: 'nope/missing' })
-    checks['桥调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
+    checks['端点调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
     await phase.dispose()
   }
 
-  // ── Phase B3: 通用桥写面 —— 白名单直行 + 停泊审批(允许/拒绝/超时/断连/不限时) ──
+  // ── Phase B3: 端点直通写面 —— 白名单直行 + 停泊审批(允许/拒绝/超时/断连/不限时) ──
   {
-    bridgeInvokes.length = 0
+    endpointInvokes.length = 0
     const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       bridgeEndpointAllowlist: ['schedule/update'],
       approvalTimeoutMs: 5000,
@@ -1089,33 +1089,33 @@ try {
     const prompt = (sessNs.endpoints ?? []).find((m: any) => m.endpoint === 'session/prompt')
     const schedNs = innerOf(await phase.call('bridge_describe', { namespace: 'schedule' })) as any
     const credNs = innerOf(await phase.call('bridge_describe', { namespace: 'credentials' })) as any
-    checks['写桥目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] = dirPayload.writable === 1
+    checks['写端点目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] = dirPayload.writable === 1
       && (schedNs.endpoints ?? [])[0]?.writable === true
       && prompt?.writable !== true && prompt?.approvalRequired === true && prompt?.blockedBy === 'requires approval'
       && (credNs.endpoints ?? [])[0]?.dangerous === true && (credNs.endpoints ?? [])[0]?.approvalRequired === true
 
     const directCall = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
-    checks['写桥: 白名单端点直接执行(无审批)'] = directCall.status === 200
+    checks['写端点: 白名单端点直接执行(无审批)'] = directCall.status === 200
       && (innerOf(directCall) as any).updated === true
-      && bridgeInvokes.length === 1 && listBridgeWriteApprovals().length === 0
+      && endpointInvokes.length === 1 && listParkedWrites().length === 0
 
     // 危险端点也可以入白名单直行(永久黑名单已移除): 白名单内的危险端点无审批直接执行
     let heldCred: any
     const credParked = phase.call('bridge_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
-    checks['写桥: 危险端点未入白名单先停泊(台账带 dangerous)'] = await waitFor(() => {
-      heldCred = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentials/set')
+    checks['写端点: 危险端点未入白名单先停泊(台账带 dangerous)'] = await waitFor(() => {
+      heldCred = listParkedWrites().find((p) => p.endpoint === 'credentials/set')
       return heldCred !== undefined && heldCred.dangerous === true
-    }) && bridgeInvokes.length === 1
-    answerBridgeWriteApproval(heldCred.approvalId, 'allow')
+    }) && endpointInvokes.length === 1
+    answerParkedWrite(heldCred.approvalId, 'allow')
     const credCall = await credParked
-    checks['写桥: 危险端点经人工允许后执行'] = (innerOf(credCall) as any).set === true
-      && bridgeInvokes.length === 2 && listBridgeWriteApprovals().length === 0
+    checks['写端点: 危险端点经人工允许后执行'] = (innerOf(credCall) as any).set === true
+      && endpointInvokes.length === 2 && listParkedWrites().length === 0
 
     // GUI 端点目录路由(设置面板白名单清单的数据源): 全量端点 + 分类 + 白名单标记
-    const epsRes = await phase.gui('bridge-endpoints', { httpMethod: 'GET' })
+    const epsRes = await phase.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsBody = epsRes.status === 200 ? JSON.parse(epsRes.body) : {}
     const epsMap = Object.fromEntries((epsBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
-    checks['GUI bridge-endpoints: 全量端点+分类+白名单标记'] = epsBody.available === true
+    checks['GUI endpoint-allowlist: 全量端点+分类+白名单标记'] = epsBody.available === true
       && epsBody.total === 8 && (epsBody.endpoints ?? []).length === 8
       && epsMap['session/modelCatalog']?.kind === 'read'
       && epsMap['session/follow']?.kind === 'stream'
@@ -1133,73 +1133,73 @@ try {
     // 停泊 → 允许 → 执行
     let held: any
     const parkedCall = phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: { q: 'hi' } } })
-    checks['写桥停泊: 调用阻塞并进入台账'] = await waitFor(() => {
-      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'session/prompt')
+    checks['写调用停泊: 调用阻塞并进入台账'] = await waitFor(() => {
+      held = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
-    checks['写桥停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
+    checks['写调用停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
       && String(held?.argsPreview).includes('hi') && typeof held?.expiresAt === 'number'
-    checks['写桥停泊: 等待期间未执行'] = bridgeInvokes.length === 2
+    checks['写调用停泊: 等待期间未执行'] = endpointInvokes.length === 2
 
     // GUI 审批卡路由: 读取在途审批(带不限时标记), 经同源 POST 应答允许
-    const gaRead = await phase.gui('bridge-approvals', { httpMethod: 'GET' })
+    const gaRead = await phase.gui('endpoint-approvals', { httpMethod: 'GET' })
     const gaBody = gaRead.status === 200 ? JSON.parse(gaRead.body) : {}
-    checks['GUI bridge-approvals: 在途审批可读'] = gaRead.status === 200
+    checks['GUI endpoint-approvals: 在途审批可读'] = gaRead.status === 200
       && (gaBody.approvals ?? []).some((p: any) => p.approvalId === held.approvalId && p.endpoint === 'session/prompt')
       && gaBody.unlimitedWait === false
-    const gaAllow = await phase.gui('bridge-approval-answer', {
+    const gaAllow = await phase.gui('endpoint-approval-answer', {
       httpMethod: 'POST',
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ approvalId: held.approvalId, decision: 'allow' }),
     })
     const gaAllowBody = gaAllow.status === 200 ? JSON.parse(gaAllow.body) : {}
-    checks['GUI bridge-approval-answer: 同源允许成功'] = gaAllow.status === 200 && gaAllowBody.ok === true
+    checks['GUI endpoint-approval-answer: 同源允许成功'] = gaAllow.status === 200 && gaAllowBody.ok === true
     const parkedResult = await parkedCall
-    checks['写桥停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
+    checks['写调用停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
       && (innerOf(parkedResult) as any).prompted === true
-      && bridgeInvokes.length === 3 && bridgeInvokes[2].endpoint === 'session/prompt'
-      && listBridgeWriteApprovals().length === 0
+      && endpointInvokes.length === 3 && endpointInvokes[2].endpoint === 'session/prompt'
+      && listParkedWrites().length === 0
 
     // 停泊 → 拒绝 → 失败关闭
     const declinedCall = phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: { q: 'no' } } })
     await waitFor(() => {
-      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'session/prompt')
+      held = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
-    answerBridgeWriteApproval(held.approvalId, 'reject')
+    answerParkedWrite(held.approvalId, 'reject')
     const declined = await declinedCall
-    checks['写桥停泊: 拒绝后失败关闭'] = String(innerOf(declined).error ?? '').includes('declined')
-      && bridgeInvokes.length === 3 && listBridgeWriteApprovals().length === 0
+    checks['写调用停泊: 拒绝后失败关闭'] = String(innerOf(declined).error ?? '').includes('declined')
+      && endpointInvokes.length === 3 && listParkedWrites().length === 0
 
-    checks['写桥停泊: 未知审批 id 明确报错'] = answerBridgeWriteApproval('nope', 'allow').ok === false
-      && listBridgeWriteApprovals().length === 0
+    checks['写调用停泊: 未知审批 id 明确报错'] = answerParkedWrite('nope', 'allow').ok === false
+      && listParkedWrites().length === 0
 
     // GUI 应答边界: 未知 id 回 ok:false; 非法 decision 400; 跨站应答被同源守卫拦下
-    const gaUnknown = await phase.gui('bridge-approval-answer', {
+    const gaUnknown = await phase.gui('endpoint-approval-answer', {
       httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ approvalId: 'nope', decision: 'allow' }),
     })
-    checks['GUI bridge-approval-answer: 未知 id 回 ok:false'] = gaUnknown.status === 200
+    checks['GUI endpoint-approval-answer: 未知 id 回 ok:false'] = gaUnknown.status === 200
       && JSON.parse(gaUnknown.body).ok === false
-    const gaBadDecision = await phase.gui('bridge-approval-answer', {
+    const gaBadDecision = await phase.gui('endpoint-approval-answer', {
       httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ approvalId: 'x', decision: 'maybe' }),
     })
-    checks['GUI bridge-approval-answer: 非法 decision 400'] = gaBadDecision.status === 400
+    checks['GUI endpoint-approval-answer: 非法 decision 400'] = gaBadDecision.status === 400
     const guardCall = phase.call('bridge_call', { endpoint: 'session/prompt', args: { request: { q: 'guard' } } })
     await waitFor(() => {
-      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'session/prompt')
+      held = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
-    const gaCross = await phase.gui('bridge-approval-answer', {
+    const gaCross = await phase.gui('endpoint-approval-answer', {
       httpMethod: 'POST', headers: { origin: 'http://evil.example.com', 'sec-fetch-site': 'cross-site' },
       body: JSON.stringify({ approvalId: held.approvalId, decision: 'allow' }),
     })
-    checks['GUI bridge-approval-answer: 跨站应答 403(同源守卫)'] = gaCross.status === 403
-      && listBridgeWriteApprovals().length === 1
-    answerBridgeWriteApproval(held.approvalId, 'reject')
-    checks['桥调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined')
-      && bridgeInvokes.length === 3
+    checks['GUI endpoint-approval-answer: 跨站应答 403(同源守卫)'] = gaCross.status === 403
+      && listParkedWrites().length === 1
+    answerParkedWrite(held.approvalId, 'reject')
+    checks['端点调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined')
+      && endpointInvokes.length === 3
 
     // 限时超时: 测试钩子把在途审批的过期时间前移, 不真等超时
     const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
@@ -1207,58 +1207,58 @@ try {
       // 失效条目: 不在活性端点目录里的白名单条目要在 GUI 路由里标出来
       bridgeEndpointAllowlist: ['ghost/gone'],
     })
-    const epsStale = await phaseT.gui('bridge-endpoints', { httpMethod: 'GET' })
+    const epsStale = await phaseT.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsStaleBody = epsStale.status === 200 ? JSON.parse(epsStale.body) : {}
-    checks['GUI bridge-endpoints: 白名单失效条目标记 stale'] = JSON.stringify(epsStaleBody.stale) === JSON.stringify(['ghost/gone'])
+    checks['GUI endpoint-allowlist: 白名单失效条目标记 stale'] = JSON.stringify(epsStaleBody.stale) === JSON.stringify(['ghost/gone'])
       && (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
     const timeoutCall = phaseT.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 't1' } } })
     await waitFor(() => {
-      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedWrites().find((p) => p.endpoint === 'schedule/update')
       return held !== undefined
     })
-    ageBridgeWriteApprovalsForTest(1001)
+    ageParkedWritesForTest(1001)
     const timedOut = await timeoutCall
-    checks['写桥停泊: 限时超时失败关闭且台账清空'] = String(innerOf(timedOut).error ?? '').includes('timed out')
-      && listBridgeWriteApprovals().length === 0 && bridgeInvokes.length === 3
+    checks['写调用停泊: 限时超时失败关闭且台账清空'] = String(innerOf(timedOut).error ?? '').includes('timed out')
+      && listParkedWrites().length === 0 && endpointInvokes.length === 3
 
     // 不限时(0): 时间流逝不停泊消失, 允许后执行
     const ctxU = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const phaseU = await startPhase(8074, ctxU, { approvalTimeoutMs: 0 })
-    const guRead = await phaseU.gui('bridge-approvals', { httpMethod: 'GET' })
-    checks['GUI bridge-approvals: 0 = 不限时标记'] = guRead.status === 200
+    const guRead = await phaseU.gui('endpoint-approvals', { httpMethod: 'GET' })
+    checks['GUI endpoint-approvals: 0 = 不限时标记'] = guRead.status === 200
       && JSON.parse(guRead.body).unlimitedWait === true
     const unlimitedCall = phaseU.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 'u1' } } })
     await waitFor(() => {
-      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedWrites().find((p) => p.endpoint === 'schedule/update')
       return held !== undefined
     })
-    checks['写桥停泊: 0 = 不限时(无过期时刻)'] = held?.expiresAt === undefined
-    ageBridgeWriteApprovalsForTest(10 * 60_000)
-    checks['写桥停泊: 不限时不因时间流逝超时'] = listBridgeWriteApprovals().length === 1
-    answerBridgeWriteApproval(held.approvalId, 'allow')
+    checks['写调用停泊: 0 = 不限时(无过期时刻)'] = held?.expiresAt === undefined
+    ageParkedWritesForTest(10 * 60_000)
+    checks['写调用停泊: 不限时不因时间流逝超时'] = listParkedWrites().length === 1
+    answerParkedWrite(held.approvalId, 'allow')
     const unlimitedResult = await unlimitedCall
-    checks['写桥停泊: 不限时允许后执行'] = unlimitedResult.status === 200
-      && (innerOf(unlimitedResult) as any).updated === true && listBridgeWriteApprovals().length === 0
+    checks['写调用停泊: 不限时允许后执行'] = unlimitedResult.status === 200
+      && (innerOf(unlimitedResult) as any).updated === true && listParkedWrites().length === 0
 
-    // 断连取消: 直接经 invokeOnBridge 带 AbortSignal(真机由 MCP 请求中止触发)
+    // 断连取消: 直接经 invokeEndpoint 带 AbortSignal(真机由 MCP 请求中止触发)
     const ctrl = new AbortController()
-    const cancelCall = invokeOnBridge(ctxU, 'schedule/update', { request: { id: 'c1' } }, { signal: ctrl.signal })
+    const cancelCall = invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c1' } }, { signal: ctrl.signal })
     await waitFor(() => {
-      held = listBridgeWriteApprovals().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedWrites().find((p) => p.endpoint === 'schedule/update')
       return held !== undefined
     })
     ctrl.abort()
     const cancelled = await cancelCall
-    checks['写桥停泊: 调用方断开取消且不执行'] = cancelled.ok === false
+    checks['写调用停泊: 调用方断开取消且不执行'] = cancelled.ok === false
       && String(cancelled.error).includes('disconnected')
-      && listBridgeWriteApprovals().length === 0 && bridgeInvokes.length === 4
+      && listParkedWrites().length === 0 && endpointInvokes.length === 4
 
     // 已中止的信号: 不停泊直接取消
     const ctrl2 = new AbortController()
     ctrl2.abort()
-    const preAborted = await invokeOnBridge(ctxU, 'schedule/update', { request: { id: 'c2' } }, { signal: ctrl2.signal })
-    checks['写桥停泊: 已中止信号直接取消(不停泊)'] = preAborted.ok === false
-      && String(preAborted.error).includes('disconnected') && listBridgeWriteApprovals().length === 0
+    const preAborted = await invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c2' } }, { signal: ctrl2.signal })
+    checks['写调用停泊: 已中止信号直接取消(不停泊)'] = preAborted.ok === false
+      && String(preAborted.error).includes('disconnected') && listParkedWrites().length === 0
 
     await phase.dispose()
     await phaseT.dispose()
@@ -1845,7 +1845,7 @@ try {
   checks['设置面板: GUI 路由客户端调用与服务端注册两侧同步'] = (() => {
     const clientSrc = readClientSource()
     const webSrc = readFileSync(new URL('../src/mcp/web.ts', import.meta.url), 'utf8')
-    const routes = ['status', 'models', 'config-update', 'bridge-endpoints', 'bridge-approvals', 'bridge-approval-answer']
+    const routes = ['status', 'models', 'config-update', 'endpoint-allowlist', 'endpoint-approvals', 'endpoint-approval-answer']
     return routes.every((route) =>
       clientSrc.includes(`rpc('${route}'`)
       && new RegExp(`\\b${route}\\b['"]?\\s*:`).test(webSrc))

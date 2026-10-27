@@ -35,7 +35,7 @@ export function draftFromStatus(st) {
     sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
     allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
     hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
-    // 通用桥端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
+    // dsh 端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
     bridgeEndpointAllowlist: Array.isArray(c.bridgeEndpointAllowlist) ? c.bridgeEndpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
     // 模型/提供商简介(键值表; 面板编辑, 随 model_list / dsh://models 透出)
     modelDescriptions: descTableOf(c.modelDescriptions),

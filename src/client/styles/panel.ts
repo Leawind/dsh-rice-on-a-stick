@@ -24,7 +24,7 @@ export const PANEL_CSS = [
   // 标签上的待审批计数泡: 有停泊请求时出现; 剩余时间不足 1 分钟换紧急色
   '.dcs-tabcount{display:inline-block;box-sizing:border-box;min-width:17px;height:17px;margin-left:6px;padding:0 4px;border-radius:999px;corner-shape:round;font-size:11px;font-weight:600;line-height:17px;text-align:center;font-variant-numeric:tabular-nums;vertical-align:1px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 16%,transparent);color:var(--dsw-alias-state-warn-label,#dd8629);}',
   '.dcs-tabcount-urgent{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 12%,transparent);color:var(--dsw-alias-state-error-primary,#ec1313);}',
-  // 分组标题(设置标签内: MCP 服务 / 模型白名单 / 通用桥 / MCP 令牌 / Agent 工具面 / 审批 / 安全与传输)
+  // 分组标题(设置标签内: MCP 服务 / 模型白名单 / 端点白名单 / MCP 令牌 / Agent 工具面 / 审批 / 安全与传输)
   '.dcs-grouphead{padding:10px 2px 0;}',
   // 带主开关的分组标题: 标题+副标题占左, 开关居右(两个类连写抬高优先级, 盖过 sechead 的 baseline 对齐)
   '.dcs-sechead.dcs-grouphead-ctl{align-items:center;}',
@@ -113,7 +113,7 @@ export const PANEL_CSS = [
   '.dcs-switch[data-on="1"]::after{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground,#fff);}',
   '.dcs-switch:disabled{opacity:.5;cursor:default;}',
   '.dcs-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:2px;}',
-  // 模型白名单: 多选分层树与桥端点清单同构(dcs-eplist), 只多出简介编辑钮与行下编辑器
+  // 模型白名单: 多选分层树与端点白名单清单同构(dcs-eplist), 只多出简介编辑钮与行下编辑器
   '.dcs-listwrap{padding:0 2px 12px;display:flex;flex-direction:column;gap:8px;}',
   '.dcs-x{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:14px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
   '.dcs-x:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-state-error-primary,#ec1313);}',
@@ -123,14 +123,14 @@ export const PANEL_CSS = [
   '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;flex-wrap:wrap;}',
   '.dcs-tokenwarn{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629);}',
   '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
-  // 通用桥白名单清单: 过滤+全选行在上, 组头(组复选+namespace+计数)与端点行(复选+端点+说明+锁定徽标)在下
+  // 端点白名单清单: 过滤+全选行在上, 组头(组复选+namespace+计数)与端点行(复选+端点+说明+锁定徽标)在下
   '.dcs-eps{display:flex;flex-direction:column;gap:8px;width:100%;}',
   '.dcs-epbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
   '.dcs-epbar .dcs-input{flex:1 1 200px;width:auto;min-width:160px;height:28px;font-size:12px;}',
   '.dcs-epall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);white-space:nowrap;cursor:pointer;}',
   // 清单独立滚动: overscroll-behavior:contain 阻断滚动链接——滚到顶/底后继续滚不会带动外层页面,
   // 面板不会因"外层接着滚"而整体位移(鼠标在清单内时滚动始终由清单自己消费)。
-  // 桥端点白名单的两个清单(-flat)不限高: 完整展示, 页面整体滚动
+  // 端点白名单的两个清单(-flat)不限高: 完整展示, 页面整体滚动
   '.dcs-eplist{display:flex;flex-direction:column;max-height:320px;overflow:auto;overscroll-behavior:contain;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
   '.dcs-eplist-flat{max-height:none;overflow:visible;overscroll-behavior:auto;}',
   '.dcs-epgroup{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
@@ -165,7 +165,7 @@ export const PANEL_CSS = [
   '.dcs-epdangerhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:2px 2px 0;}',
   '.dcs-epdangerhead .dcs-sectitle{color:var(--dsw-alias-state-error-primary,#ec1313);}',
   '.dcs-epdangerhead .dcs-sub{flex:1;min-width:160px;}',
-  // 模型白名单树: 与桥端点清单同构(组头 = 箭头+组复选+名称+计数; 行 = 复选+名称+简介+编辑钮)。
+  // 模型白名单树: 与端点白名单清单同构(组头 = 箭头+组复选+名称+计数; 行 = 复选+名称+简介+编辑钮)。
   // 简介编辑钮(✎)是弱化幽灵按钮, 悬停才浮出; 编辑行是行下展开的 textarea, 失焦即存
   '.dcs-mrow{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   '.dcs-mpair{display:flex;align-items:baseline;gap:6px;min-width:0;}',
@@ -186,7 +186,7 @@ export const PANEL_CSS = [
   '.dcs-tip{display:none;position:fixed;z-index:2147483000;max-width:460px;padding:6px 10px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);box-shadow:0 6px 20px rgba(0,0,0,.14);pointer-events:none;white-space:pre-line;word-break:break-word;}',
   '.dcs-tip .dcs-epbadge{vertical-align:-4px;}',
   '.dcs-tip .dcs-epbadge + .dcs-epbadge,.dcs-tip .dcs-epbadge + *{margin-left:6px;}',
-  // 桥写审批列表(动作关键面): 头部(标题 + 停泊计数 + 全部拒绝) + 说明行 + 每条停泊请求一张独立小卡;
+  // 端点写调用审批列表(动作关键面): 头部(标题 + 停泊计数 + 全部拒绝) + 说明行 + 每条停泊请求一张独立小卡;
   // 卡顶细条按剩余时间占比收缩, 不足 1 分钟转紧急红; 新卡轻轻浮入(prefers-reduced-motion 时关闭)
   '.dcs-apprs{display:flex;flex-direction:column;gap:8px;}',
   '.dcs-apprs-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:10px 2px 0;}',

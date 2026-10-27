@@ -1,20 +1,20 @@
-// ── 桥写审批列表 ──
-// 停泊在插件台账里的桥写请求逐一列出: 头部(标题 + 停泊计数 + 全部拒绝) + 每条一张独立小卡
+// ── 端点写调用审批列表 ──
+// 停泊在插件台账里的端点写调用逐一列出: 头部(标题 + 停泊计数 + 全部拒绝) + 每条一张独立小卡
 // (端点 + 等待/剩余时长 + 参数摘要 + 允许/拒绝), 卡顶细条按剩余占比收缩、不足 1 分钟转紧急红。
-// 应答经同源 POST bridge-approval-answer; 失败(已被超时/他处应答)在列表下方提示并刷新。
+// 应答经同源 POST endpoint-approval-answer; 失败(已被超时/他处应答)在列表下方提示并刷新。
 import React from 'react';
 import { t } from '../i18n';
 import { fmtDur } from '../format';
 import { rpc } from '../rpc';
 
-export function BridgeApprovalCard(props) {
+export function EndpointApprovalCard(props) {
   const [busy, setBusy] = React.useState('');
   const [fail, setFail] = React.useState('');
   const now = props.now;
   // 虚拟审批项(调试)不经服务端: 本地移除即可——台账里没有它, 发应答只会回 ok:false
   const isDebug = function (a) { return String(a.approvalId).indexOf('debug-') === 0; };
   function answerReal(a, decision) {
-    return rpc('bridge-approval-answer', { approvalId: a.approvalId, decision: decision }).then(function (r) {
+    return rpc('endpoint-approval-answer', { approvalId: a.approvalId, decision: decision }).then(function (r) {
       if (!(r && r.ok)) throw new Error(String((r && r.error) || 'rejected by route'));
     });
   }
@@ -58,21 +58,21 @@ export function BridgeApprovalCard(props) {
   }
   return React.createElement('div', { className: 'dcs-apprs' },
     React.createElement('div', { className: 'dcs-apprs-head' },
-      React.createElement('span', { className: 'dcs-sectitle' }, t('bridgeApproval.title')),
-      React.createElement('span', { className: 'dcs-sub' }, t('bridgeApproval.count', { n: props.items.length })),
+      React.createElement('span', { className: 'dcs-sectitle' }, t('endpointApproval.title')),
+      React.createElement('span', { className: 'dcs-sub' }, t('endpointApproval.count', { n: props.items.length })),
       React.createElement('div', { className: 'dcs-spacer' }),
       props.items.length > 1 ? React.createElement('button', {
         type: 'button', className: 'dcs-btn dcs-btn-danger', disabled: busy !== '',
         onClick: rejectAll,
-      }, busy === 'bulk' ? t('bridgeApproval.rejectAllBusy') : t('bridgeApproval.rejectAll')) : null,
+      }, busy === 'bulk' ? t('endpointApproval.rejectAllBusy') : t('endpointApproval.rejectAll')) : null,
     ),
-    React.createElement('div', { className: 'dcs-sub dcs-apprs-desc' }, t('bridgeApproval.desc')),
+    React.createElement('div', { className: 'dcs-sub dcs-apprs-desc' }, t('endpointApproval.desc')),
     props.items.map(function (a) {
       const urgent = a.expiresAt !== undefined && (a.expiresAt as number) - now < 60000;
       // 已过期但尚未被服务端回收的条目: 剩余钳到 0, 不显示无意义的"—"
       const left = a.expiresAt !== undefined
-        ? t('bridgeApproval.left', { d: fmtDur(Math.max(0, (a.expiresAt as number) - now)) })
-        : t('bridgeApproval.unlimited');
+        ? t('endpointApproval.left', { d: fmtDur(Math.max(0, (a.expiresAt as number) - now)) })
+        : t('endpointApproval.unlimited');
       // 时间条: 剩余占比按 requestedAt→expiresAt 全程折算; 缺时刻或不限时不出条
       const span = a.expiresAt !== undefined && a.requestedAt !== undefined
         ? (a.expiresAt as number) - (a.requestedAt as number) : 0;
@@ -84,23 +84,23 @@ export function BridgeApprovalCard(props) {
         }) : null,
         React.createElement('div', { className: 'dcs-apprhead' },
           React.createElement('span', { className: 'dcs-apprendpoint' }, a.endpoint),
-          a.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('bridge.dangerous')) : null,
+          a.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')) : null,
           React.createElement('span', { className: 'dcs-apprwait' + (urgent ? ' dcs-apprwait-urgent' : '') },
-            t('bridgeApproval.waited', { d: fmtDur(Math.max(0, now - a.requestedAt)) }) + ' · ' + left),
+            t('endpointApproval.waited', { d: fmtDur(Math.max(0, now - a.requestedAt)) }) + ' · ' + left),
         ),
         React.createElement('pre', { className: 'dcs-apprargs' }, a.argsPreview || '{}'),
         React.createElement('div', { className: 'dcs-apprbtns' },
           React.createElement('button', {
             type: 'button', className: 'dcs-btn dcs-btn-primary', disabled: busy !== '',
             onClick: function () { answer(a, 'allow'); },
-          }, t('bridgeApproval.allow')),
+          }, t('endpointApproval.allow')),
           React.createElement('button', {
             type: 'button', className: 'dcs-btn dcs-btn-danger', disabled: busy !== '',
             onClick: function () { answer(a, 'reject'); },
-          }, t('bridgeApproval.reject')),
+          }, t('endpointApproval.reject')),
         ),
       );
     }),
-    fail ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', t('bridgeApproval.fail', { e: fail })) : null,
+    fail ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', t('endpointApproval.fail', { e: fail })) : null,
   );
 }

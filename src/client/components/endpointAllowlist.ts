@@ -1,4 +1,4 @@
-// ── 通用桥端点白名单清单 ──
+// ── dsh 端点白名单清单 ──
 // 端点全量列出, 按是否危险拆成两个独立清单(危险 = 开发期端点元数据的 dangerous 标注,
 // 信任与供应链类): 普通清单在上; 危险清单带错误色段头单列在下, 没有已知危险端点时整段不出现。
 // 每份清单内: 按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
@@ -18,7 +18,7 @@ import React from 'react';
 import { t, LOCALE } from '../i18n';
 import { showTip, hideTip } from './ui';
 
-export function BridgeEndpointAllowlist(props) {
+export function EndpointAllowlist(props) {
   const [filter, setFilter] = React.useState('');
   // 展开的组(两份清单共用一套展开态, namespace 全局唯一): null = 全部收起(默认折叠, 组头的
   // 已选计数仍可见); 非空 = 显式 Set(点组头后接管)
@@ -154,10 +154,10 @@ export function BridgeEndpointAllowlist(props) {
   // 行的徽标(文字 + 胶囊样式类; 行尾渲染与悬停 tooltip 共用同一份)
   function badgesOf(e) {
     const out = [];
-    if (e.kind === 'read') out.push({ cls: 'dcs-epbadge-read', label: t('bridge.readonly') });
-    if (e.kind === 'selectable') out.push({ cls: 'dcs-epbadge-write', label: t('bridge.write') });
-    if (e.kind === 'stream') out.push({ cls: 'dcs-epbadge-stream', label: t('bridge.stream') });
-    if (e.dangerous === true) out.push({ cls: 'dcs-epbadge-danger', label: t('bridge.dangerous') });
+    if (e.kind === 'read') out.push({ cls: 'dcs-epbadge-read', label: t('endpoint.readonly') });
+    if (e.kind === 'selectable') out.push({ cls: 'dcs-epbadge-write', label: t('endpoint.write') });
+    if (e.kind === 'stream') out.push({ cls: 'dcs-epbadge-stream', label: t('endpoint.stream') });
+    if (e.dangerous === true) out.push({ cls: 'dcs-epbadge-danger', label: t('endpoint.dangerous') });
     return out;
   }
   function badgePill(b) {
@@ -192,10 +192,10 @@ export function BridgeEndpointAllowlist(props) {
       desc ? React.createElement('span', { className: 'dcs-eprdesc' }, desc) : null,
       // 弹性占位: 描述缺失时也把徽标推到行右端
       React.createElement('span', { className: 'dcs-eprfill' }),
-      e.kind === 'read' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('bridge.readonly')) : null,
-      e.kind === 'selectable' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-write' }, t('bridge.write')) : null,
-      stream ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stream' }, t('bridge.stream')) : null,
-      e.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('bridge.dangerous')) : null,
+      e.kind === 'read' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('endpoint.readonly')) : null,
+      e.kind === 'selectable' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-write' }, t('endpoint.write')) : null,
+      stream ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stream' }, t('endpoint.stream')) : null,
+      e.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')) : null,
     );
   }
   // 一份清单的树(组头 + 端点行)
@@ -242,18 +242,18 @@ export function BridgeEndpointAllowlist(props) {
 
   let body;
   if (data === null) {
-    body = React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.loading'));
+    body = React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.loading'));
   } else if (data === false) {
-    body = React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.unavailable'));
+    body = React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.unavailable'));
   } else {
     const staleBlock = stale.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
-      React.createElement('span', { className: 'dcs-epcount' }, t('bridge.staleTitle')),
+      React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.staleTitle')),
       stale.map(function (s) {
         return React.createElement(React.Fragment, { key: s },
           React.createElement('span', { className: 'dcs-eprname' }, s),
-          React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('bridge.staleBadge')),
+          React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('endpoint.staleBadge')),
           React.createElement('button', {
-            type: 'button', className: 'dcs-x', title: t('bridge.staleRemove', { e: s }),
+            type: 'button', className: 'dcs-x', title: t('endpoint.staleRemove', { e: s }),
             onClick: function () { emit(allowed.filter(function (x) { return x !== s; })); },
           }, '✕'),
         );
@@ -267,18 +267,18 @@ export function BridgeEndpointAllowlist(props) {
         ? null
         : React.createElement('div', { className: 'dcs-eplist dcs-eplist-flat' },
             visibleGroups.length === 0
-              ? React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.none'))
+              ? React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.none'))
               : tree(visibleGroups),
           ),
       showDanger ? React.createElement('div', { className: 'dcs-epdangerhead' },
-        React.createElement('span', { className: 'dcs-sectitle' }, t('bridge.dangerousTitle')),
-        React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('bridge.dangerous')),
-        React.createElement('span', { className: 'dcs-sub' }, t('bridge.dangerousHint')),
+        React.createElement('span', { className: 'dcs-sectitle' }, t('endpoint.dangerousTitle')),
+        React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')),
+        React.createElement('span', { className: 'dcs-sub' }, t('endpoint.dangerousHint')),
       ) : null,
       showDanger
         ? React.createElement('div', { className: 'dcs-eplist dcs-eplist-flat' },
             visibleDanger.length === 0
-              ? React.createElement('div', { className: 'dcs-listmsg' }, t('bridge.none'))
+              ? React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.none'))
               : tree(visibleDanger),
           )
         : null,
@@ -290,7 +290,7 @@ export function BridgeEndpointAllowlist(props) {
     React.createElement('div', { className: 'dcs-epbar' },
       React.createElement('input', {
         className: 'dcs-input', type: 'text', value: filter,
-        placeholder: t('bridge.filter'), spellCheck: false,
+        placeholder: t('endpoint.filter'), spellCheck: false,
         onChange: function (ev) { setFilter(ev.target.value); },
       }),
       React.createElement('label', { className: 'dcs-epall' },
@@ -299,7 +299,7 @@ export function BridgeEndpointAllowlist(props) {
           checked: allSelected, ref: checkRef(someSelected),
           onChange: toggleAll,
         }),
-        t('bridge.selectAll'),
+        t('endpoint.selectAll'),
       ),
       React.createElement('label', { className: 'dcs-epall' },
         React.createElement('input', {
@@ -307,7 +307,7 @@ export function BridgeEndpointAllowlist(props) {
           checked: readOn, ref: checkRef(readSome),
           onChange: toggleRead,
         }),
-        t('bridge.readonly'),
+        t('endpoint.readonly'),
       ),
       React.createElement('label', { className: 'dcs-epall' },
         React.createElement('input', {
@@ -315,9 +315,9 @@ export function BridgeEndpointAllowlist(props) {
           checked: writeOn, ref: checkRef(writeSome),
           onChange: toggleWritable,
         }),
-        t('bridge.writable'),
+        t('endpoint.writable'),
       ),
-      React.createElement('span', { className: 'dcs-epcount' }, t('bridge.selected', { n: allowed.length, m: selectableOf(endpoints).length })),
+      React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.selected', { n: allowed.length, m: selectableOf(endpoints).length })),
     ),
     body,
   );

@@ -1,19 +1,19 @@
 /**
  * 通用桥工具(读面 + 审批门控的写面): bridge_describe(搜索优先的四级解析阶梯:
  * query 关键词搜索 → 无参 namespace 索引 → namespace 单域清单 → endpoint 精确契约) + bridge_call。
- * 长尾宿主能力的零策展覆盖面——数据源与调用机制见 src/host/typert-bridge.ts。
+ * 长尾 dsh 能力的零策展覆盖面——数据源与调用机制见 src/host/endpoint-passthrough.ts。
  * 两工具恒注册: 它们描述/调用的是宿主服务面, 没有资源面等价物。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
-import { describeDirectory, describeEndpoint, describeNamespace, invokeOnBridge, bridgeNamespaces, searchEndpoints } from '../../host/typert-bridge.js'
+import { describeDirectory, describeEndpoint, describeNamespace, invokeEndpoint, endpointNamespaces, searchEndpoints } from '../../host/endpoint-passthrough.js'
 import { out, outError } from './shared.js'
 
 /** 结果渲染上限: 超大载荷直接拒(调用方应缩小查询), 不做破坏性截断 */
 const RENDER_CAP = 256 * 1024
 
-export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
+export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'bridge_describe',
     {
@@ -34,7 +34,7 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
         if (ep !== undefined && (q !== undefined || ns !== undefined)) {
           return outError(JSON.stringify({ error: 'pass at most one selector: endpoint ("namespace/method") fetches the exact contract and cannot combine with query/namespace' }))
         }
-        const names = bridgeNamespaces(ctx)
+        const names = endpointNamespaces(ctx)
         if (names.length === 0) {
           return outError(JSON.stringify({ error: 'the dsh typert registry is unavailable (this needs the web profile typert services)' }))
         }
@@ -75,7 +75,7 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
     },
     async ({ endpoint, args }, extra) => {
       try {
-        const r = await invokeOnBridge(ctx, endpoint, args ?? {}, { signal: extra?.signal })
+        const r = await invokeEndpoint(ctx, endpoint, args ?? {}, { signal: extra?.signal })
         if (!r.ok) return outError(JSON.stringify({ error: r.error }))
         let rendered: string
         try {

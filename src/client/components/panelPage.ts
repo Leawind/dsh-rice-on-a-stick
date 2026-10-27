@@ -1,7 +1,7 @@
 // ── 侧栏页(main 条目): 品牌头(含整合了 MCP 服务开关/监听地址/端点/复制的端点卡) + 页内标签 ──
-// 审批标签 = 桥写审批等待上限(秒) + 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
+// 审批标签 = 端点写审批等待上限(秒) + 停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
 // 模型白名单标签 = 白名单开关 + 多选分层树(每行可编辑模型/提供商简介);
-// 设置标签 = 配置表单(按常用度分组: MCP 令牌 / 通用桥端点白名单 / Agent 工具面 / 审批 /
+// 设置标签 = 配置表单(按常用度分组: MCP 令牌 / dsh 端点白名单 / Agent 工具面 / 审批 /
 // 安全与传输); 连接标签 = 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免设置页被拉长)。
 // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
 // 字段的读取/校验与草稿构造在 ../configFields(纯函数, 现读生效配置)。
@@ -13,8 +13,8 @@ import { draftFromStatus, generateToken, structDirtyOf, listenDirtyOf, readListe
 import { approvalStore, useApprovals } from '../approvalStore';
 import { Badge, groupHead, Row, Switch } from './ui';
 import { PanelIcon } from './brand';
-import { BridgeEndpointAllowlist } from './bridgeEndpoints';
-import { BridgeApprovalCard } from './bridgeApprovals';
+import { EndpointAllowlist } from './endpointAllowlist';
+import { EndpointApprovalCard } from './endpointApprovals';
 import { ModelAllowlistTree } from './modelAllowlist';
 import { NAV_ICON_SVG } from '../icons';
 
@@ -84,12 +84,12 @@ export function PanelPage() {
   React.useEffect(function () { return disarmRegen; }, []);
   // 模型目录(模型白名单树的数据源): null = 未加载, false = 加载失败; 进入模型标签页时(重)拉
   const [cat, setCat] = React.useState(null);
-  // 通用桥端点目录(白名单清单的数据源): null = 加载中, false = 不可用, 否则 {endpoints, stale}
+  // dsh 端点目录(白名单清单的数据源): null = 加载中, false = 不可用, 否则 {endpoints, stale}
   const [eps, setEps] = React.useState(null);
   React.useEffect(function () {
     let alive = true;
     const load = function () {
-      rpc('bridge-endpoints').then(function (r) {
+      rpc('endpoint-allowlist').then(function (r) {
         if (alive) setEps(r && r.available === true ? r : false);
       }).catch(function () { if (alive) setEps(false); });
     };
@@ -97,7 +97,7 @@ export function PanelPage() {
     const timer = window.setInterval(load, 10000);
     return function () { alive = false; window.clearInterval(timer); };
   }, []);
-  // 桥写停泊审批(审批标签 + 侧栏角标同源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
+  // 端点写调用停泊审批(审批标签 + 侧栏角标同源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
   const bApprovals = useApprovals();
   const bUnlimited = approvalStore.isUnlimited();
   const bUrgent = bApprovals.some(function (a) { return a.expiresAt !== undefined && (a.expiresAt as number) - Date.now() < 60000; });
@@ -221,7 +221,7 @@ export function PanelPage() {
       defaultDetail: next.defaultDetail,
       authEnabled: next.authOn === true,
       selfToolsEnabled: next.selfToolsOn === true,
-      // 通用桥端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
+      // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
       bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice(),
       // 模型/提供商简介: 键值表原样提交, 服务端清理空键空值
       modelDescriptions: next.modelDescriptions || {},
@@ -509,7 +509,7 @@ export function PanelPage() {
       React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
     ) : null,
     // ── 审批标签: 通用端点审批等待时长(秒, 只收非负整数, 无上限——超出由服务端按运行时口径静默钳制) ──
-    // + 停泊中的桥写调用逐一应答; 空态为居中虚线框
+    // + 停泊中的端点写调用逐一应答; 空态为居中虚线框
     tab === 'approvals'
       ? React.createElement(React.Fragment, null,
           d ? React.createElement('div', { className: 'dcs-form' },
@@ -542,7 +542,7 @@ export function PanelPage() {
                   dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
                 }),
                 React.createElement('div', { className: 'dcs-apprsempty-main' }, t('approvals.empty')))
-            : React.createElement(BridgeApprovalCard, {
+            : React.createElement(EndpointApprovalCard, {
                 items: bApprovals,
                 unlimited: bUnlimited,
                 now: nowTick,
@@ -577,7 +577,7 @@ export function PanelPage() {
     tab !== 'settings' ? null :
     // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段(MCP 服务
     // 开关与监听地址/端口, 在页头端点卡)重建监听器。按常用度分组排序, 同类相邻:
-    // MCP 令牌 → Agent 工具面 → 审批 → 安全与传输 → 通用桥端点白名单(清单长, 沉底); 组内行间画发丝线(每组一个 .dcs-form 容器)
+    // MCP 令牌 → Agent 工具面 → 审批 → 安全与传输 → dsh 端点白名单(清单长, 沉底); 组内行间画发丝线(每组一个 .dcs-form 容器)
     d ? React.createElement(React.Fragment, null,
       // ── MCP 令牌(常用度 5; 令牌行常驻展开, 关闭认证时也可预生成/复制令牌) ──
       groupHead(t('auth.title'), {
@@ -658,7 +658,7 @@ export function PanelPage() {
           React.createElement('option', { value: 'full' }, t('detail.full'))),
       }),
       ),
-      // ── 审批桥写: 等待上限(秒)在审批标签编辑; 这里只剩脚注说明生效语义 ──
+      // ── 端点写调用审批: 等待上限(秒)在审批标签编辑; 这里只剩脚注说明生效语义 ──
       groupHead(t('tab.approvals')),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-footnote' }, t('footnote.approval')),
@@ -701,11 +701,11 @@ export function PanelPage() {
         ),
       }),
       ),
-      // ── 通用桥端点白名单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列; 两个清单完整展示不设滚动容器) ──
-      groupHead(t('bridge.title'), { hint: t('bridge.hint') }),
+      // ── dsh 端点白名单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列; 两个清单完整展示不设滚动容器) ──
+      groupHead(t('endpoint.title'), { hint: t('endpoint.hint') }),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-listwrap' },
-        React.createElement(BridgeEndpointAllowlist, {
+        React.createElement(EndpointAllowlist, {
           data: eps,
           allowed: d.bridgeEndpointAllowlist || [],
           onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },

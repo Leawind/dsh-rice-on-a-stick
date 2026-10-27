@@ -1,4 +1,4 @@
-// ── 桥写停泊审批的常驻观察(模块级单例) ──
+// ── 端点写调用停泊审批的常驻观察(模块级单例) ──
 // 侧栏图标角标与页面审批卡共用同一份数据: 首个订阅者出现时开始轮询, 最后一个退订时停止。
 // 节奏: 有停泊请求 2s(卡片与角标要尽快露面/消失), 空闲 10s; GUI 路由缺席(插件重载窗口)静默重试。
 // 每轮都以新数组引用发布快照: 订阅方随每轮重渲染, 审批卡倒计时与角标紧急色不需要额外时钟。
@@ -24,7 +24,7 @@ export var approvalStore = (function () {
   }
   function load() {
     if (!running) return undefined;
-    return rpc('bridge-approvals').then(function (r) {
+    return rpc('endpoint-approvals').then(function (r) {
       if (!running) return;
       items = Array.isArray(r && r.approvals) ? r.approvals : [];
       unlimited = (r && r.unlimitedWait) === true;

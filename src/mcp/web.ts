@@ -12,8 +12,8 @@ import os from 'node:os'
 import { PLUGIN_NAME, clampApprovalTimeout } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from '../host/bridge.js'
-import { answerBridgeWriteApproval, classifyInvocation, listBridgeWriteApprovals, listInvocations } from '../host/typert-bridge.js'
-import { BRIDGE_NAMESPACE_META, endpointMetaOf } from '../host/bridge-endpoints.js'
+import { answerParkedWrite, classifyInvocation, listParkedWrites, listInvocations } from '../host/endpoint-passthrough.js'
+import { NAMESPACE_META, endpointMetaOf } from '../host/endpoint-meta.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
 interface WebServerView {
@@ -355,11 +355,11 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     },
     // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
     models: () => deps.models(),
-    // 通用桥端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目。
-    // descriptionZh/descriptionEn 来自开发期端点元数据(bridge-endpoints.ts), 缺失时面板回退 descriptor 描述;
+    // dsh 端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目。
+    // descriptionZh/descriptionEn 来自开发期端点元数据(endpoint-meta.ts), 缺失时面板回退 descriptor 描述;
     // dangerous = 元数据标注的危险端点(信任与供应链类), 面板单列清单。
     // namespaces = 各命名空间的中英文一句话描述(面板组头显示), 同样来自开发期元数据。
-    'bridge-endpoints': () => {
+    'endpoint-allowlist': () => {
       const invocations = listInvocations(ctx)
       const allow = new Set(state.config.bridgeEndpointAllowlist)
       const live = new Set<string>()
@@ -383,29 +383,29 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         total: invocations.length,
         endpoints,
         namespaces: Object.fromEntries(
-          Object.entries(BRIDGE_NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }]),
+          Object.entries(NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }]),
         ),
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
-    // 桥写停泊审批(设置面板审批卡的数据源): 在途写请求全量 + 等待是否不限时
-    'bridge-approvals': () => ({
-      approvals: listBridgeWriteApprovals(),
+    // 端点写调用停泊审批(设置面板审批卡的数据源): 在途写请求全量 + 等待是否不限时
+    'endpoint-approvals': () => ({
+      approvals: listParkedWrites(),
       unlimitedWait: state.config.approvalTimeoutMs === 0,
     }),
-    // 桥写停泊审批的人工应答: allow 一次放行一次, reject 失败关闭; 未知/已结的 id 回 ok:false
-    'bridge-approval-answer': (body) => {
+    // 端点写调用停泊审批的人工应答: allow 一次放行一次, reject 失败关闭; 未知/已结的 id 回 ok:false
+    'endpoint-approval-answer': (body) => {
       if (typeof body !== 'object' || body === null || Array.isArray(body)) {
         throw httpError(400, '请求体必须是 { approvalId, decision } 对象')
       }
       const { approvalId, decision } = body as { approvalId?: unknown; decision?: unknown }
       if (typeof approvalId !== 'string' || approvalId === '') throw httpError(400, 'approvalId 必须是非空字符串')
       if (decision !== 'allow' && decision !== 'reject') throw httpError(400, 'decision 必须是 allow 或 reject')
-      return answerBridgeWriteApproval(approvalId, decision)
+      return answerParkedWrite(approvalId, decision)
     },
     'config-update': (body) => guiConfigUpdate(body),
   }
-  const WEB_MUTATING = new Set(['config-update', 'bridge-approval-answer'])
+  const WEB_MUTATING = new Set(['config-update', 'endpoint-approval-answer'])
 
   ctx.inject(['webServer'], (webCtx) => {
     const webServer = (webCtx as unknown as { webServer: WebServerView }).webServer

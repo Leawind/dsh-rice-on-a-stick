@@ -1,36 +1,36 @@
 /**
- * 通用桥端点元数据 —— 开发期人工策展的已知端点与命名空间属性表。
+ * dsh 端点元数据 —— 开发期人工策展的已知端点与命名空间属性表。
  *
- * 宿主 Typert descriptor 只给端点名与描述, 不标注读写性; 本表在开发期为已知端点补充
- * 运行时要用的属性(见 CONTRIBUTING.md「通用桥端点元数据」):
- *   readOnly     纯取数/查询语义, 无持久化副作用 → 桥上直行, 无需白名单或审批
+ * dsh Typert descriptor 只给端点名与描述, 不标注读写性; 本表在开发期为已知端点补充
+ * 运行时要用的属性(见 CONTRIBUTING.md "端点元数据"):
+ *   readOnly     纯取数/查询语义, 无持久化副作用 → 直行, 无需白名单或审批
  *   dangerous    信任与供应链类操作(凭据写入/插件或 MCP 服务器安装/连接信任) → 没有永久拒绝,
  *                走与普通变更端点相同的两条通路(白名单直行 / 停泊审批), 但界面单列并标注
  *   description  中英文描述, 面板清单按界面语言显示(descriptor 自带描述的兜底)
  *
- * 另有 BRIDGE_NAMESPACE_META: 每个命名空间的中英文一句话描述(面板组头显示, 亦是纯界面数据)。
+ * 另有 NAMESPACE_META: 每个命名空间的中英文一句话描述(面板组头显示, 亦是纯界面数据)。
  *
  * 表以 dsh 0.2.1-rc.2 实机目录(web profile 全量 167 端点)为基准逐条核对过; 不要求列全,
  * 表外端点按"变更类"处理(停泊审批)。策展错误的最坏结局是让一个只读端点多等一次审批,
  * 或让一个危险端点少一个醒目标注——都不会绕过任何闸门; 反向(把变更端点标成只读)必须避免。
  */
 
-export interface BridgeEndpointDescription {
+export interface EndpointDescription {
   zh: string
   en: string
 }
 
-export interface BridgeEndpointMeta {
-  /** 只读端点: 取数/查询语义, 桥上直行 */
+export interface EndpointMeta {
+  /** 只读端点: 取数/查询语义, 直行 */
   readOnly?: boolean
   /** 危险端点: 信任与供应链类操作, 界面单列标注 */
   dangerous?: boolean
   /** 中英文描述(面板清单按界面语言显示) */
-  description?: BridgeEndpointDescription
+  description?: EndpointDescription
 }
 
 /** 命名空间一句话描述(面板组头按界面语言显示; 缺失时组头只显示名字) */
-export const BRIDGE_NAMESPACE_META: Readonly<Record<string, BridgeEndpointDescription>> = {
+export const NAMESPACE_META: Readonly<Record<string, EndpointDescription>> = {
   'account': { zh: '平台账号', en: 'Platform account' },
   'agentPresets': { zh: 'Agent 预设', en: 'Agent presets' },
   'commands': { zh: '斜杠命令', en: 'Slash commands' },
@@ -66,7 +66,7 @@ export const BRIDGE_NAMESPACE_META: Readonly<Record<string, BridgeEndpointDescri
   'workspaceFiles': { zh: '工作区文件', en: 'Workspace files' },
 }
 
-export const BRIDGE_ENDPOINT_META: Readonly<Record<string, BridgeEndpointMeta>> = {
+export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── account(平台账号) ──
   'account/ackBonusNotified': {
     description: { zh: '记录某条已展示的充值奖励为已提示。', en: 'Record one displayed bonus as notified.' },
@@ -706,11 +706,11 @@ export const BRIDGE_ENDPOINT_META: Readonly<Record<string, BridgeEndpointMeta>> 
 }
 
 /** 读取端点元数据(未知端点返回 undefined, 各属性按缺省语义处理) */
-export function endpointMetaOf(endpoint: string): BridgeEndpointMeta | undefined {
-  return BRIDGE_ENDPOINT_META[endpoint]
+export function endpointMetaOf(endpoint: string): EndpointMeta | undefined {
+  return ENDPOINT_META[endpoint]
 }
 
 /** 读取命名空间一句话描述(未知命名空间返回 undefined) */
-export function namespaceMetaOf(namespace: string): BridgeEndpointDescription | undefined {
-  return BRIDGE_NAMESPACE_META[namespace]
+export function namespaceMetaOf(namespace: string): EndpointDescription | undefined {
+  return NAMESPACE_META[namespace]
 }

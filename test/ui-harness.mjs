@@ -1,6 +1,6 @@
 // Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的侧栏页真实渲染到浏览器。
 // 不依赖 dsh 宿主——stub __ModuleLoader__/slots(main + sidebar.panellist 同真机契约), 假侧栏行渲染插件
-// 注册的图标组件(含待审批角标); mock GUI 路由(status/models/bridge-endpoints/bridge-approvals/config-update),
+// 注册的图标组件(含待审批角标); mock GUI 路由(status/models/endpoint-allowlist/endpoint-approvals/config-update),
 // 状态形状与 src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
@@ -47,7 +47,7 @@ const state = {
   },
   connections: DEFAULT_CONNS(),
 }
-const rpcCounts = { status: 0, 'config-update': 0, 'bridge-approvals': 0 }
+const rpcCounts = { status: 0, 'config-update': 0, 'endpoint-approvals': 0 }
 const configCalls = []
 const boot = { errors: [] }
 const mode = { statusError: false, configDelayMs: 0, pendingApprovals: 1 }
@@ -359,8 +359,8 @@ const server = createServer(async (req, res) => {
         if (mode.statusError) return json(res, 500, { error: '模拟故障(statusError)' })
         return json(res, 200, snapshot())
       }
-      if (method === 'bridge-endpoints') {
-        // 通用桥端点目录(与 src/mcp/web.ts bridge-endpoints 同形): kind 锁定行 + 危险端点标注 + 失效条目 + 超长描述
+      if (method === 'endpoint-allowlist') {
+        // dsh 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): kind 锁定行 + 危险端点标注 + 失效条目 + 超长描述
         // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
         // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读默认勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
         const allow = new Set(state.config.bridgeEndpointAllowlist)
@@ -397,11 +397,11 @@ const server = createServer(async (req, res) => {
           stale: [...allow].filter((x) => !live.has(x)).sort(),
         })
       }
-      if (method === 'bridge-approvals') {
+      if (method === 'endpoint-approvals') {
         // 桥写停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
         // expiresAt 逐条错开, 末条落在 1 分钟内可目检紧急色; RPC 计数供轮询节奏断言。
         // 已应答的条目从后续轮询中剔除(与真机"答复即出清"同语义), 供目检允许/拒绝后的卡片消失
-        rpcCounts['bridge-approvals']++
+        rpcCounts['endpoint-approvals']++
         const n = Math.max(0, mode.pendingApprovals | 0)
         const items = Array.from({ length: n }, (_, i) => ({
           approvalId: 'mock-' + (i + 1),
@@ -412,8 +412,8 @@ const server = createServer(async (req, res) => {
         })).filter((a) => !answeredApprovals.has(a.approvalId))
         return json(res, 200, { approvals: items, unlimitedWait: false })
       }
-      if (method === 'bridge-approval-answer') {
-        // 审批应答(与 src/mcp/web.ts bridge-approval-answer 同形): 记下 approvalId, 下一轮轮询出清
+      if (method === 'endpoint-approval-answer') {
+        // 审批应答(与 src/mcp/web.ts endpoint-approval-answer 同形): 记下 approvalId, 下一轮轮询出清
         let payload
         try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
         if (!payload.approvalId || (payload.decision !== 'allow' && payload.decision !== 'reject')) {

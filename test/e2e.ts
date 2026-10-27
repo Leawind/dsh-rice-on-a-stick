@@ -2,7 +2,7 @@
 //
 // Zero-token phase: MCP handshake + instructions, the current tool surface, read-only tools
 // (echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list / model_list /
-// session_list), the attachment/bridge read-only face (bridge_describe / bridge_call
+// session_list), the attachment read-only face and the dsh endpoint passthrough face (bridge_describe / bridge_call
 // session/modelCatalog / attachment_read unknown-id), session_history on a persisted-only
 // session (host sessionController.inspect), and the resource face (list / read / presets).
 //
@@ -115,7 +115,7 @@ try {
   const sid = init.sid
   await rpc(sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
-  // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复 + 附件/桥) ──
+  // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复 + 附件/端点直通) ──
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
   const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
@@ -219,12 +219,12 @@ try {
   report('resources/read dsh://sessions', !rSessions.error && Number.isInteger(rSessions.json?.total),
     rSessions.error ? String(rSessions.error).slice(0, 120) : `total=${rSessions.json?.total}`)
 
-  // ── 附件与通用桥只读面(零 token, 不花模型调用) ──
-  const bridgeDir = await callTool(sid, 24, 'bridge_describe', {})
-  report('bridge_describe 目录可读(按 namespace 分组)', Array.isArray(bridgeDir.inner?.namespaces) && (bridgeDir.inner?.total ?? 0) > 0,
-    `total=${bridgeDir.inner?.total ?? String(bridgeDir.inner?.error ?? '?').slice(0, 120)}`)
+  // ── 附件与端点直通只读面(零 token, 不花模型调用) ──
+  const endpointDir = await callTool(sid, 24, 'bridge_describe', {})
+  report('endpoint_describe 目录可读(按 namespace 分组)', Array.isArray(endpointDir.inner?.namespaces) && (endpointDir.inner?.total ?? 0) > 0,
+    `total=${endpointDir.inner?.total ?? String(endpointDir.inner?.error ?? '?').slice(0, 120)}`)
   const catalog = await callTool(sid, 25, 'bridge_call', { endpoint: 'session/modelCatalog' })
-  report('bridge_call 只读端点经网关返回模型目录', catalog.inner?.error === undefined && typeof catalog.inner === 'object'
+  report('endpoint_call 只读端点经网关返回模型目录', catalog.inner?.error === undefined && typeof catalog.inner === 'object'
     && (Array.isArray((catalog.inner as any).routableProviders) || typeof (catalog.inner as any).default === 'object'),
   String(catalog.inner?.error ?? `providers=${((catalog.inner as any)?.routableProviders ?? []).length}`).slice(0, 140))
   if (knownSession) {
