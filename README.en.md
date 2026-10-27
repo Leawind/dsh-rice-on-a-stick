@@ -72,53 +72,53 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 ### Catalog and status
 
-| Tool              | Purpose                                                                                                                                        |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `echo`            | Echo the input back to verify MCP connectivity                                                                                                 |
-| `dsh_get_started` | dsh onboarding guide: glossary, workflow recipes and an error→alternative-path cheat sheet; `section` fetches just one part                    |
-| `dsh_list_tools`  | List the host's global tool registry (model tools live in session/preset scopes, so this table is usually empty)                               |
-| `dsh_status`      | Read-only deployment status: version, listener, config summary, subscription stats and connected clients — the same data as the settings panel |
-| `workspace_list`  | List registered workspaces (id, path, owning sessions)                                                                                         |
-| `model_list`      | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection                              |
-| `permission_list` | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission`   |
-| `subagent_list`   | Read a session's native subagent catalog; `recursive=true` lists descendants                                                                   |
+| Tool                | Purpose                                                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dsh_guide`         | dsh usage guide: no arguments returns a compact section index; `section` fetches one part (concepts/workflows/errors/results/limits), `all` the full text                  |
+| `plugin_status`     | Read-only deployment status: version, listener, config summary, subscription stats, connected clients and the host global-tool count — the same data as the settings panel |
+| `workspace_list`    | List registered workspaces (id, path, owning sessions)                                                                                                                     |
+| `model_list`        | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection                                                          |
+| `permission_list`   | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission`                               |
+| `session_subagents` | Read a session's native subagent catalog; `recursive=true` lists descendants                                                                                               |
 
 ### Session actions
 
-| Tool                     | Purpose                                                                                                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `session_create`         | Create a blank session with `cwd`, provider/model and preset all explicit; returns `sessionId`                                                                     |
-| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations                                          |
-| `session_prompt`         | Send a message and wait for the turn to finish, returning the structured result; by default it returns early while the session waits for an approval or a question |
-| `session_submit`         | Admit a task asynchronously and return `requestId` immediately, without waiting for the turn                                                                       |
-| `session_poll`           | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message                                    |
-| `session_result`         | Fetch the structured result by `requestId` (omitting it returns the session's latest request)                                                                      |
-| `session_cancel`         | Stop the session's current turn, keeping queued messages that have not started                                                                                     |
-| `session_queue`          | Manage queued messages — list, edit, remove, or promote one to a steer with `action="steer"`                                                                       |
-| `session_select_model`   | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list)        |
-| `session_rename`         | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title)                                                             |
-| `session_fork`           | Fork a session from a prefix of its events, inheriting cwd, preset and current model                                                                               |
-| `session_command`        | List or run a session's slash commands without sending them to the model or creating a turn                                                                        |
-| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`                                                              |
-| `session_unarchive`      | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false`                                                          |
+| Tool                     | Purpose                                                                                                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_create`         | Create a blank session with `cwd`, provider/model and preset all explicit; returns `sessionId`                                                                                                  |
+| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations                                                                       |
+| `session_send`           | Send a message into a session; `wait` picks the blocking semantics: input (default) returns early on approvals/questions, turn blocks until the turn ends, none returns the receipt immediately |
+| `session_poll`           | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message                                                                 |
+| `session_result`         | Fetch the structured result by `requestId` (omitting it returns the session's latest request)                                                                                                   |
+| `session_cancel`         | Stop the session's current turn, keeping queued messages that have not started                                                                                                                  |
+| `session_queue`          | List a session's queued messages (read-only)                                                                                                                                                    |
+| `session_queue_manage`   | Mutate a session's queued messages — edit, remove, or promote one to a steer with `action="steer"`                                                                                              |
+| `session_select_model`   | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list)                                     |
+| `session_rename`         | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title)                                                                                          |
+| `session_fork`           | Fork a session from a prefix of its events, inheriting cwd, preset and current model                                                                                                            |
+| `session_command_list`   | List a session's slash commands (read-only)                                                                                                                                                     |
+| `session_command_run`    | Run one slash command without sending it to the model or creating a turn                                                                                                                        |
+| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`                                                                                           |
+| `session_unarchive`      | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false`                                                                                       |
 
 ### Session reads
 
-| Tool               | Purpose                                                                                                                    |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `session_list`     | List session metadata (title, cwd, preset, permission preset, current model), hiding archived ones by default              |
-| `session_history`  | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex` |
-| `session_meta`     | Read one session's metadata and runtime state: turn/step counters, context occupancy, and more                             |
-| `session_overview` | One-call GUI-style glance: title, permission, model, in-progress state, context occupancy and a recent digest              |
-| `session_search`   | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default               |
+| Tool              | Purpose                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_list`    | List session metadata (title, cwd, preset, permission preset, current model), hiding archived ones by default                                                 |
+| `session_history` | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex`                                    |
+| `session_events`  | Read a live session's raw event stream (JSONL), paged with the `after` cursor, 500-line cap                                                                   |
+| `session_inspect` | One-call GUI-style glance: title, permission, model, in-progress state, context occupancy and a recent digest; `fields` opts into turn/step counters and more |
+| `session_search`  | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default                                                  |
 
 ### Approvals
 
-| Tool              | Purpose                                                                                 |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| `approval_list`   | List pending approvals for several sessions (with `answerable` and `policy`); read-only |
-| `approval_answer` | Answer an approval this plugin holds: `allow` grants once, `reject` denies              |
-| `approval_policy` | Read or switch a session's approval policy knob (`ask` / `never`)                       |
+| Tool                  | Purpose                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `approval_list`       | List pending approvals for several sessions (with `answerable` and `policy`); read-only |
+| `approval_answer`     | Answer an approval this plugin holds: `allow` grants once, `reject` denies              |
+| `approval_policy`     | Read a session's approval policy knob (`ask` / `never`); read-only                      |
+| `approval_policy_set` | Switch a session's approval policy knob (requires a live session)                       |
 
 ### Questions
 
@@ -129,9 +129,9 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 ### Attachments
 
-| Tool              | Purpose                                                                                                                       |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `attachment_read` | Read an image attachment by reference: metadata plus the host-local path by default, or an MCP image block with `inline=true` |
+| Tool                 | Purpose                                                                                                                       |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `session_attachment` | Read an image attachment by reference: metadata plus the host-local path by default, or an MCP image block with `inline=true` |
 
 ### Host endpoint passthrough
 
@@ -144,12 +144,12 @@ These two tools cover the long tail of dsh Remote endpoints; the endpoints thems
 
 ## Send behavior: queue / steer
 
-The delivery mode of `session_prompt` and `session_submit` is chosen per call and is independent of UI preferences. When the target session is running a turn, `mode` must be specified explicitly:
+The delivery mode of `session_send` is chosen per call and is independent of UI preferences. When the target session is running a turn, `mode` must be specified explicitly:
 
 - `mode: "queue"`: delivered as a new round after the current turn ends
 - `mode: "steer"`: injected at the next step boundary of the current turn and extends this turn, without interrupting the step currently being executed
 - Omitting `mode` is only valid when the session is idle; in that case queue and steer are equivalent, and the engine handles it as queue; omitting it while the session is running fails directly (`MODE_REQUIRED`), and the plugin will not guess on the caller's behalf
-- If there are already queued messages, `session_queue`'s `action: "steer"` can promote them to a steer
+- If there are already queued messages, `session_queue_manage`'s `action: "steer"` can promote them to a steer
 
 ## Acknowledgements
 
