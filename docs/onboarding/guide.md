@@ -86,13 +86,13 @@ you already know.
   tokens), and `inline: true` adds an MCP image content block for multimodal clients
   (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were
   inlined as base64 text).
-- **dsh endpoint passthrough** — `bridge_describe` resolves dsh Remote endpoints through a
+- **dsh endpoint passthrough** — `endpoint_describe` resolves dsh Remote endpoints through a
   search-first ladder: `query` keyword-searches endpoint names + descriptions
   (case-insensitive substrings, multiple words AND, optionally scoped with
   `namespace`); no arguments return a compact namespace index; `namespace` lists one
   domain's methods; one `endpoint` returns its exact contract (named wire parameters +
   result JSON Schema). Entries carry `readOnly` / `writable` flags (`approvalRequired`
-  for the rest). `bridge_call` invokes an endpoint by reference with named
+  for the rest). `endpoint_call` invokes an endpoint by reference with named
   `args` — use the wire keys from the contract; parameters the host resolves itself
   (e.g. an agent parameter) take the session id as their wire value, and the gateway
   resolves them. `readOnly` and `writable` (whitelisted) endpoints run directly; any
@@ -168,16 +168,16 @@ you already know.
     Keep the reference short (path or URL); never inline image bytes into `task`. Find
     the attachment id in the `session_submit` receipt or `session_history`'s `images`;
     hand it to `attachment_read` (add `inline: true` only for multimodal read-back).
-11. **Reach a capability the curated tools lack** — `bridge_describe { query: "…" }`
+11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }`
     to search endpoints by keyword (no args for the namespace index, `{ namespace }`
-    for one domain's methods), `bridge_describe { endpoint }` for the contract,
-    `bridge_call { endpoint, args }` to execute. Whitelisted writes run at once; other non-stream
+    for one domain's methods), `endpoint_describe { endpoint }` for the contract,
+    `endpoint_call { endpoint, args }` to execute. Whitelisted writes run at once; other non-stream
     endpoints park the call until a human allows it on the deployment's settings panel
     (the tool call blocks in the meantime) — if the human declines, or the wait times
-    out, or you disconnect, nothing is executed and the error says so. Blacklisted
-    endpoints (credentials, plugin installs) are refused outright: do not retry them;
-    ask the deployment to adjust `bridgeEndpointAllowlist` if a write should run without
-    per-call approval.
+    out, or you disconnect, nothing is executed and the error says so. Dangerous
+    endpoints (credentials, plugin installs) take the same paths, but the panel flags
+    them separately — expect the human to look closely; a deployment can also
+    whitelist a write so it no longer parks.
 
 <!-- section: errors -->
 ## Error → alternative path
@@ -196,9 +196,9 @@ you already know.
 | `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
 | `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
 | "not a recognized image" | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet |
-| "not bridge-callable" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `bridge_describe` |
-| "declined by the human reviewer" | the parked bridge write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint |
-| "approval timed out ... failed closed" | the parked bridge write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry |
+| "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe` |
+| "declined by the human reviewer" | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint |
+| "approval timed out ... failed closed" | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry |
 
 <!-- section: results -->
 ## Reading results without blowing your context
@@ -277,9 +277,10 @@ they degrade to the `session_list` row and say so with `eventsReadable: false`.
 - Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap
   (the host attachment service enforces its own image limits on top); `attachment_read`
   inlines at most 8MB per image — use the host path for larger ones.
-- The bridge exposes what the deployment opened: `readOnly` endpoints from the
-  curated read-only list, `writable` endpoints from `bridgeEndpointAllowlist`; other
+- The endpoint passthrough exposes what the deployment opened: `readOnly` endpoints from the
+  curated read-only list, `writable` endpoints from `endpointAllowlist`; other
   non-stream endpoints are callable but each call parks until a human answers on the
-  deployment's settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited; a
-  hard-coded blacklist — credentials, plugin installs, authorization flows — is never
-  callable and gets no approval path).
+  deployment's settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited).
+  Dangerous endpoints (credentials, plugin installs, connection trust) are not
+  hard-blocked: they take the same two paths, but the panel lists them separately
+  with a warning so the deployment can decide per endpoint.
