@@ -32,7 +32,7 @@ export function errorJson(e: unknown): string {
  */
 export function structuredOut<T>(value: unknown, schema: z.ZodType<T>): { content: { type: 'text'; text: string }[]; structuredContent: T } {
   const parsed = schema.parse(value)
-  return { content: [{ type: 'text' as const, text: JSON.stringify(parsed, null, 2) }], structuredContent: parsed }
+  return { content: [{ type: 'text' as const, text: JSON.stringify(parsed) }], structuredContent: parsed }
 }
 
 // ── 跨工具共享的描述片段(单一出处防漂移; 完整语义在 guide.md Concepts) ──

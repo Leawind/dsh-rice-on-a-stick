@@ -10,8 +10,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { describeDirectory, describeEndpoint, describeNamespace, invokeEndpoint, endpointNamespaces, searchEndpoints } from '../../host/endpoint-passthrough.js'
 import { out, outError } from './shared.js'
 
-/** 结果渲染上限: 超大载荷直接拒(调用方应缩小查询), 不做破坏性截断 */
-const RENDER_CAP = 256 * 1024
+/** 结果渲染上限(紧凑 JSON 字节数): 超限直接拒(调用方应缩小查询), 不做破坏性截断 */
+const RENDER_CAP = 32 * 1024
 
 export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
@@ -63,18 +63,18 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
               }),
             )
           }
-          return out(JSON.stringify(contract, null, 2))
+          return out(JSON.stringify(contract))
         }
         if (ns !== undefined && !names.includes(ns)) {
           return outError(JSON.stringify({ error: `unknown namespace "${ns}" — available namespaces: ${names.join(', ')}` }))
         }
         if (q !== undefined) {
-          return out(JSON.stringify(searchEndpoints(ctx, q, ns), null, 2))
+          return out(JSON.stringify(searchEndpoints(ctx, q, ns)))
         }
         if (ns !== undefined) {
-          return out(JSON.stringify(describeNamespace(ctx, ns), null, 2))
+          return out(JSON.stringify(describeNamespace(ctx, ns)))
         }
-        return out(JSON.stringify(describeDirectory(ctx), null, 2))
+        return out(JSON.stringify(describeDirectory(ctx)))
       } catch (e) {
         return outError(JSON.stringify({ error: `endpoint_describe failed: ${(e as Error)?.message ?? String(e)}` }))
       }
@@ -102,7 +102,7 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
         if (!r.ok) return outError(JSON.stringify({ error: r.error }))
         let rendered: string
         try {
-          rendered = JSON.stringify(r.result, null, 2)
+          rendered = JSON.stringify(r.result)
         } catch {
           return outError(JSON.stringify({ error: 'the gateway result is not JSON-serializable (unexpected for a wire codec)' }))
         }

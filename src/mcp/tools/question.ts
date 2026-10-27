@@ -43,7 +43,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     },
     async ({ sessionIds }) => {
       try {
-        return out(JSON.stringify(await questionListFor(ctx, sessionIds), null, 2))
+        return out(JSON.stringify(await questionListFor(ctx, sessionIds)))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -69,7 +69,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
         const held = state.answers.findQuestion(sessionId, eventId, callId)
         if (held !== undefined) {
           const r = await state.answers.answerQuestion({ sessionId, eventId, callId, answers })
-          const payload = JSON.stringify({ sessionId, ...r }, null, 2)
+          const payload = JSON.stringify({ sessionId, ...r })
           return r.ok ? out(payload) : outError(payload)
         }
 
@@ -114,7 +114,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
           )
         }
         return accepted
-          ? out(JSON.stringify({ sessionId, callId: targetCallId, outcome: 'answered', via: 'host-answer' }, null, 2))
+          ? out(JSON.stringify({ sessionId, callId: targetCallId, outcome: 'answered', via: 'host-answer' }))
           : outError(
               JSON.stringify({
                 error:

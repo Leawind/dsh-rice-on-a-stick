@@ -27,7 +27,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     },
     async ({ sessionIds }) => {
       try {
-        return out(JSON.stringify(await approvalListFor(ctx, sessionIds), null, 2))
+        return out(JSON.stringify(await approvalListFor(ctx, sessionIds)))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -51,7 +51,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     async ({ sessionId, eventId, callId, decision }) => {
       try {
         const r = await state.answers.answerApproval({ sessionId, eventId, callId, decision })
-        const payload = JSON.stringify({ sessionId, ...r }, null, 2)
+        const payload = JSON.stringify({ sessionId, ...r })
         return r.ok ? out(payload) : outError(payload)
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
@@ -76,32 +76,24 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
         if (live !== undefined) {
           const effective = effectiveApprovalPolicy(ctx, live.session)
           return out(
-            JSON.stringify(
-              {
-                sessionId,
-                live: true,
-                policy: effective ?? null,
-                note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
-              },
-              null,
-              2,
-            ),
+            JSON.stringify({
+              sessionId,
+              live: true,
+              policy: effective ?? null,
+              note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
+            }),
           )
         }
         try {
           const events = await inspectSessionEvents(ctx, asSessionId(sessionId))
           const effective = approvalPolicyOfEvents(events)
           return out(
-            JSON.stringify(
-              {
-                sessionId,
-                live: false,
-                policy: effective ?? null,
-                note: 'cold session: policy folded from the persisted log; the host default may differ',
-              },
-              null,
-              2,
-            ),
+            JSON.stringify({
+              sessionId,
+              live: false,
+              policy: effective ?? null,
+              note: 'cold session: policy folded from the persisted log; the host default may differ',
+            }),
           )
         } catch (e) {
           return outError(JSON.stringify({ error: `session "${sessionId}" is not readable: ${(e as Error)?.message ?? String(e)}` }))

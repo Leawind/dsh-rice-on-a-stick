@@ -44,7 +44,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     async () => {
       const snap = deps?.statusSnapshot?.() ?? basicStatusSnapshot()
       const global = hostToolsPayload(ctx) as { tools?: unknown[] }
-      return out(JSON.stringify({ ...snap, hostGlobalTools: { total: global.tools?.length ?? 0, resource: 'dsh://tools' } }, null, 2))
+      return out(JSON.stringify({ ...snap, hostGlobalTools: { total: global.tools?.length ?? 0, resource: 'dsh://tools' } }))
     },
   )
 
@@ -85,7 +85,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
       const presets = await presetsPayload(ctx)
         .then((p) => (p.presets as { id: string }[]).map((x) => x.id))
         .catch(() => undefined)
-      return out(JSON.stringify(presets ? { ...catalog, presets } : catalog, null, 2))
+      return out(JSON.stringify(presets ? { ...catalog, presets } : catalog))
     },
   )
 
@@ -106,14 +106,10 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
         return outError(JSON.stringify({ error: 'the host permission-presets service is unavailable (this deployment composes no permission presets)' }))
       }
       return out(
-        JSON.stringify(
-          {
-            ...(permissionCatalogPayload(svc) ?? { options: [] }),
-            note: 'pass one of `options[].value` to session_create.permission or session_set_permission',
-          },
-          null,
-          2,
-        ),
+        JSON.stringify({
+          ...(permissionCatalogPayload(svc) ?? { options: [] }),
+          note: 'pass one of `options[].value` to session_create.permission or session_set_permission',
+        }),
       )
     },
   )
@@ -143,27 +139,23 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
           return outError(JSON.stringify({ error: `the host subagent service does not expose ${recursive === true ? 'listDescendants' : 'listChildren'}` }))
         }
         return out(
-          JSON.stringify(
-            {
-              parentSessionId,
-              recursive: recursive === true,
-              total: rows.length,
-              subagents: rows.map((row) => ({
-                sessionId: String(row.id),
-                createdAt: row.createdAt,
-                mode: row.mode,
-                ...(row.label !== undefined ? { label: row.label } : {}),
-                ...(row.parentId !== undefined ? { parentId: String(row.parentId) } : {}),
-                ...(row.depth !== undefined ? { depth: row.depth } : {}),
-                ...(row.kind !== undefined ? { kind: row.kind } : {}),
-                ...(row.activity !== undefined ? { activity: row.activity } : {}),
-                ...(row.hasChildren !== undefined ? { hasChildren: row.hasChildren } : {}),
-                ...(row.reason !== undefined ? { reason: row.reason } : {}),
-              })),
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            parentSessionId,
+            recursive: recursive === true,
+            total: rows.length,
+            subagents: rows.map((row) => ({
+              sessionId: String(row.id),
+              createdAt: row.createdAt,
+              mode: row.mode,
+              ...(row.label !== undefined ? { label: row.label } : {}),
+              ...(row.parentId !== undefined ? { parentId: String(row.parentId) } : {}),
+              ...(row.depth !== undefined ? { depth: row.depth } : {}),
+              ...(row.kind !== undefined ? { kind: row.kind } : {}),
+              ...(row.activity !== undefined ? { activity: row.activity } : {}),
+              ...(row.hasChildren !== undefined ? { hasChildren: row.hasChildren } : {}),
+              ...(row.reason !== undefined ? { reason: row.reason } : {}),
+            })),
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_subagents failed: ${(e as Error)?.message ?? String(e)}` }))

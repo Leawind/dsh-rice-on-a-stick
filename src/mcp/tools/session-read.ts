@@ -183,7 +183,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
-        return out(JSON.stringify(await sessionInspectPayload(ctx, target.sessionId, fields, recentLimit, extra?.signal), null, 2))
+        return out(JSON.stringify(await sessionInspectPayload(ctx, target.sessionId, fields, recentLimit, extra?.signal)))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -213,7 +213,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
-        return out(JSON.stringify(await sessionEventsPayload(ctx, target.sessionId, after), null, 2))
+        return out(JSON.stringify(await sessionEventsPayload(ctx, target.sessionId, after)))
       } catch (e) {
         const msg = (e as Error)?.message ?? String(e)
         const hint = msg.includes('not live') ? '; use session_history / session_inspect to read persisted-only sessions' : ''
@@ -252,17 +252,13 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         const archivedIds = new Set(archivedSessionIdsOf(ctx))
         const results = wanted === 'all' ? found : found.filter((item) => archivedIds.has(String(item.sessionId)) === (wanted === 'archived'))
         return out(
-          JSON.stringify(
-            {
-              query,
-              scope: wanted,
-              results,
-              hasMore: res?.hasMore === true,
-              ...(results.length !== found.length ? { filteredArchived: found.length - results.length } : {}),
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            query,
+            scope: wanted,
+            results,
+            hasMore: res?.hasMore === true,
+            ...(results.length !== found.length ? { filteredArchived: found.length - results.length } : {}),
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_search failed: ${(e as Error)?.message ?? String(e)}` }))

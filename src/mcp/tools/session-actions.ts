@@ -76,19 +76,15 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         const selection = selectionOf({ provider, model, reasoningEffort })
         const r = await createSession({ ctx, cwd, selection, preset, title, permission })
         return out(
-          JSON.stringify(
-            {
-              sessionId: r.sessionId,
-              cwd: r.cwd,
-              model: projectModel(r.selection),
-              preset: r.preset,
-              ...(r.permission !== undefined ? { permission: r.permission } : {}),
-              ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
-              note: 'blank session created; send work with session_send (wait="none" for async, "turn" to block)',
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            sessionId: r.sessionId,
+            cwd: r.cwd,
+            model: projectModel(r.selection),
+            preset: r.preset,
+            ...(r.permission !== undefined ? { permission: r.permission } : {}),
+            ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
+            note: 'blank session created; send work with session_send (wait="none" for async, "turn" to block)',
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
@@ -121,15 +117,11 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         setPermissionPreset(ctx, resolved.handle.agent.session, permission)
         state.hooks.notifyListChanged()
         return out(
-          JSON.stringify(
-            {
-              ok: true,
-              sessionId,
-              permission: currentPermissionOf(ctx, resolved.handle.agent.session) ?? permission,
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            ok: true,
+            sessionId,
+            permission: currentPermissionOf(ctx, resolved.handle.agent.session) ?? permission,
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_set_permission failed: ${(e as Error)?.message ?? String(e)}` }))
@@ -176,15 +168,11 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         if (wait === 'none') {
           const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
           return out(
-            JSON.stringify(
-              {
-                ...r,
-                resource: resUri.sessionHistory(sessionId),
-                note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
-              },
-              null,
-              2,
-            ),
+            JSON.stringify({
+              ...r,
+              resource: resUri.sessionHistory(sessionId),
+              note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
+            }),
           )
         }
         const result = await promptSession({ ctx, sessionId, task, mode, waitFor: wait, attachments, requestId, signal: extra.signal })
@@ -198,18 +186,14 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         if (effDetail === 'uri') {
           const uri = renderUriResult(result, resUri.sessionHistory(sessionId))
           const rendered = pendingNote !== undefined ? { ...uri, note: `${String(uri.note ?? '')} ${pendingNote}`.trim() } : uri
-          const text = JSON.stringify(rendered, null, 2)
+          const text = JSON.stringify(rendered)
           return result.error && result.pending !== true ? outError(text) : out(text)
         }
-        const rendered = JSON.stringify(
-          {
-            ...renderResult(result, effDetail),
-            resource: resUri.sessionHistory(sessionId),
-            ...(pendingNote !== undefined ? { note: pendingNote } : {}),
-          },
-          null,
-          2,
-        )
+        const rendered = JSON.stringify({
+          ...renderResult(result, effDetail),
+          resource: resUri.sessionHistory(sessionId),
+          ...(pendingNote !== undefined ? { note: pendingNote } : {}),
+        })
         return result.error && result.pending !== true ? outError(rendered) : out(rendered)
       } catch (e) {
         return outError(errorJson(e))
@@ -240,7 +224,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     async ({ sessionIds, waitMs, detail }, extra) => {
       try {
         const payload = await pollSessions(ctx, sessionIds, { waitMs, detail, signal: extra.signal })
-        return out(JSON.stringify(payload, null, 2))
+        return out(JSON.stringify(payload))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -267,7 +251,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     async ({ sessionId, requestId, detail }) => {
       try {
         const payload = await sessionResult(ctx, sessionId, requestId, { detail })
-        return out(JSON.stringify(payload, null, 2))
+        return out(JSON.stringify(payload))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -311,7 +295,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     async ({ sessionId }) => {
       try {
         const r = await queueManage({ ctx, sessionId, action: 'list' })
-        const payload = JSON.stringify(r, null, 2)
+        const payload = JSON.stringify(r)
         return (r as { error?: string }).error !== undefined ? outError(payload) : out(payload)
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
@@ -337,7 +321,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     async ({ sessionId, action, itemId, content }) => {
       try {
         const r = await queueManage({ ctx, sessionId, action, itemId, content })
-        const payload = JSON.stringify(r, null, 2)
+        const payload = JSON.stringify(r)
         return (r as { error?: string }).error !== undefined ? outError(payload) : out(payload)
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
@@ -435,7 +419,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         const newId = res?.sessionId !== undefined ? String(res.sessionId) : undefined
         if (!newId) return outError(JSON.stringify({ error: 'fork returned no sessionId' }))
         state.hooks.notifyListChanged()
-        return out(JSON.stringify({ ok: true, sourceSessionId: sessionId, sessionId: newId }, null, 2))
+        return out(JSON.stringify({ ok: true, sourceSessionId: sessionId, sessionId: newId }))
       } catch (e) {
         return outError(JSON.stringify({ error: `session_fork failed: ${(e as Error)?.message ?? String(e)}` }))
       }
@@ -483,19 +467,15 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       try {
         const rows = commands.list(live) ?? []
         return out(
-          JSON.stringify(
-            {
-              sessionId: target.sessionId,
-              total: rows.length,
-              commands: rows.map((row) => ({
-                name: row.name ?? '',
-                ...(row.description !== undefined ? { description: row.description } : {}),
-                ...(row.input !== undefined ? { input: row.input } : {}),
-              })),
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            sessionId: target.sessionId,
+            total: rows.length,
+            commands: rows.map((row) => ({
+              name: row.name ?? '',
+              ...(row.description !== undefined ? { description: row.description } : {}),
+              ...(row.input !== undefined ? { input: row.input } : {}),
+            })),
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_command_list failed: ${(e as Error)?.message ?? String(e)}` }))
@@ -559,17 +539,13 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         }
         const result = execution.result ?? {}
         return out(
-          JSON.stringify(
-            {
-              sessionId: target.sessionId,
-              line,
-              ...(execution.commandId !== undefined ? { commandId: String(execution.commandId) } : {}),
-              ok: result.kind === 'success',
-              result,
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            sessionId: target.sessionId,
+            line,
+            ...(execution.commandId !== undefined ? { commandId: String(execution.commandId) } : {}),
+            ok: result.kind === 'success',
+            result,
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_command_run failed: ${(e as Error)?.message ?? String(e)}` }))
@@ -633,18 +609,14 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           : undefined
         state.hooks.notifyListChanged()
         return out(
-          JSON.stringify(
-            {
-              ok: true,
-              sessionId,
-              archived: false,
-              wasArchived,
-              ...(remaining !== undefined ? { archivedRemaining: remaining.length } : {}),
-              ...(wasArchived ? {} : { note: 'the session was not archived; nothing to restore (host-side no-op)' }),
-            },
-            null,
-            2,
-          ),
+          JSON.stringify({
+            ok: true,
+            sessionId,
+            archived: false,
+            wasArchived,
+            ...(remaining !== undefined ? { archivedRemaining: remaining.length } : {}),
+            ...(wasArchived ? {} : { note: 'the session was not archived; nothing to restore (host-side no-op)' }),
+          }),
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_unarchive failed: ${(e as Error)?.message ?? String(e)}` }))
@@ -696,7 +668,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           ...(hostPath !== undefined && hostPath !== '' ? { hostPath } : {}),
           note: 'reference mode: zero image tokens; use hostPath on the same machine, or pass inline=true for an MCP image content block',
         }
-        if (inline !== true) return out(JSON.stringify(meta, null, 2))
+        if (inline !== true) return out(JSON.stringify(meta))
         if (typeof svc?.readImage !== 'function') {
           return outError(JSON.stringify({ error: 'the host attachments service is unavailable (inline reads need the web profile attachment service)' }))
         }
@@ -710,7 +682,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         return {
           content: [
             { type: 'image' as const, data: Buffer.from(stored.data).toString('base64'), mimeType: ref.mediaType },
-            { type: 'text' as const, text: JSON.stringify(meta, null, 2) },
+            { type: 'text' as const, text: JSON.stringify(meta) },
           ],
         }
       } catch (e) {
