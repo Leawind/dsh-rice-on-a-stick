@@ -6,8 +6,8 @@
  */
 export const PANEL_CSS = [
   // 整页容器(中央面板): 自己是滚动容器(height:100% + overflow-y)——宿主主栏不代滚, 内容超高时
-  // 没有这一层就上下都够不着。限宽居中保持表单行距
-  '.dcs-root{display:flex;flex-direction:column;gap:20px;width:100%;max-width:960px;height:100%;min-height:0;margin:0 auto;box-sizing:border-box;padding:16px 28px 48px;overflow-y:auto;overflow-x:hidden;color:var(--dsw-alias-label-primary,#0f1115);}',
+  // 没有这一层就上下都够不着。占满主栏宽度(不设 max-width, 表单行随面板伸缩)
+  '.dcs-root{display:flex;flex-direction:column;gap:20px;width:100%;height:100%;min-height:0;box-sizing:border-box;padding:16px 28px 48px;overflow-y:auto;overflow-x:hidden;color:var(--dsw-alias-label-primary,#0f1115);}',
   // 顶部栏: 返回会话(弱化文本按钮, hover 才到主文字色; 沿用宿主面包屑的姿势)
   '.dcs-topbar{display:flex;margin:-6px 0 0;}',
   '.dcs-backbtn{display:inline-flex;align-items:center;gap:6px;padding:2px 4px;border:none;background:transparent;font-family:inherit;font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer;border-radius:var(--dsw-radius-sm,8px);transition:color .1s ease,background .1s ease;}',
@@ -58,20 +58,21 @@ export const PANEL_CSS = [
   '.dcs-btn-primary:hover:enabled{background:var(--dsw-alias-label-primary,#0f1115);opacity:.88;}',
   // 端点卡(官方 settings-card 同型: 填充底 + 半像素描边)
   '.dcs-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l3,rgba(0,0,0,.12)));}',
-  '.dcs-urlrow{display:flex;align-items:center;gap:8px;}',
-  '.dcs-url{flex:1;min-width:0;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;word-break:break-all;}',
-  // 端点卡不占满整行: 宽度随 URL 自适应(上限 520px)并在品牌块内水平居中, 长 URL 由 .dcs-url 断行
-  '.dcs-endpoint{align-self:center;width:fit-content;max-width:520px;}',
-  // 监听地址/端口: 标签与说明占整行, 输入框和按钮在下一行; 面板窄时按钮可换行。
-  // 选择器必须带 .dcs-row(同为 0,1,0 但 .dcs-row 在下方, 单写 .dcs-row-stack 会被它覆盖成 align-items:center,
-  // 竖排时就是"标签水平居中"); 标签在竖排里不参与收缩, 否则 flex-basis 会变成高度。
-  '.dcs-row.dcs-row-stack{position:relative;flex-direction:column;align-items:stretch;gap:10px;}',
-  '.dcs-row.dcs-row-stack > .dcs-labels{flex:none;align-items:flex-start;}',
-  // 竖排行的校验提示放在标题行右侧的空白处: 不占行高, 也不会盖到下面的输入框或端点卡
-  '.dcs-row.dcs-row-stack > .dcs-err{position:absolute;top:12px;right:2px;max-width:60%;text-align:right;}',
-  '.dcs-listenrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;}',
-  '.dcs-input-host{flex:1 1 180px;width:auto;min-width:140px;}',
-  '.dcs-input-port{flex:0 0 96px;width:96px;}',
+  // 品牌块端点卡: 一行 = MCP 服务开关 + 监听地址/端口内嵌在端点 URL 里 + 复制按钮(右端)。
+  // URL 由 http:// 前缀、地址/端口两个内联输入框和 /mcp 后缀拼成——编辑输入框即编辑端点本体
+  '.dcs-endrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+  '.dcs-servicectl{flex:none;display:flex;align-items:center;gap:8px;}',
+  '.dcs-servicename{font-size:13px;font-weight:500;}',
+  '.dcs-endpoint{flex:1 1 300px;min-width:0;display:flex;align-items:center;gap:1px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;line-height:24px;color:var(--dsw-alias-label-secondary,#61666b);font-variant-numeric:tabular-nums;overflow:hidden;}',
+  '.dcs-endpoint[data-off="1"]{opacity:.55;}',
+  // URL 里的地址/端口输入框: 无边框透明底融入 URL 文本, 悬停/聚焦浮现下划线表示可编辑
+  '.dcs-urlseg{box-sizing:border-box;border:none;background:transparent;font-family:inherit;font-size:inherit;line-height:inherit;color:var(--dsw-alias-label-primary,#0f1115);border-bottom:.5px dashed transparent;border-radius:2px;padding:0 1px;outline:none;transition:border-color .1s ease;}',
+  '.dcs-urlseg:hover{border-bottom-color:var(--dsw-alias-border-l3,rgba(0,0,0,.12));}',
+  '.dcs-urlseg:focus{border-bottom-color:var(--dsw-alias-state-business-primary,#4176e6);}',
+  '.dcs-urlseg:disabled{opacity:.5;cursor:default;}',
+  '.dcs-urlseg::placeholder{color:var(--dsw-alias-label-dimmed,#979da6);}',
+  // 端点卡的说明小字(服务用途 + 监听重建代价)
+  '.dcs-endhint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
   '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
   // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题)
   '.dcs-form{display:flex;flex-direction:column;}',
@@ -106,20 +107,11 @@ export const PANEL_CSS = [
   '.dcs-switch[data-on="1"]::after{transform:translateX(16px);background:var(--dsw-alias-label-primary-foreground,#fff);}',
   '.dcs-switch:disabled{opacity:.5;cursor:default;}',
   '.dcs-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:2px;}',
-  // 模型白名单: 已选清单 + 添加面板(开关右侧不放文字, 状态由下方内容表达, 布局不随文案跳动)
+  // 模型白名单: 多选分层树与桥端点清单同构(dcs-eplist), 只多出简介编辑钮与行下编辑器
   '.dcs-listwrap{padding:0 2px 12px;display:flex;flex-direction:column;gap:8px;}',
-  '.dcs-list{display:flex;flex-direction:column;max-height:220px;overflow:auto;padding:4px 10px;background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);}',
-  '.dcs-chosen{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;height:30px;padding:0;font-size:13px;}',
-  '.dcs-chosenname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);margin-left:8px;}',
   '.dcs-x{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:14px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
   '.dcs-x:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-state-error-primary,#ec1313);}',
   '.dcs-x:disabled{opacity:.4;cursor:default;}',
-  '.dcs-addrow{display:flex;align-items:center;gap:8px;}',
-  '.dcs-addrow .dcs-input{flex:1;width:auto;min-width:0;}',
-  '.dcs-cand{display:flex;align-items:center;gap:8px;flex:none;width:100%;height:30px;padding:0 2px;border:none;background:transparent;font-family:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--dsw-alias-label-primary,#0f1115);border-radius:6px;transition:background .1s ease;}',
-  '.dcs-cand:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
-  '.dcs-cand:disabled{opacity:.4;cursor:default;}',
-  '.dcs-candname{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);}',
   '.dcs-listmsg{font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);padding:2px;}',
   // MCP令牌行(重新生成需二次确认: 待确认时按钮临时换成"确认/取消", 警示说明挂在行下; 窄面板可换行)
   '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;flex-wrap:wrap;}',
@@ -148,8 +140,26 @@ export const PANEL_CSS = [
   '.dcs-epbadge{flex:none;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;corner-shape:round;font-size:11px;}',
   '.dcs-epbadge-read{color:var(--dsw-alias-state-success-primary,#22c55e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 12%,transparent);}',
   '.dcs-epbadge-stream{color:var(--dsw-alias-label-tertiary,#81858c);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
-  '.dcs-epbadge-black{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
+  '.dcs-epbadge-danger{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
   '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
+  // 危险端点独立清单的段头: 错误色标题 + 危险徽标 + 一句话提醒
+  '.dcs-epdangerhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:2px 2px 0;}',
+  '.dcs-epdangerhead .dcs-sectitle{color:var(--dsw-alias-state-error-primary,#ec1313);}',
+  '.dcs-epdangerhead .dcs-sub{flex:1;min-width:160px;}',
+  // 模型白名单树: 与桥端点清单同构(组头 = 箭头+组复选+名称+计数; 行 = 复选+名称+简介+编辑钮)。
+  // 简介编辑钮(✎)是弱化幽灵按钮, 悬停才浮出; 编辑行是行下展开的 textarea, 失焦即存
+  '.dcs-mrow{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+  '.dcs-mpair{display:flex;align-items:baseline;gap:6px;min-width:0;}',
+  '.dcs-mname{flex:none;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;}',
+  '.dcs-mdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+  '.dcs-pen{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#81858c);font-size:12px;line-height:1;cursor:pointer;transition:background .1s ease,color .1s ease;}',
+  '.dcs-pen:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115);}',
+  '.dcs-pen[data-on="1"]{color:var(--dsw-alias-state-business-primary,#4176e6);}',
+  '.dcs-descedit{display:flex;flex-direction:column;gap:4px;padding:4px 0 8px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+  '.dcs-descedit.dcs-descedit-provider{padding-left:24px;}',
+  '.dcs-descedit textarea{box-sizing:border-box;width:100%;min-height:52px;max-height:160px;padding:6px 8px;font-family:inherit;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;resize:vertical;transition:border-color .1s ease;}',
+  '.dcs-descedit textarea:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
+  '.dcs-descedit textarea::placeholder{color:var(--dsw-alias-label-dimmed,#979da6);}',
   '.dcs-epstale{display:flex;align-items:center;gap:8px;padding:4px 0 4px 20px;border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   '.dcs-epstale .dcs-eprname{color:var(--dsw-alias-state-warn-label,#dd8629);}',
   // 自绘 tooltip(挂 body 的单例浮层, .dcs-tip 常驻仅显隐): fixed 定位不受滚动容器裁剪, pre-line 支持 \n 分行

@@ -8,16 +8,18 @@
  *   身份       connection.createPeer({principal: {kind:'owner'}, interactions:'none'}) ——
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
- * 暴露面 = 人工策展的只读端点白名单(BRIDGE_READ_ENDPOINTS)默认只读; 变更类端点两条通路:
- * 配置的 bridgeEndpointAllowlist(部署方预审批, 直行) 或 停泊审批(白名单外的非流式端点, 调用
- * 挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。硬编码黑名单(凭据/插件安装等)两条
- * 通路都没有。读写性宿主不标注——白名单与黑名单都是本插件自己的策展, 逐条人工确认过语义。
+ * 暴露面 = 开发期策展的端点元数据(bridge-endpoints.ts) + 配置的 bridgeEndpointAllowlist:
+ * 元数据标了只读的端点直行; 其余非流式端点两条通路——白名单内直行(部署方预审批), 白名单外
+ * 停泊审批(调用挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。危险端点(信任与供应链类,
+ * 见元数据表的 dangerous 标注)不设永久拒绝, 走同样的两条通路, 界面单列并标注。
+ * 读写性宿主不标注——元数据是本插件自己的策展, 逐条人工确认过语义。
  * 流式方法(@Remote mode:'stream')不进桥: MCP 工具一次请求一次响应。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import { state } from '../core/state.js'
 import { serviceOf } from './bridge.js'
+import { endpointMetaOf } from './bridge-endpoints.js'
 
 /** descriptor 参数的插件侧视图(source==='lookup' 的参数需要宿主侧身份解析, 读桥不受理) */
 export interface InvocationParamView {
@@ -132,101 +134,47 @@ export function listInvocations(ctx: Context): InvocationView[] {
   return out
 }
 
-/**
- * 只读端点白名单(策展)。宿主不标注读写性, 这里逐条人工确认过:
- * 全部是"取数/查询/枚举"语义, 无持久化副作用。运行时还要再过
- * 非流式 ∧ 纯 JSON 参数两道闸(见 classifyInvocation)。
- * 注意: 白名单外的端点不代表是写操作——只是尚未策展。
- */
-export const BRIDGE_READ_ENDPOINTS: readonly string[] = [
-  'fileReferences/list',
-  'goals/get',
-  'commands/list',
-  'cotTranslation/limits',
-  'llm/listConfigurableProviders',
-  'llm/listProviders',
-  'market/fastest',
-  'market/listIndexes',
-  'market/search',
-  'messageFeedback/list',
-  'permissionPresets/catalog',
-  'pluginInventory/list',
-  'plugins/inspect',
-  'plugins/listBundles',
-  'plugins/listPlugins',
-  'plugins/listVersionExemptions',
-  'plugins/registries',
-  'schedule/catalog',
-  'schedule/history',
-  'schedule/list',
-  'session/canOpenWorkspacePath',
-  'session/list',
-  'session/modelCatalog',
-  'session/page',
-  'session/projections',
-  'session/search',
-  'settings/describe',
-  'terminal/list',
-  'workspaceFiles/list',
-  'workspaceFiles/read',
-  'workspaceFiles/stat',
-]
-
-/**
- * 硬编码黑名单: 无论 bridgeEndpointAllowlist 怎么配都不可经桥变更。
- * 圈的是"信任与供应链"类操作——凭据写入、插件安装/启停、市场索引:
- * 它们要么该走宿主自己的交互流程(授权/安装确认), 要么影响整个进程的信任边界。
- */
-export const BRIDGE_WRITE_BLACKLIST: readonly string[] = [
-  'authorization/begin',
-  'credentialsController/set',
-  'credentialsController/unset',
-  'market/setIndexes',
-  'pluginManager/cancelInstall',
-  'pluginManager/installBundle',
-  'pluginManager/removeBundle',
-  'pluginManager/setBundleEnabled',
-  'pluginManager/setPluginEnabled',
-  'pluginManager/setVersionExemption',
-]
-
 export interface EndpointClassification {
   endpoint: string
   readOnly: boolean
   writable: boolean
+  /** 元数据标注的危险端点(信任与供应链类): 不影响可调用性, 供目录与面板标注 */
+  dangerous?: boolean
   /** 未入白名单的潜在写端点: 可调用, 但每次调用先停泊等人工在面板审批 */
   approvalRequired?: boolean
   /** 不予直行的原因(目录展示与调用报错共用同一措辞) */
-  reason?: 'stream' | 'permanently blacklisted' | 'requires approval'
+  reason?: 'stream' | 'requires approval'
 }
 
 /**
- * 闸门顺序: 流式 → 读白名单 → 硬编码黑名单 → 端点白名单 → 停泊审批。
- * lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析宿主对象
- * (如 agent 参数传会话 id), 桥只透传; 解析失败由网关报清晰错误。
+ * 闸门顺序: 流式 → 元数据只读标注 → 端点白名单 → 停泊审批。
+ * 没有永久拒绝: 元数据标了危险的端点同样可经白名单直行或停泊审批到达, dangerous 只负责
+ * 让界面把它单列出来。lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析
+ * 宿主对象(如 agent 参数传会话 id), 桥只透传; 解析失败由网关报清晰错误。
  */
 export function classifyInvocation(inv: InvocationView): EndpointClassification {
   const endpoint = `${inv.namespace}/${inv.method}`
-  if (inv.stream) return { endpoint, readOnly: false, writable: false, reason: 'stream' }
-  if (BRIDGE_READ_ENDPOINTS.includes(endpoint)) return { endpoint, readOnly: true, writable: false }
-  if (BRIDGE_WRITE_BLACKLIST.includes(endpoint)) {
-    return { endpoint, readOnly: false, writable: false, reason: 'permanently blacklisted' }
-  }
-  if (state.config.bridgeEndpointAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true }
+  const meta = endpointMetaOf(endpoint)
+  const dangerous = meta?.dangerous === true ? { dangerous: true } : {}
+  if (inv.stream) return { endpoint, readOnly: false, writable: false, ...dangerous, reason: 'stream' }
+  if (meta?.readOnly === true) return { endpoint, readOnly: true, writable: false, ...dangerous }
+  if (state.config.bridgeEndpointAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true, ...dangerous }
   return {
     endpoint,
     readOnly: false,
     writable: false,
+    ...dangerous,
     approvalRequired: true,
     reason: 'requires approval',
   }
 }
 
-/** 目录/搜索/单域清单共用的紧凑条目(逐字段按需携带: stream 仅真、approvalRequired/blockedBy 仅存在时、摘要首句截 90 字符) */
+/** 目录/搜索/单域清单共用的紧凑条目(逐字段按需携带: stream/dangerous/approvalRequired/blockedBy 仅真或存在时、摘要首句截 90 字符) */
 export interface EndpointSummary {
   endpoint: string
   readOnly: boolean
   writable: boolean
+  dangerous?: boolean
   approvalRequired?: boolean
   blockedBy?: string
   stream?: boolean
@@ -239,6 +187,7 @@ function endpointSummary(inv: InvocationView): EndpointSummary {
     endpoint: `${inv.namespace}/${inv.method}`,
     readOnly: cls.readOnly,
     writable: cls.writable,
+    ...(cls.dangerous === true ? { dangerous: true } : {}),
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
     ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
     ...(inv.stream ? { stream: true } : {}),
@@ -478,6 +427,8 @@ export interface BridgeWriteApprovalInfo {
   requestedAt: number
   /** 停泊的最晚应答时刻(approvalTimeoutMs=0 不限时 → undefined) */
   expiresAt?: number
+  /** 元数据标注的危险端点(信任与供应链类): 审批卡上要醒目标注 */
+  dangerous?: boolean
 }
 
 interface ParkedBridgeWrite extends BridgeWriteApprovalInfo {
@@ -519,6 +470,7 @@ function parkBridgeWrite(
     argsPreview: argsPreviewOf(args),
     requestedAt,
     ...(timeoutMs > 0 ? { expiresAt: requestedAt + timeoutMs } : {}),
+    ...(endpointMetaOf(endpoint)?.dangerous === true ? { dangerous: true } : {}),
     args,
     settled: false,
     // 先占位再赋值(闭包里引用 entry, 不能写在对象字面量里)
@@ -556,6 +508,7 @@ export function listBridgeWriteApprovals(): BridgeWriteApprovalInfo[] {
     argsPreview: p.argsPreview,
     requestedAt: p.requestedAt,
     ...(p.expiresAt !== undefined ? { expiresAt: p.expiresAt } : {}),
+    ...(p.dangerous === true ? { dangerous: true } : {}),
   }))
 }
 

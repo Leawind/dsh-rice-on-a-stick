@@ -999,7 +999,9 @@ try {
       && byEndpoint['session/prompt']?.approvalRequired === true && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
     const credNs = await phase.call('bridge_describe', { namespace: 'credentialsController' })
-    checks['桥单域清单: 黑名单端点标记 permanently blacklisted'] = ((innerOf(credNs) as any).endpoints ?? [])[0]?.blockedBy === 'permanently blacklisted'
+    const credEp = ((innerOf(credNs) as any).endpoints ?? [])[0]
+    checks['桥单域清单: 危险端点标 dangerous 且走审批闸门(无永久拒绝)'] = credEp?.dangerous === true
+      && credEp?.approvalRequired === true && credEp?.blockedBy === 'requires approval'
 
     const hit = await phase.call('bridge_describe', { query: 'routable model' })
     const hitPayload = innerOf(hit) as any
@@ -1056,8 +1058,19 @@ try {
     const callLookupPayload = innerOf(callLookup) as any
     checks['桥调用: lookup 参数透传给网关解析(不再拒绝)'] = callLookup.status === 200
       && callLookupPayload.agentArg === 'sess-live'
-    const callBlacklisted = await phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
-    checks['桥调用: 黑名单端点即使未入写清单也报黑名单拒绝'] = String(innerOf(callBlacklisted).error ?? '').includes('permanently blacklisted')
+    // 危险端点(元数据标注)未入白名单: 同样停泊等审批, 台账条目带 dangerous 标注; 允许后执行
+    let heldDangerous: { approvalId: string; endpoint: string } | undefined
+    const callDangerous = phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
+    checks['桥调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] = await waitFor(() => {
+      heldDangerous = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentialsController/set')
+      return heldDangerous !== undefined && (heldDangerous as any).dangerous === true
+    }) && bridgeInvokes.length === 2
+    answerBridgeWriteApproval(heldDangerous!.approvalId, 'allow')
+    const dangerousOutcome = await callDangerous
+    checks['桥调用: 危险端点经人工允许后执行'] = dangerousOutcome.status === 200
+      && (innerOf(dangerousOutcome) as any).set === true
+      && bridgeInvokes.length === 3 && bridgeInvokes[2].endpoint === 'credentialsController/set'
+      && listBridgeWriteApprovals().length === 0
     const callUnknown = await phase.call('bridge_call', { endpoint: 'nope/missing' })
     checks['桥调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
     await phase.dispose()
@@ -1079,16 +1092,24 @@ try {
     checks['写桥目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] = dirPayload.writable === 1
       && (schedNs.endpoints ?? [])[0]?.writable === true
       && prompt?.writable !== true && prompt?.approvalRequired === true && prompt?.blockedBy === 'requires approval'
-      && (credNs.endpoints ?? [])[0]?.blockedBy === 'permanently blacklisted'
+      && (credNs.endpoints ?? [])[0]?.dangerous === true && (credNs.endpoints ?? [])[0]?.approvalRequired === true
 
     const directCall = await phase.call('bridge_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
     checks['写桥: 白名单端点直接执行(无审批)'] = directCall.status === 200
       && (innerOf(directCall) as any).updated === true
       && bridgeInvokes.length === 1 && listBridgeWriteApprovals().length === 0
 
-    const credCall = await phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
-    checks['写桥黑名单: 永久拒绝且不给审批通道'] = String(innerOf(credCall).error ?? '').includes('permanently blacklisted')
-      && listBridgeWriteApprovals().length === 0
+    // 危险端点也可以入白名单直行(永久黑名单已移除): 白名单内的危险端点无审批直接执行
+    let heldCred: any
+    const credParked = phase.call('bridge_call', { endpoint: 'credentialsController/set', args: { ref: 'x', value: 'y' } })
+    checks['写桥: 危险端点未入白名单先停泊(台账带 dangerous)'] = await waitFor(() => {
+      heldCred = listBridgeWriteApprovals().find((p) => p.endpoint === 'credentialsController/set')
+      return heldCred !== undefined && heldCred.dangerous === true
+    }) && bridgeInvokes.length === 1
+    answerBridgeWriteApproval(heldCred.approvalId, 'allow')
+    const credCall = await credParked
+    checks['写桥: 危险端点经人工允许后执行'] = (innerOf(credCall) as any).set === true
+      && bridgeInvokes.length === 2 && listBridgeWriteApprovals().length === 0
 
     // GUI 端点目录路由(设置面板白名单清单的数据源): 全量端点 + 分类 + 白名单标记
     const epsRes = await phase.gui('bridge-endpoints', { httpMethod: 'GET' })
@@ -1098,11 +1119,14 @@ try {
       && epsBody.total === 8 && (epsBody.endpoints ?? []).length === 8
       && epsMap['session/modelCatalog']?.kind === 'read'
       && epsMap['session/follow']?.kind === 'stream'
-      && epsMap['credentialsController/set']?.kind === 'blacklist'
+      && epsMap['credentialsController/set']?.kind === 'selectable' && epsMap['credentialsController/set']?.dangerous === true
       && epsMap['session/prompt']?.kind === 'selectable' && epsMap['session/prompt']?.allowed === false
       && epsMap['schedule/update']?.kind === 'selectable' && epsMap['schedule/update']?.allowed === true
       && Array.isArray(epsBody.stale) && epsBody.stale.length === 0
       && typeof epsMap['session/modelCatalog']?.description === 'string'
+      // 端点元数据的中英文描述透出(面板按界面语言选用)
+      && typeof epsMap['session/modelCatalog']?.descriptionZh === 'string'
+      && typeof epsMap['credentialsController/set']?.descriptionEn === 'string'
 
     // 停泊 → 允许 → 执行
     let held: any
@@ -1113,7 +1137,7 @@ try {
     })
     checks['写桥停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
       && String(held?.argsPreview).includes('hi') && typeof held?.expiresAt === 'number'
-    checks['写桥停泊: 等待期间未执行'] = bridgeInvokes.length === 1
+    checks['写桥停泊: 等待期间未执行'] = bridgeInvokes.length === 2
 
     // GUI 审批卡路由: 读取在途审批(带不限时标记), 经同源 POST 应答允许
     const gaRead = await phase.gui('bridge-approvals', { httpMethod: 'GET' })
@@ -1131,7 +1155,7 @@ try {
     const parkedResult = await parkedCall
     checks['写桥停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
       && (innerOf(parkedResult) as any).prompted === true
-      && bridgeInvokes.length === 2 && bridgeInvokes[1].endpoint === 'session/prompt'
+      && bridgeInvokes.length === 3 && bridgeInvokes[2].endpoint === 'session/prompt'
       && listBridgeWriteApprovals().length === 0
 
     // 停泊 → 拒绝 → 失败关闭
@@ -1143,7 +1167,7 @@ try {
     answerBridgeWriteApproval(held.approvalId, 'reject')
     const declined = await declinedCall
     checks['写桥停泊: 拒绝后失败关闭'] = String(innerOf(declined).error ?? '').includes('declined')
-      && bridgeInvokes.length === 2 && listBridgeWriteApprovals().length === 0
+      && bridgeInvokes.length === 3 && listBridgeWriteApprovals().length === 0
 
     checks['写桥停泊: 未知审批 id 明确报错'] = answerBridgeWriteApproval('nope', 'allow').ok === false
       && listBridgeWriteApprovals().length === 0
@@ -1173,7 +1197,7 @@ try {
       && listBridgeWriteApprovals().length === 1
     answerBridgeWriteApproval(held.approvalId, 'reject')
     checks['桥调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined')
-      && bridgeInvokes.length === 2
+      && bridgeInvokes.length === 3
 
     // 限时超时: 测试钩子把在途审批的过期时间前移, 不真等超时
     const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
@@ -1193,7 +1217,7 @@ try {
     ageBridgeWriteApprovalsForTest(1001)
     const timedOut = await timeoutCall
     checks['写桥停泊: 限时超时失败关闭且台账清空'] = String(innerOf(timedOut).error ?? '').includes('timed out')
-      && listBridgeWriteApprovals().length === 0 && bridgeInvokes.length === 2
+      && listBridgeWriteApprovals().length === 0 && bridgeInvokes.length === 3
 
     // 不限时(0): 时间流逝不停泊消失, 允许后执行
     const ctxU = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
@@ -1225,7 +1249,7 @@ try {
     const cancelled = await cancelCall
     checks['写桥停泊: 调用方断开取消且不执行'] = cancelled.ok === false
       && String(cancelled.error).includes('disconnected')
-      && listBridgeWriteApprovals().length === 0 && bridgeInvokes.length === 3
+      && listBridgeWriteApprovals().length === 0 && bridgeInvokes.length === 4
 
     // 已中止的信号: 不停泊直接取消
     const ctrl2 = new AbortController()
@@ -1710,6 +1734,8 @@ try {
       sessionTtlMs: 0,
       approvalTimeoutMs: 120000,
       bridgeEndpointAllowlist: ['schedule/update'],
+      modelDescriptions: { 'p1/m1': 'Provider One 的快速模型' },
+      providerDescriptions: { p1: '面向测试的假提供商' },
     }
     const cfgRejected: string[] = []
     for (const key of Object.keys(ConfigSchema({}) as Record<string, unknown>)) {
@@ -1718,6 +1744,30 @@ try {
       if (r.status !== 200) cfgRejected.push(`${key}(${r.status})`)
     }
     checks['GUI 路由: 写入白名单覆盖 Config 全部字段'] = cfgRejected.length === 0
+    // 简介载荷清理: 空键/空值丢弃, 键值去空白
+    const cfgDesc = await guiPut({ modelDescriptions: { ' p1/m1 ': '  有效的简介  ', '': '空键', 'p1/m9': '   ' }, providerDescriptions: { p2: '提供商简介' } })
+    checks['GUI 路由: 模型简介对象清理空键空值后写入'] = cfgDesc.status === 200
+      && JSON.stringify(edits[edits.length - 1].modelDescriptions) === JSON.stringify({ 'p1/m1': '有效的简介' })
+      && JSON.stringify(edits[edits.length - 1].providerDescriptions) === JSON.stringify({ p2: '提供商简介' })
+    await phase.dispose()
+  }
+
+  // ── Phase F2b: 模型/提供商简介随目录透出(model_list / GUI models 同源) ──
+  {
+    const phase = await startPhase(8073, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      modelDescriptions: { 'p1/m1': 'Provider One 的快速模型', 'p9/ghost': '目录外条目' },
+      providerDescriptions: { p1: '面向测试的假提供商' },
+    })
+    const ml = await phase.call('model_list', {})
+    const payload = innerOf(ml) as any
+    const p1 = (payload.providers ?? []).find((p: any) => p.id === 'p1')
+    checks['model_list: 部署方简介并入 provider/model 行'] = p1?.description === '面向测试的假提供商'
+      && (p1.models ?? []).find((m: any) => m.id === 'm1')?.description === 'Provider One 的快速模型'
+      && (p1.models ?? []).find((m: any) => m.id === 'm2')?.description === undefined
+    checks['model_list: 宿主自带长描述不透出(简介只认部署方配置)'] = JSON.stringify(payload).includes('LONG-DESCRIPTION-MUST-NOT-LEAK') === false
+    const modelsRoute = await phase.gui('models')
+    checks['GUI 路由: models 目录带部署方简介'] = modelsRoute.status === 200
+      && modelsRoute.body.includes('面向测试的假提供商') && modelsRoute.body.includes('Provider One 的快速模型')
     await phase.dispose()
   }
 

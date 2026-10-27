@@ -103,9 +103,21 @@ export interface Config {
    * 白名单内的变更类端点经 bridge_call 直接执行——等价部署方预先审批;
    * 白名单外的非流式端点不停留在"拒绝": 调用先停泊, 由部署方在设置面板的人工审批卡
    * 允许/拒绝(允许一次执行一次, 拒绝/超时/调用方断开一律失败关闭)。
-   * 硬编码黑名单(凭据写入/插件安装/连接信任等)优先于本清单, 也不给审批通道。
+   * 开发期端点元数据标了 dangerous 的端点(凭据写入/插件安装/连接信任等)同样走这两条通路,
+   * 只是在面板上单列并标注危险, 提醒部署方谨慎勾选。
    */
   bridgeEndpointAllowlist?: string[]
+  /**
+   * 模型简介("provider/model" → 一段话简介; 侧栏页编辑)。
+   * 随 model_list / dsh://models 透出给调用方, 让 AI 在选模型时能看到部署方写的介绍。
+   * 只对目录里存在的模型有意义; 目录外的条目保留但不展示。
+   */
+  modelDescriptions?: Record<string, string>
+  /**
+   * 模型提供商简介(provider id → 一段话简介; 侧栏页编辑)。
+   * 随 model_list / dsh://models 的 provider 行透出, 语义同 modelDescriptions。
+   */
+  providerDescriptions?: Record<string, string>
 }
 
 /**
@@ -127,6 +139,8 @@ export interface ParsedConfig {
   sessionTtlMs: Volatile<number>
   approvalTimeoutMs: Volatile<number>
   bridgeEndpointAllowlist: Volatile<string[]>
+  modelDescriptions: Volatile<Record<string, string>>
+  providerDescriptions: Volatile<Record<string, string>>
 }
 
 /** 运行时配置默认值 */
@@ -146,6 +160,8 @@ export const DEFAULTS = {
   approvalTimeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
   allowedHosts: [] as string[],
   bridgeEndpointAllowlist: [] as string[],
+  modelDescriptions: {} as Record<string, string>,
+  providerDescriptions: {} as Record<string, string>,
 }
 
 export type RuntimeConfig = typeof DEFAULTS
@@ -174,6 +190,16 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
   // 与 allowedModels 同口径: 去空白、丢空串; Host 头比较一律小写
   const readHosts = () => parsed.allowedHosts.get().map((s) => String(s).trim().toLowerCase()).filter(Boolean)
   const readEndpointAllowlist = () => parsed.bridgeEndpointAllowlist.get().map((s) => String(s).trim()).filter(Boolean)
+  // 简介表: 键与值都去空白, 丢空值与空键(界面写入口已清理, 这里兜住手改配置)
+  const readDescriptionTable = (raw: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(raw ?? {})) {
+      const k = String(key).trim()
+      const v = String(value ?? '').trim()
+      if (k !== '' && v !== '') out[k] = v
+    }
+    return out
+  }
   const runtime: RuntimeConfig = {
     host: DEFAULTS.host,
     port: DEFAULTS.port,
@@ -188,6 +214,8 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
     bridgeEndpointAllowlist: [],
+    modelDescriptions: {},
+    providerDescriptions: {},
   }
   Object.defineProperties(runtime, {
     http: { enumerable: true, configurable: true, get: () => parsed.http.get() !== false },
@@ -225,6 +253,16 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     },
     allowedHosts: { enumerable: true, configurable: true, get: readHosts },
     bridgeEndpointAllowlist: { enumerable: true, configurable: true, get: readEndpointAllowlist },
+    modelDescriptions: {
+      enumerable: true,
+      configurable: true,
+      get: () => readDescriptionTable(parsed.modelDescriptions.get() ?? {}),
+    },
+    providerDescriptions: {
+      enumerable: true,
+      configurable: true,
+      get: () => readDescriptionTable(parsed.providerDescriptions.get() ?? {}),
+    },
   })
   return runtime
 }
@@ -255,5 +293,7 @@ export const Config = Schema.object({
   allowedHosts: Schema.array(Schema.string()).default([]).volatile().description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases). Read per request: edits apply immediately.'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).volatile().description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec). Read live: edits apply to the next sweep.'),
   approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Wait limit for a generic-bridge write parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the host answer-client chain and are not bounded by this value.'),
-  bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). The hard-coded blacklist (credential writes, plugin installs, connection trust) always wins and gets no approval path.'),
+  bridgeEndpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.bridgeEndpointAllowlist).volatile().description('Generic-bridge endpoint allowlist in "namespace/method" form (default empty = the bridge is read-only plus per-call panel approval). Allowlisted mutating endpoints execute directly through bridge_call; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.'),
+  modelDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.modelDescriptions).volatile().description('Per-model blurbs keyed by "provider/model", written on the settings panel and surfaced through model_list / dsh://models so callers can see them when picking a model. Entries outside the live catalog are kept but not shown.'),
+  providerDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.providerDescriptions).volatile().description('Per-provider blurbs keyed by provider id, surfaced on the provider rows of model_list / dsh://models (same semantics as modelDescriptions).'),
 })

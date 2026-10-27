@@ -96,7 +96,7 @@ export function registerCatalogTools(
     'model_list',
     {
       title: 'List models',
-      description: 'List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host\'s current default selection. `session_create` takes its provider/model/preset from here. `source=sessionController` is the official catalog (same as the Web model picker); `source=llm` is a fallback without reasoning metadata.',
+      description: 'List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host\'s current default selection. Providers and models may carry a `description` — a blurb written by this deployment\'s operator on the settings panel. `session_create` takes its provider/model/preset from here. `source=sessionController` is the official catalog (same as the Web model picker); `source=llm` is a fallback without reasoning metadata.',
       inputSchema: {
         provider: z.string().optional().describe('Only list this provider (default: all).'),
       },

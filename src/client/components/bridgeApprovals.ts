@@ -84,6 +84,7 @@ export function BridgeApprovalCard(props) {
         }) : null,
         React.createElement('div', { className: 'dcs-apprhead' },
           React.createElement('span', { className: 'dcs-apprendpoint' }, a.endpoint),
+          a.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('bridge.dangerous')) : null,
           React.createElement('span', { className: 'dcs-apprwait' + (urgent ? ' dcs-apprwait-urgent' : '') },
             t('bridgeApproval.waited', { d: fmtDur(Math.max(0, now - a.requestedAt)) }) + ' · ' + left),
         ),

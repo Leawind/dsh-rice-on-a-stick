@@ -6,6 +6,16 @@
 import { t } from './i18n';
 import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from '../core/config-defaults';
 
+// 简介表("provider/model" 或 provider id → 一段话): 只留非空字符串键值
+function descTableOf(v) {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (k !== '' && typeof val === 'string' && val !== '') out[k] = val;
+  }
+  return out;
+}
+
 export function draftFromStatus(st) {
   const c = (st && st.config) || {};
   const allowed = Array.isArray(c.allowedModels) ? c.allowedModels.filter(function (v) { return typeof v === 'string' && v; }) : [];
@@ -20,12 +30,16 @@ export function draftFromStatus(st) {
     port: typeof c.port === 'number' ? c.port : DEFAULT_PORT,
     // 监听级字段(改动会重建监听器): 与 Config 一一对应, 面板不得遗漏任何一项
     httpOn: c.http !== false,
-    approvalTimeoutMs: typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS,
+    // 审批等待上限: 配置值是毫秒, 界面一律以秒编辑(草稿存秒, 提交时换回毫秒)
+    approvalTimeoutS: Math.round((typeof c.approvalTimeoutMs === 'number' ? c.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS) / 1000),
     sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
     allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
     hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
     // 通用桥端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
     bridgeEndpointAllowlist: Array.isArray(c.bridgeEndpointAllowlist) ? c.bridgeEndpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
+    // 模型/提供商简介(键值表; 面板编辑, 随 model_list / dsh://models 透出)
+    modelDescriptions: descTableOf(c.modelDescriptions),
+    providerDescriptions: descTableOf(c.providerDescriptions),
   };
 }
 
@@ -44,7 +58,8 @@ export function hostsTextOf(list) {
 
 /** 草稿里的就地生效字段是否与生效值不同: 用于轮询期间保留草稿(这些字段失焦才提交) */
 export function structDirtyOf(draft, cfg) {
-  return String(draft.approvalTimeoutMs) !== String(typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS)
+  const nowTimeoutMs = typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS;
+  return Number(draft.approvalTimeoutS) * 1000 !== nowTimeoutMs
     || String(draft.sessionTtlMs) !== String(typeof cfg.sessionTtlMs === 'number' ? cfg.sessionTtlMs : DEFAULT_SESSION_TTL_MS)
     || hostsTextOf(String(draft.hostsText || '').split(/[\s,]+/)) !== hostsTextOf(cfg.allowedHosts);
 }
@@ -73,11 +88,11 @@ export function readListen(draft, cfg) {
 }
 
 export function readTimeout(draft, cfg) {
-  const n = Number(draft.approvalTimeoutMs);
-  // 0 = 不限时; 其余 1000-600000(与服务端钳制同向)
-  if (!Number.isFinite(n) || n < 0 || (n !== 0 && (n < 1000 || n > 600000))) return { error: t('approvalTimeout.invalid') };
+  const s = Number(draft.approvalTimeoutS);
+  // 界面单位是秒: 0 = 不限时; 其余 1-600 整数秒(与服务端 1000-600000ms 钳制同向)
+  if (!Number.isInteger(s) || s < 0 || s > 600) return { error: t('approvalTimeout.invalid') };
   const now = typeof cfg.approvalTimeoutMs === 'number' ? cfg.approvalTimeoutMs : DEFAULT_APPROVAL_TIMEOUT_MS;
-  return Math.round(n) === now ? {} : { values: { approvalTimeoutMs: Math.round(n) } };
+  return s * 1000 === now ? {} : { values: { approvalTimeoutMs: s * 1000 } };
 }
 
 export function readTtl(draft, cfg) {

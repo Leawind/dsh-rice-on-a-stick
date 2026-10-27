@@ -119,7 +119,8 @@ function projectCatalogModel(m: { id?: string; name?: string; reasoning?: { effo
  *      与 Web UI 模型选择器同一数据源;
  *   2. 回退: llm.listProviders() + 逐个 listModels() —— 只服务会话控制器缺席的部署(如 headless),
  *      逐个 provider 隔离失败, 且不含推理档元数据(那需要 resolveModelInfo, 这里不逐模型发请求)。
- * 同时回报插件自身的模型配置与 allowedModels, 让调用方知道"能用哪些模型"。
+ * 同时回报插件自身的模型配置与 allowedModels, 让调用方知道"能用哪些模型";
+ * 部署方在侧栏页写的模型/提供商简介(description)并入对应目录行。
  */
 export async function collectModelCatalog(ctx: Context, only?: string): Promise<Record<string, unknown>> {
   const failures: { id: string; name?: string; message: string }[] = []
@@ -168,11 +169,23 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
   if (def === undefined) def = hostDefaultSelection(ctx)
   const q = only?.trim()
   const filtered = q ? groups.filter((g) => g.id === q) : groups
+  // 部署方写的简介(侧栏页编辑)并入目录行: provider 行与 model 行各带可选 description,
+  // 让调用方在选模型时看到"这个模型/提供商是干什么的"
+  const providerDesc = state.config.providerDescriptions
+  const modelDesc = state.config.modelDescriptions
+  const described = filtered.map((g) => ({
+    ...g,
+    ...(providerDesc[g.id] !== undefined ? { description: providerDesc[g.id] } : {}),
+    models: g.models.map((m) => {
+      const d = modelDesc[`${g.id}/${m.id}`]
+      return d !== undefined ? { ...m, description: d } : m
+    }),
+  }))
   return {
     source,
     default: projectModel(def),
     routableProviders: q ? routable.filter((p) => p === q) : routable,
-    providers: filtered,
+    providers: described,
     ...(failures.length ? { failures } : {}),
     config: {
       allowedModels: state.config.allowedModels,
@@ -794,6 +807,8 @@ export function basicStatusSnapshot(): Record<string, unknown> {
       port: state.config.port,
       allowedModels: state.config.allowedModels,
       allowedModelsEnabled: state.config.allowedModelsEnabled,
+      modelDescriptions: state.config.modelDescriptions,
+      providerDescriptions: state.config.providerDescriptions,
       defaultDetail: state.config.defaultDetail,
       authEnabled: state.config.authEnabled,
       selfToolsEnabled: state.config.selfToolsEnabled,

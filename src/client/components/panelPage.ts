@@ -1,8 +1,8 @@
-// ── 侧栏页(main 条目): 品牌头(含常驻 MCP 端点卡) + 页内标签(审批 / 设置 / 连接) ──
-// 审批标签 = 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
-// 设置标签 = 配置表单(按常用度分组: MCP 服务 / 模型白名单 / 通用桥端点白名单 / MCP 令牌 /
-// Agent 工具面 / 审批 / 安全与传输);
-// 连接标签 = 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免设置页被拉长)。
+// ── 侧栏页(main 条目): 品牌头(含整合了 MCP 服务开关/监听地址/端点/复制的端点卡) + 页内标签 ──
+// 审批标签 = 桥写审批等待上限(秒) + 桥写停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
+// 模型白名单标签 = 白名单开关 + 多选分层树(每行可编辑模型/提供商简介);
+// 设置标签 = 配置表单(按常用度分组: MCP 令牌 / 通用桥端点白名单 / Agent 工具面 / 审批 /
+// 安全与传输); 连接标签 = 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免设置页被拉长)。
 // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
 // 字段的读取/校验与草稿构造在 ../configFields(纯函数, 现读生效配置)。
 import React from 'react';
@@ -15,6 +15,7 @@ import { Badge, groupHead, Row, Switch } from './ui';
 import { PanelIcon } from './brand';
 import { BridgeEndpointAllowlist } from './bridgeEndpoints';
 import { BridgeApprovalCard } from './bridgeApprovals';
+import { ModelAllowlistTree } from './modelAllowlist';
 import { NAV_ICON_SVG } from '../icons';
 
 export var lastPanelTab = ''; // 页面卸载重开时记住上次所在标签(插件客户端半重载后回到默认)
@@ -81,9 +82,7 @@ export function PanelPage() {
     disarmRegen();
   }
   React.useEffect(function () { return disarmRegen; }, []);
-  // 模型白名单的"添加模型"面板: null = 关闭; '' / 关键字 = 打开(打开时才拉目录, 全量列表只在添加时出现)
-  const [adding, setAdding] = React.useState(null);
-  // 模型目录(添加面板的数据源): null = 未加载, false = 加载失败
+  // 模型目录(模型白名单树的数据源): null = 未加载, false = 加载失败; 进入模型标签页时(重)拉
   const [cat, setCat] = React.useState(null);
   // 通用桥端点目录(白名单清单的数据源): null = 加载中, false = 不可用, 否则 {endpoints, stale}
   const [eps, setEps] = React.useState(null);
@@ -177,15 +176,16 @@ export function PanelPage() {
     };
   }, [refresh]);
 
-  // 添加模型面板打开时才需要目录: 惰性拉一次
+  // 模型白名单树只在模型标签页需要目录: 每次进入标签页重新拉(保持目录新鲜, 退出即释放)
   React.useEffect(function () {
-    if (adding === null || cat !== null) return;
+    if (tab !== 'models') return undefined;
     let alive = true;
+    setCat(null);
     rpc('models')
       .then(function (m) { if (alive) setCat(m && Array.isArray(m.providers) ? m : false); })
       .catch(function () { if (alive) setCat(false); });
     return function () { alive = false; };
-  }, [adding, cat]);
+  }, [tab]);
 
   function copyEndpoint() {
     if (state && state.endpoint && navigator.clipboard) {
@@ -223,9 +223,22 @@ export function PanelPage() {
       selfToolsEnabled: next.selfToolsOn === true,
       // 通用桥端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
       bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice(),
+      // 模型/提供商简介: 键值表原样提交, 服务端清理空键空值
+      modelDescriptions: next.modelDescriptions || {},
+      providerDescriptions: next.providerDescriptions || {},
     };
     if (arguments.length > 1) values.authToken = authToken;
     enqueue({ values: values });
+  }
+
+  /** 模型/提供商简介编辑: 合并进对应简介表(清空文本 = 删除该条目), 随 change() 提交 */
+  function setDescription(kind, key, text) {
+    change(function (cur) {
+      const table = Object.assign({}, kind === 'model' ? cur.modelDescriptions : cur.providerDescriptions);
+      const trimmed = String(text || '').trim();
+      if (trimmed === '') delete table[key]; else table[key] = trimmed;
+      return kind === 'model' ? { modelDescriptions: table } : { providerDescriptions: table };
+    });
   }
 
   function enqueue(payload: unknown, reload?: boolean) {
@@ -373,26 +386,6 @@ export function PanelPage() {
   const d = form !== null ? form.draft : null;
   const now = Date.now();
 
-  // 模型目录平铺(provider/model + 展示名): 已选清单的名称与添加面板的候选项共用
-  const catProviders = (cat && Array.isArray(cat.providers)) ? cat.providers : [];
-  const catalogPairs = [];
-  catProviders.forEach(function (p) {
-    (p.models || []).forEach(function (m) {
-      catalogPairs.push({ pair: p.id + '/' + m.id, name: m.name && m.name !== m.id ? m.name : '' });
-    });
-  });
-  const nameOf = function (pair) {
-    const hit = catalogPairs.find(function (e) { return e.pair === pair; });
-    return hit ? hit.name : '';
-  };
-  // 添加面板候选项: 目录全量 - 已选, 按关键字过滤(pair/展示名不区分大小写子串); 无关键字时也列出(上限 50, 提示继续过滤)
-  const chosenSet = d ? d.allowedModels : [];
-  const q = adding !== null ? adding.trim().toLowerCase() : '';
-  const candidates = adding === null ? [] : catalogPairs
-    .filter(function (e) { return chosenSet.indexOf(e.pair) === -1; })
-    .filter(function (e) { return !q || e.pair.toLowerCase().includes(q) || e.name.toLowerCase().includes(q); });
-  const CAND_CAP = 50;
-
   return React.createElement('div', { className: 'dcs-root' },
     // 顶部栏: 返回会话(宿主 layout.selectPanel(null), 参考宿主面包屑的弱化文本样式)
     React.createElement('div', { className: 'dcs-topbar' },
@@ -426,15 +419,54 @@ export function PanelPage() {
       }),
       ),
       React.createElement('div', { className: 'dcs-tagline' }, t('plugin.tagline')),
-      // MCP 端点卡(最高频: 复制给其他客户端接入): 常驻页头, 审批/设置两标签共用, 设置表单里不再重复
-      React.createElement('div', { className: 'dcs-card dcs-endpoint' },
-        React.createElement('div', { className: 'dcs-urlrow' },
-          React.createElement('span', { className: 'dcs-url' }, state.endpoint),
-          React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
-        ),
+      // MCP 端点卡(最高频): MCP 服务开关 + 监听地址/端口内嵌在端点 URL 里 + 复制按钮(右端)。
+      // URL 由静态前后缀与两个内联输入框拼成——编辑输入框即编辑端点本体(校验/提交时机与
+      // 原监听行一致); 常驻页头, 全部标签共用, 设置表单里不再重复。
+      React.createElement('div', { className: 'dcs-card' },
+        d ? React.createElement(React.Fragment, null,
+          React.createElement('div', { className: 'dcs-endrow' },
+            React.createElement('div', { className: 'dcs-servicectl' },
+              React.createElement('span', { className: 'dcs-servicename' }, t('server.title')),
+              React.createElement(Switch, {
+                checked: d.httpOn,
+                label: t('server.title'),
+                onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
+              }),
+            ),
+            React.createElement('div', { className: 'dcs-endpoint', 'data-off': d.httpOn ? '0' : '1' },
+              React.createElement('span', null, 'http://'),
+              React.createElement('input', {
+                className: 'dcs-urlseg', type: 'text', value: d.host,
+                style: { width: Math.max(6, String(d.host).length + 1) + 'ch' },
+                'aria-label': t('listen.host'), title: t('listen.host'),
+                spellCheck: false, disabled: !d.httpOn,
+                onChange: function (e) { setListen({ host: e.target.value }); },
+                onBlur: function () { commitField('listen'); },
+                onKeyDown: enterCommits('listen'),
+              }),
+              React.createElement('span', null, ':'),
+              React.createElement('input', {
+                className: 'dcs-urlseg', type: 'number', min: 1, max: 65535, value: d.port,
+                style: { width: '6ch' },
+                'aria-label': t('listen.port'), title: t('listen.port'),
+                disabled: !d.httpOn,
+                onChange: function (e) { setListen({ port: e.target.value }); },
+                onBlur: function () { commitField('listen'); },
+                onKeyDown: enterCommits('listen'),
+              }),
+              React.createElement('span', null, '/mcp'),
+            ),
+            React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
+          ),
+          errOf('listen') ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', errOf('listen')) : null,
+          React.createElement('div', { className: 'dcs-endhint' }, t('service.hint')),
+          React.createElement('div', { className: 'dcs-endhint' }, t('footnote')),
+        )
+        : React.createElement('div', { className: 'dcs-endrow' },
+            React.createElement('div', { className: 'dcs-endpoint' }, React.createElement('span', null, state.endpoint || ''))),
       ),
     ),
-    // 页内标签: 审批(动作面, 停泊计数泡) / 设置(策略面) / 连接(观测面)
+    // 页内标签: 审批(动作面, 停泊计数泡) / 模型白名单(选模面) / 设置(策略面) / 连接(观测面)
     React.createElement('div', { className: 'dcs-tabs', role: 'tablist' },
       React.createElement('button', {
         type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'approvals',
@@ -444,6 +476,11 @@ export function PanelPage() {
         bApprovals.length > 0 ? React.createElement('span', {
           className: 'dcs-tabcount' + (bUrgent ? ' dcs-tabcount-urgent' : ''),
         }, String(bApprovals.length)) : null),
+      React.createElement('button', {
+        type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'models',
+        'data-on': tab === 'models' ? '1' : '0',
+        onClick: function () { switchTab('models'); },
+      }, t('tab.models')),
       React.createElement('button', {
         type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'settings',
         'data-on': tab === 'settings' ? '1' : '0',
@@ -456,73 +493,52 @@ export function PanelPage() {
       }, t('tab.conns')),
     ),
     error ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', error) : null,
-    // ── 审批标签: 停泊中的桥写调用逐一应答; 空态为居中虚线框(文案保持一句话) ──
+    // 保存错误栏(全局): 任何标签发起的写入失败都在这里提示, 不随分组位置漂移
+    cfgError ? React.createElement('div', { className: 'dcs-savebar' },
+      React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
+    ) : null,
+    // ── 审批标签: 桥写审批等待上限(秒, 就地生效) + 停泊中的桥写调用逐一应答; 空态为居中虚线框 ──
     tab === 'approvals'
-      ? (bApprovals.length === 0
-          ? React.createElement('div', { className: 'dcs-apprsempty' },
-              React.createElement('span', {
-                className: 'dcs-icon', 'aria-hidden': 'true',
-                dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
+      ? React.createElement(React.Fragment, null,
+          d ? React.createElement('div', { className: 'dcs-form' },
+            React.createElement(Row, {
+              label: t('approvalTimeout.title'),
+              hint: t('approvalTimeout.hint'),
+              err: errOf('approvalTimeoutMs'),
+              control: React.createElement('div', { className: 'dcs-inline' },
+                React.createElement('input', {
+                  className: 'dcs-input',
+                  type: 'number',
+                  min: 0,
+                  max: 600,
+                  step: 1,
+                  value: d.approvalTimeoutS,
+                  onChange: function (e) { setHot({ approvalTimeoutS: e.target.value }); },
+                  onBlur: function () { commitField('approvalTimeoutMs'); },
+                  onKeyDown: enterCommits('approvalTimeoutMs'),
+                }),
+              ),
+            }),
+          ) : null,
+          bApprovals.length === 0
+            ? React.createElement('div', { className: 'dcs-apprsempty' },
+                React.createElement('span', {
+                  className: 'dcs-icon', 'aria-hidden': 'true',
+                  dangerouslySetInnerHTML: { __html: NAV_ICON_SVG.replace(/#7C8798/gi, 'currentColor') },
+                }),
+                React.createElement('div', { className: 'dcs-apprsempty-main' }, t('approvals.empty')))
+            : React.createElement(BridgeApprovalCard, {
+                items: bApprovals,
+                unlimited: bUnlimited,
+                now: nowTick,
+                onRefresh: function () { approvalStore.refresh(); refresh(); },
+                onDebugAnswer: function (id: string) { approvalStore.removeDebug(id); },
               }),
-              React.createElement('div', { className: 'dcs-apprsempty-main' }, t('approvals.empty')))
-          : React.createElement(BridgeApprovalCard, {
-              items: bApprovals,
-              unlimited: bUnlimited,
-              now: nowTick,
-              onRefresh: function () { approvalStore.refresh(); refresh(); },
-              onDebugAnswer: function (id: string) { approvalStore.removeDebug(id); },
-            }))
+        )
       : null,
-    tab !== 'settings' ? null :
-    // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段重建监听器。
-    // 按常用度分组排序, 同类相邻: MCP 服务 → 模型白名单 → 通用桥端点白名单 → MCP 令牌 →
-    // Agent 工具面 → 审批 → 安全与传输; 组内行间画发丝线(每组一个 .dcs-form 容器)
+    // ── 模型白名单标签: 白名单开关 + 多选分层树(勾选限制可选模型, 每行可编辑简介) ──
+    tab !== 'models' ? null :
     d ? React.createElement(React.Fragment, null,
-      // 保存错误栏(设置标签顶部): 任何分组的写入失败都在这里提示, 不随分组位置漂移
-      cfgError ? React.createElement('div', { className: 'dcs-savebar' },
-        React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
-      ) : null,
-      // ── MCP 服务(常用度 2: 对外服务总开关; 端点卡已常驻页头, 这里不再重复) ──
-      groupHead(t('server.title'), {
-        hint: t('service.hint'),
-        control: React.createElement(Switch, {
-          checked: d.httpOn,
-          label: t('server.title'),
-          onChange: function (v) { changeStruct({ httpOn: v }, { http: v }); },
-        }),
-      }),
-      React.createElement('div', { className: 'dcs-form' },
-      React.createElement('div', { className: 'dcs-row dcs-row-stack' },
-        React.createElement('div', { className: 'dcs-labels' },
-          React.createElement('span', { className: 'dcs-label' }, t('listen.title')),
-        ),
-        React.createElement('div', { className: 'dcs-listenrow' },
-          React.createElement('input', {
-            className: 'dcs-input dcs-input-host',
-            type: 'text',
-            value: d.host,
-            spellCheck: false,
-            onChange: function (e) { setListen({ host: e.target.value }); },
-            onBlur: function () { commitField('listen'); },
-            onKeyDown: enterCommits('listen'),
-          }),
-          React.createElement('input', {
-            className: 'dcs-input dcs-input-port',
-            type: 'number',
-            min: 1,
-            max: 65535,
-            value: d.port,
-            onChange: function (e) { setListen({ port: e.target.value }); },
-            onBlur: function () { commitField('listen'); },
-            onKeyDown: enterCommits('listen'),
-          }),
-        ),
-        errOf('listen') ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', errOf('listen')) : null,
-      ),
-      // 重连代价只说一次, 避免每条说明都挂一句"改此项会断开客户端"把行宽挤满
-      React.createElement('div', { className: 'dcs-footnote' }, t('footnote')),
-      ),
-      // ── 模型白名单(常用度 3) ──
       groupHead(t('whitelist.title'), {
         hint: t('whitelist.hint'),
         control: React.createElement(Switch, {
@@ -533,70 +549,21 @@ export function PanelPage() {
       }),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-listwrap' },
-            // 已选清单(只列已选的; 目录里没有的条目只少个展示名, 不会静默丢失)
-            d.allowedModels.length === 0
-              ? React.createElement('div', { className: 'dcs-listmsg' }, t('whitelist.empty'))
-              : React.createElement('div', { className: 'dcs-list' },
-                  d.allowedModels.map(function (pair) {
-                    const nm = nameOf(pair);
-                    return React.createElement('div', { key: pair, className: 'dcs-chosen' },
-                      React.createElement('span', null, pair,
-                        nm ? React.createElement('span', { className: 'dcs-chosenname' }, nm) : null),
-                      React.createElement('button', {
-                        type: 'button', className: 'dcs-x', title: t('whitelist.remove', { m: pair }),
-                        onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.filter(function (x) { return x !== pair; }) }; }); },
-                      }, '✕'),
-                    );
-                  })),
-            // 添加入口: 打开后才拉目录并列出候选(可搜索), 关闭时不占任何空间
-            adding === null
-              ? React.createElement('div', null,
-                  React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(''); } }, t('whitelist.add')))
-              : React.createElement('div', { className: 'dcs-addrow' },
-                  React.createElement('input', {
-                    className: 'dcs-input',
-                    type: 'text',
-                    value: adding,
-                    placeholder: t('whitelist.filter'),
-                    spellCheck: false,
-                    onChange: function (e) { setAdding(e.target.value); },
-                  }),
-                  React.createElement('button', { type: 'button', className: 'dcs-btn', onClick: function () { setAdding(null); } }, t('whitelist.done')),
-                ),
-            adding !== null
-              ? (cat === null
-                  ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.loading'))
-                  : cat === false
-                    ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.unavailable'))
-                    : React.createElement('div', { className: 'dcs-list' },
-                        candidates.length === 0
-                          ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.none'))
-                          : candidates.slice(0, CAND_CAP).map(function (e) {
-                              return React.createElement('button', {
-                                key: e.pair, type: 'button', className: 'dcs-cand',
-                                onClick: function () { change(function (cur) { return { allowedModels: cur.allowedModels.concat([e.pair]) }; }); },
-                              },
-                                e.pair,
-                                e.name ? React.createElement('span', { className: 'dcs-candname' }, e.name) : null,
-                              );
-                            }),
-                        candidates.length > CAND_CAP
-                          ? React.createElement('div', { className: 'dcs-listmsg' }, t('cat.capped', { total: candidates.length, cap: CAND_CAP }))
-                          : null))
-              : null,
-          ),
-      ),
-      // ── 通用桥端点白名单(常用度 4; 勾选清单组件内部自管展开/过滤) ──
-      groupHead(t('bridge.title'), { hint: t('bridge.hint') }),
-      React.createElement('div', { className: 'dcs-form' },
-      React.createElement('div', { className: 'dcs-listwrap' },
-        React.createElement(BridgeEndpointAllowlist, {
-          data: eps,
-          allowed: d.bridgeEndpointAllowlist || [],
-          onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },
+        React.createElement(ModelAllowlistTree, {
+          catalog: cat,
+          allowed: d.allowedModels || [],
+          descriptions: { models: d.modelDescriptions || {}, providers: d.providerDescriptions || {} },
+          onAllowed: function (nextArray) { change({ allowedModels: nextArray }); },
+          onDescription: setDescription,
         }),
       ),
       ),
+    ) : null,
+    tab !== 'settings' ? null :
+    // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段(MCP 服务
+    // 开关与监听地址/端口, 在页头端点卡)重建监听器。按常用度分组排序, 同类相邻:
+    // MCP 令牌 → 通用桥端点白名单 → Agent 工具面 → 审批 → 安全与传输; 组内行间画发丝线(每组一个 .dcs-form 容器)
+    d ? React.createElement(React.Fragment, null,
       // ── MCP 令牌(常用度 5; 令牌行常驻展开, 关闭认证时也可预生成/复制令牌) ──
       groupHead(t('auth.title'), {
         control: React.createElement(Switch, {
@@ -661,6 +628,17 @@ export function PanelPage() {
             d.authOn ? t('auth.regenWarnOn') : t('auth.regenWarnOff')) : null,
         ),
       ),
+      // ── 通用桥端点白名单(勾选清单组件内部自管展开/过滤, 危险端点单列) ──
+      groupHead(t('bridge.title'), { hint: t('bridge.hint') }),
+      React.createElement('div', { className: 'dcs-form' },
+      React.createElement('div', { className: 'dcs-listwrap' },
+        React.createElement(BridgeEndpointAllowlist, {
+          data: eps,
+          allowed: d.bridgeEndpointAllowlist || [],
+          onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },
+        }),
+      ),
+      ),
       // ── Agent 工具面 ──
       groupHead(t('group.agent')),
       React.createElement('div', { className: 'dcs-form' },
@@ -685,27 +663,9 @@ export function PanelPage() {
           React.createElement('option', { value: 'full' }, t('detail.full'))),
       }),
       ),
-      // ── 审批桥写 ──
+      // ── 审批桥写: 等待上限(秒)在审批标签编辑; 这里只剩脚注说明生效语义 ──
       groupHead(t('tab.approvals')),
       React.createElement('div', { className: 'dcs-form' },
-      React.createElement(Row, {
-        label: t('approvalTimeout.title'),
-        hint: t('approvalTimeout.hint'),
-        err: errOf('approvalTimeoutMs'),
-        control: React.createElement('div', { className: 'dcs-inline' },
-          React.createElement('input', {
-            className: 'dcs-input',
-            type: 'number',
-            min: 0,
-            max: 600000,
-            step: 1000,
-            value: d.approvalTimeoutMs,
-            onChange: function (e) { setHot({ approvalTimeoutMs: e.target.value }); },
-            onBlur: function () { commitField('approvalTimeoutMs'); },
-            onKeyDown: enterCommits('approvalTimeoutMs'),
-          }),
-        ),
-      }),
       React.createElement('div', { className: 'dcs-footnote' }, t('footnote.approval')),
       ),
       // ── 安全与传输(Host 头白名单 + 传输会话空闲上限, 低频的服务端防护) ──
