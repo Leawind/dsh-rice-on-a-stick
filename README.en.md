@@ -33,7 +33,7 @@ flowchart LR
 
 ## Features
 
--   **Operate sessions** — create, send, queue, fork, archive and restore, switch models, and more. A model allowlist can be manually configured so that clients can only use models on the list; blurbs for models and providers can be written on the panel and are surfaced through `model_list` / `dsh://models` for callers.
+-   **Operate sessions** — create, send, queue, fork, archive and restore, switch models, and more. The "Models" tab of the settings panel can be limited to specific models, so clients can only use the ones ticked; blurbs for models and their providers can be written there and are surfaced through `model_list` / `dsh://models` for callers.
 -   **Answer like a normal Web user** — the plugin joins as a Web answer client for approvals and `ask_user_question`: the native cards stay visible and whoever answers first wins. Polling surfaces what is pending, and `approval_answer` / `question_answer` submit the decision.
 -   **dsh endpoint passthrough** — low-curation coverage for the long tail of dsh capabilities. Dangerous endpoints (credential writes, plugin installs, connection trust) have no hard gate: they take the same allowlist/parking paths as ordinary mutating endpoints but are listed separately with a warning on the panel; see `CONTRIBUTING.md` and `docs/endpoint-passthrough.zh.md`.
 -   **dsh can use it too** — these capabilities are also registered as internal dsh tools, callable directly from dsh sessions; they can be disabled in settings if not needed.
@@ -84,6 +84,82 @@ The MCP server listens on `http://127.0.0.1:5642/mcp` by default, using Streamab
 ## Configuration
 
 All configuration can be changed in the "Rice on a Stick" page (Settings tab) of the dsh sidebar. For all fields, defaults, and descriptions of `cordis.patch.yml` in the profile directory, see [src/core/config.ts](src/core/config.ts):
+
+## Tools
+
+The plugin registers 35 MCP tools; the table below lists 33 of them, grouped by domain. The two host endpoint passthrough tools `endpoint_describe` / `endpoint_call` cover the long tail of dsh Remote endpoints, whose number follows the host, so they are not enumerated here (see [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md) for the mechanism).
+
+### Catalog and status
+
+| Tool | Purpose |
+| --- | --- |
+| `echo` | Echo the input back to verify MCP connectivity |
+| `dsh_get_started` | dsh onboarding guide: glossary, workflow recipes and an error→alternative-path cheat sheet; `section` fetches just one part |
+| `dsh_list_tools` | List the host's global tool registry (model tools live in session/preset scopes, so this table is usually empty) |
+| `dsh_status` | Read-only deployment status: version, listener, config summary, subscription stats and connected clients — the same data as the settings panel |
+| `workspace_list` | List registered workspaces (id, path, owning sessions) |
+| `model_list` | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection |
+| `permission_list` | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission` |
+| `subagent_list` | Read a session's native subagent catalog; `recursive=true` lists descendants |
+
+### Session actions
+
+| Tool | Purpose |
+| --- | --- |
+| `session_create` | Create a blank session with `cwd`, provider/model and preset all explicit; returns `sessionId` |
+| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations |
+| `session_prompt` | Send a message and wait for the turn to finish, returning the structured result; by default it returns early while the session waits for an approval or a question |
+| `session_submit` | Admit a task asynchronously and return `requestId` immediately, without waiting for the turn |
+| `session_poll` | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message |
+| `session_result` | Fetch the structured result by `requestId` (omitting it returns the session's latest request) |
+| `session_cancel` | Stop the session's current turn, keeping queued messages that have not started |
+| `session_queue` | Manage queued messages — list, edit, remove, or promote one to a steer with `action="steer"` |
+| `session_select_model` | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list) |
+| `session_rename` | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title) |
+| `session_fork` | Fork a session from a prefix of its events, inheriting cwd, preset and current model |
+| `session_command` | List or run a session's slash commands without sending them to the model or creating a turn |
+| `session_archive` | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true` |
+| `session_unarchive` | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false` |
+
+### Session reads
+
+| Tool | Purpose |
+| --- | --- |
+| `session_list` | List session metadata (title, cwd, preset, permission preset, current model), hiding archived ones by default |
+| `session_history` | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex` |
+| `session_meta` | Read one session's metadata and runtime state: turn/step counters, context occupancy, and more |
+| `session_overview` | One-call GUI-style glance: title, permission, model, in-progress state, context occupancy and a recent digest |
+| `session_search` | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default |
+
+### Approvals
+
+| Tool | Purpose |
+| --- | --- |
+| `approval_list` | List pending approvals for several sessions (with `answerable` and `policy`); read-only |
+| `approval_answer` | Answer an approval this plugin holds: `allow` grants once, `reject` denies |
+| `approval_policy` | Read or switch a session's approval policy knob (`ask` / `never`) |
+
+### Questions
+
+| Tool | Purpose |
+| --- | --- |
+| `question_list` | List pending `ask_user_question` calls for several sessions (with the question batch); read-only |
+| `question_answer` | Answer a question batch this plugin holds; the child turn continues with that answer |
+
+### Attachments
+
+| Tool | Purpose |
+| --- | --- |
+| `attachment_read` | Read an image attachment by reference: metadata plus the host-local path by default, or an MCP image block with `inline=true` |
+
+## Delivery: queue vs. steer
+
+`session_prompt` and `session_submit` choose the delivery mode per call, independent of any UI preference. While the target session is running a turn, `mode` is required:
+
+- `mode: "queue"` — queued: delivered as a new turn after the current turn ends
+- `mode: "steer"` — steered: injected at the next step boundary inside the current turn, extending it; a running step is never interrupted
+- Omitting `mode` works only while the session is idle, where queue and steer are identical and the engine assumes queue; on a running session the call fails with `MODE_REQUIRED` — the plugin never guesses on the caller's behalf
+- If messages are already queued, promote one to a steer with `session_queue`'s `action: "steer"`
 
 ## Acknowledgements
 
