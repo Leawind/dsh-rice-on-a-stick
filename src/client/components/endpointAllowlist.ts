@@ -2,7 +2,9 @@
 // 端点全量列出, 按是否危险拆成两个独立清单(危险 = 开发期端点元数据的 dangerous 标注,
 // 信任与供应链类): 普通清单在上; 危险清单带错误色段头单列在下, 没有已知危险端点时整段不出现。
 // 每份清单内: 按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
-// namespace 整组隐藏——组头也不出现。组头 = 箭头 + 组复选 + namespace + 命名空间描述 + 已选计数;
+// namespace 整组隐藏——组头也不出现。两份清单各自维护展开态: dangerous 是端点级属性, 同一
+// namespace 可同时出现在普通清单与危险清单, 两份清单里同名的组展开互不影响。
+// 组头 = 箭头 + 组复选 + namespace + 命名空间描述 + 已选计数;
 // 命名空间描述取 props.data.namespaces 的中英文(开发期元数据), 缺失时只显示名字。
 // 端点行显示 method 部分(namespace 在组头), 悬停行经自绘 tooltip 给出徽标 + 描述(靠右弹出,
 // 不含端点名, 不盖住左侧名称列)。描述按界面语言取端点元数据的中/英文, 缺失时回退 descriptor
@@ -20,9 +22,13 @@ import { showTip, hideTip } from './ui';
 
 export function EndpointAllowlist(props) {
   const [filter, setFilter] = React.useState('');
-  // 展开的组(两份清单共用一套展开态, namespace 全局唯一): null = 全部收起(默认折叠, 组头的
-  // 已选计数仍可见); 非空 = 显式 Set(点组头后接管)
+  // 展开的组, 按清单隔离: 元素是复合键(清单标识 + NUL + namespace), 普通清单与危险清单各存
+  // 各的——dangerous 是端点级属性, 同名 namespace 可同时出现在两份清单, 只用 namespace 作键
+  // 会让两边的组互相展开。null = 全部收起(默认折叠, 组头的已选计数仍可见); 非空 = 显式
+  // Set(点组头后接管)
   const [open, setOpen] = React.useState(null);
+  // 复合键: 清单标识让两份清单的展开态互不串台
+  function groupKey(list, ns) { return list + '\0' + ns; }
   // 只读行的视觉勾选态(纯示意, 不写配置): 集合 = 被用户取消勾选的只读端点, 缺省全部勾上。
   // 只读端点不经白名单始终放行, 所以这里的勾/取消只是界面上的标记。
   const [readOff, setReadOff] = React.useState(function () { return new Set<string>(); });
@@ -136,15 +142,23 @@ export function EndpointAllowlist(props) {
       ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
       : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
   }
-  function groupOpen(g) {
+  // 两份清单的全部键(首次点击接管时作底集: 过滤时全部展开)
+  function allGroupKeys() {
+    return groups.map(function (x) { return groupKey('normal', x.ns); })
+      .concat(dangerGroups.map(function (x) { return groupKey('danger', x.ns); }));
+  }
+  function groupOpen(g, list) {
     if (q) return true; // 过滤时全部展开
-    if (open !== null) return open.has(g.ns);
+    if (open !== null) return open.has(groupKey(list, g.ns));
     return false; // 默认收起
   }
-  function flipGroup(g) {
-    const base = open !== null ? open : new Set(groups.concat(dangerGroups).filter(groupOpen).map(function (x) { return x.ns; }));
+  function flipGroup(g, list) {
+    // 首次点击后交给显式 Set: 底集取当前实际展开的组——无过滤时为空(默认全收起), 过滤时
+    // 全部展开; 只翻转本清单里这个 namespace 的键, 另一份清单的同名组不受影响
+    const base = open !== null ? open : new Set<string>(q ? allGroupKeys() : []);
     const next = new Set(base);
-    if (next.has(g.ns)) next.delete(g.ns); else next.add(g.ns);
+    const key = groupKey(list, g.ns);
+    if (next.has(key)) next.delete(key); else next.add(key);
     setOpen(next);
   }
   function checkRef(indeterminate) {
@@ -198,10 +212,10 @@ export function EndpointAllowlist(props) {
       e.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')) : null,
     );
   }
-  // 一份清单的树(组头 + 端点行)
-  function tree(vGroups) {
+  // 一份清单的树(组头 + 端点行); list 区分普通/危险清单, 决定展开态用哪套键
+  function tree(vGroups, list) {
     return vGroups.map(function (g) {
-      const isOpen = groupOpen(g);
+      const isOpen = groupOpen(g, list);
       // 组复选与计数覆盖组内全部非流式行(只读行按视觉勾选态计入)
       const tog = togglableOf(g.items);
       const picked = tog.filter(checkedOf).length;
@@ -212,7 +226,7 @@ export function EndpointAllowlist(props) {
       return React.createElement('div', { key: g.ns },
         React.createElement('div', {
           className: 'dcs-epgroup',
-          onClick: function () { flipGroup(g); },
+          onClick: function () { flipGroup(g, list); },
           onMouseEnter: nsDesc ? function (ev) { showTip(ev.currentTarget, nsDesc, { align: 'right' }); } : undefined,
           onMouseLeave: nsDesc ? hideTip : undefined,
         },
@@ -268,7 +282,7 @@ export function EndpointAllowlist(props) {
         : React.createElement('div', { className: 'dcs-eplist dcs-eplist-flat' },
             visibleGroups.length === 0
               ? React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.none'))
-              : tree(visibleGroups),
+              : tree(visibleGroups, 'normal'),
           ),
       showDanger ? React.createElement('div', { className: 'dcs-epdangerhead' },
         React.createElement('span', { className: 'dcs-sectitle' }, t('endpoint.dangerousTitle')),
@@ -279,7 +293,7 @@ export function EndpointAllowlist(props) {
         ? React.createElement('div', { className: 'dcs-eplist dcs-eplist-flat' },
             visibleDanger.length === 0
               ? React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.none'))
-              : tree(visibleDanger),
+              : tree(visibleDanger, 'danger'),
           )
         : null,
       staleBlock,
