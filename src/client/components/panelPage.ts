@@ -1,8 +1,8 @@
 // ── 侧栏页(main 条目): 品牌头(含整合了 MCP 服务开关/监听地址/端点/复制的端点卡) + 页内标签 ──
-// 审批标签 = 端点写审批等待上限(秒) + 停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
+// 审批标签 = 端点审批等待上限(秒) + 停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
 // 模型标签 = 只允许特定模型开关 + 多选分层树(每行可编辑模型/提供商简介);
-// 设置标签 = 配置表单(按常用度分组: MCP 令牌 / dsh 端点白名单 / Agent 工具面 / 审批 /
-// 安全与传输); 连接标签 = 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免设置页被拉长)。
+// 安全标签 = 配置表单(按常用度分组: MCP 令牌 / Agent 工具面 / 审批 / 安全与传输 / dsh 端点白名单);
+// 连接标签 = MCP 连接空闲上限 + 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免安全页被拉长)。
 // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
 // 字段的读取/校验与草稿构造在 ../configFields(纯函数, 现读生效配置)。
 import React from 'react';
@@ -97,7 +97,7 @@ export function PanelPage() {
     const timer = window.setInterval(load, 10000);
     return function () { alive = false; window.clearInterval(timer); };
   }, []);
-  // 端点写调用停泊审批(审批标签 + 侧栏角标同源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
+  // 端点调用停泊审批(审批标签 + 侧栏角标同源): 模块级 approvalStore 常驻轮询(有停泊 2s / 空闲 10s)
   const bApprovals = useApprovals();
   const bUnlimited = approvalStore.isUnlimited();
   const bUrgent = bApprovals.some(function (a) { return a.expiresAt !== undefined && (a.expiresAt as number) - Date.now() < 60000; });
@@ -476,7 +476,7 @@ export function PanelPage() {
             React.createElement('div', { className: 'dcs-endpoint' }, React.createElement('span', null, state.endpoint || ''))),
       ),
     ),
-    // 页内标签: 审批(动作面, 停泊计数泡) / 模型(选模面) / 设置(策略面) / 连接(观测面)
+    // 页内标签: 审批(动作面, 停泊计数泡) / 模型(选模面) / 安全(策略面) / 连接(观测面 + 连接空闲上限)
     React.createElement('div', { className: 'dcs-tabs', role: 'tablist' },
       React.createElement('button', {
         type: 'button', className: 'dcs-tab', role: 'tab', 'aria-selected': tab === 'approvals',
@@ -508,7 +508,7 @@ export function PanelPage() {
       React.createElement('div', { className: 'dcs-err' }, '⚠ ', cfgError),
     ) : null,
     // ── 审批标签: 通用端点审批等待时长(秒, 只收非负整数, 无上限——超出由服务端按运行时口径静默钳制) ──
-    // + 停泊中的端点写调用逐一应答; 空态为居中虚线框
+    // + 停泊中的端点调用逐一应答; 空态为居中虚线框
     tab === 'approvals'
       ? React.createElement(React.Fragment, null,
           d ? React.createElement('div', { className: 'dcs-form' },
@@ -573,7 +573,7 @@ export function PanelPage() {
       ),
     ) : null,
     tab !== 'settings' ? null :
-    // 设置标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段(MCP 服务
+    // 安全标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段(MCP 服务
     // 开关与监听地址/端口, 在页头端点卡)重建监听器。按常用度分组排序, 同类相邻:
     // MCP 令牌 → Agent 工具面 → 审批 → 安全与传输 → dsh 端点白名单(清单长, 沉底); 组内行间画发丝线(每组一个 .dcs-form 容器)
     d ? React.createElement(React.Fragment, null,
@@ -641,7 +641,7 @@ export function PanelPage() {
             d.authOn ? t('auth.regenWarnOn') : t('auth.regenWarnOff')) : null,
         ),
       ),
-      // ── 安全与传输(Host 头白名单 + 传输会话空闲上限, 低频的服务端防护) ──
+      // ── 安全与传输(Host 头白名单, 低频的服务端防护; 连接空闲上限已移到连接标签) ──
       groupHead(t('security.title')),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement(Row, {
@@ -661,23 +661,6 @@ export function PanelPage() {
           }),
         ),
       }),
-      React.createElement(Row, {
-        label: t('ttl.title'),
-        hint: t('ttl.hint'),
-        err: errOf('sessionTtlMs'),
-        control: React.createElement('div', { className: 'dcs-inline' },
-          React.createElement('input', {
-            className: 'dcs-input',
-            type: 'number',
-            min: 0,
-            step: 60000,
-            value: d.sessionTtlMs,
-            onChange: function (e) { setHot({ sessionTtlMs: e.target.value }); },
-            onBlur: function () { commitField('sessionTtlMs'); },
-            onKeyDown: enterCommits('sessionTtlMs'),
-          }),
-        ),
-      }),
       ),
       // ── dsh 端点白名单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列; 两个清单完整展示不设滚动容器) ──
       groupHead(t('endpoint.title'), { hint: t('endpoint.hint') }),
@@ -691,8 +674,28 @@ export function PanelPage() {
       ),
       ),
     ) : null,
-    // ── 连接标签: 客户端连接列表(只读观测, 10s 轮询跟随刷新); 条目可能很多, 独立成标签不挤占设置页 ──
-    tab !== 'conns' ? null : React.createElement('div', null,
+    // ── 连接标签: MCP 连接空闲上限 + 客户端连接列表(10s 轮询跟随刷新); 条目可能很多, 独立成标签不挤占安全页 ──
+    tab !== 'conns' ? null : React.createElement('div', { className: 'dcs-conns' },
+      d ? React.createElement('div', { className: 'dcs-form' },
+        React.createElement(Row, {
+          label: t('ttl.title'),
+          hint: t('ttl.hint'),
+          err: errOf('sessionTtlMs'),
+          control: React.createElement('div', { className: 'dcs-inline' },
+            React.createElement('input', {
+              className: 'dcs-input',
+              type: 'number',
+              min: 0,
+              step: 60000,
+              value: d.sessionTtlMs,
+              onChange: function (e) { setHot({ sessionTtlMs: e.target.value }); },
+              onBlur: function () { commitField('sessionTtlMs'); },
+              onKeyDown: enterCommits('sessionTtlMs'),
+            }),
+            React.createElement('span', { className: 'dcs-unit' }, t('unit.milliseconds')),
+          ),
+        }),
+      ) : null,
       React.createElement('div', { className: 'dcs-sechead' },
         React.createElement('span', { className: 'dcs-sectitle' },
           t('conns.count', { n: conns.length }) + (subs.subscriptions ? t('conns.subs', { n: subs.subscriptions }) : '')),

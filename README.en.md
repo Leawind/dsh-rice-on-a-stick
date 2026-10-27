@@ -33,9 +33,9 @@ flowchart LR
 
 ## Features
 
--   **Operate sessions** — create, send, queue, fork, archive and restore, switch models, and more. The "Models" tab of the settings panel can be limited to specific models, so clients can only use the ones ticked; blurbs for models and their providers can be written there and are surfaced through `model_list` / `dsh://models` for callers.
+-   **Operate sessions** — create, send, queue, fork, archive and restore, switch models, and more. The "Models" tab of the sidebar page can be limited to specific models, so clients can only use the ones ticked; blurbs for models and their providers can be written there and are surfaced through `model_list` / `dsh://models` for callers.
 -   **Answer like a normal Web user** — the plugin joins as a Web answer client for approvals and `ask_user_question`: the native cards stay visible and whoever answers first wins. Polling surfaces what is pending, and `approval_answer` / `question_answer` submit the decision.
--   **dsh endpoint passthrough** — low-curation coverage for the long tail of dsh capabilities. Dangerous endpoints (credential writes, plugin installs, connection trust) have no hard gate: they take the same allowlist/parking paths as ordinary mutating endpoints but are listed separately with a warning on the panel; see `CONTRIBUTING.md` and `docs/endpoint-passthrough.zh.md`.
+-   **dsh endpoint passthrough** — low-curation coverage for the long tail of dsh capabilities. Dangerous endpoints (credential writes, plugin installs, connection trust) have no hard gate: they take the same allowlist/parking paths as ordinary endpoints but are listed separately with a warning on the panel; see `CONTRIBUTING.md` and `docs/endpoint-passthrough.zh.md`.
 -   **dsh can use it too** — these capabilities are also registered as internal dsh tools, callable directly from dsh sessions; they can be disabled in settings if not needed.
 -   **Secure by default** — listens only on localhost by default, with an optional access token.
 
@@ -83,7 +83,7 @@ The MCP server listens on `http://127.0.0.1:5642/mcp` by default, using Streamab
 
 ## Configuration
 
-All configuration can be changed in the "Rice on a Stick" page (Settings tab) of the dsh sidebar. For all fields, defaults, and descriptions of `cordis.patch.yml` in the profile directory, see [src/core/config.ts](src/core/config.ts):
+All configuration can be changed in the "Rice on a Stick" page (Security tab) of the dsh sidebar; the MCP connection idle limit lives on the Connections tab. For all fields, defaults, and descriptions of `cordis.patch.yml` in the profile directory, see [src/core/config.ts](src/core/config.ts):
 
 ## Tools
 

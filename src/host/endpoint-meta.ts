@@ -3,9 +3,9 @@
  *
  * dsh Typert descriptor 只给端点名与描述, 不标注读写性; 本表在开发期为已知端点补充
  * 运行时要用的属性(见 CONTRIBUTING.md "端点元数据"):
- *   readOnly     纯取数/查询语义, 无持久化副作用 → 直行, 无需白名单或审批
+ *   readOnly     纯取数/查询语义, 无持久化副作用 → 仅语义徽标, 不改变审批闸门
  *   dangerous    信任与供应链类操作(凭据写入/插件或 MCP 服务器安装/连接信任) → 没有永久拒绝,
- *                走与普通变更端点相同的两条通路(白名单直行 / 停泊审批), 但界面单列并标注
+ *                走与普通端点相同的两条通路(白名单直行 / 停泊审批), 但界面单列并标注
  *   description  中文描述(面板清单显示); dsh descriptor 自带英文时不复述, 面板回退该英文;
  *                只有 descriptor 无描述的插件端点在表里补英文, 端点工具的摘要与契约也用它,
  *                让调用方仍能知道端点作用
@@ -26,7 +26,7 @@ export interface EndpointDescription {
 }
 
 export interface EndpointMeta {
-  /** 只读端点: 取数/查询语义, 直行 */
+  /** 只读端点: 取数/查询语义(仅语义徽标, 不免审批) */
   readOnly?: boolean
   /** 危险端点: 信任与供应链类操作, 界面单列标注 */
   dangerous?: boolean

@@ -24,7 +24,7 @@ export const PANEL_CSS = [
   // 标签上的待审批计数泡: 有停泊请求时出现; 剩余时间不足 1 分钟换紧急色
   '.dcs-tabcount{display:inline-block;box-sizing:border-box;min-width:17px;height:17px;margin-left:6px;padding:0 4px;border-radius:999px;corner-shape:round;font-size:11px;font-weight:600;line-height:17px;text-align:center;font-variant-numeric:tabular-nums;vertical-align:1px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 16%,transparent);color:var(--dsw-alias-state-warn-label,#dd8629);}',
   '.dcs-tabcount-urgent{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 12%,transparent);color:var(--dsw-alias-state-error-primary,#ec1313);}',
-  // 分组标题(设置标签内: MCP 服务 / 模型白名单 / 端点白名单 / MCP 令牌 / Agent 工具面 / 审批 / 安全与传输)
+  // 分组标题(安全/模型标签内: MCP 服务 / 只允许特定模型 / 端点白名单 / MCP 令牌 / Agent 工具面 / 审批 / 安全与传输)
   '.dcs-grouphead{padding:10px 2px 0;}',
   // 带主开关的分组标题: 标题+副标题占左, 开关居右(两个类连写抬高优先级, 盖过 sechead 的 baseline 对齐)
   '.dcs-sechead.dcs-grouphead-ctl{align-items:center;}',
@@ -80,6 +80,8 @@ export const PANEL_CSS = [
   '.dcs-err{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313);}',
   // 设置表单(官方 SettingsForm 行式: 13px/500 标题 + 12px 副标题)
   '.dcs-form{display:flex;flex-direction:column;}',
+  // 连接标签: MCP 连接空闲上限表单 + 连接表, 两块之间留出间距
+  '.dcs-conns{display:flex;flex-direction:column;gap:16px;}',
   // 发丝线只画在配置行之间: 行下的附属块(白名单清单/令牌行/端点卡)属于同一项, 不另画线
   '.dcs-form > .dcs-row:not(:first-child){border-top:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   '.dcs-row{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;padding:12px 2px;}',
@@ -184,7 +186,7 @@ export const PANEL_CSS = [
   '.dcs-tip{display:none;position:fixed;z-index:2147483000;max-width:460px;padding:6px 10px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);box-shadow:0 6px 20px rgba(0,0,0,.14);pointer-events:none;white-space:pre-line;word-break:break-word;}',
   '.dcs-tip .dcs-epbadge{vertical-align:-4px;}',
   '.dcs-tip .dcs-epbadge + .dcs-epbadge,.dcs-tip .dcs-epbadge + *{margin-left:6px;}',
-  // 端点写调用审批列表(动作关键面): 头部(标题 + 停泊计数 + 全部拒绝) + 说明行 + 每条停泊请求一张独立小卡;
+  // 端点调用审批列表(动作关键面): 头部(标题 + 停泊计数 + 全部拒绝) + 说明行 + 每条停泊请求一张独立小卡;
   // 卡顶细条按剩余时间占比收缩, 不足 1 分钟转紧急红; 新卡轻轻浮入(prefers-reduced-motion 时关闭)
   '.dcs-apprs{display:flex;flex-direction:column;gap:8px;}',
   '.dcs-apprs-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:10px 2px 0;}',

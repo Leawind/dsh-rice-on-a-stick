@@ -28,7 +28,7 @@ import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
 import { serviceOf } from '../lib/host/bridge.js'
 import { collectSessions, sessionMetaPayload, sessionOverviewPayload } from '../lib/host/data.js'
-import { ageParkedWritesForTest, answerParkedWrite, invokeEndpoint, listParkedWrites } from '../lib/host/endpoint-passthrough.js'
+import { ageParkedCallsForTest, answerParkedCall, invokeEndpoint, listParkedCalls } from '../lib/host/endpoint-passthrough.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
 import { parseSummary, renderResult } from '../lib/session/projection.js'
@@ -1025,7 +1025,7 @@ try {
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
     checks['端点索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 9 && dirPayload.readable === 5 && dirPayload.writable === 0
-      && sessionGroup?.methods === 5 && sessionGroup?.readable === 3 && sessionGroup?.approvalRequired === 1
+      && sessionGroup?.methods === 5 && sessionGroup?.readable === 3 && sessionGroup?.approvalRequired === 4
       && sessionGroup?.endpoints === undefined
       && (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'goals')?.methods === 1
 
@@ -1034,6 +1034,7 @@ try {
     const byEndpoint = Object.fromEntries((nsPayload.endpoints ?? []).map((m: any) => [m.endpoint, m]))
     checks['端点单域清单: 逐端点 readOnly/approvalRequired/blockedBy 标记正确'] = nsPayload.total === 5
       && byEndpoint['session/modelCatalog']?.readOnly === true
+      && byEndpoint['session/modelCatalog']?.approvalRequired === true && byEndpoint['session/modelCatalog']?.blockedBy === 'requires approval'
       && byEndpoint['session/prompt']?.approvalRequired === true && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
       && byEndpoint['session/follow']?.blockedBy === 'stream'
     const credNs = await phase.call('endpoint_describe', { namespace: 'credentials' })
@@ -1070,6 +1071,7 @@ try {
     const contractPayload = innerOf(contract) as any
     checks['端点契约: 单端点给参数表与 result schema'] = contractPayload.endpoint === 'session/modelCatalog'
       && contractPayload.readOnly === true
+      && contractPayload.allowed === false && contractPayload.approvalRequired === true
       && contractPayload.dangerous === undefined
       && Array.isArray(contractPayload.parameters) && contractPayload.parameters.length === 0
       && contractPayload.result?.jsonSchema?.type === 'object'
@@ -1077,7 +1079,7 @@ try {
     const contractWrite = await phase.call('endpoint_describe', { endpoint: 'session/prompt' })
     const contractWritePayload = innerOf(contractWrite) as any
     checks['端点契约: 停泊端点带 approvalRequired'] = contractWritePayload.endpoint === 'session/prompt'
-      && contractWritePayload.writable === false && contractWritePayload.approvalRequired === true
+      && contractWritePayload.allowed === false && contractWritePayload.writable === false && contractWritePayload.approvalRequired === true
     const contractDangerous = await phase.call('endpoint_describe', { endpoint: 'credentials/set' })
     const contractDangerousPayload = innerOf(contractDangerous) as any
     checks['端点契约: 危险端点带 dangerous(与清单一致)'] = contractDangerousPayload.dangerous === true
@@ -1086,10 +1088,19 @@ try {
     const unknown = await phase.call('endpoint_describe', { endpoint: 'nope/missing' })
     checks['端点契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
 
-    const callOk = await phase.call('endpoint_call', { endpoint: 'session/modelCatalog' })
+    // 只读端点也走白名单闸门: 未入白名单先停泊, 允许后执行一次
+    let heldRead: { approvalId: string; endpoint: string } | undefined
+    const callRead = phase.call('endpoint_call', { endpoint: 'session/modelCatalog' })
+    checks['端点调用: 只读端点未入白名单也停泊进台账(不执行)'] = await waitFor(() => {
+      heldRead = listParkedCalls().find((p) => p.endpoint === 'session/modelCatalog')
+      return heldRead !== undefined && typeof heldRead.approvalId === 'string'
+    }) && endpointInvokes.length === 0
+    answerParkedCall(heldRead!.approvalId, 'allow')
+    const callOk = await callRead
     const callOkPayload = innerOf(callOk) as any
-    checks['端点调用: 只读端点经 gateway 成功返回'] = callOk.status === 200
+    checks['端点调用: 只读端点经人工允许后执行一次'] = callOk.status === 200
       && callOkPayload.ok === true && callOkPayload.models?.[0] === 'm1'
+      && listParkedCalls().length === 0
     checks['端点调用: 以 owner 身份(peer)发起'] = endpointInvokes.length === 1
       && endpointInvokes[0].endpoint === 'session/modelCatalog'
       && endpointInvokes[0].peerKind === 'owner'
@@ -1098,39 +1109,46 @@ try {
     let heldWrite: { approvalId: string; endpoint: string } | undefined
     const callWrite = phase.call('endpoint_call', { endpoint: 'session/prompt', args: { request: {} } })
     checks['端点调用: 清单外写端点停泊进台账(不执行)'] = await waitFor(() => {
-      heldWrite = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
+      heldWrite = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
       return heldWrite !== undefined && typeof heldWrite.approvalId === 'string'
     }) && endpointInvokes.length === 1
-    answerParkedWrite(heldWrite!.approvalId, 'reject')
+    answerParkedCall(heldWrite!.approvalId, 'reject')
     const writeOutcome = await callWrite
     checks['端点调用: 停泊被拒后失败关闭(declined)'] = String(innerOf(writeOutcome).error ?? '').includes('declined')
       && endpointInvokes.length === 1
-      && listParkedWrites().length === 0
+      && listParkedCalls().length === 0
     const callStream = await phase.call('endpoint_call', { endpoint: 'session/follow' })
     checks['端点调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not callable')
-    const callLookup = await phase.call('endpoint_call', { endpoint: 'goals/get', args: { agent: 'sess-live' } })
-    const callLookupPayload = innerOf(callLookup) as any
-    checks['端点调用: lookup 参数透传给网关解析(不再拒绝)'] = callLookup.status === 200
-      && callLookupPayload.agentArg === 'sess-live'
+    // lookup 参数透传: goals/get 同样是只读端点, 未入白名单先停泊, 允许后由网关解析 agent id
+    let heldLookup: { approvalId: string; endpoint: string } | undefined
+    const callLookup = phase.call('endpoint_call', { endpoint: 'goals/get', args: { agent: 'sess-live' } })
+    checks['端点调用: lookup 端点未入白名单也停泊(不执行)'] = await waitFor(() => {
+      heldLookup = listParkedCalls().find((p) => p.endpoint === 'goals/get')
+      return heldLookup !== undefined
+    }) && endpointInvokes.length === 1
+    answerParkedCall(heldLookup!.approvalId, 'allow')
+    const callLookupPayload = innerOf(await callLookup) as any
+    checks['端点调用: lookup 参数透传给网关解析(允许后执行)'] = callLookupPayload.agentArg === 'sess-live'
+      && listParkedCalls().length === 0
     // 危险端点(元数据标注)未入白名单: 同样停泊等审批, 台账条目带 dangerous 标注; 允许后执行
     let heldDangerous: { approvalId: string; endpoint: string } | undefined
     const callDangerous = phase.call('endpoint_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
     checks['端点调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] = await waitFor(() => {
-      heldDangerous = listParkedWrites().find((p) => p.endpoint === 'credentials/set')
+      heldDangerous = listParkedCalls().find((p) => p.endpoint === 'credentials/set')
       return heldDangerous !== undefined && (heldDangerous as any).dangerous === true
     }) && endpointInvokes.length === 2
-    answerParkedWrite(heldDangerous!.approvalId, 'allow')
+    answerParkedCall(heldDangerous!.approvalId, 'allow')
     const dangerousOutcome = await callDangerous
     checks['端点调用: 危险端点经人工允许后执行'] = dangerousOutcome.status === 200
       && (innerOf(dangerousOutcome) as any).set === true
       && endpointInvokes.length === 3 && endpointInvokes[2].endpoint === 'credentials/set'
-      && listParkedWrites().length === 0
+      && listParkedCalls().length === 0
     const callUnknown = await phase.call('endpoint_call', { endpoint: 'nope/missing' })
     checks['端点调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
     await phase.dispose()
   }
 
-  // ── Phase B3: 端点直通写面 —— 白名单直行 + 停泊审批(允许/拒绝/超时/断连/不限时) ──
+  // ── Phase B3: 端点直通 —— 白名单直行 + 停泊审批(允许/拒绝/超时/断连/不限时) ──
   {
     endpointInvokes.length = 0
     const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
@@ -1151,19 +1169,19 @@ try {
     const directCall = await phase.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
     checks['写端点: 白名单端点直接执行(无审批)'] = directCall.status === 200
       && (innerOf(directCall) as any).updated === true
-      && endpointInvokes.length === 1 && listParkedWrites().length === 0
+      && endpointInvokes.length === 1 && listParkedCalls().length === 0
 
     // 危险端点也可以入白名单直行(永久黑名单已移除): 白名单内的危险端点无审批直接执行
     let heldCred: any
     const credParked = phase.call('endpoint_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
     checks['写端点: 危险端点未入白名单先停泊(台账带 dangerous)'] = await waitFor(() => {
-      heldCred = listParkedWrites().find((p) => p.endpoint === 'credentials/set')
+      heldCred = listParkedCalls().find((p) => p.endpoint === 'credentials/set')
       return heldCred !== undefined && heldCred.dangerous === true
     }) && endpointInvokes.length === 1
-    answerParkedWrite(heldCred.approvalId, 'allow')
+    answerParkedCall(heldCred.approvalId, 'allow')
     const credCall = await credParked
     checks['写端点: 危险端点经人工允许后执行'] = (innerOf(credCall) as any).set === true
-      && endpointInvokes.length === 2 && listParkedWrites().length === 0
+      && endpointInvokes.length === 2 && listParkedCalls().length === 0
 
     // GUI 端点目录路由(设置面板白名单清单的数据源): 全量端点 + 分类 + 白名单标记
     const epsRes = await phase.gui('endpoint-allowlist', { httpMethod: 'GET' })
@@ -1171,7 +1189,8 @@ try {
     const epsMap = Object.fromEntries((epsBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
     checks['GUI endpoint-allowlist: 全量端点+分类+白名单标记'] = epsBody.available === true
       && epsBody.total === 9 && (epsBody.endpoints ?? []).length === 9
-      && epsMap['session/modelCatalog']?.kind === 'read'
+      && epsMap['session/modelCatalog']?.kind === 'selectable' && epsMap['session/modelCatalog']?.readOnly === true
+      && epsMap['session/modelCatalog']?.allowed === false
       && epsMap['session/follow']?.kind === 'stream'
       && epsMap['credentials/set']?.kind === 'selectable' && epsMap['credentials/set']?.dangerous === true
       && epsMap['session/prompt']?.kind === 'selectable' && epsMap['session/prompt']?.allowed === false
@@ -1188,13 +1207,13 @@ try {
     // 停泊 → 允许 → 执行
     let held: any
     const parkedCall = phase.call('endpoint_call', { endpoint: 'session/prompt', args: { request: { q: 'hi' } } })
-    checks['写调用停泊: 调用阻塞并进入台账'] = await waitFor(() => {
-      held = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
+    checks['调用停泊: 调用阻塞并进入台账'] = await waitFor(() => {
+      held = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
-    checks['写调用停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
+    checks['调用停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
       && String(held?.argsPreview).includes('hi') && typeof held?.expiresAt === 'number'
-    checks['写调用停泊: 等待期间未执行'] = endpointInvokes.length === 2
+    checks['调用停泊: 等待期间未执行'] = endpointInvokes.length === 2
 
     // GUI 审批卡路由: 读取在途审批(带不限时标记), 经同源 POST 应答允许
     const gaRead = await phase.gui('endpoint-approvals', { httpMethod: 'GET' })
@@ -1210,24 +1229,24 @@ try {
     const gaAllowBody = gaAllow.status === 200 ? JSON.parse(gaAllow.body) : {}
     checks['GUI endpoint-approval-answer: 同源允许成功'] = gaAllow.status === 200 && gaAllowBody.ok === true
     const parkedResult = await parkedCall
-    checks['写调用停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
+    checks['调用停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
       && (innerOf(parkedResult) as any).prompted === true
       && endpointInvokes.length === 3 && endpointInvokes[2].endpoint === 'session/prompt'
-      && listParkedWrites().length === 0
+      && listParkedCalls().length === 0
 
     // 停泊 → 拒绝 → 失败关闭
     const declinedCall = phase.call('endpoint_call', { endpoint: 'session/prompt', args: { request: { q: 'no' } } })
     await waitFor(() => {
-      held = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
+      held = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
-    answerParkedWrite(held.approvalId, 'reject')
+    answerParkedCall(held.approvalId, 'reject')
     const declined = await declinedCall
-    checks['写调用停泊: 拒绝后失败关闭'] = String(innerOf(declined).error ?? '').includes('declined')
-      && endpointInvokes.length === 3 && listParkedWrites().length === 0
+    checks['调用停泊: 拒绝后失败关闭'] = String(innerOf(declined).error ?? '').includes('declined')
+      && endpointInvokes.length === 3 && listParkedCalls().length === 0
 
-    checks['写调用停泊: 未知审批 id 明确报错'] = answerParkedWrite('nope', 'allow').ok === false
-      && listParkedWrites().length === 0
+    checks['调用停泊: 未知审批 id 明确报错'] = answerParkedCall('nope', 'allow').ok === false
+      && listParkedCalls().length === 0
 
     // GUI 应答边界: 未知 id 回 ok:false; 非法 decision 400; 跨站应答被同源守卫拦下
     const gaUnknown = await phase.gui('endpoint-approval-answer', {
@@ -1243,7 +1262,7 @@ try {
     checks['GUI endpoint-approval-answer: 非法 decision 400'] = gaBadDecision.status === 400
     const guardCall = phase.call('endpoint_call', { endpoint: 'session/prompt', args: { request: { q: 'guard' } } })
     await waitFor(() => {
-      held = listParkedWrites().find((p) => p.endpoint === 'session/prompt')
+      held = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
     const gaCross = await phase.gui('endpoint-approval-answer', {
@@ -1251,8 +1270,8 @@ try {
       body: JSON.stringify({ approvalId: held.approvalId, decision: 'allow' }),
     })
     checks['GUI endpoint-approval-answer: 跨站应答 403(同源守卫)'] = gaCross.status === 403
-      && listParkedWrites().length === 1
-    answerParkedWrite(held.approvalId, 'reject')
+      && listParkedCalls().length === 1
+    answerParkedCall(held.approvalId, 'reject')
     checks['端点调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined')
       && endpointInvokes.length === 3
 
@@ -1268,13 +1287,13 @@ try {
       && (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
     const timeoutCall = phaseT.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 't1' } } })
     await waitFor(() => {
-      held = listParkedWrites().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
       return held !== undefined
     })
-    ageParkedWritesForTest(1001)
+    ageParkedCallsForTest(1001)
     const timedOut = await timeoutCall
-    checks['写调用停泊: 限时超时失败关闭且台账清空'] = String(innerOf(timedOut).error ?? '').includes('timed out')
-      && listParkedWrites().length === 0 && endpointInvokes.length === 3
+    checks['调用停泊: 限时超时失败关闭且台账清空'] = String(innerOf(timedOut).error ?? '').includes('timed out')
+      && listParkedCalls().length === 0 && endpointInvokes.length === 3
 
     // 不限时(0): 时间流逝不停泊消失, 允许后执行
     const ctxU = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
@@ -1284,40 +1303,56 @@ try {
       && JSON.parse(guRead.body).unlimitedWait === true
     const unlimitedCall = phaseU.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'u1' } } })
     await waitFor(() => {
-      held = listParkedWrites().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
       return held !== undefined
     })
-    checks['写调用停泊: 0 = 不限时(无过期时刻)'] = held?.expiresAt === undefined
-    ageParkedWritesForTest(10 * 60_000)
-    checks['写调用停泊: 不限时不因时间流逝超时'] = listParkedWrites().length === 1
-    answerParkedWrite(held.approvalId, 'allow')
+    checks['调用停泊: 0 = 不限时(无过期时刻)'] = held?.expiresAt === undefined
+    ageParkedCallsForTest(10 * 60_000)
+    checks['调用停泊: 不限时不因时间流逝超时'] = listParkedCalls().length === 1
+    answerParkedCall(held.approvalId, 'allow')
     const unlimitedResult = await unlimitedCall
-    checks['写调用停泊: 不限时允许后执行'] = unlimitedResult.status === 200
-      && (innerOf(unlimitedResult) as any).updated === true && listParkedWrites().length === 0
+    checks['调用停泊: 不限时允许后执行'] = unlimitedResult.status === 200
+      && (innerOf(unlimitedResult) as any).updated === true && listParkedCalls().length === 0
 
     // 断连取消: 直接经 invokeEndpoint 带 AbortSignal(真机由 MCP 请求中止触发)
     const ctrl = new AbortController()
     const cancelCall = invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c1' } }, { signal: ctrl.signal })
     await waitFor(() => {
-      held = listParkedWrites().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
       return held !== undefined
     })
     ctrl.abort()
     const cancelled = await cancelCall
-    checks['写调用停泊: 调用方断开取消且不执行'] = cancelled.ok === false
+    checks['调用停泊: 调用方断开取消且不执行'] = cancelled.ok === false
       && String(cancelled.error).includes('disconnected')
-      && listParkedWrites().length === 0 && endpointInvokes.length === 4
+      && listParkedCalls().length === 0 && endpointInvokes.length === 4
 
     // 已中止的信号: 不停泊直接取消
     const ctrl2 = new AbortController()
     ctrl2.abort()
     const preAborted = await invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c2' } }, { signal: ctrl2.signal })
-    checks['写调用停泊: 已中止信号直接取消(不停泊)'] = preAborted.ok === false
-      && String(preAborted.error).includes('disconnected') && listParkedWrites().length === 0
+    checks['调用停泊: 已中止信号直接取消(不停泊)'] = preAborted.ok === false
+      && String(preAborted.error).includes('disconnected') && listParkedCalls().length === 0
 
     await phase.dispose()
     await phaseT.dispose()
     await phaseU.dispose()
+  }
+
+  // ── Phase B4: 只读端点的白名单直行态(与 B2 的停泊态成对覆盖) ──
+  {
+    endpointInvokes.length = 0
+    const phaseR = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      endpointAllowlist: ['session/modelCatalog'],
+    })
+    const contract = innerOf(await phaseR.call('endpoint_describe', { endpoint: 'session/modelCatalog' })) as any
+    checks['只读端点入白名单: allowed=true, writable=false, 无 approvalRequired'] = contract.allowed === true
+      && contract.readOnly === true && contract.writable === false && contract.approvalRequired === undefined
+    const readCall = await phaseR.call('endpoint_call', { endpoint: 'session/modelCatalog' })
+    checks['只读端点入白名单: 直接执行(无审批, 不进台账)'] = readCall.status === 200
+      && (innerOf(readCall) as any).ok === true && (innerOf(readCall) as any).models?.[0] === 'm1'
+      && endpointInvokes.length === 1 && listParkedCalls().length === 0
+    await phaseR.dispose()
   }
 
   // ── Phase G2: 远程回答面(审批/问题都是 forwarded answer client; 原生 UI 保留) ──

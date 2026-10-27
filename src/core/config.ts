@@ -90,15 +90,15 @@ export interface Config {
    */
   sessionTtlMs?: number
   /**
-   * 端点写调用停泊审批的等待上限(毫秒; 默认 120s; 0 = 不限时)。
-   * 只作用于 dsh 端点直通的变更类调用(设置面板上的人工审批卡); 会话审批由 dsh 的 answer client
+   * 端点调用停泊审批的等待上限(毫秒; 默认 120s; 0 = 不限时)。
+   * 只作用于 dsh 端点直通的白名单外调用(设置面板上的人工审批卡); 会话审批由 dsh 的 answer client
    * 链回答, 没有插件侧的等待上限。
    * 有限时超时一律失败关闭, 不限时则一直等到有人回答。
    */
   approvalTimeoutMs?: number
   /**
-   * dsh 端点白名单("namespace/method" 形式; 默认空 = 只读直行 + 逐次审批)。
-   * 白名单内的变更类端点经 endpoint_call 直接执行——等价部署方预先审批;
+   * dsh 端点白名单("namespace/method" 形式; 默认空 = 全部非流式端点停泊审批)。
+   * 白名单内的非流式端点(含只读)经 endpoint_call 直接执行——等价部署方预先审批;
    * 白名单外的非流式端点不停留在"拒绝": 调用先停泊, 由部署方在设置面板的人工审批卡
    * 允许/拒绝(允许一次执行一次, 拒绝/超时/调用方断开一律失败关闭)。
    * 开发期端点元数据标了 dangerous 的端点(凭据写入/插件安装/连接信任等)同样走这两条通路,
@@ -285,8 +285,8 @@ export const Config = Schema.object({
   selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).'),
   allowedHosts: Schema.array(Schema.string()).default([]).volatile().description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases). Read per request: edits apply immediately.'),
   sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).volatile().description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec). Read live: edits apply to the next sweep.'),
-  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Wait limit for a dsh endpoint write parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the dsh answer-client chain and are not bounded by this value.'),
-  endpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.endpointAllowlist).volatile().description('dsh endpoint allowlist in "namespace/method" form (default empty = read-only endpoints pass plus per-call panel approval). Allowlisted mutating endpoints execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.'),
+  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Wait limit for a dsh endpoint call parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the dsh answer-client chain and are not bounded by this value.'),
+  endpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.endpointAllowlist).volatile().description('dsh endpoint allowlist in "namespace/method" form (default empty = every non-stream endpoint parks for per-call panel approval). Allowlisted endpoints — read-only ones included — execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.'),
   modelDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.modelDescriptions).volatile().description('Per-model blurbs keyed by "provider/model", written on the settings panel and surfaced through model_list / dsh://models so callers can see them when picking a model. Entries outside the live catalog are kept but not shown.'),
   providerDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.providerDescriptions).volatile().description('Per-provider blurbs keyed by provider id, surfaced on the provider rows of model_list / dsh://models (same semantics as modelDescriptions).'),
 })

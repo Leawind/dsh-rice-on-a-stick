@@ -1,5 +1,5 @@
 /**
- * dsh 端点直通(读面 + 配置门控的写面) —— dsh Typert 体系的进程内消费(spike 已验证, 见 docs/endpoint-passthrough.zh.md)。
+ * dsh 端点直通(白名单直行 / 白名单外停泊审批) —— dsh Typert 体系的进程内消费(spike 已验证, 见 docs/endpoint-passthrough.zh.md)。
  *
  * 机制(全部经 serviceOf 可选依赖, 缺席时工具面明确降级):
  *   枚举/契约  typert.local.list()/get() —— dsh invocation descriptor 的活性清单
@@ -9,10 +9,10 @@
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
  * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的 endpointAllowlist:
- * 元数据标了只读的端点直行; 其余非流式端点两条通路——白名单内直行(部署方预审批), 白名单外
- * 停泊审批(调用挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。危险端点(信任与供应链类,
- * 见元数据表的 dangerous 标注)不设永久拒绝, 走同样的两条通路, 界面单列并标注。
- * 读写性 dsh 侧不标注——元数据是本插件自己的策展, 逐条人工确认过语义。
+ * 非流式端点只有两条通路——白名单内直行(部署方预审批), 白名单外停泊审批(调用挂起等人在设置
+ * 面板应答, 拒绝/超时/断连一律失败关闭)。只读标注只是语义徽标, 不再是免审批通道。
+ * 危险端点(信任与供应链类, 见元数据表的 dangerous 标注)不设永久拒绝, 走同样的两条通路,
+ * 界面单列并标注。读写性 dsh 侧不标注——元数据是本插件自己的策展, 逐条人工确认过语义。
  * 流式方法(@Remote mode:'stream')不进直通面: MCP 工具一次请求一次响应。
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -137,17 +137,21 @@ export function listInvocations(ctx: Context): InvocationView[] {
 export interface EndpointClassification {
   endpoint: string
   readOnly: boolean
+  /** 已入 endpointAllowlist: 非流式端点免审批直行 */
+  allowed: boolean
+  /** 变更类端点且已入白名单(只读端点看 readOnly, 两者语义正交) */
   writable: boolean
   /** 元数据标注的危险端点(信任与供应链类): 不影响可调用性, 供目录与面板标注 */
   dangerous?: boolean
-  /** 未入白名单的潜在写端点: 可调用, 但每次调用先停泊等人工在面板审批 */
+  /** 未入白名单的非流式端点: 可调用, 但每次调用先停泊等人工在面板审批 */
   approvalRequired?: boolean
   /** 不予直行的原因(目录展示与调用报错共用同一措辞) */
   reason?: 'stream' | 'requires approval'
 }
 
 /**
- * 闸门顺序: 流式 → 元数据只读标注 → 端点白名单 → 停泊审批。
+ * 闸门顺序: 流式 → 端点白名单 → 停泊审批。
+ * 只读标注不改变闸门: 无论只读还是变更端点, 只有入白名单才免审批; 未入白名单一律停泊。
  * 没有永久拒绝: 元数据标了危险的端点同样可经白名单直行或停泊审批到达, dangerous 只负责
  * 让界面把它单列出来。lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析
  * dsh 侧对象(如 agent 参数传会话 id), 这里只透传; 解析失败由网关报清晰错误。
@@ -155,13 +159,16 @@ export interface EndpointClassification {
 export function classifyInvocation(inv: InvocationView): EndpointClassification {
   const endpoint = `${inv.namespace}/${inv.method}`
   const meta = endpointMetaOf(endpoint)
+  const readOnly = meta?.readOnly === true
   const dangerous = meta?.dangerous === true ? { dangerous: true } : {}
-  if (inv.stream) return { endpoint, readOnly: false, writable: false, ...dangerous, reason: 'stream' }
-  if (meta?.readOnly === true) return { endpoint, readOnly: true, writable: false, ...dangerous }
-  if (state.config.endpointAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true, ...dangerous }
+  if (inv.stream) return { endpoint, readOnly: false, allowed: false, writable: false, ...dangerous, reason: 'stream' }
+  if (state.config.endpointAllowlist.includes(endpoint)) {
+    return { endpoint, readOnly, allowed: true, writable: !readOnly, ...dangerous }
+  }
   return {
     endpoint,
-    readOnly: false,
+    readOnly,
+    allowed: false,
     writable: false,
     ...dangerous,
     approvalRequired: true,
@@ -174,10 +181,11 @@ function descriptionOf(inv: InvocationView): string | undefined {
   return inv.description ?? endpointMetaOf(`${inv.namespace}/${inv.method}`)?.description?.en
 }
 
-/** 目录/搜索/单域清单共用的紧凑条目(逐字段按需携带: stream/dangerous/approvalRequired/blockedBy 仅真或存在时、摘要首句截 90 字符) */
+/** 目录/搜索/单域清单共用的紧凑条目(逐字段按需携带: allowed/dangerous/approvalRequired/blockedBy 仅真或存在时、摘要首句截 90 字符) */
 export interface EndpointSummary {
   endpoint: string
   readOnly: boolean
+  allowed?: boolean
   writable: boolean
   dangerous?: boolean
   approvalRequired?: boolean
@@ -192,6 +200,7 @@ function endpointSummary(inv: InvocationView): EndpointSummary {
   return {
     endpoint: `${inv.namespace}/${inv.method}`,
     readOnly: cls.readOnly,
+    ...(cls.allowed ? { allowed: true } : {}),
     writable: cls.writable,
     ...(cls.dangerous === true ? { dangerous: true } : {}),
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
@@ -239,8 +248,9 @@ export function describeDirectory(ctx: Context): Record<string, unknown> {
       ...(g.approvalRequired > 0 ? { approvalRequired: g.approvalRequired } : {}),
     })),
     note: 'Compact namespace index: query=… keyword-searches endpoint names + descriptions (preferred entry), '
-      + 'namespace=… lists one domain, endpoint=… gives the exact contract. readOnly entries are callable now; '
-      + 'writable execute directly; approvalRequired parks each call for a human decision on this deployment\'s settings panel.',
+      + 'namespace=… lists one domain, endpoint=… gives the exact contract. Allowlisted non-stream endpoints '
+      + 'execute directly (allowed: true); every other non-stream endpoint parks each call for a human decision '
+      + 'on this deployment\'s settings panel (approvalRequired: true). readOnly is a semantic flag, not a gate.',
   }
 }
 
@@ -302,6 +312,7 @@ export function describeEndpoint(ctx: Context, endpoint: string): Record<string,
     ...(description !== undefined ? { description } : {}),
     stream: inv.stream,
     readOnly: cls.readOnly,
+    allowed: cls.allowed,
     writable: cls.writable,
     ...(cls.dangerous === true ? { dangerous: true } : {}),
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
@@ -370,9 +381,10 @@ export type EndpointCallOutcome =
   | { ok: false; error: string }
 
 /**
- * 端点调用入口: 只读端点与白名单内的变更类端点直接执行; 白名单外的非流式端点不停留在拒绝——
- * 先停泊(settling 面板审批卡), 阻塞本次调用等人工应答, 允许才执行;
+ * 端点调用入口: 白名单内的非流式端点直接执行; 白名单外的非流式端点不停留在拒绝——先停泊
+ * (settling 面板审批卡), 阻塞本次调用等人工应答, 允许才执行;
  * 拒绝 / 超时(approvalTimeoutMs, 0 = 不限时) / 调用方断开一律失败关闭, 什么都不执行。
+ * 只读标注不参与闸门: 只读端点未入白名单时同样停泊。
  * 参数校验由网关做(具名参数严格匹配), 这里只做端点级闸门与服务可达性检查。
  */
 export async function invokeEndpoint(
@@ -397,8 +409,8 @@ export async function invokeEndpoint(
     return { ok: false, error: `unknown endpoint "${endpoint}" — call endpoint_describe first and pass an endpoint from the directory` }
   }
   const cls = classifyInvocation(inv)
-  if (!cls.readOnly && !cls.writable && cls.approvalRequired !== true) {
-    return { ok: false, error: `"${endpoint}" is not callable in this deployment (blocked by: ${cls.reason ?? 'policy'})` }
+  if (cls.reason === 'stream') {
+    return { ok: false, error: `"${endpoint}" is not callable through endpoint_call (blocked by: stream)` }
   }
   const gw = gatewayOf(ctx)
   if (gw === undefined || typeof gw.invoke !== 'function') {
@@ -406,10 +418,10 @@ export async function invokeEndpoint(
   }
   const peer = callerPeerOf(ctx)
   if ('error' in peer) return { ok: false, error: peer.error }
-  // 白名单外的写: 停泊等面板审批, 允许才落到网关(可达性检查已过, 停泊不会白等)
+  // 白名单外的调用: 停泊等面板审批, 允许才落到网关(可达性检查已过, 停泊不会白等)
   if (cls.approvalRequired === true) {
-    const verdict = await parkWrite(endpoint, args, signal)
-    if (verdict !== 'allowed') return { ok: false, error: writeDeclineError(verdict, endpoint) }
+    const verdict = await parkCall(endpoint, args, signal)
+    if (verdict !== 'allowed') return { ok: false, error: callDeclineError(verdict, endpoint) }
   }
   try {
     // 同样在服务对象上调用(invoke 依赖 this)
@@ -420,14 +432,14 @@ export async function invokeEndpoint(
   }
 }
 
-// ── 端点写调用停泊审批(进程内台账): 白名单外的变更类调用挂在这, 等设置面板的审批卡人工应答 ──
+// ── 端点调用停泊审批(进程内台账): 白名单外的非流式调用挂在这, 等设置面板的审批卡人工应答 ──
 // 与会话审批(session/approvals.ts)相互独立: 那边锚定宿主会话的 approval/request waterfall,
 // 这边没有会话上下文, 进不了 dsh 审批面, 所以台账与应答通道都在本插件自己手里。
 // 结局词表: allowed 唯一放行; rejected/timeout/cancelled 全部失败关闭。
 
-type WriteVerdict = 'allowed' | 'rejected' | 'timeout' | 'cancelled'
+type CallVerdict = 'allowed' | 'rejected' | 'timeout' | 'cancelled'
 
-export interface ParkedWriteInfo {
+export interface ParkedCallInfo {
   approvalId: string
   endpoint: string
   /** 展示用参数摘要(JSON, 截断) */
@@ -439,16 +451,16 @@ export interface ParkedWriteInfo {
   dangerous?: boolean
 }
 
-interface ParkedWrite extends ParkedWriteInfo {
+interface ParkedCall extends ParkedCallInfo {
   args: Record<string, unknown>
   settled: boolean
   timer?: ReturnType<typeof setTimeout>
   signal?: AbortSignal
   onAbort?: () => void
-  settle: (verdict: WriteVerdict) => void
+  settle: (verdict: CallVerdict) => void
 }
 
-const pendingWrites = new Map<string, ParkedWrite>()
+const pendingCalls = new Map<string, ParkedCall>()
 
 /** 参数摘要上限(审批卡展示; 完整 args 只留在内存, 不进任何持久面) */
 const ARGS_PREVIEW_CAP = 600
@@ -463,16 +475,16 @@ function argsPreviewOf(args: Record<string, unknown>): string {
   return json.length > ARGS_PREVIEW_CAP ? json.slice(0, ARGS_PREVIEW_CAP) + '…' : json
 }
 
-/** 停泊一次写调用并等待应答; 有限时时到点判超时, 调用方 signal 中止判取消 */
-function parkWrite(
+/** 停泊一次端点调用并等待应答; 有限时时到点判超时, 调用方 signal 中止判取消 */
+function parkCall(
   endpoint: string,
   args: Record<string, unknown>,
   signal: AbortSignal | undefined,
-): Promise<WriteVerdict> {
+): Promise<CallVerdict> {
   if (signal?.aborted === true) return Promise.resolve('cancelled')
   const timeoutMs = state.config.approvalTimeoutMs
   const requestedAt = Date.now()
-  const entry: ParkedWrite = {
+  const entry: ParkedCall = {
     approvalId: randomUUID(),
     endpoint,
     argsPreview: argsPreviewOf(args),
@@ -484,23 +496,23 @@ function parkWrite(
     // 先占位再赋值(闭包里引用 entry, 不能写在对象字面量里)
     settle: () => {},
   }
-  const promise = new Promise<WriteVerdict>((resolve) => { entry.settle = resolve })
+  const promise = new Promise<CallVerdict>((resolve) => { entry.settle = resolve })
   if (timeoutMs > 0) {
-    entry.timer = setTimeout(() => settleWrite(entry, 'timeout'), timeoutMs)
+    entry.timer = setTimeout(() => settleCall(entry, 'timeout'), timeoutMs)
   }
   if (signal !== undefined) {
     entry.signal = signal
-    entry.onAbort = () => settleWrite(entry, 'cancelled')
+    entry.onAbort = () => settleCall(entry, 'cancelled')
     signal.addEventListener('abort', entry.onAbort, { once: true })
   }
-  pendingWrites.set(entry.approvalId, entry)
+  pendingCalls.set(entry.approvalId, entry)
   return promise
 }
 
-function settleWrite(entry: ParkedWrite, verdict: WriteVerdict): void {
+function settleCall(entry: ParkedCall, verdict: CallVerdict): void {
   if (entry.settled) return
   entry.settled = true
-  if (pendingWrites.get(entry.approvalId) === entry) pendingWrites.delete(entry.approvalId)
+  if (pendingCalls.get(entry.approvalId) === entry) pendingCalls.delete(entry.approvalId)
   if (entry.timer !== undefined) clearTimeout(entry.timer)
   if (entry.signal !== undefined && entry.onAbort !== undefined) {
     entry.signal.removeEventListener('abort', entry.onAbort)
@@ -508,9 +520,9 @@ function settleWrite(entry: ParkedWrite, verdict: WriteVerdict): void {
   entry.settle(verdict)
 }
 
-/** 在途端点写审批(设置面板审批卡的数据源; 先停泊的在前) */
-export function listParkedWrites(): ParkedWriteInfo[] {
-  return [...pendingWrites.values()].map((p) => ({
+/** 在途端点调用审批(设置面板审批卡的数据源; 先停泊的在前) */
+export function listParkedCalls(): ParkedCallInfo[] {
+  return [...pendingCalls.values()].map((p) => ({
     approvalId: p.approvalId,
     endpoint: p.endpoint,
     argsPreview: p.argsPreview,
@@ -521,34 +533,34 @@ export function listParkedWrites(): ParkedWriteInfo[] {
 }
 
 /** 面板审批卡的人工应答: allow 一次放行一次, reject 失败关闭; 未停泊的 id 给出可诊断原因 */
-export function answerParkedWrite(approvalId: string, decision: 'allow' | 'reject'): { ok: true } | { ok: false; error: string } {
-  const entry = pendingWrites.get(approvalId)
+export function answerParkedCall(approvalId: string, decision: 'allow' | 'reject'): { ok: true } | { ok: false; error: string } {
+  const entry = pendingCalls.get(approvalId)
   if (entry === undefined) {
-    return { ok: false, error: `no pending write approval "${approvalId}" (already answered, expired, or unknown id)` }
+    return { ok: false, error: `no pending call approval "${approvalId}" (already answered, expired, or unknown id)` }
   }
-  settleWrite(entry, decision === 'allow' ? 'allowed' : 'rejected')
+  settleCall(entry, decision === 'allow' ? 'allowed' : 'rejected')
   return { ok: true }
 }
 
 /** 非放行结局的失败关闭报错(模型可见, 措辞与目录/配置说明同一口径) */
-function writeDeclineError(verdict: Exclude<WriteVerdict, 'allowed'>, endpoint: string): string {
+function callDeclineError(verdict: Exclude<CallVerdict, 'allowed'>, endpoint: string): string {
   if (verdict === 'rejected') {
-    return `the write to "${endpoint}" was declined by the human reviewer; nothing was executed`
+    return `the call to "${endpoint}" was declined by the human reviewer; nothing was executed`
   }
   if (verdict === 'timeout') {
-    return `the write approval for "${endpoint}" timed out after ${state.config.approvalTimeoutMs} ms and failed closed (nothing was executed; set approvalTimeoutMs=0 to wait indefinitely)`
+    return `the call approval for "${endpoint}" timed out after ${state.config.approvalTimeoutMs} ms and failed closed (nothing was executed; set approvalTimeoutMs=0 to wait indefinitely)`
   }
-  return `the caller disconnected while the write to "${endpoint}" awaited approval; nothing was executed`
+  return `the caller disconnected while the call to "${endpoint}" awaited approval; nothing was executed`
 }
 
-/** 测试钩子(smoke 专用): 把全部在途写审批的过期时间前移 ms 毫秒, 模拟时间流逝, 不改变生产行为 */
-export function ageParkedWritesForTest(ms: number): void {
-  for (const p of pendingWrites.values()) {
+/** 测试钩子(smoke 专用): 把全部在途调用审批的过期时间前移 ms 毫秒, 模拟时间流逝, 不改变生产行为 */
+export function ageParkedCallsForTest(ms: number): void {
+  for (const p of pendingCalls.values()) {
     if (p.expiresAt !== undefined) p.expiresAt -= ms
   }
 }
 
 /** 插件卸载时清空在途审批(全部失败关闭; index.ts 的清理 effect 调用) */
-export function resetParkedWrites(): void {
-  for (const entry of [...pendingWrites.values()]) settleWrite(entry, 'cancelled')
+export function resetParkedCalls(): void {
+  for (const entry of [...pendingCalls.values()]) settleCall(entry, 'cancelled')
 }

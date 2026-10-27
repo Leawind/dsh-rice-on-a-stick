@@ -360,9 +360,9 @@ const server = createServer(async (req, res) => {
         return json(res, 200, snapshot())
       }
       if (method === 'endpoint-allowlist') {
-        // dsh 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): kind 锁定行 + 危险端点标注 + 失效条目 + 超长描述
+        // dsh 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): 流式锁定行 + 只读语义标注 + 危险端点标注 + 失效条目 + 超长描述
         // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
-        // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读默认勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
+        // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读行同样需勾选/悬停 tooltip)。allowed 跟随 config 白名单计算。
         const allow = new Set(state.config.endpointAllowlist)
         const endpoints = [
           { endpoint: 'session/list', description: 'List sessions with pagination and status filters.', descriptionZh: '列出会话（分页与状态过滤）。', descriptionEn: 'List sessions with pagination and status filters.', kind: 'read' },
@@ -378,7 +378,10 @@ const server = createServer(async (req, res) => {
           { endpoint: 'mcpManager/getToolFilter', kind: 'selectable' },
           { endpoint: 'pluginManager/installBundle', description: 'Install a plugin bundle from a registry.', descriptionZh: '从注册源安装插件捆绑包（引入新代码，影响进程信任边界）。', descriptionEn: 'Install a plugin bundle from a registry (introduces new code; affects the process trust boundary).', kind: 'selectable', dangerous: true },
           { endpoint: 'credentials/set', description: 'Store a provider credential.', descriptionZh: '写入提供商凭据。', descriptionEn: 'Store a provider credential.', kind: 'selectable', dangerous: true },
-        ].map((e) => ({ ...e, allowed: allow.has(e.endpoint) }))
+        ].map((e) => {
+          const readOnly = e.kind === 'read' || e.readOnly === true
+          return { ...e, readOnly, kind: e.kind === 'read' ? 'selectable' : e.kind, allowed: allow.has(e.endpoint) }
+        })
         const live = new Set(endpoints.map((e) => e.endpoint))
         return json(res, 200, {
           available: true,
@@ -398,7 +401,7 @@ const server = createServer(async (req, res) => {
         })
       }
       if (method === 'endpoint-approvals') {
-        // 端点写调用停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
+        // 端点调用停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
         // expiresAt 逐条错开, 末条落在 1 分钟内可目检紧急色; RPC 计数供轮询节奏断言。
         // 已应答的条目从后续轮询中剔除(与真机"答复即出清"同语义), 供目检允许/拒绝后的卡片消失
         rpcCounts['endpoint-approvals']++

@@ -13,8 +13,8 @@ export function Badge(props) {
     React.createElement('span', { className: 'dcs-dot' }), text);
 }
 
-// 设置标签的分组标题(与连接列表的 sechead 同型): 标题(+可选副标题)占左,
-// opts.control 是该分组的主开关时居右(MCP 服务/模型白名单/MCP 令牌)
+// 安全/模型标签的分组标题(与连接列表的 sechead 同型): 标题(+可选副标题)占左,
+// opts.control 是该分组的主开关时居右(MCP 服务/只允许特定模型/MCP 令牌)
 export function groupHead(label, opts?) {
   const o = opts || {};
   return React.createElement('div', { className: 'dcs-sechead dcs-grouphead' + (o.control ? ' dcs-grouphead-ctl' : '') },

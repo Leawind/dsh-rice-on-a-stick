@@ -12,7 +12,7 @@ import os from 'node:os'
 import { PLUGIN_NAME, clampApprovalTimeout } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from '../host/bridge.js'
-import { answerParkedWrite, classifyInvocation, listParkedWrites, listInvocations } from '../host/endpoint-passthrough.js'
+import { answerParkedCall, classifyInvocation, listParkedCalls, listInvocations } from '../host/endpoint-passthrough.js'
 import { NAMESPACE_META, endpointMetaOf } from '../host/endpoint-meta.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
@@ -371,8 +371,9 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
               }
             : {}),
           ...(inv.description !== undefined ? { description: inv.description } : {}),
-          // kind: read/stream 行锁定(默认放行/不适用); selectable 行可勾选(白名单成员, 危险端点也在其中)
-          kind: cls.readOnly ? 'read' : inv.stream ? 'stream' : 'selectable',
+          // kind: stream 行锁定(不适用); 其余行都可勾选入白名单, readOnly 只是语义徽标
+          kind: inv.stream ? 'stream' : 'selectable',
+          readOnly: cls.readOnly,
           ...(cls.dangerous === true ? { dangerous: true } : {}),
           allowed: allow.has(endpoint),
         }
@@ -387,12 +388,12 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
-    // 端点写调用停泊审批(设置面板审批卡的数据源): 在途写请求全量 + 等待是否不限时
+    // 端点调用停泊审批(设置面板审批卡的数据源): 在途调用全量 + 等待是否不限时
     'endpoint-approvals': () => ({
-      approvals: listParkedWrites(),
+      approvals: listParkedCalls(),
       unlimitedWait: state.config.approvalTimeoutMs === 0,
     }),
-    // 端点写调用停泊审批的人工应答: allow 一次放行一次, reject 失败关闭; 未知/已结的 id 回 ok:false
+    // 端点调用停泊审批的人工应答: allow 一次放行一次, reject 失败关闭; 未知/已结的 id 回 ok:false
     'endpoint-approval-answer': (body) => {
       if (typeof body !== 'object' || body === null || Array.isArray(body)) {
         throw httpError(400, '请求体必须是 { approvalId, decision } 对象')
@@ -400,7 +401,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
       const { approvalId, decision } = body as { approvalId?: unknown; decision?: unknown }
       if (typeof approvalId !== 'string' || approvalId === '') throw httpError(400, 'approvalId 必须是非空字符串')
       if (decision !== 'allow' && decision !== 'reject') throw httpError(400, 'decision 必须是 allow 或 reject')
-      return answerParkedWrite(approvalId, decision)
+      return answerParkedCall(approvalId, decision)
     },
     'config-update': (body) => guiConfigUpdate(body),
   }

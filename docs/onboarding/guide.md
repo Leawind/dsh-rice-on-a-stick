@@ -93,17 +93,18 @@ you already know.
   (case-insensitive substrings, multiple words AND, optionally scoped with
   `namespace`); no arguments return a compact namespace index; `namespace` lists one
   domain's methods; one `endpoint` returns its exact contract (named wire parameters +
-  result JSON Schema). Entries carry `readOnly` / `writable` flags (`approvalRequired`
-  for the rest). `endpoint_call` invokes an endpoint by reference with named
-  `args` — use the wire keys from the contract; parameters the host resolves itself
-  (e.g. an agent parameter) take the session id as their wire value, and the gateway
-  resolves them. `readOnly` and `writable` (whitelisted) endpoints run directly; any
-  other non-stream endpoint parks the call until a human answers on the deployment's
-  settings panel — decline, timeout (`approvalTimeoutMs`, 0 = wait indefinitely) and
-  caller disconnect all fail closed with nothing executed; dangerous endpoints
-  (credentials, plugin installs) take the same allowlist/parking paths but are flagged
-  for a second look. Use it for the long tail of dsh capabilities the curated tools do
-  not cover.
+  result JSON Schema). Entries carry `readOnly` (semantic only), `allowed`
+  (whitelisted, executes directly), `writable` (whitelisted mutation) and
+  `approvalRequired` (parks for a human) flags. `endpoint_call` invokes an endpoint by
+  reference with named `args` — use the wire keys from the contract; parameters the host
+  resolves itself (e.g. an agent parameter) take the session id as their wire value, and
+  the gateway resolves them. Whitelisted (`allowed`) endpoints run directly; every other
+  non-stream endpoint — including read-only ones — parks the call until a human answers
+  on the deployment's settings panel — decline, timeout (`approvalTimeoutMs`, 0 = wait
+  indefinitely) and caller disconnect all fail closed with nothing executed; dangerous
+  endpoints (credentials, plugin installs) take the same allowlist/parking paths but are
+  flagged for a second look. Use it for the long tail of dsh capabilities the curated
+  tools do not cover.
 
 <!-- section: workflows -->
 ## Workflow recipes
@@ -176,13 +177,13 @@ you already know.
 11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }`
     to search endpoints by keyword (no args for the namespace index, `{ namespace }`
     for one domain's methods), `endpoint_describe { endpoint }` for the contract,
-    `endpoint_call { endpoint, args }` to execute. Whitelisted writes run at once; other non-stream
-    endpoints park the call until a human allows it on the deployment's settings panel
-    (the tool call blocks in the meantime) — if the human declines, or the wait times
-    out, or you disconnect, nothing is executed and the error says so. Dangerous
-    endpoints (credentials, plugin installs) take the same paths, but the panel flags
-    them separately — expect the human to look closely; a deployment can also
-    whitelist a write so it no longer parks.
+    `endpoint_call { endpoint, args }` to execute. Whitelisted (`allowed`) endpoints run
+    at once; every other non-stream endpoint — including read-only ones — parks the call
+    until a human allows it on the deployment's settings panel (the tool call blocks in
+    the meantime) — if the human declines, or the wait times out, or you disconnect,
+    nothing is executed and the error says so. Dangerous endpoints (credentials, plugin
+    installs) take the same paths, but the panel flags them separately — expect the human
+    to look closely; a deployment can also whitelist an endpoint so it no longer parks.
 
 <!-- section: errors -->
 ## Error → alternative path
@@ -286,10 +287,10 @@ they degrade to the `session_list` row and say so with `eventsReadable: false`.
 - Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap
   (the host attachment service enforces its own image limits on top); `attachment_read`
   inlines at most 8MB per image — use the host path for larger ones.
-- The endpoint passthrough exposes what the deployment opened: `readOnly` endpoints from the
-  curated read-only list, `writable` endpoints from `endpointAllowlist`; other
-  non-stream endpoints are callable but each call parks until a human answers on the
-  deployment's settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited).
+- The endpoint passthrough exposes what the deployment opened: `allowed` endpoints from
+  `endpointAllowlist` execute directly; every other non-stream endpoint (read-only ones
+  included) is callable but each call parks until a human answers on the deployment's
+  settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited).
   Dangerous endpoints (credentials, plugin installs, connection trust) are not
   hard-blocked: they take the same two paths, but the panel lists them separately
   with a warning so the deployment can decide per endpoint.

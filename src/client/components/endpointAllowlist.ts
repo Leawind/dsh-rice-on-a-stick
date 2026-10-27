@@ -9,11 +9,11 @@
 // 端点行显示 method 部分(namespace 在组头), 悬停行经自绘 tooltip 给出徽标 + 描述(靠右弹出,
 // 不含端点名, 不盖住左侧名称列)。描述按界面语言取端点元数据的中/英文, 缺失时回退 descriptor
 // 自带描述。每行按端点性质给徽标: 只读/写/流式之一, 危险行另加危险徽标, 徽标恒靠右。
-// 整行可点(流式行除外): 变更行勾选 = 白名单(直行), 不勾 = 停泊审批(危险端点同样如此,
-// 无永久拒绝); 只读行是纯示意勾选(始终放行, 默认勾上、可取消, 不写配置, 视觉态只留本组件);
-// 流式行锁定不可勾。组复选与组计数覆盖组内全部非流式行(只读行按视觉态计入)。
-// 顶栏快捷框: 全选 = 普通变更端点显式快照 + 只读行全部勾上(危险端点不进全选, 取消全选
-// 也不动它们, 失效条目同样原样保留); 只读/可写框分别批量勾上/取消全部只读行与普通变更端点。
+// 整行可点(流式行除外): 勾选 = 入白名单(endpoint_call 免审批直行), 不勾 = 每次调用停泊审批
+// (危险端点同样如此, 无永久拒绝; 只读端点也走同一闸门, 不再默认放行)。流式行锁定不可勾。
+// 组复选与组计数覆盖组内全部非流式行。
+// 顶栏快捷框: 全选 = 普通非流式端点显式快照(危险端点不进全选, 取消全选也不动它们, 失效条目
+// 同样原样保留); 只读/可写框分别批量勾选/取消全部只读端点与普通变更端点。
 // 无通配符: 每个条目都是精确端点。
 // props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, namespaces, stale}。
 import React from 'react';
@@ -29,9 +29,6 @@ export function EndpointAllowlist(props) {
   const [open, setOpen] = React.useState(null);
   // 复合键: 清单标识让两份清单的展开态互不串台
   function groupKey(list, ns) { return list + '\0' + ns; }
-  // 只读行的视觉勾选态(纯示意, 不写配置): 集合 = 被用户取消勾选的只读端点, 缺省全部勾上。
-  // 只读端点不经白名单始终放行, 所以这里的勾/取消只是界面上的标记。
-  const [readOff, setReadOff] = React.useState(function () { return new Set<string>(); });
   const data = props.data;
   const endpoints = data && data.endpoints ? data.endpoints : [];
   const stale = data && Array.isArray(data.stale) ? data.stale : [];
@@ -72,19 +69,23 @@ export function EndpointAllowlist(props) {
   const dangerEndpoints = endpoints.filter(function (e) { return e.dangerous === true; });
   const groups = groupBy(normalEndpoints);
   const dangerGroups = groupBy(dangerEndpoints);
-  const selectableOf = function (items) { return items.filter(function (e) { return e.kind === 'selectable'; }); };
-  // 组复选/计数的作用域: 组内全部非流式行(只读行也可勾, 只是其视觉态不写配置)
+  // readOnly 是语义徽标(旧 mock 用 kind:'read' 表达), 不决定是否可勾; 只有流式行锁定。
+  const isReadOnly = function (e) { return e.readOnly === true || e.kind === 'read'; };
+  // 组复选/计数的作用域: 组内全部非流式行
   const togglableOf = function (items) { return items.filter(function (e) { return e.kind !== 'stream'; }); };
-  // 顶栏快捷框的作用域: 危险端点不进任何快捷框(含全选), 只能在危险清单里按组/逐条勾选。
-  const readEps = endpoints.filter(function (e) { return e.kind === 'read'; });
-  const normalSelectable = selectableOf(normalEndpoints);
-  const readOn = readEps.length > 0 && readEps.every(function (e) { return !readOff.has(e.endpoint); });
-  const readSome = !readOn && readEps.some(function (e) { return !readOff.has(e.endpoint); });
-  const writeOn = normalSelectable.length > 0 && normalSelectable.every(function (e) { return allowedSet.has(e.endpoint); });
-  const writeSome = !writeOn && normalSelectable.some(function (e) { return allowedSet.has(e.endpoint); });
-  // 全选 = 普通变更端点全部入白名单 且 只读行全部处于勾上态
-  const allSelected = (readEps.length === 0 || readOn) && writeOn;
-  const someSelected = !allSelected && (readSome || writeSome);
+  const mutatingOf = function (items) { return togglableOf(items).filter(function (e) { return !isReadOnly(e); }); };
+  // 顶栏快捷框的作用域: 危险端点不进任何快捷框(含全选与只读/可写批量), 只能在危险清单里按组/逐条勾选。
+  const allTogglable = togglableOf(endpoints);
+  const readEps = togglableOf(normalEndpoints).filter(isReadOnly);
+  const normalTogglable = togglableOf(normalEndpoints);
+  const normalMutating = mutatingOf(normalEndpoints);
+  const readOn = readEps.length > 0 && readEps.every(function (e) { return allowedSet.has(e.endpoint); });
+  const readSome = !readOn && readEps.some(function (e) { return allowedSet.has(e.endpoint); });
+  const writeOn = normalMutating.length > 0 && normalMutating.every(function (e) { return allowedSet.has(e.endpoint); });
+  const writeSome = !writeOn && normalMutating.some(function (e) { return allowedSet.has(e.endpoint); });
+  // 全选 = 普通(非危险)非流式端点全部入白名单
+  const allSelected = normalTogglable.length > 0 && normalTogglable.every(function (e) { return allowedSet.has(e.endpoint); });
+  const someSelected = !allSelected && normalTogglable.some(function (e) { return allowedSet.has(e.endpoint); });
   const matches = function (e) {
     return !q || e.endpoint.toLowerCase().includes(q) || String(descOf(e) || '').toLowerCase().includes(q);
   };
@@ -92,52 +93,37 @@ export function EndpointAllowlist(props) {
   const visibleGroups = q ? groups.filter(function (g) { return g.items.some(matches); }) : groups;
   const visibleDanger = q ? dangerGroups.filter(function (g) { return g.items.some(matches); }) : dangerGroups;
   function emit(nextArray) { props.onChange(nextArray); }
-  // 行的当前勾选态: 只读行看视觉态(默认勾上), 变更行看白名单成员
+  // 行的当前勾选态就是白名单成员(只读行与变更行同一套)
   function checkedOf(e) {
-    return e.kind === 'read' ? !readOff.has(e.endpoint) : allowedSet.has(e.endpoint);
+    return allowedSet.has(e.endpoint);
   }
   function toggleEndpoint(e, checked) {
-    // 只读行切换的是视觉态; 变更行切换的是白名单成员(危险端点行也在其中); 流式行不可勾
-    if (e.kind === 'read') {
-      setReadOff(function (prev) {
-        const next = new Set(prev);
-        if (checked) next.delete(e.endpoint); else next.add(e.endpoint);
-        return next;
-      });
-      return;
-    }
-    if (e.kind !== 'selectable') return;
+    // 所有非流式行切白名单成员(危险端点行也在其中); 流式行不可勾
+    if (e.kind === 'stream') return;
     emit(checked ? allowed.concat([e.endpoint]) : allowed.filter(function (x) { return x !== e.endpoint; }));
   }
   function toggleGroup(g, checked) {
-    // 组复选覆盖组内全部非流式行: 只读行设视觉态, 变更行设白名单成员
-    const reads = g.items.filter(function (e) { return e.kind === 'read'; }).map(function (e) { return e.endpoint; });
-    const names = selectableOf(g.items).map(function (e) { return e.endpoint; });
-    setReadOff(function (prev) {
-      const next = new Set(prev);
-      reads.forEach(function (ep) { if (checked) next.delete(ep); else next.add(ep); });
-      return next;
-    });
+    // 组复选覆盖组内全部非流式行
+    const names = togglableOf(g.items).map(function (e) { return e.endpoint; });
     const rest = allowed.filter(function (x) { return names.indexOf(x) === -1; });
     emit(checked ? rest.concat(names) : rest);
   }
   function toggleAll() {
-    // 全选 = 显式快照(一次写入普通变更端点的完整清单) + 只读行全部勾上;
-    // 危险端点不进全选, 取消全选也只摘普通变更端点(危险与失效条目原样保留)
-    const names = normalSelectable.map(function (e) { return e.endpoint; });
-    if (allSelected) {
-      emit(allowed.filter(function (x) { return names.indexOf(x) === -1; }));
-      setReadOff(new Set(readEps.map(function (e) { return e.endpoint; })));
-    } else {
-      emit(allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
-      setReadOff(new Set());
-    }
+    // 全选 = 显式快照(一次写入普通非流式端点的完整清单);
+    // 危险端点不进全选, 取消全选也只摘普通端点(危险与失效条目原样保留)
+    const names = normalTogglable.map(function (e) { return e.endpoint; });
+    emit(allSelected
+      ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
+      : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
   }
   function toggleRead() {
-    setReadOff(readOn ? new Set(readEps.map(function (e) { return e.endpoint; })) : new Set());
+    const names = readEps.map(function (e) { return e.endpoint; });
+    emit(readOn
+      ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
+      : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
   }
   function toggleWritable() {
-    const names = normalSelectable.map(function (e) { return e.endpoint; });
+    const names = normalMutating.map(function (e) { return e.endpoint; });
     emit(writeOn
       ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
       : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
@@ -168,8 +154,8 @@ export function EndpointAllowlist(props) {
   // 行的徽标(文字 + 胶囊样式类; 行尾渲染与悬停 tooltip 共用同一份)
   function badgesOf(e) {
     const out = [];
-    if (e.kind === 'read') out.push({ cls: 'dcs-epbadge-read', label: t('endpoint.readonly') });
-    if (e.kind === 'selectable') out.push({ cls: 'dcs-epbadge-write', label: t('endpoint.write') });
+    if (isReadOnly(e)) out.push({ cls: 'dcs-epbadge-read', label: t('endpoint.readonly') });
+    if (e.kind !== 'stream' && !isReadOnly(e)) out.push({ cls: 'dcs-epbadge-write', label: t('endpoint.write') });
     if (e.kind === 'stream') out.push({ cls: 'dcs-epbadge-stream', label: t('endpoint.stream') });
     if (e.dangerous === true) out.push({ cls: 'dcs-epbadge-danger', label: t('endpoint.dangerous') });
     return out;
@@ -206,8 +192,8 @@ export function EndpointAllowlist(props) {
       desc ? React.createElement('span', { className: 'dcs-eprdesc' }, desc) : null,
       // 弹性占位: 描述缺失时也把徽标推到行右端
       React.createElement('span', { className: 'dcs-eprfill' }),
-      e.kind === 'read' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('endpoint.readonly')) : null,
-      e.kind === 'selectable' ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-write' }, t('endpoint.write')) : null,
+      isReadOnly(e) ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('endpoint.readonly')) : null,
+      e.kind !== 'stream' && !isReadOnly(e) ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-write' }, t('endpoint.write')) : null,
       stream ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stream' }, t('endpoint.stream')) : null,
       e.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')) : null,
     );
@@ -216,7 +202,7 @@ export function EndpointAllowlist(props) {
   function tree(vGroups, list) {
     return vGroups.map(function (g) {
       const isOpen = groupOpen(g, list);
-      // 组复选与计数覆盖组内全部非流式行(只读行按视觉勾选态计入)
+      // 组复选与计数覆盖组内全部非流式行
       const tog = togglableOf(g.items);
       const picked = tog.filter(checkedOf).length;
       const gAll = tog.length > 0 && picked === tog.length;
@@ -331,7 +317,10 @@ export function EndpointAllowlist(props) {
         }),
         t('endpoint.writable'),
       ),
-      React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.selected', { n: allowed.length, m: selectableOf(endpoints).length })),
+      React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.selected', {
+        n: allTogglable.filter(function (e) { return allowedSet.has(e.endpoint); }).length,
+        m: allTogglable.length,
+      })),
     ),
     body,
   );

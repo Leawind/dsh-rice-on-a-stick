@@ -33,9 +33,9 @@ flowchart LR
 
 ## 特性
 
--   **操作会话**：新建、发送、排队、分叉、归档与恢复、切换模型等。设置页的“模型”标签页可以只允许特定模型，使客户端只能使用勾选的模型；也可以在那里为模型和模型提供商各写一段简介，简介随 `model_list` / `dsh://models` 提供给调用方
+-   **操作会话**：新建、发送、排队、分叉、归档与恢复、切换模型等。侧栏页的“模型”标签页可以只允许特定模型，使客户端只能使用勾选的模型；也可以在那里为模型和模型提供商各写一段简介，简介随 `model_list` / `dsh://models` 提供给调用方
 -   **像普通网页用户一样回答**：插件作为 Web answer client 接收审批与 `ask_user_question`；原生卡片照常显示，人和 agent 先答者赢。轮询可发现待回答项，`approval_answer` / `question_answer` 直接提交
--   **dsh 端点直通**：dsh 长尾能力的低策展覆盖。凭据写入/插件安装/连接信任等危险端点没有硬闸，与普通变更端点走相同的白名单/停泊审批两条通路，但在面板单列成独立的危险清单并标注；机制见 `CONTRIBUTING.md` 与 `docs/endpoint-passthrough.zh.md`
+-   **dsh 端点直通**：dsh 长尾能力的低策展覆盖。凭据写入/插件安装/连接信任等危险端点没有硬闸，与普通端点走相同的白名单/停泊审批两条通路，但在面板单列成独立的危险清单并标注；机制见 `CONTRIBUTING.md` 与 `docs/endpoint-passthrough.zh.md`
 -   **dsh 自己也能用**：这些能力同时注册为 dsh 的内部工具，dsh 会话可直接调用。不需要时可以在设置里关闭。
 -   **安全默认**：默认只监听本机，可配置访问令牌。
 
@@ -83,7 +83,7 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ## 配置
 
-所有配置都可在 dsh 侧栏的"白饭钓竿"页（设置标签）里改。profile 目录下的 `cordis.patch.yml`全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)：
+所有配置都可在 dsh 侧栏的"白饭钓竿"页（安全标签）里改；MCP 连接空闲上限在连接标签。profile 目录下的 `cordis.patch.yml`全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)：
 
 ## 工具一览
 
