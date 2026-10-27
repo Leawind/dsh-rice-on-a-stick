@@ -24,6 +24,13 @@ export interface SessionRecord {
   preset: string
 }
 
+/**
+ * 消息投递模式(与宿主 agent-loop 的两个 inbox 目标同构):
+ *   queue = 本轮结束后的新 turn(没有进行中的 turn 时等价于立刻开始);
+ *   steer = 本轮的下一个 step 边界, 消息被消费后本轮继续(即"延长本轮", 不打断正在跑的 step)。
+ */
+export type SendMode = 'queue' | 'steer'
+
 /** 一次异步提交的请求状态(由会话日志的 turn 边界派生; pending = 尚未被任何一个 turn 认领) */
 export type RequestStatus = 'pending' | 'running' | 'completed' | 'blocked' | 'errored' | 'cancelled'
 
@@ -39,7 +46,8 @@ export interface SessionRequestRecord {
   /** 提交时的事件下标基线(找不到 rpcId 时的回退定位) */
   startSeq: number
   submittedAt: number
-  mode: 'queue' | 'steer'
+  /** 实际生效的投递模式(调用方省略时可能是引擎在"无 turn"情形下补的 queue) */
+  mode: SendMode
   source: 'prompt' | 'submit'
 }
 

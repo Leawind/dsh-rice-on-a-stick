@@ -205,6 +205,29 @@ export const approvalAgent = {
   whenIdle: async () => {},
 }
 
+// 运行中的 live 会话(正在跑 turn 的 agent): 投递模式的"省略即失败"断言素材。
+// whenIdle 永不收敛——只用于 session_submit(admission)与失败路径, 不要对它跑 session_prompt。
+const busyEvents = []
+export const busyAgent = {
+  get status() { return 'running' },
+  __events: busyEvents,
+  inbox: { nextTurn: [], nextStep: [], remove: () => {}, replace: () => {} },
+  session: {
+    id: 'sess-busy',
+    header: { version: 0, id: 'sess-busy', createdAt: Date.now(), cwd: FAKE_CWD },
+    snapshotEvents: (from = 0) => busyEvents.slice(from),
+  },
+  steer: (message) => { steered.push({ id: 'sess-busy', message }) },
+  followup: (message) => {
+    followups.push({ id: 'sess-busy' })
+    busyEvents.push({ type: 'user/message', data: { message } })
+  },
+  whenIdle: () => new Promise(() => {}),
+}
+
+// 空闲的 live 会话(专供投递模式用例): 不进入 sessions.list, 避免扰动会话清单断言
+export const modeIdleAgent = makeAgent('sess-mode-idle', FAKE_CWD, { provider: 'idle-p', model: 'idle-m' })
+
 // 失败路径: 只产出 turn/end{reason: error} 的 live 会话(模型调用失败的样子)
 const errAgent = (() => {
   const events = []
@@ -517,7 +540,8 @@ export function makeCtx(opts: {
     get: (id) => liveCreatedSessions.get(id)
       ?? (id === 'sess-live' ? liveAgent.session : id === 'sess-live2' ? liveSession2 : id === 'sess-err' ? errAgent.session
         : id === 'sess-slow' ? slowLiveAgent.session : id === 'sess-slow2' ? slowLiveAgent2.session
-          : id === 'sess-slow3' ? slowLiveAgent3.session : id === 'sess-approval' ? approvalAgent.session : undefined)
+          : id === 'sess-slow3' ? slowLiveAgent3.session : id === 'sess-approval' ? approvalAgent.session
+            : id === 'sess-busy' ? busyAgent.session : id === 'sess-mode-idle' ? modeIdleAgent.session : undefined)
       ?? extraAgents.get(id)?.session,
     list: () => [liveSession2, liveAgent.session, slowLiveAgent.session, slowLiveAgent2.session, slowLiveAgent3.session, approvalAgent.session, ...[...extraAgents.values()].map((a) => a.session)],
     flush: async (session) => { flushed.push(session.id); return true },
@@ -605,7 +629,7 @@ export function makeCtx(opts: {
     agents: {
       get: (id) => (id === 'sess-live' ? liveAgent : id === 'sess-err' ? errAgent : id === 'sess-slow' ? slowLiveAgent
         : id === 'sess-slow2' ? slowLiveAgent2 : id === 'sess-slow3' ? slowLiveAgent3
-          : id === 'sess-approval' ? approvalAgent : undefined)
+          : id === 'sess-approval' ? approvalAgent : id === 'sess-busy' ? busyAgent : id === 'sess-mode-idle' ? modeIdleAgent : undefined)
         ?? extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {
         const id = String(sessionId)

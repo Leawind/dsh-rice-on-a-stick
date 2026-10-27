@@ -17,6 +17,17 @@ export function outError(text: string) {
 }
 
 /**
+ * 工具失败的 JSON 载荷: 统一 `{ error }` 形状; 抛错对象自带 `code` 时(如 MODE_REQUIRED)
+ * 额外带上, 让编排器能把"参数缺失"和"宿主失败"分开处理。
+ */
+export function errorJson(e: unknown): string {
+  const payload: { error: string; code?: string } = { error: (e as Error)?.message ?? String(e) }
+  const code = (e as { code?: unknown } | undefined)?.code
+  if (typeof code === 'string' && code !== '') payload.code = code
+  return JSON.stringify(payload)
+}
+
+/**
  * 带 outputSchema 的工具统一走这里: text 镜像 + structuredContent 同源同值。
  * 先 schema.parse 再回——SDK 会对成功结果按 outputSchema 校验 structuredContent(isError 结果跳过校验),
  * parse 不过说明实现与 schema 漂移, 宁可当场炸出来也不静默降级。

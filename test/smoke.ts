@@ -3,7 +3,7 @@
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
  *   A. 协议: initialize(instructions)/echo/tools_list(精确 35 工具)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
- *   C. session_prompt: live 接管(沿用原模型)/mode=steer/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
+ *   C. session_prompt: live 接管(沿用原模型)/mode 省略规则(空闲可省、运行中必填)/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
  *      索引丢失后从 rpcId 重建)/客户端取消只停等待
  *   E. session_cancel / session_queue(list/edit/remove/未知 itemId)
@@ -286,7 +286,7 @@ try {
     followups[followups.length - 1]?.message?.content?.[0]?.text ?? '',
   ) === 'say ok'
 
-  // mode=steer: 打断消化路径(断言 steer 送达)
+  // mode=steer: 步边界插话路径(断言 steer 送达)
   const runSteer = await rpc(init.sid, { jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'STEER-MARKER-1', mode: 'steer' } } })
   checks['session_prompt mode=steer 送达 agent.steer'] = runSteer.status === 200
     && steered.some((s) => s.id === 'sess-live' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-MARKER-1'))
@@ -353,7 +353,7 @@ try {
   checks['session_result 未知 requestId 明确报错'] = String(innerOf(unknownRes).error ?? '').includes('unknown requestId')
 
   // 慢会话: 提交后未收敛 → pending/running; 显式 cancel 后 → cancelled
-  const slowSubmit = await rpc(init.sid, { jsonrpc: '2.0', id: 292, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-slow3', task: 'async slow', requestId: 'smoke-req-slow' } } })
+  const slowSubmit = await rpc(init.sid, { jsonrpc: '2.0', id: 292, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-slow3', task: 'async slow', requestId: 'smoke-req-slow', mode: 'queue' } } })
   checks['session_submit 慢会话返回 accepted'] = innerOf(slowSubmit).accepted === true && innerOf(slowSubmit).state === 'running'
   const slowPending = await rpc(init.sid, { jsonrpc: '2.0', id: 293, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } } })
   checks['session_result 未收敛 → running/pending'] = innerOf(slowPending).status === 'running' && innerOf(slowPending).pending === true
@@ -367,7 +367,7 @@ try {
   // 客户端取消等待: 只停止等待, 不 cancel turn(用独立慢 agent, 避免和上面的 turn 交错)
   const aborted = new AbortController()
   const beforeClientCancel = slowLiveAgent2.cancelCalls.length
-  const pendingPromptPromise = promptSession({ ctx, sessionId: 'sess-slow2', task: 'client-cancel probe', signal: aborted.signal })
+  const pendingPromptPromise = promptSession({ ctx, sessionId: 'sess-slow2', task: 'client-cancel probe', mode: 'queue', signal: aborted.signal })
   await waitFor(() => followups.some((f) => f.id === 'sess-slow2'), 5000)
   aborted.abort()
   const pendingPrompt = await pendingPromptPromise
@@ -378,8 +378,38 @@ try {
   const clientCancelSettled = await rpc(init.sid, { jsonrpc: '2.0', id: 296, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow2', requestId: pendingPrompt.requestId } } })
   checks['session_result 客户端取消后仍可取回 cancelled 结果'] = innerOf(clientCancelSettled).status === 'cancelled'
 
+  // ── 投递模式: 空闲可省略(两种模式等价), 运行中必须显式指定(消息归属哪个 turn 无法事后修正) ──
+  const busyModeCounts = () => ({
+    followups: followups.filter((f) => f.id === 'sess-busy').length,
+    steered: steered.filter((s) => s.id === 'sess-busy').length,
+  })
+  const busyBefore = busyModeCounts()
+  const busyNoMode = await rpc(init.sid, { jsonrpc: '2.0', id: 310, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-busy', task: 'NO-MODE', requestId: 'smoke-mode-retry' } } })
+  let busyErr: any = {}
+  try { busyErr = JSON.parse(innerOf(busyNoMode).error ?? '{}') } catch { /* 非 JSON 即失败 */ }
+  checks['投递模式: 运行中省略 mode → isError + MODE_REQUIRED'] = parsePayload(busyNoMode.text).result?.isError === true
+    && busyErr.code === 'MODE_REQUIRED' && String(busyErr.error ?? '').includes('mode is required')
+  checks['投递模式: 省略失败时什么都没投递'] = busyModeCounts().followups === busyBefore.followups
+    && busyModeCounts().steered === busyBefore.steered
+
+  // 失败那次没有登记请求: 同一 requestId 重试可正常投递(queue 只入队)
+  const busyRetry = await rpc(init.sid, { jsonrpc: '2.0', id: 311, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-busy', task: 'NO-MODE', mode: 'queue', requestId: 'smoke-mode-retry' } } })
+  checks['投递模式: 失败后同 requestId 重试正常投递(回执带生效模式)'] = innerOf(busyRetry).accepted === true
+    && innerOf(busyRetry).mode === 'queue' && innerOf(busyRetry).requestId === 'smoke-mode-retry'
+    && busyModeCounts().followups === busyBefore.followups + 1
+
+  const busySteer = await rpc(init.sid, { jsonrpc: '2.0', id: 312, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-busy', task: 'STEER-BUSY', mode: 'steer', requestId: 'smoke-mode-steer' } } })
+  checks['投递模式: 显式 steer 走 agent.steer(回执 mode=steer)'] = innerOf(busySteer).mode === 'steer'
+    && steered.some((s) => s.id === 'sess-busy' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-BUSY'))
+    && busyModeCounts().followups === busyBefore.followups + 1
+
+  // 空闲: 两种模式等价, 省略由引擎补 queue(安全方向: 只入队、绝不注入), 回执可见
+  const idleOmit = await rpc(init.sid, { jsonrpc: '2.0', id: 313, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-mode-idle', task: 'idle omit', requestId: 'smoke-mode-idle' } } })
+  checks['投递模式: 空闲省略 → 补 queue 并在回执回报'] = innerOf(idleOmit).accepted === true && innerOf(idleOmit).mode === 'queue'
+    && followups.some((f) => f.id === 'sess-mode-idle')
+
   // ── session_cancel / session_queue(慢 agent: whenIdle 挂起, 仅 cancel 收敛) ──
-  const slowPrompt = rpc(init.sid, { jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-slow', task: 'long job' } } })
+  const slowPrompt = rpc(init.sid, { jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-slow', task: 'long job', mode: 'queue' } } })
   await waitFor(() => followups.some((f) => f.id === 'sess-slow'), 5000)
   // 有界 long-poll: 先挂起一个 poll, 再从另一个请求 cancel, poll 应观察到状态变化
   const slowPoll = rpc(init.sid, { jsonrpc: '2.0', id: 301, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow'], waitMs: 5000 } } })

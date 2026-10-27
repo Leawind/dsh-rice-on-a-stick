@@ -2,7 +2,7 @@
  * 会话中心执行引擎 —— 操作语义与 dsh web 界面对齐(宿主 sessionController 的服务端行为)。
  *
  * 界面事实(逆向自宿主): 会话创建后 agent 常驻内存, 没有池/LRU/淘汰/超时旋钮; 冷会话由宿主
- * resolveAgent 机制按需透明恢复; 发消息 = followup(排队) 或 steer(打断消化); 停止 = cancel(保留排队)。
+ * resolveAgent 机制按需透明恢复; 发消息 = followup(排到下一轮) 或 steer(本轮下一个步边界插话); 停止 = cancel(保留排队)。
  * 本引擎因此不维护任何池或队列: 会话解析 = live 接管 → 官方冷恢复(resolveAgent, 两级)。
  * 会话生命周期归宿主 registry, 本插件只在 sessionRecords 里记住"自己创建/续接过的会话"的
  * cwd 与模型选择(供 resume 与结果回报)。
@@ -19,12 +19,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from '../core/state.js'
-import type { ModelSelection, ModelSelectionOverride, PendingInput, SessionRecord, SessionRequestRecord, SessionTurnResult } from '../core/types.js'
+import type { ModelSelection, ModelSelectionOverride, PendingInput, SendMode, SessionRecord, SessionRequestRecord, SessionTurnResult } from '../core/types.js'
 import { canonicalCwd, canonicalWorkdir } from '../core/paths.js'
 import { admitImages, type ImageBlockView, type ImageRefInput } from '../host/attachments.js'
 import { recordRequest, requestOf } from './requests.js'
 import { assertPermissionAvailable, currentPermissionOf, setPermissionPreset } from './permissions.js'
-import { buildTurnResult, findRequestTurn, type TurnRange } from './turn.js'
+import { buildTurnResult, findRequestTurn, queuedCountOf, type TurnRange } from './turn.js'
 import {
   asSessionId,
   attachSessionCwd,
@@ -389,8 +389,12 @@ export interface SubmitOptions {
   sessionId: string
   /** 任务原文: 原样投递, 插件不包装、不追加任何内容 */
   task: string
-  /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
-  mode?: 'queue' | 'steer'
+  /**
+   * 投递模式。可省略的唯一情形是"此刻没有进行中的 turn"——那时 queue/steer 等价,
+   * 引擎补 queue(安全方向: 只入队、绝不注入)。会话在跑 turn 时两种模式语义不同,
+   * 必须由调用者指定; 省略即失败(MODE_REQUIRED), 不替调用者猜。
+   */
+  mode?: SendMode
   /**
    * 图片附件引用(path/url 二选一, 最多 8 张): 字节由插件在宿主侧读取并经 attachments 服务
    * 准入为 image 内容块, 与文本同消息投递。引用不传值——图片字节绝不进工具参数/模型上下文。
@@ -418,11 +422,36 @@ interface SubmittedTurn {
 }
 
 /**
+ * 定下投递模式: 调用者给了就用; 没给只在"没有进行中的 turn"时补 queue。
+ *
+ * 为什么没给就报错: 有 turn 时 queue/steer 不是快慢之差, 而是"消息属于哪个 turn"之差
+ * (queue 排到本轮之后另起一轮, steer 落进本轮的步边界并延长本轮), 语义无法事后修正,
+ * 所以这个决定只能由调用者做——不替它猜。
+ *
+ * 调用点必须在发送前的同一个同步片段里(中间不能有 await): agent 状态是瞬时量,
+ * 隔着 await 判"空闲"、发送时已被别人开了 turn, 就会静默改变语义。
+ */
+function resolveSendMode(agent: { status?: string }, requested: SendMode | undefined, sessionId: string): SendMode {
+  if (requested !== undefined) return requested
+  if ((agent.status ?? 'idle') !== 'running') return 'queue'
+  const queued = queuedCountOf(agent) ?? 0
+  const err = new Error(
+    `mode is required while session "${sessionId}" is running: nothing was sent, so retrying with the same requestId is safe. `
+    + 'mode="queue" delivers after the current turn ends (a new turn); '
+    + 'mode="steer" delivers at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted). '
+    + (queued > 0 ? `${queued} message(s) are already queued — a queue delivery goes behind them. ` : '')
+    + 'Pass mode on every prompt to avoid this extra round trip; if you already queued a message, promote it with session_queue action="steer".',
+  )
+  ;(err as Error & { code?: string }).code = 'MODE_REQUIRED'
+  throw err
+}
+
+/**
  * 解析会话 → 登记请求 → 投递消息。不等待 turn; 会话缺失时按官方冷恢复路径处理。
  * requestId 同时写进 user 消息的 source.rpcId, 会话日志因此能持久定位这次提交。
  */
 async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
-  const { ctx, sessionId, task, mode = 'queue' } = opts
+  const { ctx, sessionId, task } = opts
   const resolved = await resolveSessionForPrompt(ctx, sessionId)
   const requestId = opts.requestId?.trim() || randomUUID()
   const existing = requestOf(requestId)
@@ -439,6 +468,10 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
   const attachmentBlocks = opts.attachments !== undefined && opts.attachments.length > 0
     ? await admitImages(ctx, opts.attachments, { baseDir: resolved.handle.agent.session.header.cwd })
     : []
+
+  // 投递模式在此定下: 从这里到 followup/steer 之间没有任何 await(单线程内不会被打断),
+  // 所以"判空闲"与"真发送"看到的是同一瞬间的状态。失败时附件已准入但无别的副作用。
+  const mode = resolveSendMode(resolved.handle.agent, opts.mode, sessionId)
 
   // 事件基线: 只读本轮新增事件(公开 API snapshotEvents; 旧宿主回退 log 字段)
   const baseline = eventsOf(resolved.handle.agent.session).length
@@ -474,6 +507,8 @@ export interface SubmitSessionResult {
   accepted: true
   /** 投递后 agent 的即时状态; 结果仍要用 session_poll / session_result 取 */
   state: 'idle' | 'running'
+  /** 实际生效的投递模式(调用方省略时可能是引擎在"无 turn"情形下补的 queue) */
+  mode: SendMode
   model: ModelSelection
   preset: string
   /** 随消息投递的图片附件 id(attachment_read 的取回键; 无附件时省略) */
@@ -493,6 +528,7 @@ export async function submitSession(opts: SubmitOptions): Promise<SubmitSessionR
     messageId: submitted.messageId,
     accepted: true,
     state: status === 'running' ? 'running' : 'idle',
+    mode: submitted.record.mode,
     model: submitted.selection,
     preset: submitted.preset,
     ...(submitted.attachments.length > 0 ? { attachments: submitted.attachments.map((b) => b.attachment.attachmentId) } : {}),
@@ -504,8 +540,12 @@ export interface PromptOptions {
   sessionId: string
   /** 任务原文: 原样投递, 插件不包装、不追加任何内容 */
   task: string
-  /** 发送模式(界面"忙碌时发送行为"): queue = 忙时排进会话 inbox(持久, 宿主管理); steer = 打断当前 step 消化。空闲时两者等价。 */
-  mode?: 'queue' | 'steer'
+  /**
+   * 投递模式。可省略的唯一情形是"此刻没有进行中的 turn"——那时 queue/steer 等价,
+   * 引擎补 queue(安全方向: 只入队、绝不注入)。会话在跑 turn 时两种模式语义不同,
+   * 必须由调用者指定; 省略即失败(MODE_REQUIRED), 不替调用者猜。
+   */
+  mode?: SendMode
   /** 图片附件引用(与 session_submit 同语义: path/url 二选一, 宿主侧读字节, 引用不传值) */
   attachments?: readonly ImageRefInput[]
   /** 调用方自带的幂等键; 响应丢失时可用它调 session_result 取回结果 */
@@ -525,7 +565,7 @@ export interface PromptOptions {
  * 不会杀掉正在工作的 agent; 要停 turn 请显式调 session_cancel。
  */
 export async function promptSession(opts: PromptOptions): Promise<SessionTurnResult> {
-  const { ctx, sessionId, task, mode = 'queue', signal } = opts
+  const { ctx, sessionId, task, mode, signal } = opts
   // 还没 admission 就被取消: 不投递。已 admission 后的取消只停止等待(见 awaitIdleOrAbort)。
   if (signal?.aborted) throw new Error('cancelled before submission; no task was sent')
   const submitted = await submitTurn({ ctx, sessionId, task, mode, attachments: opts.attachments, requestId: opts.requestId, source: 'prompt' })

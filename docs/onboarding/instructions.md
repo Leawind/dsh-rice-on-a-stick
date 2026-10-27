@@ -14,9 +14,12 @@ Quick start:
   session waits for an approval or a question, so you can answer it and continue.
   Failures come back with isError:true. Reuse the same sessionId to keep the conversation
   going (its full history is the agent's context — send only the delta in context).
-- While a session is busy, another session_prompt queues into the host inbox (durable)
-  or interrupts the current step with mode=steer; session_cancel stops the current turn
-  and keeps the queue; session_queue inspects/edits/removes queued messages.
+- While a session is busy, another session_prompt must say how to deliver: mode=queue
+  appends after the current turn (a new turn), mode=steer injects at the next step
+  boundary of the running turn (it never interrupts a running step). Omit mode only when
+  the session is idle (the two are then identical); on a running session it fails with
+  MODE_REQUIRED. session_cancel stops the current turn and keeps the queue; session_queue
+  inspects/edits/removes queued messages and can promote one with action=steer.
 - For fan-out, do not block on one session at a time: session_submit admits a task and
   returns requestId immediately; session_poll observes many sessions at once (bounded
   waitMs, returns changed/timedOut); session_result fetches the structured result by

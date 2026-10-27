@@ -14,7 +14,7 @@ import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, se
 import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSessionEvents, serviceOf } from '../../host/bridge.js'
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
-import { NEEDS_SESSION_CONTROLLER, NEEDS_WORKSPACE_CONTROLLER, out, outError, renderUriResult, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
+import { errorJson, NEEDS_SESSION_CONTROLLER, NEEDS_WORKSPACE_CONTROLLER, out, outError, renderUriResult, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
 
 /** workspaceController 视图(归档/恢复; 可选依赖) */
 interface WorkspaceControllerView {
@@ -29,6 +29,13 @@ const ATTACHMENTS_ARG = z.array(z.object({
   name: z.string().optional().describe('Display name (default: file name or URL tail).'),
 })).max(8).optional()
   .describe('Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the receipt (session_submit) or session_history (images fields) and can be fetched with attachment_read.')
+
+/**
+ * 投递模式参数(session_prompt / session_submit 共用): 可省略只在"会话空闲"时有意义——
+ * 那时两者等价、引擎补 queue; 会话在跑 turn 时语义不同, 省略即失败(MODE_REQUIRED)。
+ */
+const MODE_ARG = z.enum(['queue', 'steer']).optional()
+  .describe('Delivery mode. Omit only while the session is idle (queue and steer are then identical, and queue is assumed); while it is running the call fails without it. queue = deliver after the current turn ends, as a new turn; steer = deliver at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted).')
 
 export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
@@ -104,12 +111,12 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_prompt',
     {
       title: 'Prompt session',
-      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). `mode` mirrors the UI\'s busy-send behavior (see the mode argument). With the default `waitFor: "input"`, the call returns early with `pending=true` and `waiting.approvals` / `waiting.questions` when the session starts waiting for an approval or a question: the turn keeps running, nothing is cancelled or skipped, and you answer with `approval_answer` / `question_answer` before fetching the final result via `session_result`. Set `waitFor: "turn"` to block until the turn ends regardless. Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
+      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). The delivery mode is chosen per call and is independent of any UI preference (see the `mode` argument). With the default `waitFor: "input"`, the call returns early with `pending=true` and `waiting.approvals` / `waiting.questions` when the session starts waiting for an approval or a question: the turn keeps running, nothing is cancelled or skipped, and you answer with `approval_answer` / `question_answer` before fetching the final result via `session_result`. Set `waitFor: "turn"` to block until the turn ends regardless. Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
-        mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
+        mode: MODE_ARG,
         waitFor: z.enum(['turn', 'input']).optional().describe('What to wait for (default input): input = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: uri = reference only (the resource points at the session history; read or subscribe to it); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
@@ -140,7 +147,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         }, null, 2)
         return result.error && result.pending !== true ? outError(rendered) : out(rendered)
       } catch (e) {
-        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+        return outError(errorJson(e))
       }
     },
   )
@@ -151,12 +158,12 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_submit',
     {
       title: 'Submit session task',
-      description: 'Admit a task into a session asynchronously and return `requestId`/`messageId` immediately (does not wait for the turn). Observe with `session_poll`, fetch the structured result with `session_result`, stop the turn with `session_cancel`. `mode` matches `session_prompt` (queue / steer). Reusing a `requestId` is idempotent: it is not delivered twice and returns the first receipt. Best for fan-out workers polled together.',
+      description: 'Admit a task into a session asynchronously and return `requestId`/`messageId` immediately (does not wait for the turn). Observe with `session_poll`, fetch the structured result with `session_result`, stop the turn with `session_cancel`. `mode` matches `session_prompt` (queue / steer; required while the session is running). Reusing a `requestId` is idempotent: it is not delivered twice and returns the first receipt. Best for fan-out workers polled together.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; continuing keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
-        mode: z.enum(['queue', 'steer']).optional().describe('Send mode (default queue): queue = append to the durable host inbox while busy; steer = redirect the current step immediately.'),
+        mode: MODE_ARG,
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (caller-supplied; generated if omitted). Repeating the same id returns the first receipt.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
@@ -170,7 +177,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
         }, null, 2))
       } catch (e) {
-        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+        return outError(errorJson(e))
       }
     },
   )

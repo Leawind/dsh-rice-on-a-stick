@@ -25,10 +25,12 @@ you already know.
 - **preset** — the persona mounted at session creation (an id from `model_list`'s
   `presets` field or the `dsh://presets` resource). Required explicitly at creation,
   like the model; continuing an existing session keeps its original preset.
-- **send modes** — `session_prompt` / `session_submit` mode mirrors the UI's "busy send
-  behavior": `queue` (default) appends to the session's durable inbox while the agent is
-  busy (it runs after the current turn); `steer` redirects the running turn at the next
-  step boundary. When the session is idle both simply start a turn.
+- **send modes** — `session_prompt` / `session_submit` choose the delivery mode per call;
+  it is independent of any UI preference. `queue` delivers after the current turn ends,
+  as a new turn. `steer` delivers at the next step boundary inside the current turn
+  (it extends that turn; a running step is never interrupted). When the session is idle
+  the two are identical, so `mode` may be omitted and `queue` is assumed; while it is
+  running, omitting `mode` fails with `MODE_REQUIRED` — the choice is yours to make.
 - **async request** — `session_submit` admits a task and returns `requestId` immediately;
   `session_poll` observes one or many sessions (bounded `waitMs`, returns
   `changed`/`timedOut`); `session_result` fetches the structured result by `requestId`.
@@ -112,9 +114,12 @@ you already know.
    the delta).
 2. **Keep working in a session** — repeat `session_prompt` with the same `sessionId`.
    The agent remembers previous turns; for a fresh start create a new session.
-3. **Session is busy** — another `session_prompt` with mode=`queue` (default) lines up
-   behind the current turn; mode=`steer` redirects it now. Inspect or prune the queue
-   with `session_queue`; `session_cancel` stops the current turn and keeps the queue.
+3. **Session is busy** — `session_prompt` with mode=`queue` lines up behind the current
+   turn as a new turn; mode=`steer` injects at the next step boundary of that same turn.
+   Omitting `mode` on a running session fails (`MODE_REQUIRED`) — pass it on every prompt
+   when you are unsure. Inspect or prune the queue with `session_queue` (its
+   `action=steer` promotes a queued message); `session_cancel` stops the current turn and
+   keeps the queue.
 4. **Change course mid-conversation** — `session_select_model` for a different model,
    `session_rename` for housekeeping, `session_fork` to branch a conversation,
    `session_archive` to retire one (the UI's only "delete"), and `session_command` to
