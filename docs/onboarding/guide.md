@@ -86,7 +86,7 @@ you already know.
   tokens), and `inline: true` adds an MCP image content block for multimodal clients
   (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were
   inlined as base64 text).
-- **Generic bridge** — `bridge_describe` resolves host Remote endpoints through a
+- **dsh endpoint passthrough** — `bridge_describe` resolves dsh Remote endpoints through a
   search-first ladder: `query` keyword-searches endpoint names + descriptions
   (case-insensitive substrings, multiple words AND, optionally scoped with
   `namespace`); no arguments return a compact namespace index; `namespace` lists one
@@ -98,9 +98,10 @@ you already know.
   resolves them. `readOnly` and `writable` (whitelisted) endpoints run directly; any
   other non-stream endpoint parks the call until a human answers on the deployment's
   settings panel — decline, timeout (`approvalTimeoutMs`, 0 = wait indefinitely) and
-  caller disconnect all fail closed with nothing executed, and a hard blacklist
-  (credentials, plugin installs) has no approval path at all. Use the bridge for the
-  long tail of host capabilities the curated tools do not cover.
+  caller disconnect all fail closed with nothing executed; dangerous endpoints
+  (credentials, plugin installs) take the same allowlist/parking paths but are flagged
+  for a second look. Use it for the long tail of dsh capabilities the curated tools do
+  not cover.
 
 <!-- section: workflows -->
 ## Workflow recipes
@@ -195,7 +196,7 @@ you already know.
 | `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
 | `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
 | "not a recognized image" | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet |
-| "not bridge-callable" / `blockedBy` | the endpoint is hard-refused in this deployment (stream, or on the credential/plugin-install blacklist); pick another endpoint from `bridge_describe` |
+| "not bridge-callable" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `bridge_describe` |
 | "declined by the human reviewer" | the parked bridge write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint |
 | "approval timed out ... failed closed" | the parked bridge write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry |
 

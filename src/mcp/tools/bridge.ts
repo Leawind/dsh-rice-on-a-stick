@@ -17,8 +17,8 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'bridge_describe',
     {
-      title: 'Discover host bridge endpoints',
-      description: 'Discover host Remote endpoints for the generic bridge (the escape hatch beyond this plugin\'s curated tools). Resolution ladder, search first: query = keyword search over endpoint names and descriptions (combine with namespace to scope one domain); no arguments = compact namespace index; namespace = one domain\'s method list; endpoint "namespace/method" = the exact contract (parameters and result JSON Schema), the last step before bridge_call. Coverage spans host domains such as sessions, workspaces and workspace files, plugins, model providers, market, schedule, settings, permissions, commands, goals, terminal and credentials. Entries are flagged readOnly (callable now), writable (whitelisted mutation, executes directly) or approvalRequired (parks for a human decision on the settings panel); dangerous entries touch trust or supply chain (credentials, plugin installs) and get a human review either way; blockedBy stream entries cannot be called at all.',
+      title: 'Discover dsh endpoints',
+      description: 'Discover dsh Remote endpoints (the escape hatch beyond this plugin\'s curated tools). Resolution ladder, search first: query = keyword search over endpoint names and descriptions (combine with namespace to scope one domain); no arguments = compact namespace index; namespace = one domain\'s method list; endpoint "namespace/method" = the exact contract (parameters and result JSON Schema), the last step before bridge_call. Coverage spans dsh domains such as sessions, workspaces and workspace files, plugins, model providers, market, schedule, settings, permissions, commands, goals, terminal and credentials. Entries are flagged readOnly (callable now), writable (whitelisted mutation, executes directly) or approvalRequired (parks for a human decision on the settings panel); dangerous entries touch trust or supply chain (credentials, plugin installs) and get a human review either way; blockedBy stream entries cannot be called at all.',
       inputSchema: {
         query: z.string().optional().describe('Keyword search (preferred entry): case-insensitive substrings over endpoint names and descriptions; multiple words AND together; combine with namespace to scope one domain.'),
         namespace: z.string().optional().describe('Namespace name: alone lists its methods; with query scopes the search to it. Omit all arguments for the compact namespace index.'),
@@ -36,7 +36,7 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
         }
         const names = bridgeNamespaces(ctx)
         if (names.length === 0) {
-          return outError(JSON.stringify({ error: 'the host typert registry is unavailable (the bridge needs the web profile typert services)' }))
+          return outError(JSON.stringify({ error: 'the dsh typert registry is unavailable (this needs the web profile typert services)' }))
         }
         if (ep !== undefined) {
           const contract = describeEndpoint(ctx, ep)
@@ -64,8 +64,8 @@ export function registerBridgeTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'bridge_call',
     {
-      title: 'Call a host endpoint through the bridge',
-      description: 'Invoke one host Remote endpoint by reference (the generic bridge): pass an endpoint from bridge_describe and its named wire arguments (see the endpoint\'s contract for parameter keys). Read-only endpoints and allowlisted mutating endpoints (bridgeEndpointAllowlist) execute directly. Any other non-stream endpoint parks the call until a human allows or declines the write on this deployment\'s settings panel (the call blocks in the meantime) — decline, timeout (approvalTimeoutMs, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed; dangerous endpoints (trust/supply-chain) get the same human review with a warning badge. Arguments are strictly validated host-side against the generated contract; results are the same wire JSON the dsh Web UI consumes.',
+      title: 'Call a dsh endpoint',
+      description: 'Invoke one dsh Remote endpoint by reference: pass an endpoint from bridge_describe and its named wire arguments (see the endpoint\'s contract for parameter keys). Read-only endpoints and allowlisted mutating endpoints (bridgeEndpointAllowlist) execute directly. Any other non-stream endpoint parks the call until a human allows or declines the write on this deployment\'s settings panel (the call blocks in the meantime) — decline, timeout (approvalTimeoutMs, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed; dangerous endpoints (trust/supply-chain) get the same human review with a warning badge. Arguments are strictly validated inside dsh against the generated contract; results are the same wire JSON the dsh Web UI consumes.',
       inputSchema: {
         endpoint: z.string().describe('Exact endpoint "namespace/method" (readOnly=true, writable=true, or approvalRequired in bridge_describe).'),
         // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器

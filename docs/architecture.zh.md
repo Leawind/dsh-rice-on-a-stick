@@ -2,6 +2,12 @@
 
 > 面向维护者。模块布局、依赖关系与字段语义以 `src/` 代码为准，本文只记录不易从代码读出的设计约束。配套阅读：README（功能与配置）、AGENTS.md（提交与发布规则）、`docs/onboarding/`（下发给 agent 的英文引导与指南）。
 
+## 术语
+
+- 面向用户、agent 与部署方的文本一律直接写 "dsh"，不用 "宿主" 作抽象。dsh 自己的中文文档从不写 "宿主"（"Host" 只是其代码里的 Host/Client 架构术语），而这个抽象在本仓库还会与 "Host 头"（HTTP 请求头）撞词。
+- 用户面把这套能力叫 "**dsh 端点直通**"，设置面板里叫 "**dsh 端点白名单**"。代码标识（`bridge_describe` / `bridge_call` / `bridgeEndpointAllowlist` / `src/host/typert-bridge.ts`）与维护者文档里的 "通用桥""桥写" 沿用旧名，指同一对象。
+- "端点" 是 dsh 官方词（`RemoteAccessEndpoint`，即 `namespace/method`）。中文不要写 "远程端点"，会被读成网络远程访问。
+
 ## 模块布局
 
 ```text

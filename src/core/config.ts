@@ -78,7 +78,7 @@ export interface Config {
    */
   authEnabled?: boolean
   /**
-   * 本实例自用工具(默认 true)。开启时把同一套 MCP 工具面注册为宿主原生工具
+   * 本实例自用工具(默认 true)。开启时把同一套 MCP 工具面注册为 dsh 原生工具
    * (`ctx.tools.register`), 本 dsh 的会话无需 MCP 客户端即可直接调用; 关闭 = 只保留对外 MCP 服务。
    * 原生工具在进程内直调, 不经过 HTTP/认证; 想彻底关闭外部访问时把 `http` 设为 false。
    */
@@ -92,14 +92,14 @@ export interface Config {
    */
   sessionTtlMs?: number
   /**
-   * 桥写停泊审批的等待上限(毫秒; 默认 120s; 0 = 不限时)。
-   * 只作用于通用桥的变更类调用(桥外面板审批卡); 会话审批由宿主的 answer client
+   * 端点写调用停泊审批的等待上限(毫秒; 默认 120s; 0 = 不限时)。
+   * 只作用于 dsh 端点直通的变更类调用(设置面板上的人工审批卡); 会话审批由 dsh 的 answer client
    * 链回答, 没有插件侧的等待上限。
    * 有限时超时一律失败关闭, 不限时则一直等到有人回答。
    */
   approvalTimeoutMs?: number
   /**
-   * 通用桥端点白名单("namespace/method" 形式; 默认空 = 桥只读+逐次审批)。
+   * dsh 端点白名单("namespace/method" 形式; 默认空 = 只读直行 + 逐次审批)。
    * 白名单内的变更类端点经 bridge_call 直接执行——等价部署方预先审批;
    * 白名单外的非流式端点不停留在"拒绝": 调用先停泊, 由部署方在设置面板的人工审批卡
    * 允许/拒绝(允许一次执行一次, 拒绝/超时/调用方断开一律失败关闭)。
