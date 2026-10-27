@@ -49,7 +49,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List dsh tools',
       description:
-        "List the host's global tool registry (name + description). Note: model tools live in preset/agent scopes, so this global table is usually empty (see the returned note); the tools a session can actually use are the toolCalls in a session_prompt result.",
+        "List the host's global tool registry (name + description). Note: model tools live in preset/agent scopes, so this global table is usually empty (see the returned note); the tools a session can actually use are the toolCalls in a session_send result.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -145,7 +145,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List native subagents',
       description:
-        "Read a session's native subagent catalog (host subagents.listChildren/listDescendants): returns child `sessionId`, creation time, `mode` (one-shot/continuable/external/unknown), and `label`; with `recursive=true`, returns descendants with `parentId`/`depth`. Read-only: it neither loads nor resumes the child agent. Drive a child with `session_prompt` / `session_poll` / `session_result` / `session_cancel`; spawning children remains the host/model-side subagent tool's job — this tool only exposes the catalog over MCP.",
+        "Read a session's native subagent catalog (host subagents.listChildren/listDescendants): returns child `sessionId`, creation time, `mode` (one-shot/continuable/external/unknown), and `label`; with `recursive=true`, returns descendants with `parentId`/`depth`. Read-only: it neither loads nor resumes the child agent. Drive a child with `session_send` / `session_poll` / `session_result` / `session_cancel`; spawning children remains the host/model-side subagent tool's job — this tool only exposes the catalog over MCP.",
       inputSchema: {
         parentSessionId: z.string().describe('Parent session id (the root of its subagent catalog).'),
         recursive: z.boolean().optional().describe('true = recursively list all reachable descendants (listDescendants); default = direct children only.'),

@@ -532,7 +532,7 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
   }
 }
 
-/** session_submit 的回执(admission, 不是结果) */
+/** session_send(wait:none) 的回执(admission, 不是结果) */
 export interface SubmitSessionResult {
   sessionId: string
   requestId: string
@@ -579,7 +579,7 @@ export interface PromptOptions {
    * 必须由调用者指定; 省略即失败(MODE_REQUIRED), 不替调用者猜。
    */
   mode?: SendMode
-  /** 图片附件引用(与 session_submit 同语义: path/url 二选一, 宿主侧读字节, 引用不传值) */
+  /** 图片附件引用(与 session_send(wait:none) 回执同语义: path/url 二选一, 宿主侧读字节, 引用不传值) */
   attachments?: readonly ImageRefInput[]
   /** 调用方自带的幂等键; 响应丢失时可用它调 session_result 取回结果 */
   requestId?: string
@@ -687,7 +687,7 @@ export interface QueueManageOptions {
 /**
  * 会话排队消息管理(界面 QueueDock 的服务端语义): list = 列出排队消息; remove = 移除;
  * edit = 改写文本; steer = 移出队列并立即转向消化。全部要求会话活着(live)——
- * 排队消息在宿主 inbox 里持久, 冷恢复的会话先 session_prompt 一次再管理排队。
+ * 排队消息在宿主 inbox 里持久, 冷恢复的会话先 session_send 一次再管理排队。
  */
 export async function queueManage(opts: QueueManageOptions): Promise<unknown> {
   const { ctx, sessionId, action, itemId, content } = opts

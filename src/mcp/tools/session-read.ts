@@ -60,7 +60,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List sessions',
       description:
-        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_prompt`; the guide (dsh_get_started) has the shared session semantics.',
+        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_send`; the guide (dsh_get_started) has the shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -116,7 +116,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       description:
         "Read a session's conversation digest: newest-first user and assistant messages by default (`roles` opts in tool calls, results and turn boundaries), paged back with `beforeIndex`. Default `detail=summary` clips long text (`truncated: true` marks clipped entries); `detail=full` returns a whole message untruncated. Both live and persisted-only sessions are readable — cold ones are read without activating them.",
       inputSchema: {
-        sessionId: z.string().describe('Session id (from a session_prompt result or session_list; both live and persisted sessions are readable).'),
+        sessionId: z.string().describe('Session id (from a session_send result or session_list; both live and persisted sessions are readable).'),
         limit: z.number().int().min(1).max(50).optional().describe('Maximum number of entries to return, counted after the roles filter (default 10).'),
         roles: z
           .array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end']))
@@ -159,7 +159,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           .string()
           .optional()
           .describe(
-            'Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+            'Session id (from session_list or a session_send result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
           ),
       },
       annotations: { readOnlyHint: true },
@@ -190,7 +190,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           .string()
           .optional()
           .describe(
-            'Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+            'Session id (from session_list or a session_send result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
           ),
         fields: z
           .array(z.enum(OVERVIEW_FIELDS))

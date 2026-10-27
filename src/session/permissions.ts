@@ -107,7 +107,7 @@ export function currentPermissionOf(ctx: Context, session: unknown): string | un
 /**
  * 冷会话读路径: 折叠日志里最后一条 permission/preset 的预设名。
  * 宿主对每个新会话都会固定一次默认预设(总有记录); 手动旋钮覆盖不反映在这里——
- * 需要权威推导时先让会话变 live(session_prompt/session_set_permission 都会激活)。
+ * 需要权威推导时先让会话变 live(session_send/session_set_permission 都会激活)。
  */
 export function permissionOfEvents(events: readonly unknown[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i--) {

@@ -1,5 +1,5 @@
 /**
- * 会话动作类工具: 新建、发送、异步提交、观察、取结果、停止、排队、换模型、改名、分叉、归档、恢复。
+ * 会话动作类工具: 新建、发送(wait 选阻塞语义)、观察、取结果、停止、排队、换模型、改名、分叉、归档、恢复。
  * 读语义在 session-read.ts; 审批与子代理发现分别在 approvals.ts / catalog.ts。
  */
 import { z } from 'zod'
@@ -22,7 +22,7 @@ interface WorkspaceControllerView {
   unarchiveSession?: (request: { sessionId: string }) => Promise<unknown>
 }
 
-/** 图片附件参数(session_prompt / session_submit 共用): 引用不传值, 字节在宿主侧读取 */
+/** 图片附件参数(session_send 共用): 引用不传值, 字节在宿主侧读取 */
 const ATTACHMENTS_ARG = z
   .array(
     z.object({
@@ -34,11 +34,11 @@ const ATTACHMENTS_ARG = z
   .max(8)
   .optional()
   .describe(
-    'Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the receipt (session_submit) or session_history (images fields) and can be fetched with attachment_read.',
+    'Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the send receipt (wait="none") or session_history (images fields) and can be fetched with attachment_read.',
   )
 
 /**
- * 投递模式参数(session_prompt / session_submit 共用): 可省略只在"会话空闲"时有意义——
+ * 投递模式参数(session_send 共用): 可省略只在"会话空闲"时有意义——
  * 那时两者等价、引擎补 queue; 会话在跑 turn 时语义不同, 省略即失败(MODE_REQUIRED)。
  */
 const MODE_ARG = z
@@ -54,7 +54,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Create session',
       description:
-        "Create a session (the UI's New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` and `preset` are all required (values from `model_list`) — nothing is backfilled.",
+        "Create a session (the UI's New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_send` to send work. `provider` + `model` and `preset` are all required (values from `model_list`) — nothing is backfilled.",
       inputSchema: {
         cwd: z.string().describe('Working directory bound to the session workspace.'),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
@@ -84,7 +84,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
               preset: r.preset,
               ...(r.permission !== undefined ? { permission: r.permission } : {}),
               ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
-              note: 'blank session created; send work via session_submit (async) or session_prompt (blocking)',
+              note: 'blank session created; send work with session_send (wait="none" for async, "turn" to block)',
             },
             null,
             2,
@@ -137,12 +137,14 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
+  // 统一发送入口: wait 选阻塞语义——input(默认)等审批/提问即回; turn 等本轮收敛; none 只做
+  // admission 立即回执(异步控制面入口)。发送与等待解耦: MCP 取消只停等待, 绝不 cancel turn。
   mcp.registerTool(
-    'session_prompt',
+    'session_send',
     {
-      title: 'Prompt session',
+      title: 'Send session message',
       description:
-        'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). The delivery mode is chosen per call and is independent of any UI preference (see the `mode` argument). With the default `waitFor: "input"`, the call returns early with `pending=true` and `waiting.approvals` / `waiting.questions` when the session starts waiting for an approval or a question: the turn keeps running, nothing is cancelled or skipped, and you answer with `approval_answer` / `question_answer` before fetching the final result via `session_result`. Set `waitFor: "turn"` to block until the turn ends regardless. Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
+        'Send a message into a session (the UI\'s Send); `wait` chooses what the call waits for. wait="input" (default): returns early with `pending=true` and `waiting` as soon as the session awaits an approval or a question — the turn keeps running; answer with approval_answer/question_answer, then fetch the final result via session_result. wait="turn": block until the turn ends. wait="none": admit only and return the requestId receipt immediately (fan-out: observe with session_poll, fetch with session_result). Cancelling the call only stops the wait, never the dsh turn — stop turns with session_cancel. Reusing a requestId is idempotent, so a lost response can be refetched. Delivery to a running session needs `mode` (queue/steer).',
       inputSchema: {
         sessionId: z
           .string()
@@ -150,28 +152,44 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
-        waitFor: z
-          .enum(['turn', 'input'])
+        wait: z
+          .enum(['input', 'turn', 'none'])
           .optional()
           .describe(
-            'What to wait for (default input): input = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends.',
+            'What to wait for. input (default) = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends; none = no wait: return the requestId receipt (fan-out via session_poll + session_result).',
           ),
         requestId: z
           .string()
           .min(1)
           .max(200)
           .optional()
-          .describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
+          .describe(
+            'Idempotency key (generated if omitted). Repeating the same id returns the first receipt instead of re-delivering; a lost response can be refetched with session_result.',
+          ),
         detail: z
           .enum(['uri', 'summary', 'normal', 'full'])
           .optional()
-          .describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
+          .describe(`Result detail (wait=input/turn only): ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, attachments, mode, waitFor, requestId, detail }, extra) => {
+    async ({ sessionId, task, attachments, mode, wait, requestId, detail }, extra) => {
       try {
-        const result = await promptSession({ ctx, sessionId, task, mode, waitFor, attachments, requestId, signal: extra.signal })
+        if (wait === 'none') {
+          const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
+          return out(
+            JSON.stringify(
+              {
+                ...r,
+                resource: resUri.sessionHistory(sessionId),
+                note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
+              },
+              null,
+              2,
+            ),
+          )
+        }
+        const result = await promptSession({ ctx, sessionId, task, mode, waitFor: wait, attachments, requestId, signal: extra.signal })
         const effDetail = detail ?? 'summary'
         const pendingNote =
           result.waiting !== undefined
@@ -195,48 +213,6 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           2,
         )
         return result.error && result.pending !== true ? outError(rendered) : out(rendered)
-      } catch (e) {
-        return outError(errorJson(e))
-      }
-    },
-  )
-
-  // 异步提交: 只 admission, 立即返回 requestId; 客户端用 session_poll / session_result 取结果。
-  // 这是 MCP-only 编排的核心——发送与等待分离, 客户端超时不会杀掉 dsh 里的 turn。
-  mcp.registerTool(
-    'session_submit',
-    {
-      title: 'Submit session task',
-      description:
-        'Admit a task into a session asynchronously and return `requestId`/`messageId` immediately (does not wait for the turn). Observe with `session_poll`, fetch the structured result with `session_result`, stop the turn with `session_cancel`. `mode` matches `session_prompt` (queue / steer; required while the session is running). Reusing a `requestId` is idempotent: it is not delivered twice and returns the first receipt. Best for fan-out workers polled together.',
-      inputSchema: {
-        sessionId: z.string().describe('Target session id (returned by session_create; continuing keeps its original model).'),
-        task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
-        attachments: ATTACHMENTS_ARG,
-        mode: MODE_ARG,
-        requestId: z
-          .string()
-          .min(1)
-          .max(200)
-          .optional()
-          .describe('Idempotency key (caller-supplied; generated if omitted). Repeating the same id returns the first receipt.'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
-    },
-    async ({ sessionId, task, attachments, mode, requestId }) => {
-      try {
-        const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
-        return out(
-          JSON.stringify(
-            {
-              ...r,
-              resource: resUri.sessionHistory(sessionId),
-              note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
-            },
-            null,
-            2,
-          ),
-        )
       } catch (e) {
         return outError(errorJson(e))
       }
@@ -279,15 +255,10 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Get session task result',
       description:
-        "Fetch the structured result of one `session_submit` / `session_prompt` by `requestId`: `status` is completed/blocked/errored/cancelled; while unsettled it is `running` with `pending=true` and the currently visible partial result; before a turn claims the request it is `pending`. Omitting `requestId` returns the session's latest request. The result is projected by `detail`; a successful tool call does not mean the turn succeeded — read `status`/`error`.",
+        "Fetch the structured result of one `session_send` by `requestId`: `status` is completed/blocked/errored/cancelled; while unsettled it is `running` with `pending=true` and the currently visible partial result; before a turn claims the request it is `pending`. Omitting `requestId` returns the session's latest request. The result is projected by `detail`; a successful tool call does not mean the turn succeeded — read `status`/`error`.",
       inputSchema: {
         sessionId: z.string().describe('Session id used when the task was submitted.'),
-        requestId: z
-          .string()
-          .min(1)
-          .max(200)
-          .optional()
-          .describe('Request id returned by session_submit/session_prompt; omit for the latest request in the session.'),
+        requestId: z.string().min(1).max(200).optional().describe('Request id returned by session_send; omit for the latest request in the session.'),
         detail: z
           .enum(['uri', 'summary', 'normal', 'full'])
           .optional()
@@ -332,7 +303,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Manage session queue',
       description:
-        "Manage a session's queued messages (the UI's QueueDock): `list` = list queued messages; `remove` = remove one; `edit` = rewrite its text; `steer` = dequeue and immediately steer it into the running turn. Requires a live session (queued messages are durable in the host inbox; prompt a cold session once first).",
+        "Manage a session's queued messages (the UI's QueueDock): `list` = list queued messages; `remove` = remove one; `edit` = rewrite its text; `steer` = dequeue and immediately steer it into the running turn. Requires a live session (queued messages are durable in the host inbox; send once with session_send first).",
       inputSchema: {
         sessionId: z.string().describe('Session id.'),
         action: z.enum(['list', 'edit', 'remove', 'steer']).describe('list = list; edit = rewrite; remove = remove; steer = promote and steer.'),
@@ -478,7 +449,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         return outError(
           JSON.stringify({
             error: `session "${target.sessionId}" is not live; slash commands are registered per live agent`,
-            hint: 'prompt or submit once to activate the session, then retry',
+            hint: 'send once (session_send) to activate the session, then retry',
           }),
         )
       }
@@ -579,7 +550,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_unarchive',
     {
       title: 'Unarchive session',
-      description: `Restore an archived session (the UI's Unarchive): removes the archive mark; the session rejoins the lists and \`session_prompt\` cold-resumes it with history intact (the gate covers its whole lineage). Idempotent — unarchiving a not-archived session is a no-op reported as \`wasArchived: false\`. ${NEEDS_WORKSPACE_CONTROLLER}`,
+      description: `Restore an archived session (the UI's Unarchive): removes the archive mark; the session rejoins the lists and \`session_send\` cold-resumes it with history intact (the gate covers its whole lineage). Idempotent — unarchiving a not-archived session is a no-op reported as \`wasArchived: false\`. ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Session id to restore (from session_list with scope="archived").'),
       },
@@ -628,7 +599,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         'Read one image attachment of a session by reference, never as base64 text: returns its metadata plus the host-local file path (zero image tokens — use the path directly on the same machine). `inline=true` additionally returns an MCP image content block for multimodal clients.',
       inputSchema: {
         sessionId: z.string().optional().describe('Session owning the image (omit only on the native rice_ tools: it targets the calling session).'),
-        attachmentId: z.string().describe('Image attachment id (from a submit receipt, prompt confirmation, or session_history images).'),
+        attachmentId: z.string().describe('Image attachment id (from a session_send receipt or session_history images).'),
         inline: z.boolean().optional().describe('Also return the image as an MCP image content block for multimodal clients (default false: reference only).'),
       },
       annotations: { readOnlyHint: true },

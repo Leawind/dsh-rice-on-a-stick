@@ -186,7 +186,7 @@ export async function sessionResult(
     throw new Error(
       wanted !== ''
         ? `unknown requestId "${wanted}" (the plugin keeps the last 200 requests for 6h; use session_history with beforeIndex to inspect the session log)`
-        : `no request recorded for session "${sessionId}" (pass requestId from session_submit/session_prompt, or use session_history)`,
+        : `no request recorded for session "${sessionId}" (pass requestId from session_send/session_prompt, or use session_history)`,
     )
   }
   if (record.sessionId !== sessionId) {

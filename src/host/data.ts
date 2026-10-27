@@ -658,7 +658,7 @@ export async function sessionHistoryPayload(
       // 透出宿主原因(不存在 / 格式迁移待完成 / 无 sessionController), 不给"只支持 live"的误导
       throw new Error(
         `session not readable: ${sessionId} (${(e as Error)?.message ?? String(e)}); ` +
-          'open the session in the dsh UI, or continue it with session_prompt first',
+          'open the session in the dsh UI, or continue it with session_send first',
       )
     }
   }
@@ -812,7 +812,7 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   }
   return {
     source: 'global-registry',
-    note: "the global registry includes this plugin's native self-use tools (when selfToolsEnabled=true) and other host/plugin global tools; model tools may also live in preset/agent scopes, so the tools a session can actually use are the toolCalls in a session_prompt result (run a small task to confirm a capability)",
+    note: "the global registry includes this plugin's native self-use tools (when selfToolsEnabled=true) and other host/plugin global tools; model tools may also live in preset/agent scopes, so the tools a session can actually use are the toolCalls in a session_send result (run a small task to confirm a capability)",
     tools: list,
   }
 }

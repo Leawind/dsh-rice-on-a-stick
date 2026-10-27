@@ -1,7 +1,7 @@
 // E2E verification against a REAL dsh host (not shipped; dev-only).
 //
 // Zero-token phase: MCP handshake + instructions, the current tool surface, read-only tools
-// (echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list / model_list /
+// (echo / dsh_guide / dsh_list_tools / dsh_status / workspace_list / model_list /
 // session_list), the attachment read-only face and the dsh endpoint passthrough face (endpoint_describe / endpoint_call
 // session/modelCatalog / attachment_read unknown-id), session_history on a persisted-only
 // session (host sessionController.inspect), and the resource face (list / read / presets).
@@ -136,8 +136,7 @@ try {
     'workspace_list',
     'model_list',
     'session_create',
-    'session_prompt',
-    'session_submit',
+    'session_send',
     'session_poll',
     'session_result',
     'session_cancel',
@@ -390,17 +389,18 @@ try {
       const prompt = await callTool(
         sid,
         31,
-        'session_prompt',
+        'session_send',
         {
           sessionId,
           task: '用 pwsh 运行 `node -e "console.log(2+2)"`(只要这一条命令), 然后在最后一行输出总结 JSON: {"changes":"...","verification":"...","leftovers":"..."}',
           detail: 'normal',
+          wait: 'turn',
         },
         AGENT_TIMEOUT_MS,
       )
       const secs = ((Date.now() - t0) / 1000).toFixed(1)
       report(
-        'session_prompt 完成真实 turn',
+        'session_send 完成真实 turn',
         prompt.inner.error === undefined && prompt.inner.sessionId === sessionId,
         prompt.inner.error ? String(prompt.inner.error).slice(0, 300) : `${secs}s`,
       )

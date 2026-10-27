@@ -91,7 +91,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
             JSON.stringify({
               error:
                 `no pending question for session "${sessionId}" held by this plugin, and the session is not live; ` +
-                'prompt it once (session_prompt/session_submit) to activate the root agent, then retry',
+                'prompt it once (session_send) to activate the root agent, then retry',
             }),
           )
         }

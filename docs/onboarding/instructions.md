@@ -9,30 +9,32 @@ Quick start:
 - Call model_list first — it holds both the model catalog and the preset roster
   (its `presets` field); create a session with session_create
   (cwd, provider+model pair, preset — all explicit, no defaults are backfilled).
-- session_prompt sends a message into a session and waits for the turn to finish
-  (waitFor=turn), returning a structured result ({changes, verification, leftovers, ...});
-  with the default waitFor=input it returns early (pending=true + waiting) as soon as the
-  session waits for an approval or a question, so you can answer it and continue.
-  Failures come back with isError:true. Reuse the same sessionId to keep the conversation
-  going (its full history is the agent's context — send only the delta in context).
-- While a session is busy, another session_prompt must say how to deliver: mode=queue
+- session_send delivers a message into a session; `wait` chooses what the call waits for.
+  With the default wait=input it returns early (pending=true + waiting) as soon as the
+  session waits for an approval or a question, so you can answer it and continue;
+  wait=turn blocks until the turn finishes and returns a structured result
+  ({changes, verification, leftovers, ...}); wait=none admits the task and returns the
+  requestId immediately. Failures come back with isError:true. Reuse the same sessionId
+  to keep the conversation going (its full history is the agent's context — send only
+  the delta in context).
+- While a session is busy, another session_send must say how to deliver: mode=queue
   appends after the current turn (a new turn), mode=steer injects at the next step
   boundary of the running turn (it never interrupts a running step). Omit mode only when
   the session is idle (the two are then identical); on a running session it fails with
   MODE_REQUIRED. session_cancel stops the current turn and keeps the queue; session_queue
   inspects/edits/removes queued messages and can promote one with action=steer.
-- For fan-out, do not block on one session at a time: session_submit admits a task and
-  returns requestId immediately; session_poll observes many sessions at once (bounded
-  waitMs, returns changed/timedOut); session_result fetches the structured result by
-  requestId. Cancelling a wait (client timeout / notifications/cancelled) only stops the
-  wait — the dsh turn keeps running; use session_cancel to stop it.
+- For fan-out, do not block on one session at a time: session_send with wait=none admits
+  a task and returns requestId immediately; session_poll observes many sessions at once
+  (bounded waitMs, returns changed/timedOut); session_result fetches the structured
+  result by requestId. Cancelling a wait (client timeout / notifications/cancelled) only
+  stops the wait — the dsh turn keeps running; use session_cancel to stop it.
 - This plugin is an ordinary Web answer client: it receives the same approval/question
   cards the browser does, the native cards stay visible, and whoever answers first wins.
   session_poll reports waiting-approval / waiting-question with pendingApprovals /
   pendingQuestions; approval_list and question_list show what this plugin currently
   holds (answerable=true). approval_answer allows/rejects one approval; question_answer
   answers the whole ask_user_question batch (the child turn continues with that answer).
-  session_prompt defaults to waitFor=input, so it returns pending=true with `waiting`
+  session_send defaults to wait=input, so it returns pending=true with `waiting`
   instead of blocking while the session waits; answer, then call session_result.
   approval_policy reads or switches the ask|never knob; for a named permission level
   (a sandbox + approval bundle, e.g. full access) use permission_list,

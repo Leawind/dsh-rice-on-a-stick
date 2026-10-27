@@ -129,12 +129,11 @@ function renderResult(result: McpToolResult): { type: 'text'; text: string }[] {
 
 /**
  * dsh_guide 的正文里用的是 MCP 原名; 原生调用时在开头补一条前缀规则,
- * 避免模型按指南里的 `session_prompt` 去调用不存在的名字。
+ * 避免模型按指南里的 `session_send` 去调用不存在的名字。
  */
 function withNativeGuideNote(tool: CapturedTool, result: McpToolResult): McpToolResult {
   if (tool.name !== 'dsh_guide' || result.isError === true) return result
-  const note =
-    `> Native self-use aliases: every tool name below is prefixed with \`${NATIVE_PREFIX}\` ` + `(for example \`${NATIVE_PREFIX}session_prompt\`).\n\n`
+  const note = `> Native self-use aliases: every tool name below is prefixed with \`${NATIVE_PREFIX}\` ` + `(for example \`${NATIVE_PREFIX}session_send\`).\n\n`
   let prepended = false
   const content = result.content.map((block) => {
     if (prepended || block.type !== 'text' || typeof block.text !== 'string') return block

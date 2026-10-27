@@ -26,17 +26,20 @@ you already know.
 - **preset** — the persona mounted at session creation (an id from `model_list`'s
   `presets` field or the `dsh://presets` resource). Required explicitly at creation,
   like the model; continuing an existing session keeps its original preset.
-- **send modes** — `session_prompt` / `session_submit` choose the delivery mode per call;
+- **send modes** — `session_send` chooses the delivery mode per call;
   it is independent of any UI preference. `queue` delivers after the current turn ends,
   as a new turn. `steer` delivers at the next step boundary inside the current turn
   (it extends that turn; a running step is never interrupted). When the session is idle
   the two are identical, so `mode` may be omitted and `queue` is assumed; while it is
   running, omitting `mode` fails with `MODE_REQUIRED` — the choice is yours to make.
-- **async request** — `session_submit` admits a task and returns `requestId` immediately;
-  `session_poll` observes one or many sessions (bounded `waitMs`, returns
+- **wait semantics** — `session_send` has a `wait` argument: `input` (default) returns
+  early when the session awaits an approval/question; `turn` blocks until the turn ends;
+  `none` admits the task and returns the `requestId` receipt immediately.
+- **async request** — `session_send` with wait=none admits a task and returns `requestId`
+  immediately; `session_poll` observes one or many sessions (bounded `waitMs`, returns
   `changed`/`timedOut`); `session_result` fetches the structured result by `requestId`.
-  The id is persisted on the user message, so it survives a plugin restart. `session_prompt`
-  is the blocking convenience wrapper: cancelling its wait never cancels the dsh turn.
+  The id is persisted on the user message, so it survives a plugin restart. Cancelling a
+  waiting `session_send` call never cancels the dsh turn.
 - **turn vs step** — a _turn_ is one full run ending in a structured result. _Steps_ are
   the model rounds inside it. `steer` is consumed at the next step boundary;
   `session_select_model` takes effect on the next step.
@@ -49,7 +52,7 @@ you already know.
   and the next prompt then cold-resumes it with its history intact.
 - **Native subagent** — the host can delegate work into child sessions (one-shot,
   continuable, or external). `subagent_list` reads that catalog without activating
-  anything; each child is a normal session id for `session_prompt` / `session_poll` /
+  anything; each child is a normal session id for `session_send` / `session_poll` /
   `session_result`. Starting a child stays with the host/model-side subagent tools.
 - **Approval policy** — the host may ask for confirmation before a sensitive operation
   (`ask`) or reject it deterministically (`never`). This plugin is an ordinary Web answer
@@ -79,13 +82,13 @@ you already know.
   no preset — the UI then shows `custom`; switch a named preset instead of stacking
   knob-level changes. For unattended runs, a full-access preset is the predictable
   choice.
-- **Image attachments (reference-only)** — `session_prompt` / `session_submit` accept
+- **Image attachments (reference-only)** — `session_send` accepts
   `attachments: [{ path | url, name? }]` (png/jpeg/webp/gif, up to 8). Pass a
   host-readable path or an http(s) URL — the plugin reads the bytes inside the dsh
   process and admits them through the host attachment service, so image data never
   enters tool arguments or your context as base64. Attachment ids come back in the
-  receipt (`session_submit.attachments`) or in `session_history` entries (`images`
-  fields); `attachment_read` returns metadata plus the host file path (zero image
+  receipt (wait=none responses carry `attachments`) or in `session_history` entries
+  (`images` fields); `attachment_read` returns metadata plus the host file path (zero image
   tokens), and `inline: true` adds an MCP image content block for multimodal clients
   (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were
   inlined as base64 text).
@@ -112,12 +115,12 @@ you already know.
 ## Workflow recipes
 
 1. **One-off task** — `session_create` (cwd + provider/model pair + preset, plus an
-   optional `permission` preset), then `session_prompt` with the task. The result
+   optional `permission` preset), then `session_send` with the task. The result
    carries the `sessionId`; pass it back later to continue that conversation (send only
    the delta).
-2. **Keep working in a session** — repeat `session_prompt` with the same `sessionId`.
+2. **Keep working in a session** — repeat `session_send` with the same `sessionId`.
    The agent remembers previous turns; for a fresh start create a new session.
-3. **Session is busy** — `session_prompt` with mode=`queue` lines up behind the current
+3. **Session is busy** — `session_send` with mode=`queue` lines up behind the current
    turn as a new turn; mode=`steer` injects at the next step boundary of that same turn.
    Omitting `mode` on a running session fails (`MODE_REQUIRED`) — pass it on every prompt
    when you are unsure. Inspect or prune the queue with `session_queue` (its
@@ -152,7 +155,7 @@ you already know.
    running session is doing right now, history updates push on turn completion, and
    `dsh://sessions/{id}/overview` pushes the one-call glance on the same boundaries.
 7. **Fan-out / parallel workers** — create N sessions with `session_create`, then
-   `session_submit` one task per session (optionally with your own idempotent
+   `session_send` with wait=none one task per session (optionally with your own idempotent
    `requestId`). Loop `session_poll` with `sessionIds: [...]` and `waitMs: 20000`:
    it returns when any watched session changes or the wait times out, so do not poll
    faster than that. Once a session reports `lastTurn.reason`, call `session_result`
@@ -162,19 +165,19 @@ you already know.
    `waiting-question`, call `approval_list` / `question_list` with the session id. If the
    entry is `answerable`, answer it with `approval_answer` (allow/reject) or
    `question_answer` (the whole batch), then keep polling. Otherwise the UI or another
-   client holds it; the native card is still the human's path. `session_prompt` defaults
-   to `waitFor: "input"`: it returns early with `pending=true` and `waiting` when the
+   client holds it; the native card is still the human's path. `session_send` defaults
+   to `wait: "input"`: it returns early with `pending=true` and `waiting` when the
    session starts waiting, so you can answer and then call `session_result` for the final
    result. To avoid approval gates up front, create the session with a full-access
    `permission` preset (see `permission_list`) or switch it with
    `session_set_permission`.
 9. **Native subagents** — `subagent_list({ parentSessionId })` returns direct children
    (recursive=true adds descendants). Then treat each child id like any other session:
-   `session_poll`, `session_result`, `session_prompt`. The catalog read is passive;
+   `session_poll`, `session_result`, `session_send`. The catalog read is passive;
    it does not load or resume the child.
-10. **Send an image** — `session_prompt({ sessionId, task, attachments: [{ path: "/abs/shot.png" }] })`.
+10. **Send an image** — `session_send({ sessionId, task, attachments: [{ path: "/abs/shot.png" }] })`.
     Keep the reference short (path or URL); never inline image bytes into `task`. Find
-    the attachment id in the `session_submit` receipt or `session_history`'s `images`;
+    the attachment id in the wait=none receipt or `session_history`'s `images`;
     hand it to `attachment_read` (add `inline: true` only for multimodal read-back).
 11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }`
     to search endpoints by keyword (no args for the namespace index, `{ namespace }`
@@ -191,29 +194,29 @@ you already know.
 
 ## Error → alternative path
 
-| Situation                                       | Do this instead                                                                                                                                                                                                                            |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| "provider + model are required"                 | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own)                                                                                                                      |
-| "unknown preset"                                | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset                                                                                                             |
-| "unknown permission preset"                     | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults)                                                                    |
-| "cannot resume session"                         | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_prompt`                               |
-| model refused (allowedModels)                   | the model is not in the deployment's allowlist — pick one from `model_list` that appears there                                                                                                                                             |
-| "session is not running" (cancel/queue)         | the session has no live agent right now; send a `session_prompt` / `session_submit` first                                                                                                                                                  |
-| turn ends `blocked`                             | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_prompt` |
-| `pending: true` with `waiting`                  | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling)                                     |
-| "unknown requestId"                             | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history`                                                     |
-| `status: "pending"` / `pending: true`           | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it                                                                                                                                   |
-| `status: "cancelled"`                           | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit                                                                                                                     |
-| "not a recognized image"                        | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet                                                                                                                                                      |
-| "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe`                                                                   |
-| "declined by the human reviewer"                | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint                                                                                            |
-| "approval timed out ... failed closed"          | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry                                                                                                  |
+| Situation                                       | Do this instead                                                                                                                                                                                                                          |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "provider + model are required"                 | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own)                                                                                                                    |
+| "unknown preset"                                | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset                                                                                                           |
+| "unknown permission preset"                     | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults)                                                                  |
+| "cannot resume session"                         | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_send`                               |
+| model refused (allowedModels)                   | the model is not in the deployment's allowlist — pick one from `model_list` that appears there                                                                                                                                           |
+| "session is not running" (cancel/queue)         | the session has no live agent right now; send a `session_send` first                                                                                                                                                                     |
+| turn ends `blocked`                             | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_send` |
+| `pending: true` with `waiting`                  | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling)                                   |
+| "unknown requestId"                             | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history`                                                   |
+| `status: "pending"` / `pending: true`           | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it                                                                                                                                 |
+| `status: "cancelled"`                           | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit                                                                                                                   |
+| "not a recognized image"                        | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet                                                                                                                                                    |
+| "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe`                                                                 |
+| "declined by the human reviewer"                | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint                                                                                          |
+| "approval timed out ... failed closed"          | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry                                                                                                |
 
 <!-- section: results -->
 
 ## Reading results without blowing your context
 
-`detail` controls read-back size on both `session_prompt` and `session_result`: `uri`
+`detail` controls read-back size on both `session_send` (wait=input/turn) and `session_result`: `uri`
 returns only the reference (`resource`) plus bookkeeping, `summary` (default, a few hundred
 tokens — the changes/verification/leftovers summary + answer tail + tool names), `normal`
 (~2k, adds truncated tool calls and results), `full` (everything, for debugging). A result
@@ -226,11 +229,11 @@ Every result also names the session and the model/preset that actually answered.
 Async results carry `requestId`, `status` (completed / blocked / errored / cancelled;
 running/pending while not settled), `turn`, and `pending`. A `session_result` call that
 succeeds with `status: "errored"` is still a successful tool call — inspect the payload,
-not only `isError`. `session_prompt` defaults to `waitFor: "input"`: a session that starts
+not only `isError`. `session_send` defaults to `wait: "input"`: a session that starts
 waiting for an approval/question returns `pending: true` plus
 `waiting: { approvals, questions }` while the turn keeps running; answer it and call
 `session_result` for the final result. A client-cancelled wait also returns
-`pending: true` with the `requestId` to fetch later (use `waitFor: "turn"` to always
+`pending: true` with the `requestId` to fetch later (use `wait: "turn"` to always
 block until the turn ends).
 
 `session_history` follows the same budget idea: its default view clips each entry's text

@@ -205,7 +205,7 @@ function makeSlowAgent(id, cwd, options) {
 }
 export const slowLiveAgent = makeSlowAgent('sess-slow', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 // 第二/第三个慢 agent: 异步控制面测试(session_poll/session_result)与客户端取消测试各自独立,
-// 不与既有 session_prompt 取消用例、也不与彼此互相污染
+// 不与既有 session_send 取消用例、也不与彼此互相污染
 export const slowLiveAgent2 = makeSlowAgent('sess-slow2', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 export const slowLiveAgent3 = makeSlowAgent('sess-slow3', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 
@@ -225,7 +225,7 @@ export const approvalAgent = {
 }
 
 // 运行中的 live 会话(正在跑 turn 的 agent): 投递模式的"省略即失败"断言素材。
-// whenIdle 永不收敛——只用于 session_submit(admission)与失败路径, 不要对它跑 session_prompt。
+// whenIdle 永不收敛——只用于 session_send(wait:none, admission)与失败路径, 不要对它跑阻塞等待。
 const busyEvents = []
 export const busyAgent = {
   get status() {

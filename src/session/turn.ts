@@ -175,7 +175,7 @@ export function turnEndError(turn: number | undefined, reason: TurnEndReasonView
   if (kind === 'blocked') {
     message +=
       ' (host is waiting for interactive input/approval that an unattended run cannot grant; ' +
-      'arrange approval or relax the host approval policy, then continue via session_prompt with this sessionId)'
+      'arrange approval or relax the host approval policy, then continue via session_send with this sessionId)'
   }
   return message
 }
