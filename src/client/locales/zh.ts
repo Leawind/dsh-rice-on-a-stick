@@ -23,7 +23,7 @@ export const zh = {
   'hosts.hint': '额外放行的主机名，逗号或空格分隔',
   'hosts.invalid': '主机名不合法：{h}',
   'endpoint.title': 'dsh 端点白名单',
-  'endpoint.hint': '勾选的端点经 bridge_call 直接执行；未勾选的变更端点每次调用都停到审批卡等人工确认。只读端点始终放行，勾选仅作示意。危险端点单列在下方独立清单，不进全选；流式端点不适用。',
+  'endpoint.hint': '勾选的端点经 endpoint_call 直接执行；未勾选的变更端点每次调用都停到审批卡等人工确认。只读端点始终放行，勾选仅作示意。危险端点单列在下方独立清单，不进全选；流式端点不适用。',
   'endpoint.filter': '输入关键字过滤端点或说明',
   'endpoint.selectAll': '全选',
   'endpoint.selected': '已选 {n}/{m}',

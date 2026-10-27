@@ -2,7 +2,7 @@
 //
 // Zero-token phase: MCP handshake + instructions, the current tool surface, read-only tools
 // (echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list / model_list /
-// session_list), the attachment read-only face and the dsh endpoint passthrough face (bridge_describe / bridge_call
+// session_list), the attachment read-only face and the dsh endpoint passthrough face (endpoint_describe / endpoint_call
 // session/modelCatalog / attachment_read unknown-id), session_history on a persisted-only
 // session (host sessionController.inspect), and the resource face (list / read / presets).
 //
@@ -124,7 +124,7 @@ try {
     'session_rename', 'session_list', 'session_meta', 'session_overview', 'session_history', 'session_search', 'session_fork',
     'session_archive', 'session_unarchive',
     'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list',
-    'attachment_read', 'bridge_describe', 'bridge_call']
+    'attachment_read', 'endpoint_describe', 'endpoint_call']
   report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
 
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
@@ -220,10 +220,10 @@ try {
     rSessions.error ? String(rSessions.error).slice(0, 120) : `total=${rSessions.json?.total}`)
 
   // ── 附件与端点直通只读面(零 token, 不花模型调用) ──
-  const endpointDir = await callTool(sid, 24, 'bridge_describe', {})
+  const endpointDir = await callTool(sid, 24, 'endpoint_describe', {})
   report('endpoint_describe 目录可读(按 namespace 分组)', Array.isArray(endpointDir.inner?.namespaces) && (endpointDir.inner?.total ?? 0) > 0,
     `total=${endpointDir.inner?.total ?? String(endpointDir.inner?.error ?? '?').slice(0, 120)}`)
-  const catalog = await callTool(sid, 25, 'bridge_call', { endpoint: 'session/modelCatalog' })
+  const catalog = await callTool(sid, 25, 'endpoint_call', { endpoint: 'session/modelCatalog' })
   report('endpoint_call 只读端点经网关返回模型目录', catalog.inner?.error === undefined && typeof catalog.inner === 'object'
     && (Array.isArray((catalog.inner as any).routableProviders) || typeof (catalog.inner as any).default === 'object'),
   String(catalog.inner?.error ?? `providers=${((catalog.inner as any)?.routableProviders ?? []).length}`).slice(0, 140))

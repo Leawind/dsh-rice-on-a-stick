@@ -25,7 +25,7 @@ export const en: Record<MessageKey, string> = {
   'hosts.hint': 'Extra hostnames, comma or space separated.',
   'hosts.invalid': 'Invalid hostname: {h}',
   'endpoint.title': 'dsh endpoint allowlist',
-  'endpoint.hint': 'Checked endpoints execute directly through bridge_call; unchecked mutating endpoints park every call for manual approval. Read-only endpoints always pass — their checkboxes are informational. Dangerous endpoints are listed separately below and excluded from select-all. Stream endpoints do not apply.',
+  'endpoint.hint': 'Checked endpoints execute directly through endpoint_call; unchecked mutating endpoints park every call for manual approval. Read-only endpoints always pass — their checkboxes are informational. Dangerous endpoints are listed separately below and excluded from select-all. Stream endpoints do not apply.',
   'endpoint.filter': 'Type to filter endpoints or descriptions',
   'endpoint.selectAll': 'Select all',
   'endpoint.selected': '{n}/{m} selected',

@@ -398,7 +398,7 @@ const server = createServer(async (req, res) => {
         })
       }
       if (method === 'endpoint-approvals') {
-        // 桥写停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
+        // 端点写调用停泊审批(审批标签 + 侧栏角标的数据源): 数量经 /__test/mode {pendingApprovals} 翻转。
         // expiresAt 逐条错开, 末条落在 1 分钟内可目检紧急色; RPC 计数供轮询节奏断言。
         // 已应答的条目从后续轮询中剔除(与真机"答复即出清"同语义), 供目检允许/拒绝后的卡片消失
         rpcCounts['endpoint-approvals']++

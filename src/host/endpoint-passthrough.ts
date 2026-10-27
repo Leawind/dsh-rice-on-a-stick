@@ -265,7 +265,7 @@ export function searchEndpoints(ctx: Context, query: string, namespace?: string)
       ? 'no endpoint matched — available namespaces are listed for manual browsing; try broader or different terms, or drop the arguments'
       : matched.length > SEARCH_RESULT_CAP
         ? `showing ${SEARCH_RESULT_CAP} of ${matched.length} matches — add a term to narrow; endpoint=… gives the exact contract`
-        : 'pass endpoint=… to bridge_describe for the exact contract (the step before bridge_call)',
+        : 'pass endpoint=… to endpoint_describe for the exact contract (the step before endpoint_call)',
   }
 }
 
@@ -280,7 +280,7 @@ export function describeNamespace(ctx: Context, namespace: string): Record<strin
     readable: entries.filter((e) => e.readOnly).length,
     writable: entries.filter((e) => e.writable).length,
     endpoints: entries,
-    note: 'pass endpoint=namespace/method to bridge_describe for the exact contract (the step before bridge_call)',
+    note: 'pass endpoint=namespace/method to endpoint_describe for the exact contract (the step before endpoint_call)',
   }
 }
 
@@ -386,7 +386,7 @@ export async function invokeEndpoint(
   }
   const inv = invocations.find((c) => c.namespace === namespace && c.method === method)
   if (inv === undefined) {
-    return { ok: false, error: `unknown endpoint "${endpoint}" — call bridge_describe first and pass an endpoint from the directory` }
+    return { ok: false, error: `unknown endpoint "${endpoint}" — call endpoint_describe first and pass an endpoint from the directory` }
   }
   const cls = classifyInvocation(inv)
   if (!cls.readOnly && !cls.writable && cls.approvalRequired !== true) {
