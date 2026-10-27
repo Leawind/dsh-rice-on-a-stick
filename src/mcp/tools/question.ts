@@ -55,7 +55,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer a pending question',
       description:
-        'Answer an `ask_user_question` call this plugin is holding (only entries with `answerable=true` from `question_list`). The plugin behaves like an ordinary Web client: the native question card stays visible, whoever answers first wins, and the other side receives a cancel. The answer is the tool result of the child turn (it continues in the same turn). Identify the call by `eventId` or `callId`; `answers` must name every question id exactly once. For a timed session whose question already returned pending (state `continued`), the host late-answer path is used instead.',
+        'Answer an `ask_user_question` call this plugin is holding (only entries with `answerable=true` from `question_list`). The plugin behaves like an ordinary Web client: the native question card stays visible, whoever answers first wins. `answers` must name every question id exactly once; the answer becomes the tool result of the child turn. For a timed session whose question already turned `continued`, pass `callId` and the host late-answer path is used.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the question.'),
         eventId: z.string().optional().describe('eventId from question_list (the forwarded-request key; preferred).'),

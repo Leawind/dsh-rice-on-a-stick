@@ -34,7 +34,7 @@ const ATTACHMENTS_ARG = z
   .max(8)
   .optional()
   .describe(
-    'Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the send receipt (wait="none") or session_history (images fields) and can be fetched with session_attachment.',
+    'Images to attach. Reference-only: pass a host-readable path or URL — bytes are read host-side via the host attachment service, so image data never enters tool arguments or your context as base64. png/jpeg/webp/gif, up to 8; ids come back in the wait=none receipt or session_history (images fields); fetch with session_attachment.',
   )
 
 /**
@@ -144,7 +144,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Send session message',
       description:
-        'Send a message into a session (the UI\'s Send); `wait` chooses what the call waits for. wait="input" (default): returns early with `pending=true` and `waiting` as soon as the session awaits an approval or a question — the turn keeps running; answer with approval_answer/question_answer, then fetch the final result via session_result. wait="turn": block until the turn ends. wait="none": admit only and return the requestId receipt immediately (fan-out: observe with session_poll, fetch with session_result). Cancelling the call only stops the wait, never the dsh turn — stop turns with session_cancel. Reusing a requestId is idempotent, so a lost response can be refetched. Delivery to a running session needs `mode` (queue/steer).',
+        'Send a message into a session (the UI\'s Send); `wait` picks the blocking semantics. wait="input" (default): returns early with `pending=true` and `waiting` when the session awaits an approval or a question — the turn keeps running; answer with approval_answer/question_answer, then fetch the final result via session_result. wait="turn": block until the turn ends. wait="none": return the requestId receipt immediately (fan-out: observe with session_poll, fetch with session_result). Cancelling the call only stops the wait, never the dsh turn — stop turns with session_cancel. Delivering to a running session requires `mode`; repeating a requestId returns the first receipt.',
       inputSchema: {
         sessionId: z
           .string()
@@ -163,9 +163,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           .min(1)
           .max(200)
           .optional()
-          .describe(
-            'Idempotency key (generated if omitted). Repeating the same id returns the first receipt instead of re-delivering; a lost response can be refetched with session_result.',
-          ),
+          .describe('Idempotency key (generated if omitted): repeating it returns the first receipt instead of re-delivering.'),
         detail: z
           .enum(['uri', 'summary', 'normal', 'full'])
           .optional()

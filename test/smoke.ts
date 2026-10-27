@@ -37,7 +37,7 @@ import { createAnswerRuntime } from '../lib/session/answers.js'
 import { state } from '../lib/core/state.js'
 import { pendingApprovalsOf } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
-import { Config as ConfigSchema, DEFAULTS, TOOL_IDENTITY_PREFIX } from '../lib/core/config.js'
+import { Config as ConfigSchema, DEFAULTS } from '../lib/core/config.js'
 import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from '../src/core/config-defaults.ts'
 
 // 面板源码按域拆分在 src/client/(locales/styles/components/数据逻辑模块), 静态检查以全部源码拼接为对象
@@ -229,14 +229,11 @@ try {
   checks['图片入站: attachments 入参 schema 声明 maxItems=8'] = attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === 8
   const guideTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'dsh_guide')
   checks['工具带 title + annotations(2025-06-18 协议字段)'] = guideTool?.title === 'dsh usage guide' && guideTool?.annotations?.readOnlyHint === true
-  // 身份注入: 每条描述统一前置 TOOL_IDENTITY_PREFIX("白饭钓竿"的唯一 DSH 原生可见通道)
-  checks['tools/list: 每条描述带身份前缀'] = toolsArr.length > 0 && toolsArr.every((t) => t.description?.startsWith(TOOL_IDENTITY_PREFIX) === true)
-  // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文。
-  // 唯一例外是身份前缀本身(中文名必须能被认出): 断言时剥离后校验。
+  // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文
+  // (身份不再逐条注入, 中文插件名只出现在 initialize instructions 与 guide)
   const CJK = /[\u4e00-\u9fff]/
-  const stripIdentity = (s: string) => s.split(TOOL_IDENTITY_PREFIX).join('')
-  checks['tools/list: 面向客户端的说明统一为英文(身份前缀除外)'] = toolsArr.every(
-    (t) => !CJK.test(stripIdentity([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n'))),
+  checks['tools/list: 面向客户端的说明统一为英文'] = toolsArr.every(
+    (t) => !CJK.test([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n')),
   )
 
   // 原生子代理发现: 只读目录(不激活 child)

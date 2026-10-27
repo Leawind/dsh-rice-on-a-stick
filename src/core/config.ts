@@ -20,16 +20,6 @@ import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSIO
 export const PLUGIN_NAME = 'dsh-rice-on-a-stick'
 
 /**
- * 工具描述的统一身份前缀——模型可见身份的权威出处。
- * registerTools 在注册点统一前置, MCP 面与原生自用面(self-tools 复用同一份描述)自动同时生效;
- * 没有它, "白饭钓竿"这个名字在任何模型可见通道上都不存在, 模型只能靠 rice_ 前缀反推。
- * 面向客户端文本"统一英文"的约定以此一处中文为例外: 中文名必须能被会话里的模型直接认出。
- * 只保留中文名: 前缀随工具清单逐条进入每个会话的上下文, 英文全名留在 dsh_get_started /
- * initialize instructions / guide.md 与 Web 面板即可。
- */
-export const TOOL_IDENTITY_PREFIX = '白饭钓竿: '
-
-/**
  * authToken 的展示掩码(面板与 plugin_status 只透露这些): 长度足够时取首尾各 4 字符,
  * 太短的令牌没有辨识价值一律 '••••••'。完整值只在生成/输入当下可见, 永不回显。
  */

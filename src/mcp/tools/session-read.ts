@@ -60,7 +60,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List sessions',
       description:
-        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_send`; the guide (dsh_guide) has the shared session semantics.',
+        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. Model/permission are known only for sessions this plugin created or saw live. Use it to pick a `sessionId` for `session_send`; the guide (dsh_guide) has the shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -68,14 +68,12 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         scope: z
           .enum(['active', 'archived', 'all'])
           .optional()
-          .describe(
-            'Which sessions to list: active (default) = non-archived only, archived = archived only, all = both. Archiving is the soft delete, so archived sessions are hidden from lists and searches unless asked for.',
-          ),
+          .describe('Which sessions to list: active (default), archived, or all. Archiving is the soft delete.'),
         includeCold: z
           .boolean()
           .optional()
           .describe(
-            'When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Titles come from the host projection cache first, so this is normally free; only sessions the cache cannot answer cost one log read, bounded by `coldScanMax`. The result reports `titleSearch` (including how many log reads were needed).',
+            'When filtering by title, also match persisted-only sessions (default false). Titles come from the host projection cache; cache misses cost one log read each, bounded by `coldScanMax`.',
           ),
         coldScanMax: z
           .number()
@@ -84,7 +82,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           .max(COLD_TITLE_SCAN_LIMIT)
           .optional()
           .describe(
-            `Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Only sessions without a cached title actually read a log; raise it to search further back, ignored without a title filter.`,
+            `Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}); ignored without a title filter.`,
           ),
       },
       annotations: { readOnlyHint: true },
