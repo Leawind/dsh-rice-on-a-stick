@@ -19,14 +19,12 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Discover dsh endpoints',
       description:
-        "Discover dsh Remote endpoints (the escape hatch beyond this plugin's curated tools; read-only face). Resolution ladder, search first: query = keyword search over endpoint names and descriptions (combine with namespace to scope one domain); no arguments = compact namespace index; namespace = one domain's method list; endpoint \"namespace/method\" = the exact contract (parameters and result JSON Schema), the last step before endpoint_call. Entries are flagged readOnly / allowed (whitelisted, executes directly) / writable / approvalRequired (parks for a human on the settings panel); stream entries are not callable. The full gating rules live in the guide's concepts section.",
+        'Discover dsh Remote endpoints (the escape hatch beyond the curated tools). Resolution ladder — search first: `query` = keyword search; no arguments = namespace index; `namespace` = its method list; `endpoint` = one exact contract. Entries are flagged readOnly / allowed (whitelisted, runs directly) / writable / approvalRequired (parks for a human); stream entries are not callable.',
       inputSchema: {
         query: z
           .string()
           .optional()
-          .describe(
-            'Keyword search (preferred entry): case-insensitive substrings over endpoint names and descriptions; multiple words AND together; combine with namespace to scope one domain.',
-          ),
+          .describe('Keyword search over endpoint names and descriptions (case-insensitive, words AND together); scope it with namespace.'),
         namespace: z
           .string()
           .optional()
@@ -86,7 +84,7 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Call a dsh endpoint',
       description:
-        "Invoke one dsh Remote endpoint by reference: pass an endpoint from endpoint_describe and its named wire arguments (see the endpoint's contract for parameter keys). Allowlisted endpoints (endpointAllowlist) execute directly. Every other non-stream endpoint — including read-only ones — parks the call until a human allows or declines it on this deployment's settings panel (the call blocks in the meantime); decline, timeout (approvalTimeoutMs, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed. Dangerous endpoints (trust/supply-chain) get the same human review with a warning badge. Arguments are strictly validated inside dsh against the generated contract; results are the same wire JSON the dsh Web UI consumes.",
+        'Call one dsh Remote endpoint with its named wire arguments (keys from its endpoint_describe contract). Allowlisted endpoints run directly; every other non-stream endpoint — read-only ones included — parks until a person allows or declines it on the settings panel, and decline, timeout or caller disconnect executes nothing.',
       inputSchema: {
         endpoint: z
           .string()

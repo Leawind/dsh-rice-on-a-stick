@@ -16,14 +16,12 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'dsh usage guide',
       description:
-        'This tool set is Rice on a Stick, a bridge into a running dsh (DeepSeek Harness) process — the guide is about that harness. Call it with no arguments first: that returns a compact section index. Then fetch only the part the task needs: concepts = glossary, workflows = recipes, errors = error→alternative-path table, results = detail levels and reading results, limits = deployment-imposed limits; section="all" returns the full document.',
+        'Usage guide for dsh and this plugin. Call it with no arguments first: that returns a compact section index. Then fetch one section: concepts (glossary), workflows (recipes), errors (error → alternative path), results (reading results cheaply), limits (deployment limits); "all" returns the full document.',
       inputSchema: {
         section: z
           .enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits'])
           .optional()
-          .describe(
-            'Omit = compact section index (cheap; start here); all = the full guide; or one section: concepts / workflows / errors / results / limits.',
-          ),
+          .describe('Omit = section index (cheap; start here); all = the full guide; or one section.'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -37,7 +35,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'Plugin status',
       description:
-        "Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist, descriptions), subscription stats, connected MCP clients, and the host global-tool-registry count (names via the dsh://tools resource; model tools live in preset scopes, so a session's real toolset is the toolCalls in a session_send result). Same data as the Web settings panel.",
+        'Show deployment status: version, listener state, uptime, config summary, subscription stats, connected MCP clients, and the host global tool-registry count (its list lives at the dsh://tools resource). Same data as the Web settings panel.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -54,7 +52,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List workspaces',
       description:
-        'List registered workspaces (id, path, owning sessions). A workspace is the session-grouping directory in the dsh sidebar; if the workspaceRegistry service is unavailable (headless deployments), the result says so explicitly.',
+        'List registered workspaces (id, path, owning sessions) — a workspace is the session-grouping directory in the dsh sidebar. Headless deployments have no workspace registry; the result says so.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -73,7 +71,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List models',
       description:
-        "List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host's current default selection. Providers and models may carry a `description` — a blurb written by this deployment's operator on the settings panel. `session_create` takes its provider/model/preset from here. `source=sessionController` is the official catalog (same as the Web model picker); `source=llm` is a fallback without reasoning metadata.",
+        "List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host's current default selection. `session_create` takes its provider/model/preset from here. A `source` field names the catalog the listing came from; only the session-controller catalog carries reasoning metadata.",
       inputSchema: {
         provider: z.string().optional().describe('Only list this provider (default: all).'),
       },
@@ -96,7 +94,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List permission presets',
       description:
-        "List the host's permission presets — the sandbox + approval bundles the UI's permission switcher offers (for example workspace-write = write inside the workspace with approval prompts, danger-full-access = full file access without approval prompts). The values are what `session_create.permission` and `session_set_permission` take; `defaultPreset` is what new sessions inherit. Read-only.",
+        "List the host's permission presets — the sandbox + approval bundles the UI's permission switcher offers. The values are what `session_create.permission` and `session_set_permission` take; `defaultPreset` is what new sessions inherit.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -120,10 +118,10 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List native subagents',
       description:
-        "Read a session's native subagent catalog (host subagents.listChildren/listDescendants): returns child `sessionId`, creation time, `mode` (one-shot/continuable/external/unknown), and `label`; with `recursive=true`, returns descendants with `parentId`/`depth`. Read-only: it neither loads nor resumes the child agent. Drive a child with `session_send` / `session_poll` / `session_result` / `session_cancel`; spawning children remains the host/model-side subagent tool's job — this tool only exposes the catalog.",
+        "Read a session's native subagent catalog: child `sessionId`, `createdAt`, `mode` (one-shot/continuable/external/unknown) and `label`; `recursive=true` adds descendants with `parentId`/`depth`. Read-only — it neither loads nor resumes the child; drive one with the session tools.",
       inputSchema: {
         parentSessionId: z.string().describe('Parent session id (the root of its subagent catalog).'),
-        recursive: z.boolean().optional().describe('true = recursively list all reachable descendants (listDescendants); default = direct children only.'),
+        recursive: z.boolean().optional().describe('true = list all reachable descendants; default = direct children only.'),
       },
       annotations: { readOnlyHint: true },
     },

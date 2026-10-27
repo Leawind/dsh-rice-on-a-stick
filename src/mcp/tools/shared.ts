@@ -38,12 +38,13 @@ export function structuredOut<T>(value: unknown, schema: z.ZodType<T>): { conten
 // ── 跨工具共享的描述片段(单一出处防漂移; 完整语义在 guide.md Concepts) ──
 
 /** 归档语义的权威短句: "可撤销的软标记, 日志可读"。多个工具引用同一份, 措辞不再各自漂移 */
-export const SOFT_ARCHIVE =
-  'archiving is a reversible soft mark: the session disappears from lists and the host refuses model steps for it, while the log stays readable (session_unarchive restores)'
+export const SOFT_ARCHIVE = 'a reversible soft mark: the session leaves the lists while its log stays readable (session_unarchive restores)'
 
-/** 服务前置条件短句(fork/search/select_model 与 archive/unarchive 各自共用一份) */
-export const NEEDS_SESSION_CONTROLLER = "Requires the web profile's `sessionController`."
-export const NEEDS_WORKSPACE_CONTROLLER = 'Requires the host `workspaceController`.'
+/**
+ * sessionId 省略语义(凡接受"当前会话"的工具共用一个说法)。
+ * 省略只在原生 rice_ 工具面成立; MCP 外部调用没有当前会话, 失败信息在 resolveSessionTarget 里。
+ */
+export const OPTIONAL_SESSION_ID = 'Omit = calling session (native rice_ tools only).'
 
 /** 工具调用上下文(原生自用面额外带调用方 agent; MCP 面只有 signal) */
 export interface ToolCallContext {

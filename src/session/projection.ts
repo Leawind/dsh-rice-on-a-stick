@@ -99,12 +99,11 @@ const MORE_HINT: Record<DetailLevel, string> = {
   full: 'truncated at the full budget: read the session log with session_history (detail="full", beforeIndex) for the remainder',
 }
 
-export const DETAIL_ARG = {
-  uri: 'uri = reference only (the resource points at the session history; read or subscribe to it)',
-  summary: 'summary (default): three-line summary + answer tail + tool names, ~a few hundred tokens',
-  normal: 'normal: adds truncated tool call arguments and results (~2k tokens)',
-  full: 'full: complete text (up to tens of thousands of tokens; debugging only)',
-} as const
+/**
+ * detail 参数的权威短句(所有带 detail 档位的工具共用)。
+ * 阶梯明细只在 guide 的 results 一节维护: 参数说明不再重述, 省的是每份 tools/list 的常驻体积。
+ */
+export const DETAIL_HINT = 'uri = reference only; summary (default) = short; normal = adds tool calls/results; full = complete text (debugging only).'
 
 /** 结果里的模型回报: 只保留有值的字段(接管别人建的会话、读不到 options 时为空对象) */
 export function projectModel(selection: ModelSelectionOverride | undefined): Record<string, string> {

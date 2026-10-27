@@ -35,7 +35,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List pending questions',
       description:
-        'List pending `ask_user_question` questions for one or more sessions: `eventId`, `callId`, `state` (open/continued), `requestedAt`, `answerable`, and the question batch (id, question, header, options, multiSelect). `answerable=true` means this plugin currently holds the forwarded request and `question_answer` can answer it; false means the UI or another answer client owns it. Read-only; does not advance a turn.',
+        'List pending `ask_user_question` batches for one or more sessions: `eventId`, `callId`, `state` (open/continued), `requestedAt`, `answerable`, and the question batch itself (id, question, header, options, multiSelect). `answerable=true` means this plugin holds the forwarded request.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -55,7 +55,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer a pending question',
       description:
-        'Answer an `ask_user_question` call this plugin is holding (only entries with `answerable=true` from `question_list`). The plugin behaves like an ordinary Web client: the native question card stays visible, whoever answers first wins. `answers` must name every question id exactly once; the answer becomes the tool result of the child turn. For a timed session whose question already turned `continued`, pass `callId` and the host late-answer path is used.',
+        'Answer an `ask_user_question` batch this plugin holds (`answerable=true`): one item per question id, every id exactly once. The native card stays visible; whoever answers first wins. For a timed question already `continued`, pass `callId` to use the host late-answer path.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the question.'),
         eventId: z.string().optional().describe('eventId from question_list (the forwarded-request key; preferred).'),

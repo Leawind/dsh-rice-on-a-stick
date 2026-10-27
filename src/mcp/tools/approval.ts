@@ -19,7 +19,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List pending approvals',
       description:
-        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` means this plugin currently holds the forwarded request and `approval_answer` can answer it; false means the UI or another answer client owns it (or the plugin is not acting as a Web answer client in this host). Read-only; does not advance a turn.',
+        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` means this plugin holds the forwarded request and `approval_answer` can answer it; false means the UI or another client owns it.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -39,7 +39,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer an approval',
       description:
-        'Answer an approval this plugin is holding (only entries with `answerable=true` from `approval_list`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`. The plugin behaves like an ordinary Web client: the native approval card stays visible, whoever answers first wins, and the other side receives a cancel. Identify the approval by `eventId` or `callId`.',
+        'Answer an approval this plugin holds (`answerable=true` in `approval_list`): allow = one-time grant, reject = deny. The native card stays visible; whoever answers first wins. Identify it by `eventId` (preferred) or `callId`.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the approval.'),
         eventId: z.string().optional().describe('eventId from approval_list (the forwarded-request key; preferred).'),
@@ -64,7 +64,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Get approval policy',
       description:
-        "Read a session's effective approval policy knob: ask = request approval when needed; never = reject outright. Works for live and cold sessions (cold = folded from the log). This is one knob only — for a named permission level use `session_set_permission` instead. Read-only; the write counterpart is `approval_policy_set`.",
+        "Read a session's approval knob: ask = request approval when needed, never = reject outright. Works for live and cold sessions. For a named permission level use `session_set_permission`.",
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
       },
@@ -109,7 +109,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Set approval policy',
       description:
-        "Switch a session's approval policy knob: ask = request approval when needed; never = reject outright. Requires a live session and writes to the session log. This is one knob only — knob-level changes can leave a `custom` combination; for a named permission level use `session_set_permission` instead. Read counterpart: `approval_policy`.",
+        "Set a session's approval knob: ask = request approval when needed, never = reject outright. Live sessions only, and one knob only — for a named permission level use `session_set_permission`. Read counterpart: `approval_policy`.",
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
         policy: z.enum(['ask', 'never']).describe('Target policy.'),

@@ -20,7 +20,7 @@ import {
   type SessionControllerView,
   type SessionScope,
 } from '../../host/data.js'
-import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structuredOut } from './shared.js'
+import { OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, structuredOut } from './shared.js'
 
 const sessionListOut = z.object({
   total: z.number(),
@@ -60,7 +60,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List sessions',
       description:
-        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. Model/permission are known only for sessions this plugin created or saw live. Use it to pick a `sessionId` for `session_send`; the guide (dsh_guide) has the shared session semantics.',
+        'List session metadata (sessionId, createdAt, archived, title, cwd, preset, permission, model), live first, newest first. Archived sessions are hidden unless `scope` asks for them — archiving is the soft delete.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
@@ -72,9 +72,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         includeCold: z
           .boolean()
           .optional()
-          .describe(
-            'When filtering by title, also match persisted-only sessions (default false). Titles come from the host projection cache; cache misses cost one log read each, bounded by `coldScanMax`.',
-          ),
+          .describe('Also match persisted-only sessions by title (extra host-cache lookups, bounded by `coldScanMax`; default false).'),
         coldScanMax: z
           .number()
           .int()
@@ -112,7 +110,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Session history',
       description:
-        "Read a session's conversation digest: newest-first user and assistant messages by default (`roles` opts in tool calls, results and turn boundaries), paged back with `beforeIndex`. Default `detail=summary` clips long text (`truncated: true` marks clipped entries); `detail=full` returns a whole message untruncated. Both live and persisted-only sessions are readable — cold ones are read without activating them.",
+        "Read a session's conversation digest, newest first (user + assistant by default; `roles` opts in tool calls and turn boundaries), paged back with `beforeIndex`. Live and persisted-only sessions are both readable.",
       inputSchema: {
         sessionId: z.string().describe('Session id (from a session_send result or session_list; both live and persisted sessions are readable).'),
         limit: z.number().int().min(1).max(50).optional().describe('Maximum number of entries to return, counted after the roles filter (default 10).'),
@@ -130,9 +128,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         detail: z
           .enum(['summary', 'full'])
           .optional()
-          .describe(
-            'summary (default): entry text clipped per role (assistant 600 / user 200 / tool args-result 200-300 chars, flagged truncated); full: unclipped text — the way to read a whole long message.',
-          ),
+          .describe('summary (default) clips long entries (flagged `truncated`); full returns a whole message untruncated.'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -156,14 +152,9 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Inspect session',
       description:
-        'One call, a GUI-style glance at a session (default set: title, permission preset, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content — one-line quotes plus tool calls, no tool results). Bookkeeping is always included: archived, live, eventsReadable, historyReadable. `fields` selects sections and replaces the default set; opt-ins: progress (turn/step counters), preset, cwd. Persisted-only sessions fold from their log; `recent.entries[].index` doubles as a session_history `beforeIndex` anchor.',
+        'One-call glance at a session: title, permission, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content (one-line quotes and tool calls). Bookkeeping is always included: archived, live, eventsReadable, historyReadable.',
       inputSchema: {
-        sessionId: z
-          .string()
-          .optional()
-          .describe(
-            'Session id (from session_list or a session_send result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
-          ),
+        sessionId: z.string().optional().describe(`Session id (from session_list or a session_send result). ${OPTIONAL_SESSION_ID}`),
         fields: z
           .array(z.enum(INSPECT_FIELDS))
           .min(1)
@@ -197,14 +188,9 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Session raw events',
       description:
-        "Read a live session's raw event stream as JSONL lines (debugging face; the conversation view is session_history): one {i, seq, time, type, data} object per line, capped at 500 lines with a `next` cursor for paging (`after`). Live sessions only — persisted-only sessions are read through session_history / session_inspect instead.",
+        "Read a live session's raw event stream as JSONL ({i, seq, time, type, data}), capped at 500 lines with a `next` cursor for paging. Live sessions only: persisted-only sessions are read through session_history / session_inspect.",
       inputSchema: {
-        sessionId: z
-          .string()
-          .optional()
-          .describe(
-            'Session id (must be live: the event stream is the in-memory session log). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
-          ),
+        sessionId: z.string().optional().describe(`Session id. ${OPTIONAL_SESSION_ID}`),
         after: z.number().int().min(0).optional().describe("Only events with index > after (paging cursor; pass the previous result's `next`)."),
       },
       annotations: { readOnlyHint: true },
@@ -227,7 +213,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     'session_search',
     {
       title: 'Search sessions',
-      description: `Search session content by literal phrase (same as the UI search box; goes through \`sessionController.search\`); returns matching sessions and snippet excerpts. Archived sessions are excluded by default (archiving is the soft delete); pass \`scope\` to include them. The host returns one bounded page, so filtering archived hits can shrink or empty a page — \`hasMore\` is the host's page flag, not a filtered count. ${NEEDS_SESSION_CONTROLLER}`,
+      description: `Search session content by literal phrase (same as the UI search box): matching sessions plus snippet excerpts. Archived sessions are excluded unless \`scope\` includes them; \`hasMore\` is the host's page flag, so filtering archived hits can shrink a page.`,
       inputSchema: {
         query: z.string().describe('Search phrase (literal match against message content).'),
         scope: z
