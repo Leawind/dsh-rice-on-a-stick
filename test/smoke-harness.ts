@@ -12,6 +12,8 @@ export const flushed = []
 export const mounted = []
 export const selectModelCalls = []
 export const disposers = []
+// 系统提示词 section 注册记录(插件身份段): 只记参数, 不组装 prompt
+export const promptSections: { name: string; order: number; text: string | (() => string); interpolate?: boolean }[] = []
 export const steered = []
 export const injected = []
 // 冷恢复: 走宿主 sessionController.resolveAgent 的会话 id(0.2.x 的真实冷恢复入口)
@@ -875,6 +877,22 @@ export function makeCtx(
         // 注入的子 ctx 同样要带 effect(GUI 路由的卸载清理经它登记)
         fn({
           webServer: fakeWebServer,
+          effect: (fn2) => {
+            const d = fn2()
+            disposers.push(d)
+            return d
+          },
+        })
+      }
+      if (deps.includes('systemPrompt')) {
+        // 系统提示词桩: 只记录注册的 section(插件身份段的断言素材), 不组装 prompt
+        fn({
+          systemPrompt: {
+            section: (section) => {
+              promptSections.push(section)
+              return () => {}
+            },
+          },
           effect: (fn2) => {
             const d = fn2()
             disposers.push(d)

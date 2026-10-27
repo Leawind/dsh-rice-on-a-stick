@@ -88,6 +88,7 @@ import {
   persistenceCalls,
   permissionPresetCalls,
   PORT,
+  promptSections,
   rawRequest,
   resolvedAgents,
   rpc,
@@ -121,6 +122,15 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
+  // 身份段: 原生面只有工具定义, "白饭钓竿"必须由系统提示词说明, 否则模型只能照名字猜
+  const identitySection = promptSections.find((s) => s.name === 'rice-on-a-stick')
+  const identityText = typeof identitySection?.text === 'function' ? identitySection.text() : (identitySection?.text ?? '')
+  checks['系统提示词: 注册插件身份段(白饭钓竿 + rice_ 工具 + guide 指路)'] =
+    identitySection?.order === 3050 &&
+    identityText.includes('白饭钓竿') &&
+    identityText.includes('Rice on a Stick') &&
+    identityText.includes('rice_') &&
+    identityText.includes('rice_dsh_guide')
   checks['原生自用工具: 默认注册(rice_ 前缀)'] =
     nativeSchemas.length > 0 &&
     [

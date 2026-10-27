@@ -27,6 +27,7 @@ import { asSessionId } from './host/bridge.js'
 import { collectModelCatalog, resUri } from './host/data.js'
 import { disposeCallerPeer, resetParkedCalls } from './host/endpoint-passthrough.js'
 import { endpointOf, createMcpHttpServer, type McpHttpServer } from './mcp/http.js'
+import { installPromptSection } from './host/prompt.js'
 import { createNotifyHub } from './mcp/notify.js'
 import { registerWebRoutes } from './mcp/web.js'
 import { createUnavailableAnswerRuntime, installRemoteAnswerClient } from './session/answers.js'
@@ -220,6 +221,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       selfToolsController?.dispose()
     }
   }, `${PLUGIN_NAME}: self-tools`)
+
+  // 系统提示词身份段: 原生工具面只有工具定义, 会话里没人告诉模型"这些 rice_ 工具属于谁";
+  // 这一段回答"白饭钓竿是什么", 并指路 dsh_guide。工具面关闭时该段为空。
+  installPromptSection(ctx, () => (selfToolsController?.names().length ?? 0) > 0)
 
   // Loader 只改 volatile 字段时不重载插件: 就地提交后按字段同步各自的运行时面,
   // 已连接的 MCP 客户端不受影响(监听级字段除外, 那是有意的断线重连)。
