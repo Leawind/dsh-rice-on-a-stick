@@ -58,7 +58,8 @@ Quick start:
   session_unarchive restores one, and an archived session keeps its readable history by
   id.
   session_history is a conversation view by default (user + assistant — pass
-  roles to include tool calls or turn boundaries).
+  roles to include tool calls or turn boundaries); session_events reads a live
+  session's raw event stream (JSONL).
 - session_command_list lists the slash commands a live session can run and
   session_command_run executes one without sending it to the model (e.g. name=compact).
   Commands come from the host registry, so /compact and plugin commands appear

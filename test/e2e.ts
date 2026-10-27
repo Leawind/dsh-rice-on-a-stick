@@ -147,6 +147,7 @@ try {
     'session_list',
     'session_inspect',
     'session_history',
+    'session_events',
     'session_search',
     'session_fork',
     'session_archive',

@@ -4,12 +4,12 @@
  * 本文件只做装配, 具体工具按域拆分:
  *   catalog.ts         dsh_guide / plugin_status / workspace_list /
  *                      model_list / permission_list / session_subagents
- *   session-actions.ts session_create / prompt / submit / poll / result / cancel / queue /
- *                      command / select_model / rename / fork / archive / unarchive /
- *                      set_permission / session_attachment
- *   session-read.ts    session_list / session_meta / session_overview /
- *                      session_history / session_search
- *   approval.ts        approval_list / approval_answer / approval_policy
+ *   session-actions.ts session_create / send / poll / result / cancel / queue(+manage) /
+ *                      command_list / command_run / select_model / rename / fork / archive /
+ *                      unarchive / set_permission / session_attachment
+ *   session-read.ts    session_list / session_inspect /
+ *                      session_history / session_events / session_search
+ *   approval.ts        approval_list / approval_answer / approval_policy(+_set)
  *   question.ts        question_list / question_answer
  *   endpoints.ts       endpoint_describe / endpoint_call(dsh 端点直通读面, 恒注册)
  *

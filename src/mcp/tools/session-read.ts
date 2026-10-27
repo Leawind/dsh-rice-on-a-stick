@@ -1,5 +1,5 @@
 /**
- * 会话只读工具: 清单(归档视图用 scope="archived")、纪要、搜索、现状概览。
+ * 会话只读工具: 清单(归档视图用 scope="archived")、纪要、检查、原始事件流、搜索。
  * 与 dsh://sessions 等资源面共用 host/data.ts 的同一实现。
  */
 import { z } from 'zod'
@@ -14,6 +14,7 @@ import {
   INSPECT_RECENT_DEFAULT_LIMIT,
   INSPECT_RECENT_LIMIT_MAX,
   collectSessions,
+  sessionEventsPayload,
   sessionHistoryPayload,
   sessionInspectPayload,
   type SessionControllerView,
@@ -187,6 +188,38 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         return out(JSON.stringify(await sessionInspectPayload(ctx, target.sessionId, fields, recentLimit, extra?.signal), null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 原始事件流(只读, 调试面): dsh://sessions/{id}/events 资源的工具面等价物——
+  // 原生 rice_ 面此前只能走 endpoint_call 读它(双面不对称)。JSONL + after 游标翻页, 上限防灌穿。
+  mcp.registerTool(
+    'session_events',
+    {
+      title: 'Session raw events',
+      description:
+        "Read a live session's raw event stream as JSONL lines (debugging face; the conversation view is session_history): one {i, seq, time, type, data} object per line, capped at 500 lines with a `next` cursor for paging (`after`). Live sessions only — persisted-only sessions are read through session_history / session_inspect instead.",
+      inputSchema: {
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Session id (must be live: the event stream is the in-memory session log). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+          ),
+        after: z.number().int().min(0).optional().describe("Only events with index > after (paging cursor; pass the previous result's `next`)."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId, after }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      try {
+        return out(JSON.stringify(await sessionEventsPayload(ctx, target.sessionId, after), null, 2))
+      } catch (e) {
+        const msg = (e as Error)?.message ?? String(e)
+        const hint = msg.includes('not live') ? '; use session_history / session_inspect to read persisted-only sessions' : ''
+        return outError(JSON.stringify({ error: msg + hint }))
       }
     },
   )

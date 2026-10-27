@@ -144,7 +144,8 @@ you already know.
    content digest; bookkeeping like historyReadable is always included; `fields` opts
    into turn/step counters, preset, cwd), `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you
-   are debugging; `detail: "full"` returns entry text untruncated), `session_search` to
+   are debugging; `detail: "full"` returns entry text untruncated), `session_events` for the
+   raw event stream of a live session (JSONL, `after` cursor paging), `session_search` to
    find sessions by content.
 6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
    `dsh://status[/config|/stats|/connections]`, `dsh://guide[/section]`, `dsh://tools`,

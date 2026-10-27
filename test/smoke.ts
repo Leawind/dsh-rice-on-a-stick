@@ -1299,6 +1299,28 @@ try {
     Array.isArray(shDefaultInner.turns) &&
     shDefaultInner.turns.length > 0 &&
     shDefaultInner.turns.every((t: any) => t.role === 'user' || t.role === 'assistant')
+  // 原始事件流: 资源面 dsh://sessions/{id}/events 的工具面等价物(JSONL + after 游标), live 限定
+  const evLive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 523,
+    method: 'tools/call',
+    params: { name: 'session_events', arguments: { sessionId: 'sess-live' } },
+  })
+  const evLiveInner = innerOf(evLive)
+  checks['session_events: live 事件流(JSONL 行 + 游标簿记)'] =
+    evLiveInner.sessionId === 'sess-live' &&
+    Array.isArray(evLiveInner.lines) &&
+    evLiveInner.lines.length > 0 &&
+    typeof evLiveInner.total === 'number' &&
+    evLiveInner.returned === evLiveInner.lines.length
+  const evCold = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 524,
+    method: 'tools/call',
+    params: { name: 'session_events', arguments: { sessionId: 'sess-persisted' } },
+  })
+  checks['session_events: 冷会话明确拒绝并指路'] =
+    String(innerOf(evCold).error ?? '').includes('not live') && String(innerOf(evCold).error ?? '').includes('session_history')
   const shTools = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 522,
