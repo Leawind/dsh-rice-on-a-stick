@@ -1039,6 +1039,17 @@ try {
     const scoped = await phase.call('endpoint_describe', { query: 'list', namespace: 'session' })
     checks['端点搜索: namespace 参数把搜索收窄到单域'] = (innerOf(scoped) as any).total === 1
       && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
+    // descriptor 不带描述的插件端点: 摘要/契约/搜索都回退到端点元数据的英文
+    const schedNs = await phase.call('endpoint_describe', { namespace: 'schedule' })
+    const schedUpdate = ((innerOf(schedNs) as any).endpoints ?? []).find((m: any) => m.endpoint === 'schedule/update')
+    checks['端点清单: descriptor 无描述时摘要回退元数据英文'] = typeof schedUpdate?.summary === 'string'
+      && schedUpdate.summary.startsWith("Update one active task's name, instruction and timing")
+    const schedContract = await phase.call('endpoint_describe', { endpoint: 'schedule/update' })
+    checks['端点契约: descriptor 无描述时 description 回退元数据英文'] = String((innerOf(schedContract) as any).description ?? '')
+      .startsWith("Update one active task's name, instruction and timing")
+    const metaHit = await phase.call('endpoint_describe', { query: 'instruction timing' })
+    checks['端点搜索: 元数据英文参与无描述端点的关键词匹配'] = (innerOf(metaHit) as any).total === 1
+      && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'schedule/update'
     const zero = await phase.call('endpoint_describe', { query: 'zzz-nothing' })
     const zeroPayload = innerOf(zero) as any
     checks['端点搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 4

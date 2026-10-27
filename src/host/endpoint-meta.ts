@@ -6,13 +6,16 @@
  *   readOnly     纯取数/查询语义, 无持久化副作用 → 直行, 无需白名单或审批
  *   dangerous    信任与供应链类操作(凭据写入/插件或 MCP 服务器安装/连接信任) → 没有永久拒绝,
  *                走与普通变更端点相同的两条通路(白名单直行 / 停泊审批), 但界面单列并标注
- *   description  中英文描述, 面板清单按界面语言显示(descriptor 自带描述的兜底)
+ *   description  中英文描述: 面板清单按界面语言显示; descriptor 无描述时, 端点工具的
+ *                摘要与契约也取这里的英文, 让调用方仍能知道端点作用
  *
  * 另有 NAMESPACE_META: 每个命名空间的中英文一句话描述(面板组头显示, 亦是纯界面数据)。
  *
  * 表以 dsh 0.2.1-rc.2 实机目录(web profile 全量 167 端点)为基准逐条核对过; 不要求列全,
- * 表外端点按"变更类"处理(停泊审批)。策展错误的最坏结局是让一个只读端点多等一次审批,
- * 或让一个危险端点少一个醒目标注——都不会绕过任何闸门; 反向(把变更端点标成只读)必须避免。
+ * 表外端点按"变更类"处理(停泊审批)。其中 136 个 dsh 核心端点的描述取自 descriptor 自带英文
+ * 并压缩为单句; 31 个插件端点(mcpManager / skillsViewer / opsSettings)的 descriptor 不带描述,
+ * 按对应插件源码补齐。策展错误的最坏结局是让一个只读端点多等一次审批, 或让一个危险端点少一个
+ * 醒目标注——都不会绕过任何闸门; 反向(把变更端点标成只读)必须避免。
  */
 
 export interface EndpointDescription {
@@ -199,7 +202,7 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── fileReferences(附件引用) ──
   'fileReferences/list': {
     readOnly: true,
-    description: { zh: '列出宿主记录的文件引用（附件清单）。', en: 'List file references (attachments) recorded by the host.' },
+    description: { zh: '列出某个 Agent 工作目录下的文件与目录候选（@ 提及补全）。', en: "List file and directory candidates for one Agent's working directory." },
   },
 
   // ── fileUploads(文件上传) ──
@@ -222,7 +225,7 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'goals/get': {
     readOnly: true,
-    description: { zh: '读取会话/代理的当前目标。', en: 'Read the current goal of a session or agent.' },
+    description: { zh: '读取某个在线 Agent 的当前目标。', en: 'Read the current goal for one exact live agent.' },
   },
   'goals/pause': {
     description: { zh: '暂停活动目标并解除自动继续。', en: 'Pause an active goal and disarm automatic continuation.' },
@@ -259,55 +262,56 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── mcpManager(MCP 服务器管理, 变更类多为信任与供应链操作) ──
   'mcpManager/list': {
     readOnly: true,
-    description: { zh: '列出已配置的 MCP 服务器。', en: 'List the configured MCP servers.' },
+    description: { zh: '读取 cordis.patch.yml 中的受管与外部 MCP 服务器行，附带加载器状态与工具数。', en: 'Read managed and external MCP server rows from cordis.patch.yml with loader state and tool counts.' },
   },
   'mcpManager/save': {
     dangerous: true,
-    description: { zh: '新增或保存一个 MCP 服务器配置（引入外部工具来源）。', en: 'Add or save one MCP server config (introduces an external tool source).' },
+    description: { zh: '在受管块中新增或改写一个 MCP 服务器行，并等待加载器就位。', en: 'Add or rewrite one MCP server row in the managed block and wait for its loader entry.' },
   },
   'mcpManager/removeServer': {
     dangerous: true,
-    description: { zh: '移除一个 MCP 服务器。', en: 'Remove one MCP server.' },
+    description: { zh: '删除受管块中的一个 MCP 服务器行（外部行需手动改文件）。', en: 'Remove one managed MCP server row; external rows must be edited in the file by hand.' },
   },
   'mcpManager/setEnabled': {
     dangerous: true,
-    description: { zh: '启用或停用 MCP 服务器。', en: 'Enable or disable MCP servers.' },
+    description: { zh: '启用或停用受管块中的一个 MCP 服务器行，并等待加载器就位。', en: 'Enable or disable one managed MCP server row and wait for its loader entry.' },
   },
   'mcpManager/test': {
-    description: { zh: '测试一个 MCP 服务器的连接。', en: "Test one MCP server's connection." },
+    description: { zh: '探测一个 MCP 服务器配置（或按名称指定已有服务器）并返回连接结果。', en: 'Probe one MCP server configuration, or an existing server by name, and return the connection result.' },
   },
   'mcpManager/reload': {
-    dangerous: true,
-    description: { zh: '重新加载 MCP 服务器配置。', en: 'Reload the MCP server configuration.' },
+    readOnly: true,
+    description: { zh: '重新读取受管块与外部 MCP 行（只重列，不重启连接）。', en: 'Re-read managed and external MCP rows (a fresh list, not a connection restart).' },
   },
   'mcpManager/listTools': {
     readOnly: true,
-    description: { zh: '列出一个 MCP 服务器提供的工具。', en: 'List the tools one MCP server provides.' },
+    description: { zh: '列出服务器已注册的 MCP 工具（不启动服务器；未连接时为空）。', en: 'List the tools one server has registered without starting it; empty while disconnected.' },
   },
   'mcpManager/getToolFilter': {
     readOnly: true,
-    description: { zh: '读取 MCP 服务器的工具过滤规则。', en: "Read one MCP server's tool filter rules." },
+    description: { zh: '读取 MCP 工具禁用列表及其已生效的 agent 数。', en: 'Read the MCP tool deny list and the number of agents it is applied to.' },
   },
   'mcpManager/setToolFilter': {
-    description: { zh: '设置 MCP 服务器的工具过滤规则。', en: "Set one MCP server's tool filter rules." },
+    description: { zh: '持久化 MCP 工具禁用列表并立即重施到所有 agent。', en: 'Persist the MCP tool deny list and reapply it to every agent immediately.' },
   },
   'mcpManager/evacuateForeign': {
-    description: { zh: '清理外来来源创建的 MCP 服务器配置。', en: 'Evacuate MCP server configs created by foreign sources.' },
+    description: { zh: '把受管块内的外来顶层 MCP 行原样搬到块外（不删除）。', en: 'Move foreign top-level MCP rows out of the managed block unchanged, without deleting them.' },
   },
   'mcpManager/oauthStart': {
     dangerous: true,
-    description: { zh: '发起一个 MCP 服务器的 OAuth 授权。', en: 'Begin OAuth authorization for one MCP server.' },
+    description: { zh: '为一个 streamable-http 服务器发起 OAuth 登录，返回授权地址与流程 id。', en: 'Begin OAuth sign-in for one streamable-http server and return its authorization URL and flow id.' },
   },
   'mcpManager/oauthPoll': {
-    description: { zh: '轮询一个 MCP 服务器的 OAuth 授权进展。', en: "Poll one MCP server's OAuth authorization progress." },
+    dangerous: true,
+    description: { zh: '轮询一次 OAuth 流程；拿到授权码后换取令牌、写入请求头并落盘。', en: 'Poll one OAuth flow; once authorized, exchange the code for tokens, write the request header and store them.' },
   },
   'mcpManager/oauthStatus': {
     readOnly: true,
-    description: { zh: '查询一个 MCP 服务器的 OAuth 授权状态。', en: "Query one MCP server's OAuth authorization status." },
+    description: { zh: '读取一个服务器的 OAuth 连接、请求头与过期状态。', en: "Read one server's OAuth connection, header and expiry state." },
   },
   'mcpManager/oauthDisconnect': {
     dangerous: true,
-    description: { zh: '断开一个 MCP 服务器的 OAuth 授权。', en: "Disconnect one MCP server's OAuth authorization." },
+    description: { zh: '断开 OAuth：删除请求头中的授权与本地令牌记录。', en: 'Disconnect OAuth by removing the authorization header and the stored token record.' },
   },
 
   // ── messageFeedback(消息反馈) ──
@@ -424,21 +428,21 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── schedule(定时任务) ──
   'schedule/catalog': {
     readOnly: true,
-    description: { zh: '列出可计划的定时任务模板。', en: 'List the schedulable task templates.' },
+    description: { zh: '读取全部定时提醒（含未激活项）及其原始会话绑定，不激活会话。', en: 'Read all active and inactive scheduled reminders with their original Session bindings, without activating a Session.' },
   },
   'schedule/delete': {
     description: { zh: '删除所选会话的一个定时任务（排队消息保留，任务行移除）。', en: 'Delete one task belonging to the selected session, leaving queued messages intact; the row is removed.' },
   },
   'schedule/history': {
     readOnly: true,
-    description: { zh: '读取定时任务的执行历史。', en: 'Read the run history of scheduled tasks.' },
+    description: { zh: '读取一个定时任务已保存的投递记录，不激活其原始会话。', en: "Read one task's saved inbox deliveries without activating its original Session." },
   },
   'schedule/list': {
     readOnly: true,
     description: { zh: '列出已配置的定时任务。', en: 'List the configured scheduled tasks.' },
   },
   'schedule/update': {
-    description: { zh: '更新一个定时任务的配置。', en: "Update a scheduled task's configuration." },
+    description: { zh: '更新一个活动任务的名称、指令与时间，不改变会话绑定或已存投递。', en: "Update one active task's name, instruction and timing without changing its Session binding or saved deliveries." },
   },
 
   // ── session(会话与轮次) ──
@@ -457,38 +461,38 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     description: { zh: '流式输出实时控制基线与替换帧。', en: 'Stream a complete live-control baseline followed by replacement frames.' },
   },
   'session/create': {
-    description: { zh: '创建新会话。', en: 'Create a new session.' },
+    description: { zh: '创建一个普通会话（可复用指定的空白会话）。', en: 'Create one ordinary Session for a new conversation, reusing the named blank Session while reusable.' },
   },
   'session/follow': {
     description: { zh: '从打开或恢复游标起流式跟随会话日志。', en: 'Follow one session log from its opening or resume cursor.' },
   },
   'session/fork': {
-    description: { zh: '从既有会话分叉出新会话。', en: 'Fork a new session from an existing one.' },
+    description: { zh: '从既有会话的一个事件前缀分叉出新会话（缺省取最近完成的轮次）。', en: 'Fork one exact event prefix of a Session into a new one; the default boundary is the latest completed turn.' },
   },
   'session/initializeDefaultModel': {
     description: { zh: '登录后未配置任何提供商密钥时选择首个可用账号模型。', en: 'Select the first available account model after login when no provider API key is configured.' },
   },
   'session/list': {
     readOnly: true,
-    description: { zh: '列出会话。', en: 'List sessions.' },
+    description: { zh: '读取全部可见会话行，不恢复 Agent。', en: 'Read all visible Session rows without resuming an Agent.' },
   },
   'session/modelCatalog': {
     readOnly: true,
-    description: { zh: '列出可路由的模型提供商与模型目录。', en: 'List the routable providers and the model catalog.' },
+    description: { zh: '描述当前全部可路由模型（供宿主侧选择器使用）。', en: 'Describe every currently routable model for Host-generation selectors.' },
   },
   'session/openWorkspacePath': {
     description: { zh: '经组合文件系统校验一个路径并在宿主桌面打开。', en: 'Verify one path through the composed filesystem and open it on the host desktop.' },
   },
   'session/page': {
     readOnly: true,
-    description: { zh: '读取单个会话页面的可见内容。', en: 'Read the visible content of one session page.' },
+    description: { zh: '读取一页按消息对齐的会话历史（冷会话安全）。', en: 'Read one cold-safe, message-aligned Session history page.' },
   },
   'session/projections': {
     readOnly: true,
     description: { zh: '读取会话投影（从事件折出的界面视图）。', en: 'Read session projections (UI views folded from events).' },
   },
   'session/prompt': {
-    description: { zh: '向会话发送一轮提示（一次请求一次响应）。', en: 'Send one prompt turn to a session (one request, one response).' },
+    description: { zh: '显式恢复会话后受理一条提示，回复经会话流另行跟随。', en: 'Admit one prompt after explicitly resuming its Session; the response arrives on the Session stream.' },
   },
   'session/rename': {
     description: { zh: '重命名会话。', en: 'Rename a session.' },
@@ -504,7 +508,8 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     description: { zh: '修改一个仍在排队的事项（先唤醒冷 Agent）。', en: 'Mutate one still-pending queue occurrence, resuming a cold agent first.' },
   },
   'session/workspacePathApplications': {
-    description: { zh: '在不激活 Agent 的情况下查询服务桌面当前的文件处理器。', en: 'Query current file handlers on the serving desktop without activating an agent.' },
+    readOnly: true,
+    description: { zh: '在不激活 Agent 的情况下查询服务桌面当前的文件处理器。', en: 'Query current file handlers on the serving desktop without activating an Agent.' },
   },
 
   // ── sessionFeedback(会话备注) ──
@@ -520,7 +525,7 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── settings(设置) ──
   'settings/describe': {
     readOnly: true,
-    description: { zh: '描述某个设置键的类型、当前值与取值范围。', en: 'Describe a settings key: type, current value and allowed range.' },
+    description: { zh: '读取配置页所需的全部命名空间：脱敏分层值与该页表单所用的序列化 schema。', en: 'Describe every registered namespace for a configuration page: redacted layered values plus the serialized schema the page renders its form from.' },
   },
   'settings/mutate': {
     description: { zh: '按路径对一个命名空间的用户设置段做编辑（相对已存值解析）。', en: "Apply path-addressed edits to one namespace's user section, resolved against the section as stored." },
@@ -543,43 +548,48 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
 
   // ── skillsViewer(技能浏览与管理) ──
   'skillsViewer/addSkill': {
-    description: { zh: '添加一个技能。', en: 'Add one skill.' },
+    description: { zh: '从上传的文件或 zip 导入技能到全局或工作区技能根，逐条校验。', en: 'Import skills from uploaded files or a zip into the global or a workspace skill root, validating each item.' },
   },
   'skillsViewer/batchMigrate': {
-    description: { zh: '批量迁移技能。', en: 'Migrate skills in bulk.' },
+    description: { zh: '批量移动或复制技能到一个或多个目标作用域，逐条回报结果。', en: 'Move or copy several skills to one or more target scopes, reporting each result.' },
   },
   'skillsViewer/checkUpdate': {
-    description: { zh: '检查技能更新。', en: 'Check skills for updates.' },
+    readOnly: true,
+    description: { zh: '检查本插件是否有新版本（对比 GitHub Release）。', en: 'Check this plugin against its latest GitHub release.' },
   },
   'skillsViewer/content': {
-    description: { zh: '读取单个技能的内容。', en: "Read one skill's content." },
+    readOnly: true,
+    description: { zh: '读取一个技能的完整正文（可限定作用域）。', en: "Read one skill's full text, optionally from a named scope." },
   },
   'skillsViewer/deleteGroup': {
-    description: { zh: '删除技能分组。', en: 'Delete one skill group.' },
+    description: { zh: '删除一个技能分组（不影响技能文件）。', en: 'Delete one skill group without touching skill files.' },
   },
   'skillsViewer/deleteSkill': {
-    description: { zh: '删除一个技能。', en: 'Delete one skill.' },
+    description: { zh: '永久删除一个技能（目录束连目录一起删；可限定作用域）。', en: 'Permanently delete one skill, removing its directory for a bundle, optionally within one scope.' },
   },
   'skillsViewer/setEnabled': {
-    description: { zh: '启用或停用技能。', en: 'Enable or disable a skill.' },
+    description: { zh: '通过改名为 *.disabled 热启用或停用技能（可限定作用域）。', en: 'Toggle a skill by renaming its file to *.disabled or back, optionally within one scope.' },
   },
   'skillsViewer/groups': {
-    description: { zh: '列出技能分组。', en: 'List the skill groups.' },
+    readOnly: true,
+    description: { zh: '列出技能分组及其各作用域成员。', en: 'List skill groups with their per-scope members.' },
   },
   'skillsViewer/list': {
-    description: { zh: '列出技能清单。', en: 'List skills.' },
+    readOnly: true,
+    description: { zh: '列出全局与各工作区作用域的技能及其元数据。', en: 'List skills from the global and workspace scopes with their metadata.' },
   },
   'skillsViewer/migrate': {
-    description: { zh: '迁移一个技能。', en: 'Migrate one skill.' },
+    description: { zh: '把一个技能移动或复制到另一个工作区（或全局）技能根。', en: 'Move or copy one skill to another workspace or the global skill root.' },
   },
   'skillsViewer/openFolder': {
-    description: { zh: '在系统中打开技能文件夹。', en: 'Open the skill folder in the system file manager.' },
+    description: { zh: '在系统文件管理器中打开技能根目录。', en: 'Reveal a skill root in the system file manager.' },
   },
   'skillsViewer/saveGroup': {
-    description: { zh: '保存技能分组。', en: 'Save one skill group.' },
+    description: { zh: '新建或更新一个技能分组（名称与成员列表）。', en: 'Create or update one skill group (name and member list).' },
   },
   'skillsViewer/workspaces': {
-    description: { zh: '列出技能工作区。', en: 'List the skill workspaces.' },
+    readOnly: true,
+    description: { zh: '列出可作技能作用域的工作区（项目根、标签、会话数）。', en: 'List workspaces usable as skill scopes (project root, label, session count).' },
   },
 
   // ── speech(语音识别与转写) ──
@@ -627,7 +637,7 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'terminal/list': {
     readOnly: true,
-    description: { zh: '列出终端。', en: 'List terminals.' },
+    description: { zh: '列出已保留的终端，不解析或激活 Agent。', en: 'List retained terminals without resolving or activating an Agent.' },
   },
   'terminal/rename': {
     description: { zh: '重命名终端（不更换其 shell）。', en: 'Rename a terminal without changing its shell.' },
@@ -689,11 +699,11 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'workspaceFiles/list': {
     readOnly: true,
-    description: { zh: '列出工作区内的文件。', en: 'List files inside a workspace.' },
+    description: { zh: '列出会话工作区内某个目录的直接子项。', en: "List the direct children of one directory inside the Session's workspace." },
   },
   'workspaceFiles/read': {
     readOnly: true,
-    description: { zh: '读取工作区内的文本文件。', en: 'Read a text file inside a workspace.' },
+    description: { zh: '按页读取一个 UTF-8 文件（后端可读即可，不限工作区）。', en: 'Read one page of lines from a UTF-8 file readable by the filesystem backend.' },
   },
   'workspaceFiles/readBytes': {
     readOnly: true,
@@ -701,7 +711,7 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'workspaceFiles/stat': {
     readOnly: true,
-    description: { zh: '查看工作区文件的状态（大小/时间）。', en: 'Stat a workspace file (size/timestamps).' },
+    description: { zh: '报告一个常规文件的标识、版本与大小（不返回内容）。', en: "Report one regular file's identity, version and size without its content." },
   },
 }
 

@@ -20,7 +20,7 @@ dsh Typert descriptor 只给端点名与自带描述，不标注读写性。插�
 
 -   `readOnly: true` —— 纯取数/查询语义，无持久化副作用，直接放行（不需要白名单或审批）。
 -   `dangerous: true` —— 信任与供应链类操作（凭据写入、插件安装/启停、连接信任、市场索引）。危险端点**不会被永久拒绝**：它和普通变更端点走相同的两条通路（`endpointAllowlist` 白名单直行 / 停泊等人在面板审批），但面板会把它单列成独立清单并醒目标注。
--   `description: { zh, en }` —— 中英文描述，面板清单按界面语言显示；缺失时回退 descriptor 自带描述（通常只有英文）。
+-   `description: { zh, en }` —— 中英文描述，面板清单按界面语言显示；descriptor 无描述时（例如插件提供的端点），端点工具的摘要与契约也取这里的英文。存在 descriptor 描述时以 descriptor 为准。
 
 另有 `NAMESPACE_META`：每个命名空间的中英文一句话描述（纯界面数据，面板组头显示）。表的基准是 dsh 0.2.1-rc.2 web profile 的实机端点目录（可用 `endpoint_describe` 无参调用枚举当前进程的 namespace 索引逐域核对）。
 

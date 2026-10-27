@@ -483,7 +483,8 @@ const endpointDescriptors = [
   { id: 'd4', service: 'sessionController', namespace: 'session', method: 'follow', mode: 'stream', description: 'Follow a session.', parameters: [], result: { spec: {} } },
   { id: 'd5', service: 'sessionController', namespace: 'session', method: 'page', description: 'Read one session page.', parameters: [{ name: 'session', wire: 'session', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
   { id: 'd6', service: 'credentials', namespace: 'credentials', method: 'set', description: 'Write a credential.', parameters: [{ name: 'ref', wire: 'ref', source: 'json' }, { name: 'value', wire: 'value', source: 'json' }], result: { spec: {} } },
-  { id: 'd7', service: 'schedule', namespace: 'schedule', method: 'update', description: 'Update a schedule.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
+  // d7 故意不带 description: 验证插件端点的描述回退到 endpoint-meta 的英文
+  { id: 'd7', service: 'schedule', namespace: 'schedule', method: 'update', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
   { id: 'd8', service: 'goal', namespace: 'goals', method: 'get', description: 'Read the session goal.', parameters: [{ name: 'agent', wire: 'agent', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
 ]
 export const fakeTypert = {

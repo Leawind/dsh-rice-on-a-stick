@@ -169,6 +169,11 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   }
 }
 
+/** 端点描述: descriptor 自带描述优先; 插件端点(如 mcpManager)没有描述时取元数据英文, 调用方仍能看到作用 */
+function descriptionOf(inv: InvocationView): string | undefined {
+  return inv.description ?? endpointMetaOf(`${inv.namespace}/${inv.method}`)?.description?.en
+}
+
 /** 目录/搜索/单域清单共用的紧凑条目(逐字段按需携带: stream/dangerous/approvalRequired/blockedBy 仅真或存在时、摘要首句截 90 字符) */
 export interface EndpointSummary {
   endpoint: string
@@ -183,6 +188,7 @@ export interface EndpointSummary {
 
 function endpointSummary(inv: InvocationView): EndpointSummary {
   const cls = classifyInvocation(inv)
+  const description = descriptionOf(inv)
   return {
     endpoint: `${inv.namespace}/${inv.method}`,
     readOnly: cls.readOnly,
@@ -191,7 +197,7 @@ function endpointSummary(inv: InvocationView): EndpointSummary {
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
     ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
     ...(inv.stream ? { stream: true } : {}),
-    ...(inv.description !== undefined ? { summary: inv.description.split('.')[0]?.slice(0, 90) } : {}),
+    ...(description !== undefined ? { summary: description.split('.')[0]?.slice(0, 90) } : {}),
   }
 }
 
@@ -251,7 +257,7 @@ export function searchEndpoints(ctx: Context, query: string, namespace?: string)
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t !== '')
   const pool = namespace === undefined ? invocations : invocations.filter((inv) => inv.namespace === namespace)
   const matched = pool.filter((inv) => {
-    const hay = `${inv.namespace}/${inv.method} ${inv.description ?? ''}`.toLowerCase()
+    const hay = `${inv.namespace}/${inv.method} ${descriptionOf(inv) ?? ''}`.toLowerCase()
     return terms.every((t) => hay.includes(t))
   })
   return {
@@ -289,10 +295,11 @@ export function describeEndpoint(ctx: Context, endpoint: string): Record<string,
   const inv = listInvocations(ctx).find((c) => `${c.namespace}/${c.method}` === endpoint)
   if (inv === undefined) return undefined
   const cls = classifyInvocation(inv)
+  const description = descriptionOf(inv)
   return {
     endpoint,
     service: inv.service,
-    description: inv.description,
+    ...(description !== undefined ? { description } : {}),
     stream: inv.stream,
     readOnly: cls.readOnly,
     writable: cls.writable,
