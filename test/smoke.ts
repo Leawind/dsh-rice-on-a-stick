@@ -1016,7 +1016,7 @@ try {
     const dir = await phase.call('endpoint_describe', {})
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
-    checks['端点索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 8 && dirPayload.readable === 4 && dirPayload.writable === 0
+    checks['端点索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 9 && dirPayload.readable === 5 && dirPayload.writable === 0
       && sessionGroup?.methods === 5 && sessionGroup?.readable === 3 && sessionGroup?.approvalRequired === 1
       && sessionGroup?.endpoints === undefined
       && (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'goals')?.methods === 1
@@ -1040,19 +1040,19 @@ try {
     checks['端点搜索: namespace 参数把搜索收窄到单域'] = (innerOf(scoped) as any).total === 1
       && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
     // descriptor 不带描述的插件端点: 摘要/契约/搜索都回退到端点元数据的英文
-    const schedNs = await phase.call('endpoint_describe', { namespace: 'schedule' })
-    const schedUpdate = ((innerOf(schedNs) as any).endpoints ?? []).find((m: any) => m.endpoint === 'schedule/update')
-    checks['端点清单: descriptor 无描述时摘要回退元数据英文'] = typeof schedUpdate?.summary === 'string'
-      && schedUpdate.summary.startsWith("Update one active task's name, instruction and timing")
-    const schedContract = await phase.call('endpoint_describe', { endpoint: 'schedule/update' })
-    checks['端点契约: descriptor 无描述时 description 回退元数据英文'] = String((innerOf(schedContract) as any).description ?? '')
-      .startsWith("Update one active task's name, instruction and timing")
-    const metaHit = await phase.call('endpoint_describe', { query: 'instruction timing' })
+    const mcpNs = await phase.call('endpoint_describe', { namespace: 'mcpManager' })
+    const mcpList = ((innerOf(mcpNs) as any).endpoints ?? []).find((m: any) => m.endpoint === 'mcpManager/list')
+    checks['端点清单: descriptor 无描述时摘要回退元数据英文'] = typeof mcpList?.summary === 'string'
+      && mcpList.summary.startsWith('Read managed and external MCP server rows')
+    const mcpContract = await phase.call('endpoint_describe', { endpoint: 'mcpManager/list' })
+    checks['端点契约: descriptor 无描述时 description 回退元数据英文'] = String((innerOf(mcpContract) as any).description ?? '')
+      .startsWith('Read managed and external MCP server rows')
+    const metaHit = await phase.call('endpoint_describe', { query: 'loader state' })
     checks['端点搜索: 元数据英文参与无描述端点的关键词匹配'] = (innerOf(metaHit) as any).total === 1
-      && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'schedule/update'
+      && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'mcpManager/list'
     const zero = await phase.call('endpoint_describe', { query: 'zzz-nothing' })
     const zeroPayload = innerOf(zero) as any
-    checks['端点搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 4
+    checks['端点搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 5
     const mixed = await phase.call('endpoint_describe', { endpoint: 'session/list', query: 'x' })
     checks['端点解析: endpoint 与 query/namespace 互斥'] = String(innerOf(mixed).error ?? '').includes('at most one')
     const badNs = await phase.call('endpoint_describe', { namespace: 'nope' })
@@ -1157,7 +1157,7 @@ try {
     const epsBody = epsRes.status === 200 ? JSON.parse(epsRes.body) : {}
     const epsMap = Object.fromEntries((epsBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
     checks['GUI endpoint-allowlist: 全量端点+分类+白名单标记'] = epsBody.available === true
-      && epsBody.total === 8 && (epsBody.endpoints ?? []).length === 8
+      && epsBody.total === 9 && (epsBody.endpoints ?? []).length === 9
       && epsMap['session/modelCatalog']?.kind === 'read'
       && epsMap['session/follow']?.kind === 'stream'
       && epsMap['credentials/set']?.kind === 'selectable' && epsMap['credentials/set']?.dangerous === true
@@ -1165,9 +1165,10 @@ try {
       && epsMap['schedule/update']?.kind === 'selectable' && epsMap['schedule/update']?.allowed === true
       && Array.isArray(epsBody.stale) && epsBody.stale.length === 0
       && typeof epsMap['session/modelCatalog']?.description === 'string'
-      // 端点元数据的中英文描述透出(面板按界面语言选用)
+      // 元数据中文始终透出; 英文只在 descriptor 没有描述(插件端点)时附上, 核心端点不重复
       && typeof epsMap['session/modelCatalog']?.descriptionZh === 'string'
-      && typeof epsMap['credentials/set']?.descriptionEn === 'string'
+      && epsMap['session/modelCatalog']?.descriptionEn === undefined
+      && typeof epsMap['mcpManager/list']?.descriptionEn === 'string'
       // 命名空间一句话描述透出(面板组头显示)
       && typeof epsBody.namespaces?.session?.zh === 'string' && typeof epsBody.namespaces?.session?.en === 'string'
 

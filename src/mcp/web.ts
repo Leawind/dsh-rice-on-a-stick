@@ -356,7 +356,8 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
     models: () => deps.models(),
     // dsh 端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目。
-    // descriptionZh/descriptionEn 来自开发期端点元数据(endpoint-meta.ts), 缺失时面板回退 descriptor 描述;
+    // descriptionZh/descriptionEn 来自开发期端点元数据(endpoint-meta.ts): 中文始终提供; 英文只在
+    // descriptor 无描述(插件端点)时提供, 其余面板回退 descriptor 描述;
     // dangerous = 元数据标注的危险端点(信任与供应链类), 面板单列清单。
     // namespaces = 各命名空间的中英文一句话描述(面板组头显示), 同样来自开发期元数据。
     'endpoint-allowlist': () => {
@@ -370,7 +371,12 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         const meta = endpointMetaOf(endpoint)
         return {
           endpoint,
-          ...(meta?.description !== undefined ? { descriptionZh: meta.description.zh, descriptionEn: meta.description.en } : {}),
+          ...(meta?.description !== undefined
+            ? {
+                descriptionZh: meta.description.zh,
+                ...(meta.description.en !== undefined ? { descriptionEn: meta.description.en } : {}),
+              }
+            : {}),
           ...(inv.description !== undefined ? { description: inv.description } : {}),
           // kind: read/stream 行锁定(默认放行/不适用); selectable 行可勾选(白名单成员, 危险端点也在其中)
           kind: cls.readOnly ? 'read' : inv.stream ? 'stream' : 'selectable',

@@ -6,21 +6,23 @@
  *   readOnly     纯取数/查询语义, 无持久化副作用 → 直行, 无需白名单或审批
  *   dangerous    信任与供应链类操作(凭据写入/插件或 MCP 服务器安装/连接信任) → 没有永久拒绝,
  *                走与普通变更端点相同的两条通路(白名单直行 / 停泊审批), 但界面单列并标注
- *   description  中英文描述: 面板清单按界面语言显示; descriptor 无描述时, 端点工具的
- *                摘要与契约也取这里的英文, 让调用方仍能知道端点作用
+ *   description  中文描述(面板清单显示); dsh descriptor 自带英文时不复述, 面板回退该英文;
+ *                只有 descriptor 无描述的插件端点在表里补英文, 端点工具的摘要与契约也用它,
+ *                让调用方仍能知道端点作用
  *
  * 另有 NAMESPACE_META: 每个命名空间的中英文一句话描述(面板组头显示, 亦是纯界面数据)。
  *
  * 表以 dsh 0.2.1-rc.2 实机目录(web profile 全量 167 端点)为基准逐条核对过; 不要求列全,
- * 表外端点按"变更类"处理(停泊审批)。其中 136 个 dsh 核心端点的描述取自 descriptor 自带英文
- * 并压缩为单句; 31 个插件端点(mcpManager / skillsViewer / opsSettings)的 descriptor 不带描述,
- * 按对应插件源码补齐。策展错误的最坏结局是让一个只读端点多等一次审批, 或让一个危险端点少一个
+ * 表外端点按"变更类"处理(停泊审批)。其中 136 个 dsh 核心端点只保留中文译文, 英文由 descriptor
+ * 提供; 31 个插件端点(mcpManager / skillsViewer / opsSettings)的 descriptor 不带描述, 按对应
+ * 插件源码补齐中英文。策展错误的最坏结局是让一个只读端点多等一次审批, 或让一个危险端点少一个
  * 醒目标注——都不会绕过任何闸门; 反向(把变更端点标成只读)必须避免。
  */
 
 export interface EndpointDescription {
   zh: string
-  en: string
+  /** descriptor 自带英文时省略 */
+  en?: string
 }
 
 export interface EndpointMeta {
@@ -28,7 +30,7 @@ export interface EndpointMeta {
   readOnly?: boolean
   /** 危险端点: 信任与供应链类操作, 界面单列标注 */
   dangerous?: boolean
-  /** 中英文描述(面板清单按界面语言显示) */
+  /** 中文描述; 仅 descriptor 无描述的插件端点附带英文 */
   description?: EndpointDescription
 }
 
@@ -72,191 +74,191 @@ export const NAMESPACE_META: Readonly<Record<string, EndpointDescription>> = {
 export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── account(平台账号) ──
   'account/ackBonusNotified': {
-    description: { zh: '记录某条已展示的充值奖励为已提示。', en: 'Record one displayed bonus as notified.' },
+    description: { zh: '记录某条已展示的充值奖励为已提示。' },
   },
   'account/cancelSignIn': {
-    description: { zh: '取消指定的本地登录尝试。', en: 'Cancel the named local sign-in attempt.' },
+    description: { zh: '取消指定的本地登录尝试。' },
   },
   'account/getBalance': {
     readOnly: true,
-    description: { zh: '查询平台充值钱包余额。', en: 'Query Platform recharge-wallet balances.' },
+    description: { zh: '查询平台充值钱包余额。' },
   },
   'account/getProfile': {
     readOnly: true,
-    description: { zh: '查询平台账号的展示安全信息。', en: 'Query display-safe Platform profile data.' },
+    description: { zh: '查询平台账号的展示安全信息。' },
   },
   'account/getState': {
     readOnly: true,
-    description: { zh: '读取平台账号的安全投影。', en: 'Read the safe account projection.' },
+    description: { zh: '读取平台账号的安全投影。' },
   },
   'account/getUnnotifiedBonuses': {
     readOnly: true,
-    description: { zh: '查询平台已发放但尚未记录为已展示的奖励。', en: 'Query granted bonuses not yet recorded as displayed.' },
+    description: { zh: '查询平台已发放但尚未记录为已展示的奖励。' },
   },
   'account/hasRunningAccountTasks': {
     readOnly: true,
-    description: { zh: '检查运行中任务最近用过的账号类提供商（含工具与重试）。', en: 'Inspect the latest request providers of running tasks, including tools and retries.' },
+    description: { zh: '检查运行中任务最近用过的账号类提供商（含工具与重试）。' },
   },
   'account/signOut': {
     dangerous: true,
-    description: { zh: '移除本地账号授权并经平台后台吊销（不删除 API 密钥）。', en: 'Remove the local account grant and revoke it via Platform, without deleting API keys.' },
+    description: { zh: '移除本地账号授权并经平台后台吊销（不删除 API 密钥）。' },
   },
   'account/startSignIn': {
     dangerous: true,
-    description: { zh: '发起浏览器登录。', en: 'Begin browser sign-in.' },
+    description: { zh: '发起浏览器登录。' },
   },
   'account/watch': {
-    description: { zh: '流式订阅平台账号的安全投影。', en: 'Stream the safe account projection.' },
+    description: { zh: '流式订阅平台账号的安全投影。' },
   },
   'account/watchExpiry': {
-    description: { zh: '订阅凭据过期通知（不重放历史通知）。', en: 'Subscribe to credential expiry without replaying prior notifications.' },
+    description: { zh: '订阅凭据过期通知（不重放历史通知）。' },
   },
 
   // ── agentPresets(Agent 预设) ──
   'agentPresets/list': {
     readOnly: true,
-    description: { zh: '列出可选的 agent 预设。', en: 'List the available agent presets.' },
+    description: { zh: '列出可选的 agent 预设。' },
   },
   'agentPresets/read': {
     readOnly: true,
-    description: { zh: '查看单个 agent 预设的插件清单声明（仅查看）。', en: "View one agent preset's plugin-list declaration (view-only)." },
+    description: { zh: '查看单个 agent 预设的插件清单声明（仅查看）。' },
   },
   'agentPresets/select': {
-    description: { zh: '在会话首个轮次前选择 agent 预设。', en: 'Select an agent preset before a session starts its first turn.' },
+    description: { zh: '在会话首个轮次前选择 agent 预设。' },
   },
 
   // ── commands(斜杠命令) ──
   'commands/execute': {
-    description: { zh: '解析并执行一条已知命令（只追加日志事件，不产生模型轮次）。', en: 'Parse and execute a known command without sending it to the model (log-only events, no turn).' },
+    description: { zh: '解析并执行一条已知命令（只追加日志事件，不产生模型轮次）。' },
   },
   'commands/list': {
     readOnly: true,
-    description: { zh: '列出代理可见的斜杠命令。', en: 'List the slash commands visible to an agent.' },
+    description: { zh: '列出代理可见的斜杠命令。' },
   },
 
   // ── credentials(提供商凭据, 信任与供应链类) ──
   'credentials/describe': {
     readOnly: true,
-    description: { zh: '为一个配置界面批量描述若干凭据引用。', en: 'Describe several credential references for one configuration surface.' },
+    description: { zh: '为一个配置界面批量描述若干凭据引用。' },
   },
   'credentials/set': {
     dangerous: true,
-    description: { zh: '从配置界面存入一个凭据值（只写，任何读取路径都不返回它）。', en: 'Store one value from a configuration surface (write-only; no read path returns it).' },
+    description: { zh: '从配置界面存入一个凭据值（只写，任何读取路径都不返回它）。' },
   },
   'credentials/unset': {
     dangerous: true,
-    description: { zh: '从配置界面移除一个凭据引用。', en: 'Remove one credential reference from a configuration surface.' },
+    description: { zh: '从配置界面移除一个凭据引用。' },
   },
 
   // ── directoryPicker(目录选择器) ──
   'directoryPicker/createDirectory': {
-    description: { zh: '为远程调用方的内嵌文件浏览器创建一个子目录。', en: "Create one child directory for a remote caller's in-app browser." },
+    description: { zh: '为远程调用方的内嵌文件浏览器创建一个子目录。' },
   },
   'directoryPicker/list': {
     readOnly: true,
-    description: { zh: '为远程调用方的内嵌文件浏览器列出单层目录。', en: "List one directory level for a remote caller's in-app browser." },
+    description: { zh: '为远程调用方的内嵌文件浏览器列出单层目录。' },
   },
   'directoryPicker/pick': {
-    description: { zh: '为远程调用方打开宿主的系统目录选择器。', en: "Open the host's OS directory chooser for a remote caller." },
+    description: { zh: '为远程调用方打开宿主的系统目录选择器。' },
   },
 
   // ── dynamicCordisRunner(插件动态运行器) ──
   'dynamicCordisRunner/getClientCode': {
-    description: { zh: '取当前活动运行对应的 Client 代码。', en: 'Fetch Client code for the exact active run.' },
+    description: { zh: '取当前活动运行对应的 Client 代码。' },
   },
   'dynamicCordisRunner/inventory': {
     readOnly: true,
-    description: { zh: '全框架清单，每个稳定插件一行。', en: 'Frame-wide inventory, one row per stable plugin.' },
+    description: { zh: '全框架清单，每个稳定插件一行。' },
   },
   'dynamicCordisRunner/invoke': {
-    description: { zh: '调用一个活动宿主方法（拒绝过期的 Client 运行）。', en: 'Invoke an active host method while rejecting stale client runs.' },
+    description: { zh: '调用一个活动宿主方法（拒绝过期的 Client 运行）。' },
   },
   'dynamicCordisRunner/reportClientGuardFailure': {
-    description: { zh: '上报包激活完成后 Client 守卫的一次拒绝。', en: 'Report a client guard rejection that happened after the package completed activation.' },
+    description: { zh: '上报包激活完成后 Client 守卫的一次拒绝。' },
   },
   'dynamicCordisRunner/reportRenderFailure': {
-    description: { zh: '记录当前活动运行的一次加载后渲染失败。', en: 'Record one post-load render failure for the active run.' },
+    description: { zh: '记录当前活动运行的一次加载后渲染失败。' },
   },
   'dynamicCordisRunner/resolveInspectQuery': {
-    description: { zh: '为待决检查查询提交 Client 结果或失败。', en: 'Submit a client inspect result or failure for a pending query.' },
+    description: { zh: '为待决检查查询提交 Client 结果或失败。' },
   },
   'dynamicCordisRunner/resolveRequestRun': {
-    description: { zh: '裁决一个模型驱动的 Client 激活请求。', en: 'Resolve one model-driven client activation request.' },
+    description: { zh: '裁决一个模型驱动的 Client 激活请求。' },
   },
   'dynamicCordisRunner/runHostHalf': {
-    description: { zh: '为已批准请求或面板直接操作启动宿主侧代码。', en: 'Start host code for an approved request or a direct panel gesture.' },
+    description: { zh: '为已批准请求或面板直接操作启动宿主侧代码。' },
   },
   'dynamicCordisRunner/settleUserRun': {
-    description: { zh: '在本页加载完成或 Client 半场失败后结算一次面板直启运行。', en: 'Settle a direct panel run after this page loaded or failed its client half.' },
+    description: { zh: '在本页加载完成或 Client 半场失败后结算一次面板直启运行。' },
   },
   'dynamicCordisRunner/stopFromPanel': {
-    description: { zh: '从用户面板停用一个插件，并把状态变更排队到模型下一步。', en: "Stop a plugin from the user panel and queue the state change for the model's next step." },
+    description: { zh: '从用户面板停用一个插件，并把状态变更排队到模型下一步。' },
   },
   'dynamicCordisRunner/syncInspectManifest': {
-    description: { zh: '替换 Client 检查目录的宿主镜像。', en: 'Replace the host mirror of the client inspect provider directory.' },
+    description: { zh: '替换 Client 检查目录的宿主镜像。' },
   },
   'dynamicCordisRunner/undefineFromPanel': {
-    description: { zh: '从用户面板移除一个插件，并把状态变更排队到模型下一步。', en: "Remove a plugin from the user panel and queue the state change for the model's next step." },
+    description: { zh: '从用户面板移除一个插件，并把状态变更排队到模型下一步。' },
   },
 
   // ── fileReferences(附件引用) ──
   'fileReferences/list': {
     readOnly: true,
-    description: { zh: '列出某个 Agent 工作目录下的文件与目录候选（@ 提及补全）。', en: "List file and directory candidates for one Agent's working directory." },
+    description: { zh: '列出某个 Agent 工作目录下的文件与目录候选（@ 提及补全）。' },
   },
 
   // ── fileUploads(文件上传) ──
   'fileUploads/upload': {
-    description: { zh: '持久化一个编码上传，并暂存到 Typert 选定的 Agent 接收方。', en: 'Persist one encoded upload and stage it under the agent receiver selected by Typert.' },
+    description: { zh: '持久化一个编码上传，并暂存到 Typert 选定的 Agent 接收方。' },
   },
 
   // ── goals(会话目标) ──
   'goals/clear': {
-    description: { zh: '清除当前目标（保留持久墓碑与历史）。', en: 'Clear the current goal while retaining a durable tombstone and history.' },
+    description: { zh: '清除当前目标（保留持久墓碑与历史）。' },
   },
   'goals/complete': {
-    description: { zh: '把当前未完成目标标记为完成并解除武装。', en: 'Mark the current non-complete goal complete and disarm it.' },
+    description: { zh: '把当前未完成目标标记为完成并解除武装。' },
   },
   'goals/create': {
-    description: { zh: '经远程边界创建一个目标。', en: 'Create one goal through the remote boundary.' },
+    description: { zh: '经远程边界创建一个目标。' },
   },
   'goals/edit': {
-    description: { zh: '编辑目标内容与/或轮次上限（不改阶段）。', en: 'Edit the objective and/or round cap without changing phase.' },
+    description: { zh: '编辑目标内容与/或轮次上限（不改阶段）。' },
   },
   'goals/get': {
     readOnly: true,
-    description: { zh: '读取某个在线 Agent 的当前目标。', en: 'Read the current goal for one exact live agent.' },
+    description: { zh: '读取某个在线 Agent 的当前目标。' },
   },
   'goals/pause': {
-    description: { zh: '暂停活动目标并解除自动继续。', en: 'Pause an active goal and disarm automatic continuation.' },
+    description: { zh: '暂停活动目标并解除自动继续。' },
   },
   'goals/resume': {
-    description: { zh: '恢复并武装已停止的目标，或在会话启动后重新武装活动目标。', en: 'Resume and arm a stopped goal, or rearm an active goal after a session-start edge.' },
+    description: { zh: '恢复并武装已停止的目标，或在会话启动后重新武装活动目标。' },
   },
 
   // ── job(后台任务) ──
   'job/follow': {
-    description: { zh: '从绝对字节偏移流式读取一个后台任务的保留输出。', en: "Stream one job's retained output from an absolute byte offset." },
+    description: { zh: '从绝对字节偏移流式读取一个后台任务的保留输出。' },
   },
   'job/kill': {
-    description: { zh: '代人工终止一个后台任务（记录“用户取消”原因）。', en: "Kill one background job on a human's behalf (recorded as cancelled by the user)." },
+    description: { zh: '代人工终止一个后台任务（记录“用户取消”原因）。' },
   },
   'job/list': {
-    description: { zh: '流式列出一个会话可见的全部后台任务（整集帧）。', en: 'Stream the jobs one session can see, as whole-set frames.' },
+    description: { zh: '流式列出一个会话可见的全部后台任务（整集帧）。' },
   },
 
   // ── llm(模型提供商) ──
   'llm/discoverModels': {
     // 不标 readOnly: 虽无持久化副作用, 但会按调用方给的 baseURL 发起对外探测, 保守走审批
-    description: { zh: '探测一个提供商端点所通告的模型清单（凭据仅本次有效，不落盘）。', en: 'Interrogate one provider endpoint for the models it advertises (one-shot credential; nothing is stored).' },
+    description: { zh: '探测一个提供商端点所通告的模型清单（凭据仅本次有效，不落盘）。' },
   },
   'llm/listConfigurableProviders': {
     readOnly: true,
-    description: { zh: '列出可配置的模型提供商。', en: 'List model providers available for configuration.' },
+    description: { zh: '列出可配置的模型提供商。' },
   },
   'llm/listProviders': {
     readOnly: true,
-    description: { zh: '列出已配置的模型提供商。', en: 'List the configured model providers.' },
+    description: { zh: '列出已配置的模型提供商。' },
   },
 
   // ── mcpManager(MCP 服务器管理, 变更类多为信任与供应链操作) ──
@@ -316,23 +318,23 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
 
   // ── messageFeedback(消息反馈) ──
   'messageFeedback/delete': {
-    description: { zh: '校验版本后删除一条反馈（不存在也算成功）。', en: 'Delete one feedback item after a version check; absence succeeds.' },
+    description: { zh: '校验版本后删除一条反馈（不存在也算成功）。' },
   },
   'messageFeedback/list': {
     readOnly: true,
-    description: { zh: '列出消息反馈（点赞/点踩）记录。', en: 'List message feedback (thumbs up/down) entries.' },
+    description: { zh: '列出消息反馈（点赞/点踩）记录。' },
   },
   'messageFeedback/put': {
-    description: { zh: '校验当前版本后创建或替换反馈（相同内容不追加事件）。', en: 'Create or replace feedback after checking its current version; matching no-ops append no event.' },
+    description: { zh: '校验当前版本后创建或替换反馈（相同内容不追加事件）。' },
   },
 
   // ── officeToPdf(Office 转 PDF) ──
   'officeToPdf/generation': {
     readOnly: true,
-    description: { zh: '在复用 Client PDF 前读取当前渲染代际。', en: 'Read the current rendering generation before reusing a client PDF.' },
+    description: { zh: '在复用 Client PDF 前读取当前渲染代际。' },
   },
   'officeToPdf/render': {
-    description: { zh: '经会话的常规文件系统授权读取并转换一个 Office 文件。', en: "Read and convert one Office file using the session's ordinary filesystem authorization." },
+    description: { zh: '经会话的常规文件系统授权读取并转换一个 Office 文件。' },
   },
 
   // ── opsSettings(运维操作面板; 语义已对照 dsh-ops 源码逐个核对) ──
@@ -355,195 +357,195 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── permissionPresets(权限预设) ──
   'permissionPresets/catalog': {
     readOnly: true,
-    description: { zh: '列出权限预设目录（沙箱 + 审批策略的捆绑）。', en: 'List the permission presets (sandbox + approval bundles).' },
+    description: { zh: '列出权限预设目录（沙箱 + 审批策略的捆绑）。' },
   },
 
   // ── pluginInventory(已安装插件清单) ──
   'pluginInventory/list': {
     readOnly: true,
-    description: { zh: '列出已安装插件的清单。', en: 'List the installed plugin inventory.' },
+    description: { zh: '列出已安装插件的清单。' },
   },
 
   // ── pluginManager(插件管理; 安装/启停为信任与供应链类) ──
   'pluginManager/cancelInstall': {
     dangerous: true,
-    description: { zh: '取消进行中的插件安装。', en: 'Cancel an in-progress plugin install.' },
+    description: { zh: '取消进行中的插件安装。' },
   },
   'pluginManager/inspect': {
     readOnly: true,
-    description: { zh: '在安装前读取一个 spec 指向的内容。', en: 'Read what a spec names before installing it.' },
+    description: { zh: '在安装前读取一个 spec 指向的内容。' },
   },
   'pluginManager/installBundle': {
     dangerous: true,
-    description: { zh: '安装插件捆绑包（引入新代码，影响进程信任边界）。', en: 'Install a plugin bundle (introduces new code; affects the process trust boundary).' },
+    description: { zh: '安装插件捆绑包（引入新代码，影响进程信任边界）。' },
   },
   'pluginManager/listBundles': {
     readOnly: true,
-    description: { zh: '读取已安装、安装器提供与离线官方捆绑包目录。', en: 'Read installed, installer-provided and offline official catalog bundles.' },
+    description: { zh: '读取已安装、安装器提供与离线官方捆绑包目录。' },
   },
   'pluginManager/listPlugins': {
     readOnly: true,
-    description: { zh: '读取当前插件清单（含不能经 profile patch 变更的原因）。', en: 'Read current plugins, including why a row cannot change through the profile patch.' },
+    description: { zh: '读取当前插件清单（含不能经 profile patch 变更的原因）。' },
   },
   'pluginManager/listVersionExemptions': {
     readOnly: true,
-    description: { zh: '读取本配置保存的插件版本豁免。', en: 'Read the plugin-version exemptions saved in this profile.' },
+    description: { zh: '读取本配置保存的插件版本豁免。' },
   },
   'pluginManager/registries': {
     readOnly: true,
-    description: { zh: '读取插件管理器询问的注册源（首选、回退与 pnpm 配置）。', en: "Read the registries this manager asks: the configured first one, its fallbacks, and pnpm's own." },
+    description: { zh: '读取插件管理器询问的注册源（首选、回退与 pnpm 配置）。' },
   },
   'pluginManager/removeBundle': {
     dangerous: true,
-    description: { zh: '卸载插件捆绑包。', en: 'Remove a plugin bundle.' },
+    description: { zh: '卸载插件捆绑包。' },
   },
   'pluginManager/setBundleEnabled': {
     dangerous: true,
-    description: { zh: '启用或停用插件捆绑包。', en: 'Enable or disable a plugin bundle.' },
+    description: { zh: '启用或停用插件捆绑包。' },
   },
   'pluginManager/setPluginEnabled': {
     dangerous: true,
-    description: { zh: '启用或停用单个插件。', en: 'Enable or disable a single plugin.' },
+    description: { zh: '启用或停用单个插件。' },
   },
   'pluginManager/setVersionExemption': {
     dangerous: true,
-    description: { zh: '设置版本豁免规则（放宽版本约束）。', en: 'Set a version exemption rule (loosens version constraints).' },
+    description: { zh: '设置版本豁免规则（放宽版本约束）。' },
   },
   'pluginManager/waitForInstall': {
     readOnly: true,
-    description: { zh: '取回进行中安装的结果（不取消安装）。', en: 'Recover the result of an active installation without cancelling it.' },
+    description: { zh: '取回进行中安装的结果（不取消安装）。' },
   },
 
   // ── pluginRegistryProbe(插件注册源探测) ──
   'pluginRegistryProbe/fastest': {
     readOnly: true,
-    description: { zh: '经宿主 fetch 代理竞速 npm 与 npmmirror 的 HTTPS 探测。', en: 'Race npm and npmmirror HTTPS ping responses through the host fetch proxy.' },
+    description: { zh: '经宿主 fetch 代理竞速 npm 与 npmmirror 的 HTTPS 探测。' },
   },
 
   // ── remoteAccess(远程访问) ──
   'remoteAccess/follow': {
-    description: { zh: '流式跟随调用方 Peer 的访问快照（基线 + 增删帧）。', en: "Stream the calling peer's access snapshot: one baseline, then upsert/remove frames." },
+    description: { zh: '流式跟随调用方 Peer 的访问快照（基线 + 增删帧）。' },
   },
 
   // ── schedule(定时任务) ──
   'schedule/catalog': {
     readOnly: true,
-    description: { zh: '读取全部定时提醒（含未激活项）及其原始会话绑定，不激活会话。', en: 'Read all active and inactive scheduled reminders with their original Session bindings, without activating a Session.' },
+    description: { zh: '读取全部定时提醒（含未激活项）及其原始会话绑定，不激活会话。' },
   },
   'schedule/delete': {
-    description: { zh: '删除所选会话的一个定时任务（排队消息保留，任务行移除）。', en: 'Delete one task belonging to the selected session, leaving queued messages intact; the row is removed.' },
+    description: { zh: '删除所选会话的一个定时任务（排队消息保留，任务行移除）。' },
   },
   'schedule/history': {
     readOnly: true,
-    description: { zh: '读取一个定时任务已保存的投递记录，不激活其原始会话。', en: "Read one task's saved inbox deliveries without activating its original Session." },
+    description: { zh: '读取一个定时任务已保存的投递记录，不激活其原始会话。' },
   },
   'schedule/list': {
     readOnly: true,
-    description: { zh: '列出已配置的定时任务。', en: 'List the configured scheduled tasks.' },
+    description: { zh: '列出已配置的定时任务。' },
   },
   'schedule/update': {
-    description: { zh: '更新一个活动任务的名称、指令与时间，不改变会话绑定或已存投递。', en: "Update one active task's name, instruction and timing without changing its Session binding or saved deliveries." },
+    description: { zh: '更新一个活动任务的名称、指令与时间，不改变会话绑定或已存投递。' },
   },
 
   // ── session(会话与轮次) ──
   'session/attachment': {
     readOnly: true,
-    description: { zh: '读取一张可从目标会话日志到达的图片。', en: 'Read one image proven reachable from the addressed session log.' },
+    description: { zh: '读取一张可从目标会话日志到达的图片。' },
   },
   'session/cancel': {
-    description: { zh: '取消会话正在进行的轮次。', en: "Cancel a session's in-flight turn." },
+    description: { zh: '取消会话正在进行的轮次。' },
   },
   'session/canOpenWorkspacePath': {
     readOnly: true,
-    description: { zh: '检查某路径能否作为会话工作区打开。', en: 'Check whether a path can be opened as a session workspace.' },
+    description: { zh: '检查某路径能否作为会话工作区打开。' },
   },
   'session/control': {
-    description: { zh: '流式输出实时控制基线与替换帧。', en: 'Stream a complete live-control baseline followed by replacement frames.' },
+    description: { zh: '流式输出实时控制基线与替换帧。' },
   },
   'session/create': {
-    description: { zh: '创建一个普通会话（可复用指定的空白会话）。', en: 'Create one ordinary Session for a new conversation, reusing the named blank Session while reusable.' },
+    description: { zh: '创建一个普通会话（可复用指定的空白会话）。' },
   },
   'session/follow': {
-    description: { zh: '从打开或恢复游标起流式跟随会话日志。', en: 'Follow one session log from its opening or resume cursor.' },
+    description: { zh: '从打开或恢复游标起流式跟随会话日志。' },
   },
   'session/fork': {
-    description: { zh: '从既有会话的一个事件前缀分叉出新会话（缺省取最近完成的轮次）。', en: 'Fork one exact event prefix of a Session into a new one; the default boundary is the latest completed turn.' },
+    description: { zh: '从既有会话的一个事件前缀分叉出新会话（缺省取最近完成的轮次）。' },
   },
   'session/initializeDefaultModel': {
-    description: { zh: '登录后未配置任何提供商密钥时选择首个可用账号模型。', en: 'Select the first available account model after login when no provider API key is configured.' },
+    description: { zh: '登录后未配置任何提供商密钥时选择首个可用账号模型。' },
   },
   'session/list': {
     readOnly: true,
-    description: { zh: '读取全部可见会话行，不恢复 Agent。', en: 'Read all visible Session rows without resuming an Agent.' },
+    description: { zh: '读取全部可见会话行，不恢复 Agent。' },
   },
   'session/modelCatalog': {
     readOnly: true,
-    description: { zh: '描述当前全部可路由模型（供宿主侧选择器使用）。', en: 'Describe every currently routable model for Host-generation selectors.' },
+    description: { zh: '描述当前全部可路由模型（供宿主侧选择器使用）。' },
   },
   'session/openWorkspacePath': {
-    description: { zh: '经组合文件系统校验一个路径并在宿主桌面打开。', en: 'Verify one path through the composed filesystem and open it on the host desktop.' },
+    description: { zh: '经组合文件系统校验一个路径并在宿主桌面打开。' },
   },
   'session/page': {
     readOnly: true,
-    description: { zh: '读取一页按消息对齐的会话历史（冷会话安全）。', en: 'Read one cold-safe, message-aligned Session history page.' },
+    description: { zh: '读取一页按消息对齐的会话历史（冷会话安全）。' },
   },
   'session/projections': {
     readOnly: true,
-    description: { zh: '读取会话投影（从事件折出的界面视图）。', en: 'Read session projections (UI views folded from events).' },
+    description: { zh: '读取会话投影（从事件折出的界面视图）。' },
   },
   'session/prompt': {
-    description: { zh: '显式恢复会话后受理一条提示，回复经会话流另行跟随。', en: 'Admit one prompt after explicitly resuming its Session; the response arrives on the Session stream.' },
+    description: { zh: '显式恢复会话后受理一条提示，回复经会话流另行跟随。' },
   },
   'session/rename': {
-    description: { zh: '重命名会话。', en: 'Rename a session.' },
+    description: { zh: '重命名会话。' },
   },
   'session/search': {
     readOnly: true,
-    description: { zh: '按关键字搜索会话。', en: 'Search sessions by keyword.' },
+    description: { zh: '按关键字搜索会话。' },
   },
   'session/selectModel': {
-    description: { zh: '显式恢复会话后选择该会话本地模型（后台保存默认值）。', en: 'Select one session-local model after explicitly resuming the session; the default is saved in the background.' },
+    description: { zh: '显式恢复会话后选择该会话本地模型（后台保存默认值）。' },
   },
   'session/updateQueue': {
-    description: { zh: '修改一个仍在排队的事项（先唤醒冷 Agent）。', en: 'Mutate one still-pending queue occurrence, resuming a cold agent first.' },
+    description: { zh: '修改一个仍在排队的事项（先唤醒冷 Agent）。' },
   },
   'session/workspacePathApplications': {
     readOnly: true,
-    description: { zh: '在不激活 Agent 的情况下查询服务桌面当前的文件处理器。', en: 'Query current file handlers on the serving desktop without activating an Agent.' },
+    description: { zh: '在不激活 Agent 的情况下查询服务桌面当前的文件处理器。' },
   },
 
   // ── sessionFeedback(会话备注) ──
   'sessionFeedback/record': {
-    description: { zh: '给进行中的会话记一条备注。', en: 'Record one remark on a live session.' },
+    description: { zh: '给进行中的会话记一条备注。' },
   },
 
   // ── sessionReferenceResolver(会话引用解析) ──
   'sessionReferenceResolver/candidates': {
-    description: { zh: '列出会话引用的候选（含可插入草稿的规范提及）。', en: 'List the candidates for session references, each with its canonical mention.' },
+    description: { zh: '列出会话引用的候选（含可插入草稿的规范提及）。' },
   },
 
   // ── settings(设置) ──
   'settings/describe': {
     readOnly: true,
-    description: { zh: '读取配置页所需的全部命名空间：脱敏分层值与该页表单所用的序列化 schema。', en: 'Describe every registered namespace for a configuration page: redacted layered values plus the serialized schema the page renders its form from.' },
+    description: { zh: '读取配置页所需的全部命名空间：脱敏分层值与该页表单所用的序列化 schema。' },
   },
   'settings/mutate': {
-    description: { zh: '按路径对一个命名空间的用户设置段做编辑（相对已存值解析）。', en: "Apply path-addressed edits to one namespace's user section, resolved against the section as stored." },
+    description: { zh: '按路径对一个命名空间的用户设置段做编辑（相对已存值解析）。' },
   },
   'settings/openSettingsDocument': {
-    description: { zh: '生成提供商拥有的设置文档并在系统文本编辑器打开。', en: 'Materialize the provider-owned settings document and open it in a text editor.' },
+    description: { zh: '生成提供商拥有的设置文档并在系统文本编辑器打开。' },
   },
   'settings/replace': {
-    description: { zh: '整体替换一个命名空间的用户设置段。', en: "Replace one namespace's stored user section wholesale." },
+    description: { zh: '整体替换一个命名空间的用户设置段。' },
   },
   'settings/update': {
-    description: { zh: '把补丁合并进一个命名空间的用户设置段。', en: "Merge a patch into one namespace's stored user section." },
+    description: { zh: '把补丁合并进一个命名空间的用户设置段。' },
   },
 
   // ── skills(技能) ──
   'skills/list': {
     readOnly: true,
-    description: { zh: '列出一个会话组合可见的用户可调用技能。', en: 'List the user-invocable skills visible to one session composition.' },
+    description: { zh: '列出一个会话组合可见的用户可调用技能。' },
   },
 
   // ── skillsViewer(技能浏览与管理) ──
@@ -594,124 +596,124 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
 
   // ── speech(语音识别与转写) ──
   'speech/cancelPreparation': {
-    description: { zh: '显式取消资源准备。', en: 'Explicitly cancel resource preparation.' },
+    description: { zh: '显式取消资源准备。' },
   },
   'speech/catalog': {
     readOnly: true,
-    description: { zh: '读取提供商选项（不准备识别器）。', en: 'Read provider choices without preparing a recognizer.' },
+    description: { zh: '读取提供商选项（不准备识别器）。' },
   },
   'speech/configure': {
-    description: { zh: '持久化用户的语音识别偏好。', en: "Persist the user's recognition preferences." },
+    description: { zh: '持久化用户的语音识别偏好。' },
   },
   'speech/follow': {
-    description: { zh: '跟随提供商就绪状态（独立于会话与准备任务的生命期）。', en: 'Follow provider readiness independently of session and preparation lifetimes.' },
+    description: { zh: '跟随提供商就绪状态（独立于会话与准备任务的生命期）。' },
   },
   'speech/prepare': {
-    description: { zh: '启动或加入一个宿主持有的准备任务。', en: 'Start or join one host-owned preparation task.' },
+    description: { zh: '启动或加入一个宿主持有的准备任务。' },
   },
   'speech/transcribe': {
-    description: { zh: '按显式选择的提供商校验并转写一段录音。', en: 'Validate and transcribe one recording through the explicit provider selection.' },
+    description: { zh: '按显式选择的提供商校验并转写一段录音。' },
   },
 
   // ── subagents(子代理) ──
   'subagents/interruptByParent': {
-    description: { zh: '经持久的父地址中断一个子代理（缺席/空闲/已完成都是无操作）。', en: 'Interrupt one subagent via its durable parent address (absent, idle and completed targets are no-ops).' },
+    description: { zh: '经持久的父地址中断一个子代理（缺席/空闲/已完成都是无操作）。' },
   },
   'subagents/prompt': {
-    description: { zh: '把一条界面撰写的消息投递给可续接的子代理。', en: 'Deliver one browser-authored message to a continuable subagent.' },
+    description: { zh: '把一条界面撰写的消息投递给可续接的子代理。' },
   },
 
   // ── terminal(终端) ──
   'terminal/attach': {
-    description: { zh: '把终端输入输出挂到一条物理远程流上。', en: 'Attach terminal input and output to one physical remote stream.' },
+    description: { zh: '把终端输入输出挂到一条物理远程流上。' },
   },
   'terminal/close': {
-    description: { zh: '关闭终端标识并终止其进程范围（重复关闭亦成功）。', en: 'Close a terminal identity and kill its process range; repeated closes succeed.' },
+    description: { zh: '关闭终端标识并终止其进程范围（重复关闭亦成功）。' },
   },
   'terminal/create': {
-    description: { zh: '为调用方生成的标识分配一个用户 shell（不经 Agent 沙箱或审批限制）。', en: 'Allocate a user shell for a caller-generated identity, without agent sandbox or approval restrictions.' },
+    description: { zh: '为调用方生成的标识分配一个用户 shell（不经 Agent 沙箱或审批限制）。' },
   },
   'terminal/environment': {
     readOnly: true,
-    description: { zh: '读取会话当前目录与终端上限（不做文件系统校验）。', en: "Read the session's current directory and terminal limits without filesystem validation." },
+    description: { zh: '读取会话当前目录与终端上限（不做文件系统校验）。' },
   },
   'terminal/list': {
     readOnly: true,
-    description: { zh: '列出已保留的终端，不解析或激活 Agent。', en: 'List retained terminals without resolving or activating an Agent.' },
+    description: { zh: '列出已保留的终端，不解析或激活 Agent。' },
   },
   'terminal/rename': {
-    description: { zh: '重命名终端（不更换其 shell）。', en: 'Rename a terminal without changing its shell.' },
+    description: { zh: '重命名终端（不更换其 shell）。' },
   },
   'terminal/retain': {
-    description: { zh: '为一个窗口保留既有终端（不激活其 Agent，不接管输入）。', en: 'Retain an existing terminal for a window without activating its agent or taking input control.' },
+    description: { zh: '为一个窗口保留既有终端（不激活其 Agent，不接管输入）。' },
   },
   'terminal/shells': {
     readOnly: true,
-    description: { zh: '探测会话执行环境里已安装的 shell。', en: "Discover installed shells in the session's execution environment." },
+    description: { zh: '探测会话执行环境里已安装的 shell。' },
   },
 
   // ── userQuestions(用户提问) ──
   'userQuestions/answer': {
-    description: { zh: '回答一个继续追问（作为用户消息进入代理上下文并关闭该问题）。', en: 'Answer one continued question; the reply is steered into the agent as a user message and closes the question.' },
+    description: { zh: '回答一个继续追问（作为用户消息进入代理上下文并关闭该问题）。' },
   },
   'userQuestions/attachWait': {
-    description: { zh: '让一个应答界面持有一次限时等待（关闭流即释放）。', en: 'Let one answer UI hold a live timed wait; closing the stream releases the claim.' },
+    description: { zh: '让一个应答界面持有一次限时等待（关闭流即释放）。' },
   },
 
   // ── workspace(工作区) ──
   'workspace/archiveSession': {
-    description: { zh: '把一个已知会话从工作区分组面隐藏。', en: 'Hide one known session from workspace grouping surfaces.' },
+    description: { zh: '把一个已知会话从工作区分组面隐藏。' },
   },
   'workspace/create': {
-    description: { zh: '在既有目录上创建或幂等解析一个工作区。', en: 'Create or idempotently resolve one workspace over an existing directory.' },
+    description: { zh: '在既有目录上创建或幂等解析一个工作区。' },
   },
   'workspace/delete': {
-    description: { zh: '移除工作区登记（保留文件与会话）。', en: 'Remove one workspace registration while retaining files and sessions.' },
+    description: { zh: '移除工作区登记（保留文件与会话）。' },
   },
   'workspace/follow': {
-    description: { zh: '流式输出工作区基线与有序增量。', en: 'Stream a complete workspace baseline followed by ordered increments.' },
+    description: { zh: '流式输出工作区基线与有序增量。' },
   },
   'workspace/initializeDefault': {
-    description: { zh: '首次启动时初始化或复用默认工作区。', en: 'Initialize or reuse the default workspace during first-use startup.' },
+    description: { zh: '首次启动时初始化或复用默认工作区。' },
   },
   'workspace/insertBefore': {
-    description: { zh: '移动一个工作区在登记表中的显示顺序。', en: 'Move one workspace within the registry display order.' },
+    description: { zh: '移动一个工作区在登记表中的显示顺序。' },
   },
   'workspace/insertSessionBefore': {
-    description: { zh: '在工作区内移动一个已记账会话的位置。', en: 'Move one accounted session within a workspace.' },
+    description: { zh: '在工作区内移动一个已记账会话的位置。' },
   },
   'workspace/pinSession': {
-    description: { zh: '把一个已知未归档会话置顶。', en: 'Surface one known unarchived session ahead of unpinned sessions.' },
+    description: { zh: '把一个已知未归档会话置顶。' },
   },
   'workspace/rename': {
-    description: { zh: '把工作区重命名为唯一的非空标题。', en: 'Rename one workspace to a unique non-blank title.' },
+    description: { zh: '把工作区重命名为唯一的非空标题。' },
   },
   'workspace/unarchiveSession': {
-    description: { zh: '把已归档会话恢复到工作区分组面。', en: 'Restore one archived session to workspace grouping surfaces.' },
+    description: { zh: '把已归档会话恢复到工作区分组面。' },
   },
   'workspace/unpinSession': {
-    description: { zh: '取消一个会话的置顶（不动已保存的会话顺序）。', en: "Remove one session's pin without changing its saved session order." },
+    description: { zh: '取消一个会话的置顶（不动已保存的会话顺序）。' },
   },
 
   // ── workspaceFiles(工作区文件) ──
   'workspaceFiles/changes': {
-    description: { zh: '监视会话文件系统里一个文件或目录直接条目的变更。', en: "Watch one file or a directory's direct entries in the session's filesystem." },
+    description: { zh: '监视会话文件系统里一个文件或目录直接条目的变更。' },
   },
   'workspaceFiles/list': {
     readOnly: true,
-    description: { zh: '列出会话工作区内某个目录的直接子项。', en: "List the direct children of one directory inside the Session's workspace." },
+    description: { zh: '列出会话工作区内某个目录的直接子项。' },
   },
   'workspaceFiles/read': {
     readOnly: true,
-    description: { zh: '按页读取一个 UTF-8 文件（后端可读即可，不限工作区）。', en: 'Read one page of lines from a UTF-8 file readable by the filesystem backend.' },
+    description: { zh: '按页读取一个 UTF-8 文件（后端可读即可，不限工作区）。' },
   },
   'workspaceFiles/readBytes': {
     readOnly: true,
-    description: { zh: '读取完整常规文件或单个字节区间（不做文本解码）。', en: 'Read a complete regular file or one byte range without text decoding.' },
+    description: { zh: '读取完整常规文件或单个字节区间（不做文本解码）。' },
   },
   'workspaceFiles/stat': {
     readOnly: true,
-    description: { zh: '报告一个常规文件的标识、版本与大小（不返回内容）。', en: "Report one regular file's identity, version and size without its content." },
+    description: { zh: '报告一个常规文件的标识、版本与大小（不返回内容）。' },
   },
 }
 
