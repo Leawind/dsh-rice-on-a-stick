@@ -40,7 +40,7 @@ const state = {
     http: true,
     allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
     authEnabled: false, authToken: '', selfToolsEnabled: true,
-    bridgeEndpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
+    endpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
     approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
     modelDescriptions: { 'fake-prov/m1': '排名第一的假模型，响应快。' },
     providerDescriptions: { 'fake-prov': '用于界面冒烟的假提供商。' },
@@ -363,7 +363,7 @@ const server = createServer(async (req, res) => {
         // dsh 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): kind 锁定行 + 危险端点标注 + 失效条目 + 超长描述
         // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
         // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读默认勾/悬停 tooltip)。allowed 跟随 config 白名单计算。
-        const allow = new Set(state.config.bridgeEndpointAllowlist)
+        const allow = new Set(state.config.endpointAllowlist)
         const endpoints = [
           { endpoint: 'session/list', description: 'List sessions with pagination and status filters.', descriptionZh: '列出会话（分页与状态过滤）。', descriptionEn: 'List sessions with pagination and status filters.', kind: 'read' },
           { endpoint: 'session/search', description: 'Keyword search across session titles and message transcripts.', descriptionZh: '按关键字搜索会话标题与消息记录。', descriptionEn: 'Keyword search across session titles and message transcripts.', kind: 'read' },

@@ -8,7 +8,7 @@
  *   身份       connection.createPeer({principal: {kind:'owner'}, interactions:'none'}) ——
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
- * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的 bridgeEndpointAllowlist:
+ * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的 endpointAllowlist:
  * 元数据标了只读的端点直行; 其余非流式端点两条通路——白名单内直行(部署方预审批), 白名单外
  * 停泊审批(调用挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。危险端点(信任与供应链类,
  * 见元数据表的 dangerous 标注)不设永久拒绝, 走同样的两条通路, 界面单列并标注。
@@ -158,7 +158,7 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   const dangerous = meta?.dangerous === true ? { dangerous: true } : {}
   if (inv.stream) return { endpoint, readOnly: false, writable: false, ...dangerous, reason: 'stream' }
   if (meta?.readOnly === true) return { endpoint, readOnly: true, writable: false, ...dangerous }
-  if (state.config.bridgeEndpointAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true, ...dangerous }
+  if (state.config.endpointAllowlist.includes(endpoint)) return { endpoint, readOnly: false, writable: true, ...dangerous }
   return {
     endpoint,
     readOnly: false,

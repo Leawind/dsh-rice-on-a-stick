@@ -254,13 +254,13 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !s.includes('/'))
       if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
-    } else if (key === 'bridgeEndpointAllowlist') {
+    } else if (key === 'endpointAllowlist') {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-        throw httpError(400, 'bridgeEndpointAllowlist 必须是字符串数组')
+        throw httpError(400, 'endpointAllowlist 必须是字符串数组')
       }
       const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
       const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
-      if (bad !== undefined) throw httpError(400, `bridgeEndpointAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
+      if (bad !== undefined) throw httpError(400, `endpointAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
     } else if (key === 'modelDescriptions' || key === 'providerDescriptions') {
       // 模型/提供商简介("provider/model" 或 provider id → 一段话): 空键空值直接丢弃
@@ -361,7 +361,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     // namespaces = 各命名空间的中英文一句话描述(面板组头显示), 同样来自开发期元数据。
     'endpoint-allowlist': () => {
       const invocations = listInvocations(ctx)
-      const allow = new Set(state.config.bridgeEndpointAllowlist)
+      const allow = new Set(state.config.endpointAllowlist)
       const live = new Set<string>()
       const endpoints = invocations.map((inv) => {
         const endpoint = `${inv.namespace}/${inv.method}`

@@ -1080,7 +1080,7 @@ try {
   {
     endpointInvokes.length = 0
     const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
-      bridgeEndpointAllowlist: ['schedule/update'],
+      endpointAllowlist: ['schedule/update'],
       approvalTimeoutMs: 5000,
     })
     const dir = await phase.call('bridge_describe', {})
@@ -1205,7 +1205,7 @@ try {
     const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       approvalTimeoutMs: 1000,
       // 失效条目: 不在活性端点目录里的白名单条目要在 GUI 路由里标出来
-      bridgeEndpointAllowlist: ['ghost/gone'],
+      endpointAllowlist: ['ghost/gone'],
     })
     const epsStale = await phaseT.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsStaleBody = epsStale.status === 200 ? JSON.parse(epsStale.body) : {}
@@ -1737,7 +1737,7 @@ try {
       allowedHosts: ['example.com'],
       sessionTtlMs: 0,
       approvalTimeoutMs: 120000,
-      bridgeEndpointAllowlist: ['schedule/update'],
+      endpointAllowlist: ['schedule/update'],
       modelDescriptions: { 'p1/m1': 'Provider One 的快速模型' },
       providerDescriptions: { p1: '面向测试的假提供商' },
     }

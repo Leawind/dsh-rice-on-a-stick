@@ -148,7 +148,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         selfToolsEnabled: state.config.selfToolsEnabled,
         sessionTtlMs: state.config.sessionTtlMs,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
-        bridgeEndpointAllowlist: state.config.bridgeEndpointAllowlist,
+        endpointAllowlist: state.config.endpointAllowlist,
         modelDescriptions: state.config.modelDescriptions,
         providerDescriptions: state.config.providerDescriptions,
       },

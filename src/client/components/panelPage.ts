@@ -222,7 +222,7 @@ export function PanelPage() {
       authEnabled: next.authOn === true,
       selfToolsEnabled: next.selfToolsOn === true,
       // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
-      bridgeEndpointAllowlist: (next.bridgeEndpointAllowlist || []).slice(),
+      endpointAllowlist: (next.endpointAllowlist || []).slice(),
       // 模型/提供商简介: 键值表原样提交, 服务端清理空键空值
       modelDescriptions: next.modelDescriptions || {},
       providerDescriptions: next.providerDescriptions || {},
@@ -707,8 +707,8 @@ export function PanelPage() {
       React.createElement('div', { className: 'dcs-listwrap' },
         React.createElement(EndpointAllowlist, {
           data: eps,
-          allowed: d.bridgeEndpointAllowlist || [],
-          onChange: function (nextArray) { change({ bridgeEndpointAllowlist: nextArray }); },
+          allowed: d.endpointAllowlist || [],
+          onChange: function (nextArray) { change({ endpointAllowlist: nextArray }); },
         }),
       ),
       ),
