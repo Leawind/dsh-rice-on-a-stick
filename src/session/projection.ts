@@ -6,7 +6,7 @@
  *   normal       ≤ ~9k 字符: 上述 + 截断的工具调用参数与结果
  *   full         旧版行为(assistantText 8k / 50×2k / 20×2k), 仅排查时用
  */
-import type { DetailLevel, ModelSelectionOverride, SessionTurnResult } from '../core/types.js'
+import type { DetailLevel, ModelSelection, ModelSelectionOverride, SessionTurnResult } from '../core/types.js'
 
 /** 从 agent 最终回答里解析 changes/verification/leftovers(从后往前找候选, 更可靠) */
 export function parseSummary(assistantText: string): { changes: string; verification: string; leftovers: string } {
@@ -82,11 +82,22 @@ const DETAIL_CAPS: Record<DetailLevel, {
   full: { summaryField: 2000, error: 2000, assistantTail: 0, toolCalls: 50, toolCallArgs: 2000, toolResults: 20, toolResultChars: 2000, assistantText: 8000 },
 }
 
-function clip(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(0, max)
+/** 裁剪并如实记录: 只有真的超过上限才置位, 把"按档省略"(summary 本就不含工具参数)与"截断"分开 */
+function clipTracked(text: string, max: number, clip: { clipped: boolean }): string {
+  if (text.length <= max) return text
+  clip.clipped = true
+  return text.slice(0, max)
+}
+
+/** 截断时随结果就近给出升级路径(不必回查参数说明; 完整阶梯见 guide 的 results 一节) */
+const MORE_HINT: Record<DetailLevel, string> = {
+  summary: 'truncated at the summary budget: call session_result again with detail="normal" (tool calls/results) or "full" (complete text)',
+  normal: 'truncated at the normal budget: call session_result again with detail="full" for the complete text and more tool results',
+  full: 'truncated at the full budget: read the session log with session_history (detail="full", beforeIndex) for the remainder',
 }
 
 export const DETAIL_ARG = {
+  uri: 'uri = reference only (the resource points at the session history; read or subscribe to it)',
   summary: 'summary (default): three-line summary + answer tail + tool names, ~a few hundred tokens',
   normal: 'normal: adds truncated tool call arguments and results (~2k tokens)',
   full: 'full: complete text (up to tens of thousands of tokens; debugging only)',
@@ -101,9 +112,44 @@ export function projectModel(selection: ModelSelectionOverride | undefined): Rec
   return o
 }
 
-/** 读时投影: 把全量结果渲染成对应 detail 级别的返回载荷(空 error 直接省略字段) */
+/** detail='uri' 档的投影: 只回引用与簿记字段, 数据本体让调用方按 resource URI 直读/订阅 */
+export function renderUriResult(result: {
+  sessionId: string
+  model: ModelSelection
+  requestId?: string
+  status?: string
+  turn?: number
+  pending?: boolean
+  waiting?: { approvals: string[]; questions: string[] }
+}, historyUri: string): Record<string, unknown> {
+  return {
+    detail: 'uri',
+    sessionId: result.sessionId,
+    ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
+    ...(result.status !== undefined ? { status: result.status } : {}),
+    ...(result.turn !== undefined ? { turn: result.turn } : {}),
+    ...(result.pending === true ? { pending: true } : {}),
+    ...(result.waiting !== undefined ? { waiting: result.waiting } : {}),
+    model: projectModel(result.model),
+    resource: historyUri,
+    ...uriNote(),
+  }
+}
+
+export function uriNote(): { note: string } {
+  return {
+    note: 'data lives behind the resource uri (read it, or subscribe to be pushed updates); pass detail=summary|normal|full to inline the payload instead',
+  }
+}
+
+/**
+ * 读时投影: 把全量结果渲染成对应 detail 级别的返回载荷(空 error 直接省略字段)。
+ * 超出本档预算的字段会被裁剪, 此时结果额外带 `truncated: true` 与 `more`(下一档怎么取)——
+ * 不静默丢信息: 读取方据此知道结果不完整、以及该升到哪一档。
+ */
 export function renderResult(result: SessionTurnResult, detail: DetailLevel): Record<string, unknown> {
   const caps = DETAIL_CAPS[detail]
+  const clip = { clipped: false }
   const base = {
     detail,
     sessionId: result.sessionId,
@@ -118,33 +164,32 @@ export function renderResult(result: SessionTurnResult, detail: DetailLevel): Re
     ...(result.usage ? { usage: result.usage } : {}),
     toolCallCount: result.toolCalls.length,
     toolResultCount: result.toolResults.length,
-    ...(result.error ? { error: clip(result.error, caps.error) } : {}),
-    changes: clip(result.changes, caps.summaryField),
-    verification: clip(result.verification, caps.summaryField),
-    leftovers: clip(result.leftovers, caps.summaryField),
+    ...(result.error ? { error: clipTracked(result.error, caps.error, clip) } : {}),
+    changes: clipTracked(result.changes, caps.summaryField, clip),
+    verification: clipTracked(result.verification, caps.summaryField, clip),
+    leftovers: clipTracked(result.leftovers, caps.summaryField, clip),
   }
+  const finish = (payload: Record<string, unknown>): Record<string, unknown> =>
+    clip.clipped ? { ...payload, truncated: true, more: MORE_HINT[detail] } : payload
   if (detail === 'summary') {
-    // 总结 JSON 在回答末尾, 尾部最有信息量; 工具只报名字不报参数
-    return {
+    // 总结 JSON 在回答末尾, 尾部最有信息量; 工具只报名字不报参数(档位约定, 不算截断)
+    if (result.assistantText.length > caps.assistantTail) clip.clipped = true
+    return finish({
       ...base,
       assistantTail: result.assistantText.slice(-caps.assistantTail),
       toolCallNames: result.toolCalls.map((c) => c.name),
-    }
+    })
   }
+  // normal / full 的工具面: 条数与单条长度都是硬上限, 任何一个被裁都算截断
+  if (result.toolCalls.length > caps.toolCalls) clip.clipped = true
+  if (result.toolResults.length > caps.toolResults) clip.clipped = true
+  const toolCalls = result.toolCalls.slice(0, caps.toolCalls).map((c) => ({ name: c.name, args: clipTracked(c.args, caps.toolCallArgs, clip) }))
+  const toolResults = result.toolResults.slice(0, caps.toolResults).map((r) => clipTracked(r, caps.toolResultChars, clip))
   if (detail === 'normal') {
-    return {
-      ...base,
-      assistantTail: result.assistantText.slice(-caps.assistantTail),
-      toolCalls: result.toolCalls.slice(0, caps.toolCalls).map((c) => ({ name: c.name, args: clip(c.args, caps.toolCallArgs) })),
-      toolResults: result.toolResults.slice(0, caps.toolResults).map((r) => clip(r, caps.toolResultChars)),
-    }
+    if (result.assistantText.length > caps.assistantTail) clip.clipped = true
+    return finish({ ...base, assistantTail: result.assistantText.slice(-caps.assistantTail), toolCalls, toolResults })
   }
-  return {
-    ...base,
-    assistantText: result.assistantText.slice(0, caps.assistantText),
-    toolCalls: result.toolCalls.slice(0, caps.toolCalls).map((c) => ({ name: c.name, args: clip(c.args, caps.toolCallArgs) })),
-    toolResults: result.toolResults.slice(0, caps.toolResults).map((r) => clip(r, caps.toolResultChars)),
-  }
+  return finish({ ...base, assistantText: clipTracked(result.assistantText, caps.assistantText, clip), toolCalls, toolResults })
 }
 
 /** 递归收集事件数据里的文本(text/content 字段; 数组与嵌套对象都走)。acc 为累积缓冲(缺省新建) */

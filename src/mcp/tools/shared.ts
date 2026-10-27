@@ -3,8 +3,6 @@
  * 每个工具都返回 MCP text content; 带 outputSchema 的工具额外镜像 structuredContent。
  */
 import { z } from 'zod'
-import type { ModelSelection } from '../../core/types.js'
-import { projectModel } from '../../session/projection.js'
 
 /** 工具回调统一返回 MCP text content */
 export function out(content: string) {
@@ -35,36 +33,6 @@ export function errorJson(e: unknown): string {
 export function structuredOut<T>(value: unknown, schema: z.ZodType<T>): { content: { type: 'text'; text: string }[]; structuredContent: T } {
   const parsed = schema.parse(value)
   return { content: [{ type: 'text' as const, text: JSON.stringify(parsed, null, 2) }], structuredContent: parsed }
-}
-
-/** detail='uri' 档的投影: 只回引用与簿记字段, 数据本体让调用方按 resource URI 直读/订阅 */
-export function renderUriResult(result: {
-  sessionId: string
-  model: ModelSelection
-  requestId?: string
-  status?: string
-  turn?: number
-  pending?: boolean
-  waiting?: { approvals: string[]; questions: string[] }
-}, historyUri: string): Record<string, unknown> {
-  return {
-    detail: 'uri',
-    sessionId: result.sessionId,
-    ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
-    ...(result.status !== undefined ? { status: result.status } : {}),
-    ...(result.turn !== undefined ? { turn: result.turn } : {}),
-    ...(result.pending === true ? { pending: true } : {}),
-    ...(result.waiting !== undefined ? { waiting: result.waiting } : {}),
-    model: projectModel(result.model),
-    resource: historyUri,
-    ...uriNote(),
-  }
-}
-
-export function uriNote(): { note: string } {
-  return {
-    note: 'data lives behind the resource uri (read it, or subscribe to be pushed updates); pass detail=summary|normal|full to inline the payload instead',
-  }
 }
 
 // ── 跨工具共享的描述片段(单一出处防漂移; 完整语义在 guide.md Concepts) ──

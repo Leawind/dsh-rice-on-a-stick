@@ -26,7 +26,8 @@ import {
 } from './turn.js'
 import { approvalEntriesFor } from './approvals.js'
 import { questionEntriesFor } from './questions.js'
-import { renderResult } from './projection.js'
+import { renderResult, renderUriResult } from './projection.js'
+import { resUri } from '../host/data.js'
 import type { DetailLevel, ModelSelection } from '../core/types.js'
 
 /** session_poll 一次等待的上限(毫秒): 有界 long-poll, 不是无限阻塞 */
@@ -173,7 +174,7 @@ export async function sessionResult(
   ctx: Context,
   sessionId: string,
   requestId?: string,
-  opts: { detail?: DetailLevel } = {},
+  opts: { detail?: DetailLevel | 'uri' } = {},
 ): Promise<Record<string, unknown>> {
   const wanted = requestId?.trim() ?? ''
   const live = ctx.agents.get(asSessionId(sessionId))
@@ -207,8 +208,16 @@ export async function sessionResult(
   }
 
   const log = events ?? await inspectSessionEvents(ctx, asSessionId(sessionId))
+  const selection: ModelSelection = knownSelectionOf(ctx, sessionId) ?? selectionOfEvents(log) ?? { provider: '', model: '' }
   const range = findRequestTurn(log, record.requestId, record.messageId, record.startSeq)
   if (range === undefined) {
+    const note = 'request is accepted but no turn has claimed it yet; poll again'
+    if (opts.detail === 'uri') {
+      return {
+        ...renderUriResult({ sessionId, model: selection, requestId: record.requestId, status: 'pending', pending: true }, resUri.sessionHistory(sessionId)),
+        note,
+      }
+    }
     return {
       detail: opts.detail ?? 'summary',
       sessionId,
@@ -216,11 +225,10 @@ export async function sessionResult(
       status: 'pending',
       pending: true,
       turn: null,
-      note: 'request is accepted but no turn has claimed it yet; poll again',
+      note,
     }
   }
 
-  const selection: ModelSelection = knownSelectionOf(ctx, sessionId) ?? selectionOfEvents(log) ?? { provider: '', model: '' }
   const preset = state.sessionRecords.get(sessionId)?.preset
     ?? (live !== undefined ? live.session.header.agentPreset : undefined)
     ?? ''
@@ -231,15 +239,19 @@ export async function sessionResult(
     preset,
     submittedAt: record.submittedAt,
   })
-  const rendered = renderResult(result, opts.detail ?? 'summary')
+  const rendered = opts.detail === 'uri'
+    ? renderUriResult(result, resUri.sessionHistory(sessionId))
+    : renderResult(result, opts.detail ?? 'summary')
   if (result.pending !== true) return rendered
   const waiting = state.answers.pendingInput(sessionId)
   const hasWaiting = waiting.approvals.length > 0 || waiting.questions.length > 0
+  const pendingNote = hasWaiting
+    ? 'the session is waiting for input; answer with approval_answer/question_answer, then fetch the result again'
+    : 'turn is still running; poll again or call session_cancel to stop it'
   return {
     ...rendered,
     ...(hasWaiting ? { waiting } : {}),
-    note: hasWaiting
-      ? 'the session is waiting for input; answer with approval_answer/question_answer, then fetch the result again'
-      : 'turn is still running; poll again or call session_cancel to stop it',
+    // uri 档自带"如何内联"的说明, 与运行状态提示合并而不是覆盖
+    note: opts.detail === 'uri' ? `${String(rendered.note ?? '')} ${pendingNote}`.trim() : pendingNote,
   }
 }

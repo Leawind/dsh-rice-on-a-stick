@@ -9,12 +9,12 @@ import { state } from '../../core/state.js'
 import type { ModelSelection } from '../../core/types.js'
 import { cancelSession, createSession, promptSession, queueManage, resolveSessionForPrompt, selectionOf, submitSession } from '../../session/engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
-import { DETAIL_ARG, projectModel, renderResult } from '../../session/projection.js'
+import { DETAIL_ARG, projectModel, renderResult, renderUriResult } from '../../session/projection.js'
 import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, setPermissionPreset } from '../../session/permissions.js'
 import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSessionEvents, serviceOf } from '../../host/bridge.js'
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, type SessionControllerView } from '../../host/data.js'
-import { errorJson, NEEDS_SESSION_CONTROLLER, NEEDS_WORKSPACE_CONTROLLER, out, outError, renderUriResult, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
+import { errorJson, NEEDS_SESSION_CONTROLLER, NEEDS_WORKSPACE_CONTROLLER, out, outError, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
 
 /** workspaceController 视图(归档/恢复; 可选依赖) */
 interface WorkspaceControllerView {
@@ -119,7 +119,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         mode: MODE_ARG,
         waitFor: z.enum(['turn', 'input']).optional().describe('What to wait for (default input): input = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends.'),
         requestId: z.string().min(1).max(200).optional().describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
-        detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: uri = reference only (the resource points at the session history; read or subscribe to it); ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
+        detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -214,7 +214,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       inputSchema: {
         sessionId: z.string().describe('Session id used when the task was submitted.'),
         requestId: z.string().min(1).max(200).optional().describe('Request id returned by session_submit/session_prompt; omit for the latest request in the session.'),
-        detail: z.enum(['summary', 'normal', 'full']).optional().describe(`Result detail: ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
+        detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: true },
     },

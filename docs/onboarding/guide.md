@@ -208,11 +208,15 @@ you already know.
 <!-- section: results -->
 ## Reading results without blowing your context
 
-`detail` controls read-back size: `summary` (default, a few hundred tokens — the
-changes/verification/leftovers summary + answer tail), `normal` (~2k, adds truncated tool
-calls), `full` (everything, for debugging). Tool-level failures return `isError: true`
-with the reason in the payload. Every result also names the session and the
-model/preset that actually answered.
+`detail` controls read-back size on both `session_prompt` and `session_result`: `uri`
+returns only the reference (`resource`) plus bookkeeping, `summary` (default, a few hundred
+tokens — the changes/verification/leftovers summary + answer tail + tool names), `normal`
+(~2k, adds truncated tool calls and results), `full` (everything, for debugging). A result
+that had to clip something at its own level carries `truncated: true` and a `more` line
+naming the next level — re-call `session_result` with the same `requestId` at that level
+instead of guessing. A `summary` result lists tool names only by design; that is not
+truncation. Tool-level failures return `isError: true` with the reason in the payload.
+Every result also names the session and the model/preset that actually answered.
 
 Async results carry `requestId`, `status` (completed / blocked / errored / cancelled;
 running/pending while not settled), `turn`, and `pending`. A `session_result` call that

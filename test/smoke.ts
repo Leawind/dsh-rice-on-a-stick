@@ -31,7 +31,7 @@ import { collectSessions, sessionMetaPayload, sessionOverviewPayload } from '../
 import { ageParkedWritesForTest, answerParkedWrite, invokeEndpoint, listParkedWrites } from '../lib/host/endpoint-passthrough.js'
 import { sniffImageMediaType } from '../lib/host/attachments.js'
 import { isWithin } from '../lib/core/paths.js'
-import { parseSummary } from '../lib/session/projection.js'
+import { parseSummary, renderResult } from '../lib/session/projection.js'
 import { approvalPolicyOfEvents } from '../lib/session/approvals.js'
 import { createAnswerRuntime } from '../lib/session/answers.js'
 import { state } from '../lib/core/state.js'
@@ -324,6 +324,14 @@ try {
   const resIdemInner = innerOf(resIdem)
   checks['session_result 按 requestId 取回结果'] = resIdemInner.status === 'completed'
     && resIdemInner.pending !== true && resIdemInner.changes === 'c1' && resIdemInner.requestId === 'smoke-req-idem'
+    && resIdemInner.truncated === undefined
+  // detail='uri' 与 session_prompt 同一档: 只回引用与簿记, 结果本体不内联
+  const resUriDetail = await rpc(init.sid, { jsonrpc: '2.0', id: 274, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem', detail: 'uri' } } })
+  const resUriInner = innerOf(resUriDetail)
+  checks['session_result detail=uri 只回引用(两端同一档)'] = resUriInner.detail === 'uri'
+    && String(resUriInner.resource ?? '').includes('sess-live/history')
+    && resUriInner.assistantTail === undefined && resUriInner.changes === undefined && resUriInner.toolCalls === undefined
+    && typeof resUriInner.note === 'string'
   // 索引丢失(模拟插件重启/TTL 淘汰): requestId 写进了 user 消息的 source.rpcId, 应从日志重建
   state.sessionRequests.delete('smoke-req-idem')
   const resRecovered = await rpc(init.sid, { jsonrpc: '2.0', id: 271, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } } })
@@ -1852,6 +1860,28 @@ try {
   checks['parseSummary: 无 summary → 空串兜底'] = parseSummary('no json here').changes === ''
   checks['parseSummary: 嵌套对象可解析'] = parseSummary('done {"changes":"c3","meta":{"nested":1}} end').changes === 'c3'
   checks['parseSummary: 字符串里的花括号不干扰配对'] = parseSummary('{"changes":"a}b{c"}').changes === 'a}b{c'
+  // 结果投影: 突破本档预算时必须显式标记, 并就近给出升档路径(不静默丢信息)
+  const bigTurn = {
+    sessionId: 's1', model: { provider: 'p', model: 'm' }, preset: '', durationMs: 1,
+    assistantText: 'a'.repeat(9000),
+    toolCalls: Array.from({ length: 20 }, (_, i) => ({ name: `t${i}`, args: 'x'.repeat(300) })),
+    toolResults: Array.from({ length: 20 }, () => 'y'.repeat(600)),
+    changes: '', verification: '', leftovers: '', error: '',
+  } as any
+  const sumBig = renderResult(bigTurn, 'summary') as any
+  checks['renderResult: summary 长回答被裁时带 truncated + 升档提示'] = sumBig.truncated === true
+    && String(sumBig.more).includes('detail="normal"') && sumBig.assistantTail.length === 1200
+  const normBig = renderResult(bigTurn, 'normal') as any
+  checks['renderResult: normal 超条数/单条上限被裁并标记'] = normBig.truncated === true
+    && normBig.toolCalls.length === 15 && normBig.toolResults.length === 6
+    && normBig.toolCalls[0].args.length === 250 && String(normBig.more).includes('detail="full"')
+  const fullBig = renderResult(bigTurn, 'full') as any
+  checks['renderResult: full 也按预算裁并指向 session_history'] = fullBig.truncated === true
+    && fullBig.assistantText.length === 8000 && String(fullBig.more).includes('session_history')
+  const smallTurn = { ...bigTurn, assistantText: 'short', toolCalls: [{ name: 'bash', args: '{}' }], toolResults: ['ok'] } as any
+  const sumSmall = renderResult(smallTurn, 'summary') as any
+  checks['renderResult: 未超预算不误报(summary 只报工具名属档位约定)'] = sumSmall.truncated === undefined
+    && sumSmall.more === undefined && sumSmall.toolCallNames?.[0] === 'bash'
   checks['sniffImageMediaType: png/jpeg/gif/webp 魔数与拒绝非图'] = sniffImageMediaType(FAKE_PNG) === 'image/png'
     && sniffImageMediaType(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])) === 'image/jpeg'
     && sniffImageMediaType(Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) === 'image/gif'
