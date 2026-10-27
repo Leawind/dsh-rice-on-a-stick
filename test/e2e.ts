@@ -115,7 +115,7 @@ try {
   )
   report(
     'initialize 携带 instructions(工作流引导)',
-    typeof initPayload?.instructions === 'string' && initPayload.instructions.length > 200 && initPayload.instructions.includes('dsh_get_started'),
+    typeof initPayload?.instructions === 'string' && initPayload.instructions.length > 200 && initPayload.instructions.includes('dsh_guide'),
     `${typeof initPayload?.instructions === 'string' ? initPayload.instructions.length : 0} chars`,
   )
   report(
@@ -130,7 +130,7 @@ try {
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
   const expected = [
     'echo',
-    'dsh_get_started',
+    'dsh_guide',
     'dsh_list_tools',
     'dsh_status',
     'workspace_list',
@@ -172,9 +172,16 @@ try {
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
   report('echo 往返', echo.resp.status === 200 && echo.resp.text.includes('e2e-ping'))
 
-  const guide = await callTool(sid, 4, 'dsh_get_started', { section: 'errors' })
+  const guide = await callTool(sid, 4, 'dsh_guide', { section: 'errors' })
   const guideText = guide.inner.text ?? ''
-  report('dsh_get_started(section=errors) 返回错误对照表', guideText.includes('Error → alternative path'), `${guideText.length} chars`)
+  report('dsh_guide(section=errors) 返回错误对照表', guideText.includes('Error → alternative path'), `${guideText.length} chars`)
+
+  const guideIndex = await callTool(sid, 41, 'dsh_guide', {})
+  report(
+    'dsh_guide 无参默认返回节索引(非全文)',
+    typeof guideIndex.inner.text === 'string' && guideIndex.inner.text.includes('Sections') && !guideIndex.inner.text.includes('## Concepts'),
+    `${String(guideIndex.inner.text ?? '').length} chars`,
+  )
 
   const listTools = await callTool(sid, 5, 'dsh_list_tools')
   report(

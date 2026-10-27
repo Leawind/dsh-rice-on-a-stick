@@ -1,9 +1,9 @@
 /**
- * Agent 认知面: initialize 的 instructions 引导 + dsh_get_started 帮助文档。
+ * Agent 认知面: initialize 的 instructions 引导 + dsh_guide 帮助文档。
  *
  * 文本是产品文档而非代码, 因此放在 docs/onboarding/*.md, 本模块只负责读取与按节切分:
  *   instructions.md → 随 initialize result 下发的 server instructions
- *   guide.md        → dsh_get_started 的正文; `<!-- section: id -->`
+ *   guide.md        → dsh_guide 的正文; `<!-- section: id -->`
  *                     标记把整份文档切成概念/工作流/错误/结果/限制各节
  * 文件路径相对本模块解析: src/mcp 与构建产物 lib/mcp 都向上两级到仓库/包根, 因此源码直跑与
  * 安装后运行一致。文本缺失时在导入期抛错(插件启动即失败, 不静默下发空指南)。
@@ -74,6 +74,26 @@ export const GET_STARTED_SECTIONS: Record<NamedSection, string> = GUIDE.sections
 /** 整份帮助文档(GUIDE_HEADER + 各节按序拼接); dsh://guide 资源与工具的 section=all 同数据 */
 export const GET_STARTED_DOC = GUIDE_HEADER + SECTION_IDS.map((id) => GET_STARTED_SECTIONS[id]).join('\n')
 
+/** 各节的一句话索引(默认返回的"目录"; 全文按需显式取, 避免首次交互就付 6k token) */
+const SECTION_BLURBS: Record<NamedSection, string> = {
+  concepts:
+    'glossary — sessions/agents, model & preset selection, send modes, async requests, turn vs step, lifecycle, subagents, approvals, questions, permissions, attachments, endpoint passthrough',
+  workflows:
+    'recipes — one-off task, busy sessions (queue/steer), fan-out workers, human-input gate, finding & inspecting sessions, resources & push updates, images, endpoint escape hatch',
+  errors: 'error → alternative-path table (what to do instead when a call fails)',
+  results: 'reading results cheaply — the detail ladder (uri/summary/normal/full), truncation markers, history/overview budgets',
+  limits: 'deployment-imposed limits (model allowlist, async request index, answer-client seam, attachment caps, endpoint gating)',
+}
+
+/** 节索引(指南头 + 每节一句话; 默认返回值, 全文约 6k token 时索引 <0.5k) */
+export const GUIDE_INDEX: string = [
+  GUIDE_HEADER.trimEnd(),
+  '',
+  'Sections — call dsh_guide with `section` to fetch one part, or `section: "all"` for the full guide:',
+  ...SECTION_IDS.map((id) => `- ${id}: ${SECTION_BLURBS[id]}`),
+  '',
+].join('\n')
+
 /**
  * 随 MCP initialize result 下发的 server 引导文本(McpServer 第二参 serverOptions.instructions)。
  */
@@ -81,8 +101,12 @@ export function serverInstructions(): string {
   return INSTRUCTIONS
 }
 
-/** section 参数取单节的返回值; 非法 id 由 zod schema 拦下, 这里只处理合法枚举 */
+/**
+ * section 参数的返回值: 缺省 = 节索引(廉价, 首次交互从这里开始); 'all' = 全文; 其余 = 单节。
+ * 非法 id 由 zod schema 拦下, 这里只处理合法枚举。
+ */
 export function guideSectionDoc(section?: GuideSection): string {
-  if (!section || section === 'all') return GET_STARTED_DOC
+  if (section === undefined) return GUIDE_INDEX
+  if (section === 'all') return GET_STARTED_DOC
   return GET_STARTED_SECTIONS[section]
 }

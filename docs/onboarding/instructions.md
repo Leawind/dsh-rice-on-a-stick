@@ -65,8 +65,10 @@ Quick start:
 - Results are projected by the detail argument to save your context budget — default
   is summary. Pass detail=full only for debugging.
 
-If you are new to dsh, call the dsh_get_started tool first: it holds the concept glossary
-(presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path
-cheat sheet. MCP resources (dsh://status, dsh://presets, dsh://sessions/{id}/history,
+If you are new to dsh, call the dsh_guide tool first — with no arguments it returns a
+compact section index; fetch only the section the task needs (concepts = glossary,
+workflows = recipes, errors = error→alternative-path table, results = reading results
+cheaply, limits = deployment-imposed limits) and pass section="all" only when you truly
+want the whole guide. MCP resources (dsh://status, dsh://presets, dsh://sessions/{id}/history,
 dsh://sessions/{id}/activity, dsh://sessions/{id}/overview, ...) mirror the read tools
 and add subscription-based push updates.

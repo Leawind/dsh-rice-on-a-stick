@@ -138,10 +138,15 @@ try {
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
   checks['原生自用工具: dsh_status 报告开关与已注册数'] =
     nativeStatusJson.config?.selfToolsEnabled === true && nativeStatusJson.stats?.selfTools === nativeSchemas.length
-  const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
+  const nativeGuideDef = ctx.tools.get('rice_dsh_guide')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
   checks['原生自用工具: 入门指南补前缀提示'] = nativeGuideText.includes('rice_') && nativeGuideText.includes('rice_session_prompt')
+  // 文档层渐进披露: 无参默认只回节索引(廉价), 全文必须显式 section=all 才给
+  const nativeGuideIndexValue = await nativeGuideDef.execute({}, { signal: new AbortController().signal } as any)
+  const nativeGuideIndexText = nativeGuideDef.output.render({}, nativeGuideIndexValue)[0]?.text ?? ''
+  checks['原生自用工具: dsh_guide 无参默认回节索引'] =
+    nativeGuideIndexText.includes('Sections') && nativeGuideIndexText.length < nativeGuideText.length && !nativeGuideIndexText.includes('## Concepts')
   // 原生面"当前会话": exec.agent 由宿主 agent 循环给出, 省略 sessionId 即落到调用方会话
   const nativeMetaDef = ctx.tools.get('rice_session_meta')
   const nativeMetaValue = await nativeMetaDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
@@ -177,8 +182,7 @@ try {
   })
   checks['initialize 拿到 sessionId'] = Boolean(init.sid)
   const initResult = init.status === 200 ? parsePayload(init.text).result : undefined
-  checks['initialize 携带 instructions(含 dsh_get_started 指路)'] =
-    typeof initResult?.instructions === 'string' && initResult.instructions.includes('dsh_get_started')
+  checks['initialize 携带 instructions(含 dsh_guide 指路)'] = typeof initResult?.instructions === 'string' && initResult.instructions.includes('dsh_guide')
   await rpc(init.sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
   const echo = await rpc(init.sid, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'echo', arguments: { text: 'ping-8099' } } })

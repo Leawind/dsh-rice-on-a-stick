@@ -128,11 +128,11 @@ function renderResult(result: McpToolResult): { type: 'text'; text: string }[] {
 }
 
 /**
- * dsh_get_started 的正文里用的是 MCP 原名; 原生调用时在开头补一条前缀规则,
+ * dsh_guide 的正文里用的是 MCP 原名; 原生调用时在开头补一条前缀规则,
  * 避免模型按指南里的 `session_prompt` 去调用不存在的名字。
  */
 function withNativeGuideNote(tool: CapturedTool, result: McpToolResult): McpToolResult {
-  if (tool.name !== 'dsh_get_started' || result.isError === true) return result
+  if (tool.name !== 'dsh_guide' || result.isError === true) return result
   const note =
     `> Native self-use aliases: every tool name below is prefixed with \`${NATIVE_PREFIX}\` ` + `(for example \`${NATIVE_PREFIX}session_prompt\`).\n\n`
   let prepended = false

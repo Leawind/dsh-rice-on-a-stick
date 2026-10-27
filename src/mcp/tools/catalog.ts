@@ -1,6 +1,5 @@
 /**
- * 目录与状态类工具: 连通性探针、入门指南、宿主工具清单、插件状态、工作区、模型目录,
- * 以及原生子代理发现。
+ * 目录与状态类工具: 入门指南、插件状态、工作区、模型目录、权限预设, 以及原生子代理发现。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -27,17 +26,17 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
   )
 
   mcp.registerTool(
-    'dsh_get_started',
+    'dsh_guide',
     {
       title: 'dsh usage guide',
       description:
-        'This tool set is Rice on a Stick, a bridge into a running dsh (DeepSeek Harness) process — the guide is about that harness. If you are new to dsh, call this first: concept glossary (sessions, presets, turn vs step, approval policy), workflow recipes, and an error→alternative-path cheat sheet. Pass section to fetch just one part instead of the whole guide. Returns a static markdown guide; no side effects.',
+        'This tool set is Rice on a Stick, a bridge into a running dsh (DeepSeek Harness) process — the guide is about that harness. Call it with no arguments first: that returns a compact section index. Then fetch only the part the task needs: concepts = glossary, workflows = recipes, errors = error→alternative-path table, results = detail levels and reading results, limits = deployment-imposed limits; section="all" returns the full document.',
       inputSchema: {
         section: z
           .enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits'])
           .optional()
           .describe(
-            'all = the full guide (default); concepts = glossary; workflows = recipes; errors = error→alternative-path table; results = detail levels and reading results; limits = deployment-imposed limits',
+            'Omit = compact section index (cheap; start here); all = the full guide; or one section: concepts / workflows / errors / results / limits.',
           ),
       },
       annotations: { readOnlyHint: true },
