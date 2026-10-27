@@ -141,7 +141,9 @@ try {
     'session_result',
     'session_cancel',
     'session_queue',
-    'session_command',
+    'session_queue_manage',
+    'session_command_list',
+    'session_command_run',
     'session_select_model',
     'session_rename',
     'session_list',
@@ -154,6 +156,7 @@ try {
     'approval_list',
     'approval_answer',
     'approval_policy',
+    'approval_policy_set',
     'question_list',
     'question_answer',
     'subagent_list',
@@ -422,7 +425,7 @@ try {
       if (PERMISSION_PRESET) {
         const meta = await callTool(sid, 36, 'session_inspect', { sessionId })
         report('session_inspect 回报权限预设', meta.inner?.permission === PERMISSION_PRESET, `permission=${meta.inner?.permission ?? meta.inner?.error ?? '?'}`)
-        const approvalPolicy = await callTool(sid, 38, 'approval_policy', { sessionId, action: 'get' })
+        const approvalPolicy = await callTool(sid, 38, 'approval_policy', { sessionId })
         report(
           'approval_policy 读取生效策略(预设捆绑的审批旋钮)',
           typeof approvalPolicy.inner?.policy === 'string' || approvalPolicy.inner?.policy === null,

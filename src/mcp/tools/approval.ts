@@ -1,5 +1,5 @@
 /**
- * 审批控制面: 列出、回答、读取/切换审批策略。
+ * 审批控制面: 列出、回答、读取/切换审批策略(读写在工具名上分开, annotations 才能如实标注)。
  *
  * 回答不是插件扣住 host waterfall, 而是本插件作为普通 Web answer client 持有
  * forwarded approval/request, 再用 approval_answer 通过 $events/result 回答。
@@ -62,59 +62,75 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'approval_policy',
     {
-      title: 'Get or set approval policy',
+      title: 'Get approval policy',
       description:
-        "Read or switch a session's approval policy knob: ask = request approval when needed; never = reject outright. `get` works for live and cold sessions (cold = folded from the log); `set` requires a live session and is written to the session log. This is one knob only — knob-level changes can leave a `custom` combination; for a named permission level use `session_set_permission` instead.",
+        "Read a session's effective approval policy knob: ask = request approval when needed; never = reject outright. Works for live and cold sessions (cold = folded from the log). This is one knob only — for a named permission level use `session_set_permission` instead. Read-only; the write counterpart is `approval_policy_set`.",
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
-        action: z.enum(['get', 'set']).describe('get = read the effective policy; set = switch it.'),
-        policy: z.enum(['ask', 'never']).optional().describe('Target policy for action=set.'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId }) => {
+      try {
+        const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown } | undefined
+        if (live !== undefined) {
+          const effective = effectiveApprovalPolicy(ctx, live.session)
+          return out(
+            JSON.stringify(
+              {
+                sessionId,
+                live: true,
+                policy: effective ?? null,
+                note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
+              },
+              null,
+              2,
+            ),
+          )
+        }
+        try {
+          const events = await inspectSessionEvents(ctx, asSessionId(sessionId))
+          const effective = approvalPolicyOfEvents(events)
+          return out(
+            JSON.stringify(
+              {
+                sessionId,
+                live: false,
+                policy: effective ?? null,
+                note: 'cold session: policy folded from the persisted log; the host default may differ',
+              },
+              null,
+              2,
+            ),
+          )
+        } catch (e) {
+          return outError(JSON.stringify({ error: `session "${sessionId}" is not readable: ${(e as Error)?.message ?? String(e)}` }))
+        }
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  mcp.registerTool(
+    'approval_policy_set',
+    {
+      title: 'Set approval policy',
+      description:
+        "Switch a session's approval policy knob: ask = request approval when needed; never = reject outright. Requires a live session and writes to the session log. This is one knob only — knob-level changes can leave a `custom` combination; for a named permission level use `session_set_permission` instead. Read counterpart: `approval_policy`.",
+      inputSchema: {
+        sessionId: z.string().describe('Target session id.'),
+        policy: z.enum(['ask', 'never']).describe('Target policy.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, action, policy }) => {
+    async ({ sessionId, policy }) => {
       try {
         const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown } | undefined
-        if (action === 'get') {
-          if (live !== undefined) {
-            const effective = effectiveApprovalPolicy(ctx, live.session)
-            return out(
-              JSON.stringify(
-                {
-                  sessionId,
-                  live: true,
-                  policy: effective ?? null,
-                  note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
-                },
-                null,
-                2,
-              ),
-            )
-          }
-          try {
-            const events = await inspectSessionEvents(ctx, asSessionId(sessionId))
-            const effective = approvalPolicyOfEvents(events)
-            return out(
-              JSON.stringify(
-                {
-                  sessionId,
-                  live: false,
-                  policy: effective ?? null,
-                  note: 'cold session: policy folded from the persisted log; the host default may differ',
-                },
-                null,
-                2,
-              ),
-            )
-          } catch (e) {
-            return outError(JSON.stringify({ error: `session "${sessionId}" is not readable: ${(e as Error)?.message ?? String(e)}` }))
-          }
-        }
-        if (policy === undefined) return outError(JSON.stringify({ error: 'action "set" requires policy (ask|never)' }))
         if (live === undefined) {
           return outError(
             JSON.stringify({
-              error: `session "${sessionId}" is not live; prompt/submit once to activate it, then retry (for a named permission level use session_set_permission, which also resumes cold sessions)`,
+              error: `session "${sessionId}" is not live; send once (session_send) to activate it, then retry (for a named permission level use session_set_permission, which also resumes cold sessions)`,
             }),
           )
         }

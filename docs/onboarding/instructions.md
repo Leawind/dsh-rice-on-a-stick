@@ -22,7 +22,8 @@ Quick start:
   boundary of the running turn (it never interrupts a running step). Omit mode only when
   the session is idle (the two are then identical); on a running session it fails with
   MODE_REQUIRED. session_cancel stops the current turn and keeps the queue; session_queue
-  inspects/edits/removes queued messages and can promote one with action=steer.
+  inspects queued messages and session_queue_manage edits/removes them or promotes one
+  with action=steer.
 - For fan-out, do not block on one session at a time: session_send with wait=none admits
   a task and returns requestId immediately; session_poll observes many sessions at once
   (bounded waitMs, returns changed/timedOut); session_result fetches the structured
@@ -36,8 +37,8 @@ Quick start:
   answers the whole ask_user_question batch (the child turn continues with that answer).
   session_send defaults to wait=input, so it returns pending=true with `waiting`
   instead of blocking while the session waits; answer, then call session_result.
-  approval_policy reads or switches the ask|never knob; for a named permission level
-  (a sandbox + approval bundle, e.g. full access) use permission_list,
+  approval_policy reads the ask|never knob and approval_policy_set switches it; for a
+  named permission level (a sandbox + approval bundle, e.g. full access) use permission_list,
   session_create.permission, or session_set_permission — the same presets the UI's
   permission switcher shows (knob-only changes can read as `custom`).
 - Native subagents: subagent_list reads a session's child catalog (recursive=true adds
@@ -58,10 +59,11 @@ Quick start:
   id.
   session_history is a conversation view by default (user + assistant — pass
   roles to include tool calls or turn boundaries).
-- session_command lists the slash commands a live session can run (action=list) and runs
-  one without sending it to the model (action=run, e.g. name=compact). Commands come from
-  the host registry, so /compact and plugin commands appear automatically; /compact is
-  idle-only and reports busy otherwise. Omitting sessionId (session_inspect/session_command)
+- session_command_list lists the slash commands a live session can run and
+  session_command_run executes one without sending it to the model (e.g. name=compact).
+  Commands come from the host registry, so /compact and plugin commands appear
+  automatically; /compact is idle-only and reports busy otherwise. Omitting sessionId
+  (session_inspect/session_command_list/session_command_run)
   targets the calling session, which works only for native rice_ tools.
 - Results are projected by the detail argument to save your context budget — default
   is summary. Pass detail=full only for debugging.

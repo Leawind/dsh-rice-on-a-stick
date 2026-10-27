@@ -298,17 +298,41 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
+  // 排队消息读面(只读): 列出宿主 inbox 里的排队消息(写面 session_queue_manage)
   mcp.registerTool(
     'session_queue',
     {
-      title: 'Manage session queue',
+      title: 'List queued messages',
       description:
-        "Manage a session's queued messages (the UI's QueueDock): `list` = list queued messages; `remove` = remove one; `edit` = rewrite its text; `steer` = dequeue and immediately steer it into the running turn. Requires a live session (queued messages are durable in the host inbox; send once with session_send first).",
+        "List a session's queued messages (the UI's QueueDock): id, text, and enqueue state of every message waiting to become a turn. Read-only; rewriting/removing/promoting them is `session_queue_manage`. Requires a live session (queued messages are durable in the host inbox; send once with session_send first).",
       inputSchema: {
         sessionId: z.string().describe('Session id.'),
-        action: z.enum(['list', 'edit', 'remove', 'steer']).describe('list = list; edit = rewrite; remove = remove; steer = promote and steer.'),
-        itemId: z.string().optional().describe('Queued message id (from action=list; required for edit/remove/steer).'),
-        content: z.string().optional().describe('New text for action=edit.'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionId }) => {
+      try {
+        const r = await queueManage({ ctx, sessionId, action: 'list' })
+        const payload = JSON.stringify(r, null, 2)
+        return (r as { error?: string }).error !== undefined ? outError(payload) : out(payload)
+      } catch (e) {
+        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+      }
+    },
+  )
+
+  // 排队消息写面: 改写/移除/提升为插话(读面 session_queue)
+  mcp.registerTool(
+    'session_queue_manage',
+    {
+      title: 'Manage queued messages',
+      description:
+        "Mutate a session's queued messages (the UI's QueueDock): `edit` = rewrite one message's text; `remove` = remove one; `steer` = dequeue it and immediately steer it into the running turn. Read counterpart: `session_queue`. Requires a live session (send once with session_send first).",
+      inputSchema: {
+        sessionId: z.string().describe('Session id.'),
+        action: z.enum(['edit', 'remove', 'steer']).describe('edit = rewrite the text; remove = drop it; steer = promote and steer it into the running turn.'),
+        itemId: z.string().describe('Queued message id (from session_queue).'),
+        content: z.string().optional().describe('New text (action=edit only).'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -420,28 +444,25 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
-  // 会话命令(list/run): 与界面斜杠输入同源, 走宿主 ctx.commands。
-  // /compact 只是其中一条——插件不硬编码任何具体命令, 宿主新增命令自动可见。
+  // 会话命令读面(只读): 列出 live 会话可用的斜杠命令, 走宿主 ctx.commands。
+  // /compact 只是其中一条——插件不硬编码任何具体命令, 宿主新增命令自动可见。(写面 session_command_run)
   mcp.registerTool(
-    'session_command',
+    'session_command_list',
     {
-      title: 'List or run session commands',
+      title: 'List session commands',
       description:
-        'List the slash commands a live session can run, or run one — without sending it to the model and without creating a turn (nothing enters model history). Commands follow the host registry, the same path the UI composer uses; plugin-registered commands appear automatically.',
+        'List the slash commands a live session can run (the same registry the UI composer uses; plugin-registered commands appear automatically). Read-only; executing one is `session_command_run`.',
       inputSchema: {
         sessionId: z
           .string()
           .optional()
           .describe(
-            'Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+            'Session id (must be live: commands are registered per agent, so a cold session has none until it is activated once). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
           ),
-        action: z.enum(['list', 'run']).describe('list = commands available to this session; run = execute one.'),
-        name: z.string().optional().describe('Command name without the leading slash (required for action=run), e.g. "compact".'),
-        args: z.string().optional().describe('Raw argument text appended after the name; commands that take no arguments reject extra input themselves.'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: { readOnlyHint: true },
     },
-    async ({ sessionId, action, name, args }, extra) => {
+    async ({ sessionId }, extra) => {
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       const live = ctx.agents.get(asSessionId(target.sessionId))
@@ -462,27 +483,71 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         )
       }
       try {
-        if (action === 'list') {
-          const rows = commands.list(live) ?? []
-          return out(
-            JSON.stringify(
-              {
-                sessionId: target.sessionId,
-                total: rows.length,
-                commands: rows.map((row) => ({
-                  name: row.name ?? '',
-                  ...(row.description !== undefined ? { description: row.description } : {}),
-                  ...(row.input !== undefined ? { input: row.input } : {}),
-                })),
-              },
-              null,
-              2,
-            ),
-          )
-        }
+        const rows = commands.list(live) ?? []
+        return out(
+          JSON.stringify(
+            {
+              sessionId: target.sessionId,
+              total: rows.length,
+              commands: rows.map((row) => ({
+                name: row.name ?? '',
+                ...(row.description !== undefined ? { description: row.description } : {}),
+                ...(row.input !== undefined ? { input: row.input } : {}),
+              })),
+            },
+            null,
+            2,
+          ),
+        )
+      } catch (e) {
+        return outError(JSON.stringify({ error: `session_command_list failed: ${(e as Error)?.message ?? String(e)}` }))
+      }
+    },
+  )
+
+  // 会话命令写面: 执行一条斜杠命令——不发给模型、不产生 turn(不进模型历史)
+  mcp.registerTool(
+    'session_command_run',
+    {
+      title: 'Run a session command',
+      description:
+        'Run one slash command of a live session without sending it to the model and without creating a turn (nothing enters model history). Commands follow the host registry, the same path the UI composer uses. List the available ones with `session_command_list` first.',
+      inputSchema: {
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Session id (must be live: commands are registered per agent). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+          ),
+        name: z.string().describe('Command name without the leading slash, e.g. "compact" (see session_command_list).'),
+        args: z.string().optional().describe('Raw argument text appended after the name; commands that take no arguments reject extra input themselves.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, name, args }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      const live = ctx.agents.get(asSessionId(target.sessionId))
+      if (live === undefined) {
+        return outError(
+          JSON.stringify({
+            error: `session "${target.sessionId}" is not live; slash commands are registered per live agent`,
+            hint: 'send once (session_send) to activate the session, then retry',
+          }),
+        )
+      }
+      const commands = commandsOf(ctx)
+      if (typeof commands?.list !== 'function' || typeof commands.execute !== 'function') {
+        return outError(
+          JSON.stringify({
+            error: 'the host command registry is unavailable (ctx.commands); this deployment composes no command adapter',
+          }),
+        )
+      }
+      try {
         const command = name?.trim().replace(/^\//, '') ?? ''
         if (command === '') {
-          return outError(JSON.stringify({ error: 'action "run" requires name (from action=list)' }))
+          return outError(JSON.stringify({ error: 'name is required (see session_command_list)' }))
         }
         const line = `/${command}${args !== undefined && args !== '' ? ` ${args}` : ''}`
         const execution = await commands.execute(live, line, [], extra?.signal ?? new AbortController().signal)
@@ -490,7 +555,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           return outError(
             JSON.stringify({
               error: `unknown command "${line}"`,
-              hint: 'call session_command with action=list to see the commands this session can run',
+              hint: 'call session_command_list to see the commands this session can run',
             }),
           )
         }
@@ -509,7 +574,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           ),
         )
       } catch (e) {
-        return outError(JSON.stringify({ error: `session_command failed: ${(e as Error)?.message ?? String(e)}` }))
+        return outError(JSON.stringify({ error: `session_command_run failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

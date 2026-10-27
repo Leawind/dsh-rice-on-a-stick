@@ -62,8 +62,8 @@ you already know.
   returns `eventId` / `approvalId` / `toolName` / `callId` / `reason` / `answerable`.
   `approval_answer` grants `allowed-once` or `rejected` for entries with
   `answerable=true` (by `eventId` or `callId`). Entries held by the UI or another client
-  are read-only for you. `approval_policy` reads or switches the session's `ask`/`never`
-  knob.
+  are read-only for you. `approval_policy` reads and `approval_policy_set` switches the
+  session's `ask`/`never` knob.
 - **User questions** — when a session calls `ask_user_question`, `session_poll` reports
   `waiting-question` with `pendingQuestions`; `question_list` returns the question batch,
   `callId`, `state` (`open`/`continued`) and `answerable`. `question_answer` answers the
@@ -123,16 +123,16 @@ you already know.
 3. **Session is busy** — `session_send` with mode=`queue` lines up behind the current
    turn as a new turn; mode=`steer` injects at the next step boundary of that same turn.
    Omitting `mode` on a running session fails (`MODE_REQUIRED`) — pass it on every prompt
-   when you are unsure. Inspect or prune the queue with `session_queue` (its
-   `action=steer` promotes a queued message); `session_cancel` stops the current turn and
-   keeps the queue.
+   when you are unsure. Inspect the queue with `session_queue`; prune or rewrite it with
+   `session_queue_manage` (its `action=steer` promotes a queued message);
+   `session_cancel` stops the current turn and keeps the queue.
 4. **Change course mid-conversation** — `session_select_model` for a different model,
    `session_rename` for housekeeping, `session_fork` to branch a conversation,
-   `session_archive` to retire one (the UI's only "delete"), and `session_command` to
-   list and run the session's slash commands without sending them to the model (for
-   example `name: "compact"` runs `/compact`; it is idle-only and reports busy
-   otherwise). The command list comes from the host registry, so plugin commands appear
-   automatically.
+   `session_archive` to retire one (the UI's only "delete"), and `session_command_list` /
+   `session_command_run` to list and run the session's slash commands without sending them
+   to the model (for example `name: "compact"` runs `/compact`; it is idle-only and
+   reports busy otherwise). The command list comes from the host registry, so plugin
+   commands appear automatically.
 5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title, and by
    `scope`: `active` by default, `archived`, or `all` — archived sessions are the soft
    delete and stay out of lists and searches unless asked for; `includeCold: true` also
@@ -284,8 +284,9 @@ it degrades to the `session_list` row and says so with `eventsReadable: false`.
   which case the host late-answer path is used and the reply arrives as a user message.
 - `subagent_list` is discovery only: it reads the host's child catalog and treats each
   child as a normal session. Starting native children remains a host/model-side tool.
-- `session_command` needs a live agent (`ctx.commands` is per agent): a persisted-only
-  session has no command list until it is prompted once. Execution is logged
+- `session_command_list` / `session_command_run` need a live agent (`ctx.commands` is per
+  agent): a persisted-only
+  session has no command list until it is activated once. Execution is logged
   (`command/run`/`command/done`) but creates no turn and never enters model history.
 - `session_inspect` context occupancy prefers the host token meter; a persisted-only session
   (or a deployment without the meter) falls back to the last logged request usage, and

@@ -6,7 +6,7 @@
  *   C. session_send: live 接管(沿用原模型)/mode 省略规则(空闲可省、运行中必填)/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_send(wait:none, 幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
  *      索引丢失后从 rpcId 重建)/客户端取消只停等待
- *   E. session_cancel / session_queue(list/edit/remove/未知 itemId)
+ *   E. session_cancel / session_queue(list) / session_queue_manage(edit/remove/steer/未知 itemId)
  *   F. session_select_model / session_rename / session_search / session_fork / session_archive / session_unarchive
  *   G. session_list(含 archived 标记与 scope 过滤) / session_history / 资源面(models/presets/sessions/status/订阅推送)
  *   H. allowedModels 允许清单(独立 ctx)
@@ -158,10 +158,10 @@ try {
     nativeInspectJson.title === 'Live One' &&
     nativeInspectJson.recent?.entries?.length === 1 &&
     nativeInspectJson.recent.entries[0]?.kind === 'assistant'
-  const nativeCmdDef = ctx.tools.get('rice_session_command')
-  const nativeCmdValue = await nativeCmdDef.execute({ action: 'list' }, { signal: new AbortController().signal, agent: liveAgent } as any)
+  const nativeCmdDef = ctx.tools.get('rice_session_command_list')
+  const nativeCmdValue = await nativeCmdDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeCmdJson = JSON.parse(nativeCmdDef.output.render({}, nativeCmdValue)[0]?.text ?? '{}')
-  checks['原生自用工具: session_command 省略 sessionId 取当前会话'] = nativeCmdJson.sessionId === 'sess-live' && nativeCmdJson.total === 2
+  checks['原生自用工具: session_command_list 省略 sessionId 取当前会话'] = nativeCmdJson.sessionId === 'sess-live' && nativeCmdJson.total === 2
   // 没有调用方 agent(= MCP 面): 不猜会话, 明确报错
   let nativeNoAgentError = ''
   try {
@@ -195,7 +195,9 @@ try {
     'session_result',
     'session_cancel',
     'session_queue',
-    'session_command',
+    'session_queue_manage',
+    'session_command_list',
+    'session_command_run',
     'session_select_model',
     'session_rename',
     'session_set_permission',
@@ -212,6 +214,7 @@ try {
     'approval_list',
     'approval_answer',
     'approval_policy',
+    'approval_policy_set',
     'question_list',
     'question_answer',
     'subagent_list',
@@ -692,7 +695,7 @@ try {
     jsonrpc: '2.0',
     id: 33,
     method: 'tools/call',
-    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'list' } },
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow' } },
   })
   checks['session_queue list 列出排队消息'] =
     Array.isArray(innerOf(qList).queued) && innerOf(qList).queued?.some((q: any) => q.messageId === 'qm-1' && q.text === 'queued one')
@@ -700,7 +703,7 @@ try {
     jsonrpc: '2.0',
     id: 34,
     method: 'tools/call',
-    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-1', content: 'queued one (edited)' } },
+    params: { name: 'session_queue_manage', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-1', content: 'queued one (edited)' } },
   })
   checks['session_queue edit 改写排队文本'] =
     innerOf(qEdit).updated === 'qm-1' && slowLiveAgent.inbox.nextTurn.some((m) => m.content?.[0]?.text === 'queued one (edited)')
@@ -708,7 +711,7 @@ try {
     jsonrpc: '2.0',
     id: 35,
     method: 'tools/call',
-    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-2' } },
+    params: { name: 'session_queue_manage', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-2' } },
   })
   checks['session_queue remove 移除排队消息'] =
     innerOf(qRemove).removed === 'qm-2' &&
@@ -718,7 +721,7 @@ try {
     jsonrpc: '2.0',
     id: 36,
     method: 'tools/call',
-    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-missing' } },
+    params: { name: 'session_queue_manage', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-missing' } },
   })
   checks['session_queue 未知 itemId 报错'] = String(innerOf(qNoItem).error ?? '').includes('not found')
 
@@ -728,7 +731,7 @@ try {
     jsonrpc: '2.0',
     id: 37,
     method: 'tools/call',
-    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-e1', content: 'edited text' } },
+    params: { name: 'session_queue_manage', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-e1', content: 'edited text' } },
   })
   checks['session_queue edit 保留 rpcId(结果仍可按 requestId 取回)'] =
     innerOf(qEditRpc).updated === 'qm-e1' &&
@@ -738,7 +741,7 @@ try {
     jsonrpc: '2.0',
     id: 38,
     method: 'tools/call',
-    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'steer', itemId: 'qm-s1' } },
+    params: { name: 'session_queue_manage', arguments: { sessionId: 'sess-slow', action: 'steer', itemId: 'qm-s1' } },
   })
   checks['session_queue steer 保留 rpcId'] = innerOf(qSteerRpc).steered === 'qm-s1' && steered.at(-1)?.message?.source?.rpcId === 'req-steer-keep'
 
@@ -769,23 +772,23 @@ try {
   const search = await rpc(init.sid, { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle' } } })
   checks['session_search 走宿主 search'] = searched.includes('needle') && search.status === 200 && JSON.stringify(innerOf(search)).includes('hit for needle')
 
-  // ── session_command(宿主 ctx.commands): list / run / 未知 / 非 live ──
+  // ── session_command_list / session_command_run(宿主 ctx.commands) ──
   const cmdList = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 47,
     method: 'tools/call',
-    params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'list' } },
+    params: { name: 'session_command_list', arguments: { sessionId: 'sess-live' } },
   })
   const cmdListInner = innerOf(cmdList)
-  checks['session_command: 列出会话可用命令'] = cmdListInner.total === 2 && cmdListInner.commands?.some((c: any) => c.name === 'compact')
+  checks['session_command_list: 列出会话可用命令'] = cmdListInner.total === 2 && cmdListInner.commands?.some((c: any) => c.name === 'compact')
   const cmdRun = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 48,
     method: 'tools/call',
-    params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'compact' } },
+    params: { name: 'session_command_run', arguments: { sessionId: 'sess-live', name: 'compact' } },
   })
   const cmdRunInner = innerOf(cmdRun)
-  checks['session_command: 执行 /compact 走命令注册表'] =
+  checks['session_command_run: 执行 /compact 走命令注册表'] =
     cmdRunInner.ok === true &&
     String(cmdRunInner.result?.text ?? '').includes('Compacted') &&
     commandCalls.at(-1)?.line === '/compact' &&
@@ -795,18 +798,18 @@ try {
     jsonrpc: '2.0',
     id: 49,
     method: 'tools/call',
-    params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'unknown' } },
+    params: { name: 'session_command_run', arguments: { sessionId: 'sess-live', name: 'unknown' } },
   })
-  checks['session_command: 未知命令明确报错'] = String(innerOf(cmdUnknown).error ?? '').includes('unknown command')
+  checks['session_command_run: 未知命令明确报错'] = String(innerOf(cmdUnknown).error ?? '').includes('unknown command')
   const cmdCold = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 491,
     method: 'tools/call',
-    params: { name: 'session_command', arguments: { sessionId: 'sess-persisted', action: 'list' } },
+    params: { name: 'session_command_list', arguments: { sessionId: 'sess-persisted' } },
   })
-  checks['session_command: 非 live 会话明确拒绝'] = String(innerOf(cmdCold).error ?? '').includes('not live')
-  const cmdNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 492, method: 'tools/call', params: { name: 'session_command', arguments: { action: 'list' } } })
-  checks['session_command: MCP 面省略 sessionId 明确报错'] = String(innerOf(cmdNoId).error ?? '').includes('sessionId is required')
+  checks['session_command_list: 非 live 会话明确拒绝'] = String(innerOf(cmdCold).error ?? '').includes('not live')
+  const cmdNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 492, method: 'tools/call', params: { name: 'session_command_list', arguments: {} } })
+  checks['session_command_list: MCP 面省略 sessionId 明确报错'] = String(innerOf(cmdNoId).error ?? '').includes('sessionId is required')
   checks['session_search 传取消信号(0.2.x Remote 契约)'] = searchSignals.length > 0 && searchSignals.every(Boolean)
 
   const fork = await rpc(init.sid, {
@@ -2059,12 +2062,12 @@ try {
     checks['question_list: 答完 pending 清空'] =
       innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.questions?.length === 0
 
-    const polGet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
+    const polGet = await phase.call('approval_policy', { sessionId: 'sess-approval' })
     checks['approval_policy: get 返回生效策略'] = innerOf(polGet).live === true && innerOf(polGet).policy === 'ask'
-    const polSet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'set', policy: 'never' })
+    const polSet = await phase.call('approval_policy_set', { sessionId: 'sess-approval', policy: 'never' })
     checks['approval_policy: set 调宿主 setPolicy'] =
       innerOf(polSet).ok === true && approvalPolicyCalls.some((c) => c.id === 'sess-approval' && c.policy === 'never')
-    const polGet2 = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
+    const polGet2 = await phase.call('approval_policy', { sessionId: 'sess-approval' })
     checks['approval_policy: 切换后 get 读到 never'] = innerOf(polGet2).policy === 'never'
     await phase.dispose()
   }
