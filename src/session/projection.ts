@@ -67,16 +67,19 @@ function jsonCandidatesOf(text: string): string[] {
 }
 
 /** 各级别字段上限(字符) */
-const DETAIL_CAPS: Record<DetailLevel, {
-  summaryField: number
-  error: number
-  assistantTail: number
-  toolCalls: number
-  toolCallArgs: number
-  toolResults: number
-  toolResultChars: number
-  assistantText: number
-}> = {
+const DETAIL_CAPS: Record<
+  DetailLevel,
+  {
+    summaryField: number
+    error: number
+    assistantTail: number
+    toolCalls: number
+    toolCallArgs: number
+    toolResults: number
+    toolResultChars: number
+    assistantText: number
+  }
+> = {
   summary: { summaryField: 300, error: 300, assistantTail: 1200, toolCalls: 0, toolCallArgs: 0, toolResults: 0, toolResultChars: 0, assistantText: 0 },
   normal: { summaryField: 400, error: 600, assistantTail: 1200, toolCalls: 15, toolCallArgs: 250, toolResults: 6, toolResultChars: 400, assistantText: 0 },
   full: { summaryField: 2000, error: 2000, assistantTail: 0, toolCalls: 50, toolCallArgs: 2000, toolResults: 20, toolResultChars: 2000, assistantText: 8000 },
@@ -113,15 +116,18 @@ export function projectModel(selection: ModelSelectionOverride | undefined): Rec
 }
 
 /** detail='uri' 档的投影: 只回引用与簿记字段, 数据本体让调用方按 resource URI 直读/订阅 */
-export function renderUriResult(result: {
-  sessionId: string
-  model: ModelSelection
-  requestId?: string
-  status?: string
-  turn?: number
-  pending?: boolean
-  waiting?: { approvals: string[]; questions: string[] }
-}, historyUri: string): Record<string, unknown> {
+export function renderUriResult(
+  result: {
+    sessionId: string
+    model: ModelSelection
+    requestId?: string
+    status?: string
+    turn?: number
+    pending?: boolean
+    waiting?: { approvals: string[]; questions: string[] }
+  },
+  historyUri: string,
+): Record<string, unknown> {
   return {
     detail: 'uri',
     sessionId: result.sessionId,
@@ -194,7 +200,10 @@ export function renderResult(result: SessionTurnResult, detail: DetailLevel): Re
 
 /** 递归收集事件数据里的文本(text/content 字段; 数组与嵌套对象都走)。acc 为累积缓冲(缺省新建) */
 export function extractTexts(value: unknown, acc: string[] = []): string[] {
-  if (Array.isArray(value)) { value.forEach((x) => extractTexts(x, acc)); return acc }
+  if (Array.isArray(value)) {
+    value.forEach((x) => extractTexts(x, acc))
+    return acc
+  }
   if (value && typeof value === 'object') {
     const rec = value as Record<string, unknown>
     if (typeof rec.text === 'string' && rec.text.trim()) acc.push(rec.text)
@@ -275,7 +284,13 @@ function clipMarked(text: string, max: number): { clipped: string; truncated?: t
  * detail: summary(默认)按角色截断(截断条目带 truncated: true); full 不截断——
  * 读取完整长文本的唯一轻量通道(事件资源是原始 JSONL 且仅 live 会话)。
  */
-export function historyTurnsOf(events: readonly unknown[], limit: number, beforeIndex?: number, roles?: readonly HistoryRole[], detail: HistoryDetail = 'summary'): Record<string, unknown>[] {
+export function historyTurnsOf(
+  events: readonly unknown[],
+  limit: number,
+  beforeIndex?: number,
+  roles?: readonly HistoryRole[],
+  detail: HistoryDetail = 'summary',
+): Record<string, unknown>[] {
   const cap = (n: number) => (detail === 'full' ? Infinity : n)
   const want = roles ? new Set<string>(roles) : undefined
   const turns: Record<string, unknown>[] = []
@@ -285,11 +300,20 @@ export function historyTurnsOf(events: readonly unknown[], limit: number, before
     if (ev?.type === 'assistant/message') {
       if (want && !want.has('assistant')) continue
       const d = ev.data as { message?: { content?: { type?: string; text?: string }[] } } | undefined
-      const text = (d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
+      const text = (d?.message?.content ?? [])
+        .filter((c) => c.type === 'text' && c.text)
+        .map((c) => c.text)
+        .join('\n')
       const images = imageRefsOf(ev.data)
       if (text.trim() || images.length > 0) {
         const { clipped, truncated } = clipMarked(text, cap(HISTORY_CLIP.assistant))
-        turns.unshift({ index: i, role: 'assistant', text: clipped, ...(truncated !== undefined ? { truncated } : {}), ...(images.length > 0 ? { images } : {}) })
+        turns.unshift({
+          index: i,
+          role: 'assistant',
+          text: clipped,
+          ...(truncated !== undefined ? { truncated } : {}),
+          ...(images.length > 0 ? { images } : {}),
+        })
       }
     } else if (ev?.type === 'user/message') {
       if (want && !want.has('user')) continue
@@ -313,7 +337,13 @@ export function historyTurnsOf(events: readonly unknown[], limit: number, before
       const images = imageRefsOf(ev.data ?? ev)
       if (texts.trim() || images.length > 0) {
         const { clipped, truncated } = clipMarked(texts, cap(HISTORY_CLIP.toolResult))
-        turns.unshift({ index: i, role: 'tool_result', text: clipped, ...(truncated !== undefined ? { truncated } : {}), ...(images.length > 0 ? { images } : {}) })
+        turns.unshift({
+          index: i,
+          role: 'tool_result',
+          text: clipped,
+          ...(truncated !== undefined ? { truncated } : {}),
+          ...(images.length > 0 ? { images } : {}),
+        })
       }
     } else if (ev?.type === 'turn/end') {
       if (want && !want.has('turn_end')) continue
@@ -361,7 +391,13 @@ export function recentOverviewOf(events: readonly unknown[], limit: number): { e
     const ev = events[i] as { type?: string; data?: unknown } | undefined
     if (ev?.type === 'assistant/message') {
       const d = ev.data as { message?: { content?: { type?: string; text?: string }[] } } | undefined
-      const text = uiPreview((d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join(' '), OVERVIEW_CLIP.assistant)
+      const text = uiPreview(
+        (d?.message?.content ?? [])
+          .filter((c) => c.type === 'text' && c.text)
+          .map((c) => c.text)
+          .join(' '),
+        OVERVIEW_CLIP.assistant,
+      )
       if (text !== '') entries.unshift({ index: i, kind: 'assistant', text })
     } else if (ev?.type === 'user/message') {
       const d = ev.data as { source?: { kind?: string } } | undefined

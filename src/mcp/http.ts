@@ -137,8 +137,7 @@ function readBodyCapped(req: http.IncomingMessage, maxBytes: number): Promise<{ 
 
 /** 无会话头 POST 的 initialize 形状预检: 最终裁决仍在 SDK 校验, 预检只为避免为垃圾请求构建整套 server */
 function isInitializeRpc(value: unknown): boolean {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    && (value as { method?: unknown }).method === 'initialize'
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && (value as { method?: unknown }).method === 'initialize'
 }
 
 export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServer {
@@ -188,24 +187,25 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   let sweeper: ReturnType<typeof setTimeout> | undefined
 
   /** 初次监听: 端口被占/EADDRNOTAVAIL 时抛错, 让插件启动失败可见 */
-  const listenOnce = () => new Promise<void>((resolveListen, rejectListen) => {
-    const s = server
-    if (s === undefined) {
-      rejectListen(new Error('server not created'))
-      return
-    }
-    const onListenError = (e: Error) => {
-      s.off('listening', onListening)
-      rejectListen(new Error(`cannot listen on ${host}:${port}: ${e.message}`))
-    }
-    const onListening = () => {
-      s.off('error', onListenError)
-      resolveListen()
-    }
-    s.once('error', onListenError)
-    s.once('listening', onListening)
-    s.listen(port, host)
-  })
+  const listenOnce = () =>
+    new Promise<void>((resolveListen, rejectListen) => {
+      const s = server
+      if (s === undefined) {
+        rejectListen(new Error('server not created'))
+        return
+      }
+      const onListenError = (e: Error) => {
+        s.off('listening', onListening)
+        rejectListen(new Error(`cannot listen on ${host}:${port}: ${e.message}`))
+      }
+      const onListening = () => {
+        s.off('error', onListenError)
+        resolveListen()
+      }
+      s.once('error', onListenError)
+      s.once('listening', onListening)
+      s.listen(port, host)
+    })
 
   /**
    * 会话空闲 TTL GC: 客户端异常退出时不会发 DELETE, transport/McpServer 会无限累积。
@@ -221,7 +221,11 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         if (streamingGets.has(sid)) continue
         if (now - Math.max(conn.lastActivity, conn.connectedAt) <= ttl) continue
         const transport = transports.get(sid)
-        try { void transport?.close() } catch { /* 尽力关闭 */ }
+        try {
+          void transport?.close()
+        } catch {
+          /* 尽力关闭 */
+        }
         // close 正常会触发 onclose 清理映射; 这里兜底防泄漏
         if (transports.has(sid)) {
           transports.delete(sid)
@@ -354,10 +358,13 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         }
         // instructions 随 initialize result 下发: agent 在拿到工具清单前先读到整体工作流引导
         // resources 能力显式声明(subscribe 由本插件自管登记; listChanged 由 hub 合并广播)
-        const mcp = new McpServer({ name: PLUGIN_NAME, version: PLUGIN_VERSION }, {
-          instructions: serverInstructions(),
-          capabilities: { resources: { listChanged: true, subscribe: true } },
-        })
+        const mcp = new McpServer(
+          { name: PLUGIN_NAME, version: PLUGIN_VERSION },
+          {
+            instructions: serverInstructions(),
+            capabilities: { resources: { listChanged: true, subscribe: true } },
+          },
+        )
         registerTools(mcp, ctx, { statusSnapshot })
         registerResources(mcp, ctx, { statusSnapshot, hub })
         const initUserAgent = String(req.headers['user-agent'] ?? '')
@@ -393,7 +400,11 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
         // 畸形 initialize 被 SDK 拒绝时不会建会话(onsessioninitialized/onclose 都不触发):
         // 这里兜底回收本次构建, 不留无主对象
         if (transport.sessionId === undefined) {
-          try { await transport.close() } catch { /* 尽力回收 */ }
+          try {
+            await transport.close()
+          } catch {
+            /* 尽力回收 */
+          }
         }
         return
       }
@@ -419,7 +430,9 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     }
   }
 
-  server = http.createServer((req, res) => { void handleRequest(req, res) })
+  server = http.createServer((req, res) => {
+    void handleRequest(req, res)
+  })
 
   const dispose = (): void => {
     disposed = true
@@ -433,7 +446,11 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     // 端口释放不依赖对端空闲超时; 进行中的请求被 reset(监听重启的既有语义)
     server?.closeAllConnections?.()
     for (const transport of transports.values()) {
-      try { void transport.close() } catch { /* 尽力清理 */ }
+      try {
+        void transport.close()
+      } catch {
+        /* 尽力清理 */
+      }
     }
     transports.clear()
     servers.clear()
@@ -442,9 +459,10 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   }
 
   return {
-    get listening() { return listening },
-    connections: () => Array.from(connections.values(), (c) => ({ ...c }))
-      .sort((a, b) => b.connectedAt - a.connectedAt),
+    get listening() {
+      return listening
+    },
+    connections: () => Array.from(connections.values(), (c) => ({ ...c })).sort((a, b) => b.connectedAt - a.connectedAt),
     async listen() {
       await listenOnce()
       listening = true

@@ -14,16 +14,7 @@ import { asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from '
 import { knownSelectionOf } from './engine.js'
 import { latestRequestFor, requestOf } from './requests.js'
 import { state } from '../core/state.js'
-import {
-  buildTurnResult,
-  clipText,
-  findRequestMessage,
-  findRequestTurn,
-  lastAssistantTextOf,
-  lastTurnOf,
-  queuedCountOf,
-  selectionOfEvents,
-} from './turn.js'
+import { buildTurnResult, clipText, findRequestMessage, findRequestTurn, lastAssistantTextOf, lastTurnOf, queuedCountOf, selectionOfEvents } from './turn.js'
 import { approvalEntriesFor } from './approvals.js'
 import { questionEntriesFor } from './questions.js'
 import { renderResult, renderUriResult } from './projection.js'
@@ -52,15 +43,8 @@ interface PollSnapshot {
  * 单会话的状态快照(live 读内存; 冷会话只报 inactive, 不为了 poll 去加载整份日志)。
  * headerCache 让一次 long-poll 里对冷会话只查一次持久化, 而不是每 200ms 扫一次列表。
  */
-async function pollOne(
-  ctx: Context,
-  sessionId: string,
-  detail: DetailLevel,
-  headerCache: Map<string, SessionHeader | null>,
-): Promise<Record<string, unknown>> {
-  const live = ctx.agents.get(asSessionId(sessionId)) as
-    | { session: { header: SessionHeader }; status?: string; inbox?: unknown }
-    | undefined
+async function pollOne(ctx: Context, sessionId: string, detail: DetailLevel, headerCache: Map<string, SessionHeader | null>): Promise<Record<string, unknown>> {
+  const live = ctx.agents.get(asSessionId(sessionId)) as { session: { header: SessionHeader }; status?: string; inbox?: unknown } | undefined
   if (live !== undefined) {
     const events = eventsOf(live.session)
     const approvals = approvalEntriesFor(sessionId, events)
@@ -71,11 +55,7 @@ async function pollOne(
     const header = live.session.header
     return {
       sessionId,
-      state: approvals.length > 0
-        ? 'waiting-approval'
-        : questions.length > 0
-          ? 'waiting-question'
-          : live.status === 'running' ? 'running' : 'idle',
+      state: approvals.length > 0 ? 'waiting-approval' : questions.length > 0 ? 'waiting-question' : live.status === 'running' ? 'running' : 'idle',
       ...(header.cwd !== undefined ? { cwd: header.cwd } : {}),
       ...(header.agentPreset !== undefined ? { preset: header.agentPreset } : {}),
       ...(header.parentSession !== undefined ? { parentSession: String(header.parentSession) } : {}),
@@ -92,7 +72,7 @@ async function pollOne(
 
   let header = headerCache.get(sessionId)
   if (header === undefined) {
-    header = await findSessionHeader(ctx, asSessionId(sessionId)) ?? null
+    header = (await findSessionHeader(ctx, asSessionId(sessionId))) ?? null
     headerCache.set(sessionId, header)
   }
   if (header === null) return { sessionId, state: 'not-found' }
@@ -109,15 +89,19 @@ async function pollOne(
 
 /** 只把会影响客户端决策的字段放进指纹(避免 lastMessage 抖动导致虚假 changed) */
 function fingerprintOf(sessions: Record<string, unknown>[]): string {
-  return sessions.map((s) => [
-    String(s.sessionId),
-    String(s.state),
-    String(s.cursor ?? ''),
-    String(s.queued ?? ''),
-    JSON.stringify(s.lastTurn ?? null),
-    JSON.stringify(s.pendingApprovals ?? null),
-    JSON.stringify(s.pendingQuestions ?? null),
-  ].join('\u0000')).join('\u0001')
+  return sessions
+    .map((s) =>
+      [
+        String(s.sessionId),
+        String(s.state),
+        String(s.cursor ?? ''),
+        String(s.queued ?? ''),
+        JSON.stringify(s.lastTurn ?? null),
+        JSON.stringify(s.pendingApprovals ?? null),
+        JSON.stringify(s.pendingQuestions ?? null),
+      ].join('\u0000'),
+    )
+    .join('\u0001')
 }
 
 function sleep(ms: number): Promise<void> {
@@ -184,7 +168,7 @@ export async function sessionResult(
   // 索引丢失(插件重启/TTL 淘汰)时按 user 消息的 source.rpcId 从会话日志重建记录——
   // requestId 的持久事实在日志里, 进程内 Map 只是加速。
   if (record === undefined && wanted !== '') {
-    const log = events ?? await inspectSessionEvents(ctx, asSessionId(sessionId))
+    const log = events ?? (await inspectSessionEvents(ctx, asSessionId(sessionId)))
     const located = findRequestMessage(log, wanted)
     if (located !== undefined) {
       record = {
@@ -199,15 +183,17 @@ export async function sessionResult(
     }
   }
   if (record === undefined) {
-    throw new Error(wanted !== ''
-      ? `unknown requestId "${wanted}" (the plugin keeps the last 200 requests for 6h; use session_history with beforeIndex to inspect the session log)`
-      : `no request recorded for session "${sessionId}" (pass requestId from session_submit/session_prompt, or use session_history)`)
+    throw new Error(
+      wanted !== ''
+        ? `unknown requestId "${wanted}" (the plugin keeps the last 200 requests for 6h; use session_history with beforeIndex to inspect the session log)`
+        : `no request recorded for session "${sessionId}" (pass requestId from session_submit/session_prompt, or use session_history)`,
+    )
   }
   if (record.sessionId !== sessionId) {
     throw new Error(`requestId "${record.requestId}" belongs to session "${record.sessionId}", not "${sessionId}"`)
   }
 
-  const log = events ?? await inspectSessionEvents(ctx, asSessionId(sessionId))
+  const log = events ?? (await inspectSessionEvents(ctx, asSessionId(sessionId)))
   const selection: ModelSelection = knownSelectionOf(ctx, sessionId) ?? selectionOfEvents(log) ?? { provider: '', model: '' }
   const range = findRequestTurn(log, record.requestId, record.messageId, record.startSeq)
   if (range === undefined) {
@@ -229,9 +215,7 @@ export async function sessionResult(
     }
   }
 
-  const preset = state.sessionRecords.get(sessionId)?.preset
-    ?? (live !== undefined ? live.session.header.agentPreset : undefined)
-    ?? ''
+  const preset = state.sessionRecords.get(sessionId)?.preset ?? (live !== undefined ? live.session.header.agentPreset : undefined) ?? ''
   const result = buildTurnResult(log, range, {
     sessionId,
     requestId: record.requestId,
@@ -239,9 +223,7 @@ export async function sessionResult(
     preset,
     submittedAt: record.submittedAt,
   })
-  const rendered = opts.detail === 'uri'
-    ? renderUriResult(result, resUri.sessionHistory(sessionId))
-    : renderResult(result, opts.detail ?? 'summary')
+  const rendered = opts.detail === 'uri' ? renderUriResult(result, resUri.sessionHistory(sessionId)) : renderResult(result, opts.detail ?? 'summary')
   if (result.pending !== true) return rendered
   const waiting = state.answers.pendingInput(sessionId)
   const hasWaiting = waiting.approvals.length > 0 || waiting.questions.length > 0

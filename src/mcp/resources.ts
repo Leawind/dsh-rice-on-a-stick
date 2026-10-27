@@ -101,9 +101,12 @@ async function listLiveSessionUris(ctx: Context, suffix: 'history' | 'events' | 
   return items
     .filter((s) => sessions?.get?.(String(s.sessionId)) !== undefined)
     .map((s) => ({
-      uri: suffix === 'history'
-        ? resUri.sessionHistory(String(s.sessionId))
-        : suffix === 'events' ? resUri.sessionEvents(String(s.sessionId)) : resUri.sessionActivity(String(s.sessionId)),
+      uri:
+        suffix === 'history'
+          ? resUri.sessionHistory(String(s.sessionId))
+          : suffix === 'events'
+            ? resUri.sessionEvents(String(s.sessionId))
+            : resUri.sessionActivity(String(s.sessionId)),
       name: String(s.title ?? s.sessionId),
       mimeType: 'application/json',
     }))
@@ -113,7 +116,10 @@ async function listLiveSessionUris(ctx: Context, suffix: 'history' | 'events' | 
 function completeSessionIds(ctx: Context) {
   return async (value: string): Promise<string[]> => {
     const { sessions } = await collectSessions(ctx)
-    return sessions.map((s) => String(s.sessionId)).filter((id) => id.startsWith(value)).slice(0, 30)
+    return sessions
+      .map((s) => String(s.sessionId))
+      .filter((id) => id.startsWith(value))
+      .slice(0, 30)
   }
 }
 
@@ -142,26 +148,28 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
 
   // ── 读实现(模板与静态共用; 订阅校验也走这里: 当下可读才可订阅) ──
   const readStatus: ReadFn = (uri) => json(uri, snapshot() ?? {})
-  const readStatusField = (field: 'config' | 'stats' | 'connections'): ReadFn => (uri) => {
-    const snap = (snapshot() ?? {}) as Record<string, unknown>
-    if (field === 'stats') {
-      return json(uri, {
-        ...(snap.listening !== undefined ? { listening: snap.listening } : {}),
-        ...(snap.endpoint !== undefined ? { endpoint: snap.endpoint } : {}),
-        ...(snap.startedAt !== undefined ? { startedAt: snap.startedAt } : {}),
-        ...(snap.uptimeMs !== undefined ? { uptimeMs: snap.uptimeMs } : {}),
-        ...(snap.stats !== undefined ? { stats: snap.stats } : {}),
-      })
+  const readStatusField =
+    (field: 'config' | 'stats' | 'connections'): ReadFn =>
+    (uri) => {
+      const snap = (snapshot() ?? {}) as Record<string, unknown>
+      if (field === 'stats') {
+        return json(uri, {
+          ...(snap.listening !== undefined ? { listening: snap.listening } : {}),
+          ...(snap.endpoint !== undefined ? { endpoint: snap.endpoint } : {}),
+          ...(snap.startedAt !== undefined ? { startedAt: snap.startedAt } : {}),
+          ...(snap.uptimeMs !== undefined ? { uptimeMs: snap.uptimeMs } : {}),
+          ...(snap.stats !== undefined ? { stats: snap.stats } : {}),
+        })
+      }
+      if (field === 'config') {
+        return json(uri, {
+          ...(snap.name !== undefined ? { name: snap.name } : {}),
+          ...(snap.version !== undefined ? { version: snap.version } : {}),
+          ...(snap.config !== undefined ? { config: snap.config } : {}),
+        })
+      }
+      return json(uri, { connections: snap.connections ?? [] })
     }
-    if (field === 'config') {
-      return json(uri, {
-        ...(snap.name !== undefined ? { name: snap.name } : {}),
-        ...(snap.version !== undefined ? { version: snap.version } : {}),
-        ...(snap.config !== undefined ? { config: snap.config } : {}),
-      })
-    }
-    return json(uri, { connections: snap.connections ?? [] })
-  }
   const readModels: ReadFn = (uri) => collectModelCatalog(ctx).then((v) => json(uri, v))
   const readModelProvider: ReadFn = (uri, vars) =>
     collectModelCatalog(ctx, decodeVar(vars.provider)).then((v) => {
@@ -174,35 +182,78 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   const readWorkspace: ReadFn = (uri, vars) => workspaceDetailPayload(ctx, decodeVar(vars.id)).then((v) => json(uri, v))
   const readSessions: ReadFn = (uri) => collectSessions(ctx).then((v) => json(uri, v))
   const readSession: ReadFn = (uri, vars) => sessionMetaPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
-  const guarded = (fn: ReadFn): ReadFn => async (uri, vars) => { try { return await fn(uri, vars) } catch (e) { throw e instanceof McpError ? e : asMcpError(e) } }
-  const readHistory: ReadFn = (uri, vars) =>
-    sessionHistoryPayload(ctx, decodeVar(vars.sessionId), 10, parseIndex(vars.before)).then((v) => json(uri, v))
+  const guarded =
+    (fn: ReadFn): ReadFn =>
+    async (uri, vars) => {
+      try {
+        return await fn(uri, vars)
+      } catch (e) {
+        throw e instanceof McpError ? e : asMcpError(e)
+      }
+    }
+  const readHistory: ReadFn = (uri, vars) => sessionHistoryPayload(ctx, decodeVar(vars.sessionId), 10, parseIndex(vars.before)).then((v) => json(uri, v))
   const readEvents: ReadFn = (uri, vars) => sessionEventsPayload(ctx, decodeVar(vars.sessionId), parseIndex(vars.after)).then((v) => json(uri, v))
   const readActivity: ReadFn = (uri, vars) => activityPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
   const readOverview: ReadFn = (uri, vars) => sessionOverviewPayload(ctx, decodeVar(vars.sessionId)).then((v) => json(uri, v))
   const readTools: ReadFn = (uri) => json(uri, hostToolsPayload(ctx))
 
   // ── 静态资源 ──
-  mcp.registerResource('status', resUri.status, {
-    title: 'Plugin status', description: 'Plugin deployment status overview (same data as dsh_status; see status/config|stats|connections for slices)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readStatus(uri, {}))
-  mcp.registerResource('status-config', resUri.statusConfig, {
-    title: 'Plugin config', description: 'Deployment config summary (model allowlist, descriptions; low churn, safe to cache)',
-    mimeType: 'application/json', annotations: ann.doc,
-  }, (uri) => readStatusField('config')(uri, {}))
-  mcp.registerResource('status-stats', resUri.statusStats, {
-    title: 'Plugin stats', description: 'Runtime metrics (listener/uptime/subscription counts; high churn, subscribable)',
-    mimeType: 'application/json', annotations: ann.hot,
-  }, (uri) => readStatusField('stats')(uri, {}))
-  mcp.registerResource('status-connections', resUri.statusConnections, {
-    title: 'MCP connections', description: 'Connected MCP clients (session/UA/direct peer address+port/last activity/request count)',
-    mimeType: 'application/json', annotations: ann.doc,
-  }, (uri) => readStatusField('connections')(uri, {}))
-  mcp.registerResource('guide', resUri.guide, {
-    title: 'dsh usage guide', description: 'dsh concept glossary/workflows/troubleshooting (full document; per-section under guide/{section})',
-    mimeType: 'text/markdown', size: Buffer.byteLength(GET_STARTED_DOC), annotations: ann.doc,
-  }, (uri) => markdown(uri, GET_STARTED_DOC))
+  mcp.registerResource(
+    'status',
+    resUri.status,
+    {
+      title: 'Plugin status',
+      description: 'Plugin deployment status overview (same data as dsh_status; see status/config|stats|connections for slices)',
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri) => readStatus(uri, {}),
+  )
+  mcp.registerResource(
+    'status-config',
+    resUri.statusConfig,
+    {
+      title: 'Plugin config',
+      description: 'Deployment config summary (model allowlist, descriptions; low churn, safe to cache)',
+      mimeType: 'application/json',
+      annotations: ann.doc,
+    },
+    (uri) => readStatusField('config')(uri, {}),
+  )
+  mcp.registerResource(
+    'status-stats',
+    resUri.statusStats,
+    {
+      title: 'Plugin stats',
+      description: 'Runtime metrics (listener/uptime/subscription counts; high churn, subscribable)',
+      mimeType: 'application/json',
+      annotations: ann.hot,
+    },
+    (uri) => readStatusField('stats')(uri, {}),
+  )
+  mcp.registerResource(
+    'status-connections',
+    resUri.statusConnections,
+    {
+      title: 'MCP connections',
+      description: 'Connected MCP clients (session/UA/direct peer address+port/last activity/request count)',
+      mimeType: 'application/json',
+      annotations: ann.doc,
+    },
+    (uri) => readStatusField('connections')(uri, {}),
+  )
+  mcp.registerResource(
+    'guide',
+    resUri.guide,
+    {
+      title: 'dsh usage guide',
+      description: 'dsh concept glossary/workflows/troubleshooting (full document; per-section under guide/{section})',
+      mimeType: 'text/markdown',
+      size: Buffer.byteLength(GET_STARTED_DOC),
+      annotations: ann.doc,
+    },
+    (uri) => markdown(uri, GET_STARTED_DOC),
+  )
   const SECTION_DESCRIPTIONS: Record<Exclude<GuideSection, 'all'>, string> = {
     concepts: 'Concept glossary (session/takeover levels/preset/turn-step/approval)',
     workflows: 'Workflow recipes (one-off/queue/steer/history)',
@@ -211,154 +262,266 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     limits: 'Deployment-imposed limits',
   }
   for (const section of Object.keys(GET_STARTED_SECTIONS) as Exclude<GuideSection, 'all'>[]) {
-    mcp.registerResource(`guide-${section}`, resUri.guideSection(section), {
-      title: `dsh guide: ${section}`,
-      description: SECTION_DESCRIPTIONS[section],
-      mimeType: 'text/markdown', annotations: ann.doc,
-    }, (uri) => markdown(uri, GET_STARTED_SECTIONS[section]))
+    mcp.registerResource(
+      `guide-${section}`,
+      resUri.guideSection(section),
+      {
+        title: `dsh guide: ${section}`,
+        description: SECTION_DESCRIPTIONS[section],
+        mimeType: 'text/markdown',
+        annotations: ann.doc,
+      },
+      (uri) => markdown(uri, GET_STARTED_SECTIONS[section]),
+    )
   }
-  mcp.registerResource('tools', resUri.tools, {
-    title: 'Host tool registry', description: 'Host global tool registry (same data as dsh_list_tools; usually empty on 0.1.5+, with a note explaining why)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readTools(uri, {}))
-  mcp.registerResource('models', resUri.models, {
-    title: 'Model catalog', description: 'Routable model catalog (provider/model/reasoning efforts/default selection/load failures; same data as model_list)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readModels(uri, {}))
-  mcp.registerResource('presets', resUri.presets, {
-    title: 'Agent presets', description: 'Preset roster (source of session_create\'s preset argument)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readPresets(uri, {}))
-  mcp.registerResource('workspaces', resUri.workspaces, {
-    title: 'Workspaces', description: 'Workspace list (id/path/owning sessions; same data as workspace_list)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readWorkspaces(uri, {}))
-  mcp.registerResource('sessions', resUri.sessions, {
-    title: 'Sessions', description: 'Session list (live + persisted merged, allowlist-trimmed; same data as session_list)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri) => readSessions(uri, {}))
+  mcp.registerResource(
+    'tools',
+    resUri.tools,
+    {
+      title: 'Host tool registry',
+      description: 'Host global tool registry (same data as dsh_list_tools; usually empty on 0.1.5+, with a note explaining why)',
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri) => readTools(uri, {}),
+  )
+  mcp.registerResource(
+    'models',
+    resUri.models,
+    {
+      title: 'Model catalog',
+      description: 'Routable model catalog (provider/model/reasoning efforts/default selection/load failures; same data as model_list)',
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri) => readModels(uri, {}),
+  )
+  mcp.registerResource(
+    'presets',
+    resUri.presets,
+    {
+      title: 'Agent presets',
+      description: "Preset roster (source of session_create's preset argument)",
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri) => readPresets(uri, {}),
+  )
+  mcp.registerResource(
+    'workspaces',
+    resUri.workspaces,
+    {
+      title: 'Workspaces',
+      description: 'Workspace list (id/path/owning sessions; same data as workspace_list)',
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri) => readWorkspaces(uri, {}),
+  )
+  mcp.registerResource(
+    'sessions',
+    resUri.sessions,
+    {
+      title: 'Sessions',
+      description: 'Session list (live + persisted merged, allowlist-trimmed; same data as session_list)',
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri) => readSessions(uri, {}),
+  )
 
   // ── 模板资源 ──
-  mcp.registerResource('model-provider', new ResourceTemplate(resUri.models + '/{provider}', {
-    list: async () => {
-      const cat = await collectModelCatalog(ctx) as { providers?: { id: string; name: string }[] }
-      return {
-        resources: (cat.providers ?? []).map((p) => ({
-          uri: resUri.modelProvider(p.id),
-          name: p.name,
-          mimeType: 'application/json',
-        })),
-      }
-    },
-    complete: {
-      provider: async (value) => {
-        const cat = await collectModelCatalog(ctx) as { providers?: { id: string }[] }
-        return (cat.providers ?? []).map((p) => p.id).filter((id) => id.startsWith(value)).slice(0, 30)
+  mcp.registerResource(
+    'model-provider',
+    new ResourceTemplate(resUri.models + '/{provider}', {
+      list: async () => {
+        const cat = (await collectModelCatalog(ctx)) as { providers?: { id: string; name: string }[] }
+        return {
+          resources: (cat.providers ?? []).map((p) => ({
+            uri: resUri.modelProvider(p.id),
+            name: p.name,
+            mimeType: 'application/json',
+          })),
+        }
       },
-    },
-  }), {
-    title: 'Model provider detail', description: 'Model detail for one provider (id/name/reasoning efforts; that provider\'s catalog view only)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readModelProvider(uri, vars))
-
-  mcp.registerResource('workspace', new ResourceTemplate(resUri.workspaces + '/{id}', {
-    list: async () => {
-      const all = await workspacesPayload(ctx) as { workspaces?: { id: string; path: string }[] }
-      return {
-        resources: (all.workspaces ?? []).map((w) => ({
-          uri: resUri.workspace(w.id),
-          name: w.path,
-          mimeType: 'application/json',
-        })),
-      }
-    },
-    complete: {
-      id: async (value) => {
-        const all = await workspacesPayload(ctx).catch(() => undefined) as { workspaces?: { id: string }[] } | undefined
-        return (all?.workspaces ?? []).map((w) => w.id).filter((id) => id.startsWith(value)).slice(0, 30)
+      complete: {
+        provider: async (value) => {
+          const cat = (await collectModelCatalog(ctx)) as { providers?: { id: string }[] }
+          return (cat.providers ?? [])
+            .map((p) => p.id)
+            .filter((id) => id.startsWith(value))
+            .slice(0, 30)
+        },
       },
+    }),
+    {
+      title: 'Model provider detail',
+      description: "Model detail for one provider (id/name/reasoning efforts; that provider's catalog view only)",
+      mimeType: 'application/json',
+      annotations: ann.data,
     },
-  }), {
-    title: 'Workspace detail', description: 'One workspace (path + owning session list)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readWorkspace(uri, vars))
+    (uri, vars) => readModelProvider(uri, vars),
+  )
 
-  mcp.registerResource('session', new ResourceTemplate(resUri.sessions + '/{sessionId}', {
-    list: async () => {
-      const { sessions } = await collectSessions(ctx)
-      return {
-        resources: sessions.map((s) => ({
-          uri: resUri.session(String(s.sessionId)),
-          name: String(s.title ?? s.sessionId),
-          description: s.cwd === undefined ? undefined : `cwd: ${String(s.cwd)}`,
-          mimeType: 'application/json',
-          annotations: { lastModified: new Date(Number(s.createdAt)).toISOString() },
-        })),
-      }
+  mcp.registerResource(
+    'workspace',
+    new ResourceTemplate(resUri.workspaces + '/{id}', {
+      list: async () => {
+        const all = (await workspacesPayload(ctx)) as { workspaces?: { id: string; path: string }[] }
+        return {
+          resources: (all.workspaces ?? []).map((w) => ({
+            uri: resUri.workspace(w.id),
+            name: w.path,
+            mimeType: 'application/json',
+          })),
+        }
+      },
+      complete: {
+        id: async (value) => {
+          const all = (await workspacesPayload(ctx).catch(() => undefined)) as { workspaces?: { id: string }[] } | undefined
+          return (all?.workspaces ?? [])
+            .map((w) => w.id)
+            .filter((id) => id.startsWith(value))
+            .slice(0, 30)
+        },
+      },
+    }),
+    {
+      title: 'Workspace detail',
+      description: 'One workspace (path + owning session list)',
+      mimeType: 'application/json',
+      annotations: ann.data,
     },
-    complete: { sessionId: completeSessionIds(ctx) },
-  }), {
-    title: 'Session metadata', description: 'One session\'s metadata (model/reasoning effort, preset, permission preset, live state, turn/step counters, context occupancy, historyReadable; same data as session_meta; persisted-only sessions are readable too)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readSession(uri, vars))
+    (uri, vars) => readWorkspace(uri, vars),
+  )
 
-  mcp.registerResource('session-history', new ResourceTemplate(resUri.sessions + '/{sessionId}/history', {
-    list: async () => ({ resources: await listLiveSessionUris(ctx, 'history') }),
-    complete: { sessionId: completeLiveSessionIds(ctx) },
-  }), {
-    title: 'Session history', description: `Session conversation digest (latest ${HISTORY_PAGE} entries — user and assistant messages; read {id}/history/{before} for older pages; same data as session_history)`,
-    mimeType: 'application/json', annotations: ann.data,
-  }, guarded((uri, vars) => readHistory(uri, vars)))
-  mcp.registerResource('session-history-page', new ResourceTemplate(resUri.sessions + '/{sessionId}/history/{before}', {
-    // 翻页变体不进清单(默认模板已代表该资源族); 仅可读
-    list: undefined,
-    complete: { sessionId: completeLiveSessionIds(ctx) },
-  }), {
-    title: 'Session history page', description: `Session conversation digest paging: only events before the {before} index, returning the preceding ${HISTORY_PAGE} entries (pass the earliest index from the previous result)`,
-    mimeType: 'application/json', annotations: ann.data,
-  }, guarded((uri, vars) => readHistory(uri, vars)))
+  mcp.registerResource(
+    'session',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}', {
+      list: async () => {
+        const { sessions } = await collectSessions(ctx)
+        return {
+          resources: sessions.map((s) => ({
+            uri: resUri.session(String(s.sessionId)),
+            name: String(s.title ?? s.sessionId),
+            description: s.cwd === undefined ? undefined : `cwd: ${String(s.cwd)}`,
+            mimeType: 'application/json',
+            annotations: { lastModified: new Date(Number(s.createdAt)).toISOString() },
+          })),
+        }
+      },
+      complete: { sessionId: completeSessionIds(ctx) },
+    }),
+    {
+      title: 'Session metadata',
+      description:
+        "One session's metadata (model/reasoning effort, preset, permission preset, live state, turn/step counters, context occupancy, historyReadable; same data as session_meta; persisted-only sessions are readable too)",
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri, vars) => readSession(uri, vars),
+  )
 
-  mcp.registerResource('session-events', new ResourceTemplate(resUri.sessions + '/{sessionId}/events', {
-    list: async () => ({ resources: await listLiveSessionUris(ctx, 'events') }),
-    complete: { sessionId: completeLiveSessionIds(ctx) },
-  }), {
-    title: 'Session events', description: 'Raw event stream as JSONL (full stream, 500-line cap; {id}/events/{after} is the continuation cursor)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readEvents(uri, vars))
-  mcp.registerResource('session-events-page', new ResourceTemplate(resUri.sessions + '/{sessionId}/events/{after}', {
-    list: undefined,
-    complete: { sessionId: completeLiveSessionIds(ctx) },
-  }), {
-    title: 'Session events (after cursor)', description: 'Raw event stream continuation: only events with index > {after} (pass the previous result\'s next value)',
-    mimeType: 'application/json', annotations: ann.data,
-  }, (uri, vars) => readEvents(uri, vars))
+  mcp.registerResource(
+    'session-history',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}/history', {
+      list: async () => ({ resources: await listLiveSessionUris(ctx, 'history') }),
+      complete: { sessionId: completeLiveSessionIds(ctx) },
+    }),
+    {
+      title: 'Session history',
+      description: `Session conversation digest (latest ${HISTORY_PAGE} entries — user and assistant messages; read {id}/history/{before} for older pages; same data as session_history)`,
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    guarded((uri, vars) => readHistory(uri, vars)),
+  )
+  mcp.registerResource(
+    'session-history-page',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}/history/{before}', {
+      // 翻页变体不进清单(默认模板已代表该资源族); 仅可读
+      list: undefined,
+      complete: { sessionId: completeLiveSessionIds(ctx) },
+    }),
+    {
+      title: 'Session history page',
+      description: `Session conversation digest paging: only events before the {before} index, returning the preceding ${HISTORY_PAGE} entries (pass the earliest index from the previous result)`,
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    guarded((uri, vars) => readHistory(uri, vars)),
+  )
 
-  mcp.registerResource('session-activity', new ResourceTemplate(resUri.sessions + '/{sessionId}/activity', {
-    list: async () => ({ resources: await listLiveSessionUris(ctx, 'activity') }),
-    complete: { sessionId: completeLiveSessionIds(ctx) },
-  }), {
-    title: 'Session activity', description: 'Current turn activity window (active/turn count/last tool/answer tail; subscribe to watch the agent work live)',
-    mimeType: 'application/json', annotations: ann.hot,
-  }, (uri, vars) => readActivity(uri, vars))
+  mcp.registerResource(
+    'session-events',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}/events', {
+      list: async () => ({ resources: await listLiveSessionUris(ctx, 'events') }),
+      complete: { sessionId: completeLiveSessionIds(ctx) },
+    }),
+    {
+      title: 'Session events',
+      description: 'Raw event stream as JSONL (full stream, 500-line cap; {id}/events/{after} is the continuation cursor)',
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri, vars) => readEvents(uri, vars),
+  )
+  mcp.registerResource(
+    'session-events-page',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}/events/{after}', {
+      list: undefined,
+      complete: { sessionId: completeLiveSessionIds(ctx) },
+    }),
+    {
+      title: 'Session events (after cursor)',
+      description: "Raw event stream continuation: only events with index > {after} (pass the previous result's next value)",
+      mimeType: 'application/json',
+      annotations: ann.data,
+    },
+    (uri, vars) => readEvents(uri, vars),
+  )
+
+  mcp.registerResource(
+    'session-activity',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}/activity', {
+      list: async () => ({ resources: await listLiveSessionUris(ctx, 'activity') }),
+      complete: { sessionId: completeLiveSessionIds(ctx) },
+    }),
+    {
+      title: 'Session activity',
+      description: 'Current turn activity window (active/turn count/last tool/answer tail; subscribe to watch the agent work live)',
+      mimeType: 'application/json',
+      annotations: ann.hot,
+    },
+    (uri, vars) => readActivity(uri, vars),
+  )
 
   // 现状概览: 默认档字段(工具面的 fields/recentLimit 细粒度是工具参数, 资源面读默认档);
   // 清单含 persisted-only 会话(冷会话经 inspect 同样可读), 与元数据资源同一补全源
-  mcp.registerResource('session-overview', new ResourceTemplate(resUri.sessions + '/{sessionId}/overview', {
-    list: async () => {
-      const { sessions: items } = await collectSessions(ctx)
-      return {
-        resources: items.map((s) => ({
-          uri: resUri.sessionOverview(String(s.sessionId)),
-          name: String(s.title ?? s.sessionId),
-          mimeType: 'application/json',
-        })),
-      }
+  mcp.registerResource(
+    'session-overview',
+    new ResourceTemplate(resUri.sessions + '/{sessionId}/overview', {
+      list: async () => {
+        const { sessions: items } = await collectSessions(ctx)
+        return {
+          resources: items.map((s) => ({
+            uri: resUri.sessionOverview(String(s.sessionId)),
+            name: String(s.title ?? s.sessionId),
+            mimeType: 'application/json',
+          })),
+        }
+      },
+      complete: { sessionId: completeSessionIds(ctx) },
+    }),
+    {
+      title: 'Session overview',
+      description:
+        'One-call, GUI-style glance at a session (default sections: title, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; same data as session_overview)',
+      mimeType: 'application/json',
+      annotations: ann.hot,
     },
-    complete: { sessionId: completeSessionIds(ctx) },
-  }), {
-    title: 'Session overview', description: 'One-call, GUI-style glance at a session (default sections: title, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; same data as session_overview)',
-    mimeType: 'application/json', annotations: ann.hot,
-  }, (uri, vars) => readOverview(uri, vars))
+    (uri, vars) => readOverview(uri, vars),
+  )
 
   // ── 订阅面(hub 缺省 = 纯只读) ──
   const hub = deps?.hub
@@ -382,7 +545,10 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
       [resUri.statusConnections]: readStatusField('connections'),
       [resUri.guide]: (uri) => markdown(uri, GET_STARTED_DOC),
       ...Object.fromEntries(
-        (Object.keys(GET_STARTED_SECTIONS) as Exclude<GuideSection, 'all'>[]).map((s) => [resUri.guideSection(s), (uri: URL) => markdown(uri, GET_STARTED_SECTIONS[s])]),
+        (Object.keys(GET_STARTED_SECTIONS) as Exclude<GuideSection, 'all'>[]).map((s) => [
+          resUri.guideSection(s),
+          (uri: URL) => markdown(uri, GET_STARTED_SECTIONS[s]),
+        ]),
       ),
       [resUri.tools]: readTools,
       [resUri.models]: readModels,

@@ -10,13 +10,13 @@
 
 dsh 自身就有一套"通用服务调用"体系（Typert），全部经 cordis 服务进程内消费，符合零宿主副本原则：
 
-| 环节 | 机制 | 真机验证 |
-| --- | --- | --- |
-| 枚举 | `serviceOf(ctx, 'typert').local.list()` 返回全部 invocation descriptor | 140 个（13 流式 / 24 无参非流式），零等待可达 |
-| 单方法契约 | descriptor 自带 `service` / `namespace` / `method` / `mode` / `parameters` / `description` / `result`（含完整 JSON Schema） | `session/modelCatalog` 样本确认 |
-| 包级模型 | `typert.listPackages({face:'host'})`（服务/成员/类型声明） | 27 个包注册 |
-| 调用 | `serviceOf(ctx, 'typertGateway').invoke({namespace, method, args, peer, signal})`，具名参数严格校验，返回 wire 形状 JSON | `session/modelCatalog` 真实调用成功 |
-| 调用方身份 | `serviceOf(ctx, 'connection').createPeer({principal: {kind:'owner'}, interactions:'none'})` 进程内构造 | peer 创建与 dispose 成功 |
+| 环节       | 机制                                                                                                                        | 真机验证                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 枚举       | `serviceOf(ctx, 'typert').local.list()` 返回全部 invocation descriptor                                                      | 140 个（13 流式 / 24 无参非流式），零等待可达 |
+| 单方法契约 | descriptor 自带 `service` / `namespace` / `method` / `mode` / `parameters` / `description` / `result`（含完整 JSON Schema） | `session/modelCatalog` 样本确认               |
+| 包级模型   | `typert.listPackages({face:'host'})`（服务/成员/类型声明）                                                                  | 27 个包注册                                   |
+| 调用       | `serviceOf(ctx, 'typertGateway').invoke({namespace, method, args, peer, signal})`，具名参数严格校验，返回 wire 形状 JSON    | `session/modelCatalog` 真实调用成功           |
+| 调用方身份 | `serviceOf(ctx, 'connection').createPeer({principal: {kind:'owner'}, interactions:'none'})` 进程内构造                      | peer 创建与 dispose 成功                      |
 
 要点：
 

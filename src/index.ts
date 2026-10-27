@@ -84,8 +84,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const watchBaseline = new Map<string, number>()
   const sessionWatcher = setInterval(() => {
     for (const sessionId of hub.subscribedSessionIds()) {
-      const live = ctx.agents.get(asSessionId(sessionId))
-        ?? (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
+      const live = ctx.agents.get(asSessionId(sessionId)) ?? (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
       if (live === undefined) {
         watchBaseline.delete(sessionId)
         continue
@@ -215,7 +214,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   selfToolsController = installSelfTools(ctx, { statusSnapshot })
   selfToolsController.sync(state.config.selfToolsEnabled)
   ctx.effect(() => {
-    return () => { selfToolsController?.dispose() }
+    return () => {
+      selfToolsController?.dispose()
+    }
   }, `${PLUGIN_NAME}: self-tools`)
 
   // Loader 只改 volatile 字段时不重载插件: 就地提交后按字段同步各自的运行时面,
@@ -227,7 +228,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       if (keys.some((key) => key === 'http' || key === 'host' || key === 'port')) void requestListenerSync()
       if (keys.includes('sessionTtlMs')) httpServer?.syncSessionTtl()
     })
-    return () => { off() }
+    return () => {
+      off()
+    }
   }, `${PLUGIN_NAME}: volatile config`)
 
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-rice-on-a-stick/<method>(设置页面板的数据/操作后端) ──

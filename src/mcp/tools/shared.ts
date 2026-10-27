@@ -38,7 +38,8 @@ export function structuredOut<T>(value: unknown, schema: z.ZodType<T>): { conten
 // ── 跨工具共享的描述片段(单一出处防漂移; 完整语义在 guide.md Concepts) ──
 
 /** 归档语义的权威短句: "可撤销的软标记, 日志可读"。多个工具引用同一份, 措辞不再各自漂移 */
-export const SOFT_ARCHIVE = 'archiving is a reversible soft mark: the session disappears from lists and the host refuses model steps for it, while the log stays readable (session_unarchive restores)'
+export const SOFT_ARCHIVE =
+  'archiving is a reversible soft mark: the session disappears from lists and the host refuses model steps for it, while the log stays readable (session_unarchive restores)'
 
 /** 服务前置条件短句(fork/search/select_model 与 archive/unarchive 各自共用一份) */
 export const NEEDS_SESSION_CONTROLLER = "Requires the web profile's `sessionController`."
@@ -62,10 +63,7 @@ export function currentSessionIdOf(extra: ToolCallContext | undefined): string |
  * 解析工具的目标会话: 显式 sessionId 优先; 省略时只在原生工具面取调用方自己的会话。
  * MCP 外部调用没有"当前会话", 省略即报错——不猜、不回落到某个默认会话。
  */
-export function resolveSessionTarget(
-  sessionId: string | undefined,
-  extra?: ToolCallContext,
-): { sessionId: string } | { error: string } {
+export function resolveSessionTarget(sessionId: string | undefined, extra?: ToolCallContext): { sessionId: string } | { error: string } {
   const explicit = sessionId?.trim()
   if (explicit !== undefined && explicit !== '') return { sessionId: explicit }
   const current = currentSessionIdOf(extra)

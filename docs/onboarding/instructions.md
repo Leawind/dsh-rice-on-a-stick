@@ -5,6 +5,7 @@ Your MCP client is the commander; dsh is the executor — sessions here are the 
 sessions the dsh web UI shows (session-centric, one conversation = one agent).
 
 Quick start:
+
 - Call model_list first — it holds both the model catalog and the preset roster
   (its `presets` field); create a session with session_create
   (cwd, provider+model pair, preset — all explicit, no defaults are backfilled).

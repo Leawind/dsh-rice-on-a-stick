@@ -18,11 +18,23 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
     'endpoint_describe',
     {
       title: 'Discover dsh endpoints',
-      description: 'Discover dsh Remote endpoints (the escape hatch beyond this plugin\'s curated tools). Resolution ladder, search first: query = keyword search over endpoint names and descriptions (combine with namespace to scope one domain); no arguments = compact namespace index; namespace = one domain\'s method list; endpoint "namespace/method" = the exact contract (parameters and result JSON Schema), the last step before endpoint_call. Coverage spans dsh domains such as sessions, workspaces and workspace files, plugins, model providers, market, schedule, settings, permissions, commands, goals, terminal and credentials. Entries are flagged readOnly (semantic only), allowed (in endpointAllowlist, executes directly), writable (allowed mutation) or approvalRequired (not allowed: parks for a human decision on the settings panel); dangerous entries touch trust or supply chain (credentials, plugin installs) and get a human review either way; blockedBy stream entries cannot be called at all.',
+      description:
+        'Discover dsh Remote endpoints (the escape hatch beyond this plugin\'s curated tools). Resolution ladder, search first: query = keyword search over endpoint names and descriptions (combine with namespace to scope one domain); no arguments = compact namespace index; namespace = one domain\'s method list; endpoint "namespace/method" = the exact contract (parameters and result JSON Schema), the last step before endpoint_call. Coverage spans dsh domains such as sessions, workspaces and workspace files, plugins, model providers, market, schedule, settings, permissions, commands, goals, terminal and credentials. Entries are flagged readOnly (semantic only), allowed (in endpointAllowlist, executes directly), writable (allowed mutation) or approvalRequired (not allowed: parks for a human decision on the settings panel); dangerous entries touch trust or supply chain (credentials, plugin installs) and get a human review either way; blockedBy stream entries cannot be called at all.',
       inputSchema: {
-        query: z.string().optional().describe('Keyword search (preferred entry): case-insensitive substrings over endpoint names and descriptions; multiple words AND together; combine with namespace to scope one domain.'),
-        namespace: z.string().optional().describe('Namespace name: alone lists its methods; with query scopes the search to it. Omit all arguments for the compact namespace index.'),
-        endpoint: z.string().optional().describe('Exact endpoint "namespace/method" for its full contract (parameters + result schema); cannot combine with query/namespace.'),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            'Keyword search (preferred entry): case-insensitive substrings over endpoint names and descriptions; multiple words AND together; combine with namespace to scope one domain.',
+          ),
+        namespace: z
+          .string()
+          .optional()
+          .describe('Namespace name: alone lists its methods; with query scopes the search to it. Omit all arguments for the compact namespace index.'),
+        endpoint: z
+          .string()
+          .optional()
+          .describe('Exact endpoint "namespace/method" for its full contract (parameters + result schema); cannot combine with query/namespace.'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -32,7 +44,11 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
         const ns = namespace?.trim() || undefined
         const ep = endpoint?.trim() || undefined
         if (ep !== undefined && (q !== undefined || ns !== undefined)) {
-          return outError(JSON.stringify({ error: 'pass at most one selector: endpoint ("namespace/method") fetches the exact contract and cannot combine with query/namespace' }))
+          return outError(
+            JSON.stringify({
+              error: 'pass at most one selector: endpoint ("namespace/method") fetches the exact contract and cannot combine with query/namespace',
+            }),
+          )
         }
         const names = endpointNamespaces(ctx)
         if (names.length === 0) {
@@ -41,7 +57,11 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
         if (ep !== undefined) {
           const contract = describeEndpoint(ctx, ep)
           if (contract === undefined) {
-            return outError(JSON.stringify({ error: `unknown endpoint "${ep}" — call endpoint_describe without arguments for the namespace index, or pass query=… to search` }))
+            return outError(
+              JSON.stringify({
+                error: `unknown endpoint "${ep}" — call endpoint_describe without arguments for the namespace index, or pass query=… to search`,
+              }),
+            )
           }
           return out(JSON.stringify(contract, null, 2))
         }
@@ -65,9 +85,12 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
     'endpoint_call',
     {
       title: 'Call a dsh endpoint',
-      description: 'Invoke one dsh Remote endpoint by reference: pass an endpoint from endpoint_describe and its named wire arguments (see the endpoint\'s contract for parameter keys). Allowlisted endpoints (endpointAllowlist) execute directly. Every other non-stream endpoint — including read-only ones — parks the call until a human allows or declines it on this deployment\'s settings panel (the call blocks in the meantime); decline, timeout (approvalTimeoutMs, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed. Dangerous endpoints (trust/supply-chain) get the same human review with a warning badge. Arguments are strictly validated inside dsh against the generated contract; results are the same wire JSON the dsh Web UI consumes.',
+      description:
+        "Invoke one dsh Remote endpoint by reference: pass an endpoint from endpoint_describe and its named wire arguments (see the endpoint's contract for parameter keys). Allowlisted endpoints (endpointAllowlist) execute directly. Every other non-stream endpoint — including read-only ones — parks the call until a human allows or declines it on this deployment's settings panel (the call blocks in the meantime); decline, timeout (approvalTimeoutMs, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed. Dangerous endpoints (trust/supply-chain) get the same human review with a warning badge. Arguments are strictly validated inside dsh against the generated contract; results are the same wire JSON the dsh Web UI consumes.",
       inputSchema: {
-        endpoint: z.string().describe('Exact endpoint "namespace/method" (allowed=true or approvalRequired in endpoint_describe; stream endpoints are not callable).'),
+        endpoint: z
+          .string()
+          .describe('Exact endpoint "namespace/method" (allowed=true or approvalRequired in endpoint_describe; stream endpoints are not callable).'),
         // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器
         args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint (keys per its endpoint_describe contract).'),
       },
@@ -85,7 +108,9 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
         }
         if (rendered === undefined) rendered = 'null'
         if (rendered.length > RENDER_CAP) {
-          return outError(JSON.stringify({ error: `result exceeds the ${RENDER_CAP}-byte render cap (${rendered.length} bytes); narrow the call (e.g. page the query)` }))
+          return outError(
+            JSON.stringify({ error: `result exceeds the ${RENDER_CAP}-byte render cap (${rendered.length} bytes); narrow the call (e.g. page the query)` }),
+          )
         }
         return out(rendered)
       } catch (e) {

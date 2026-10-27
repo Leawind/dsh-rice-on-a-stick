@@ -182,10 +182,22 @@ export function parseConfig(input: Config = {}): ParsedConfig {
  */
 export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
   // 与旧 apply 口径一致: 去空白、丢空串(界面写入口已 trim/去重, 这里兜住手改配置)
-  const readModels = () => parsed.allowedModels.get().map((s) => String(s).trim()).filter(Boolean)
+  const readModels = () =>
+    parsed.allowedModels
+      .get()
+      .map((s) => String(s).trim())
+      .filter(Boolean)
   // 与 allowedModels 同口径: 去空白、丢空串; Host 头比较一律小写
-  const readHosts = () => parsed.allowedHosts.get().map((s) => String(s).trim().toLowerCase()).filter(Boolean)
-  const readEndpointAllowlist = () => parsed.endpointAllowlist.get().map((s) => String(s).trim()).filter(Boolean)
+  const readHosts = () =>
+    parsed.allowedHosts
+      .get()
+      .map((s) => String(s).trim().toLowerCase())
+      .filter(Boolean)
+  const readEndpointAllowlist = () =>
+    parsed.endpointAllowlist
+      .get()
+      .map((s) => String(s).trim())
+      .filter(Boolean)
   // 简介表: 键与值都去空白, 丢空值与空键(界面写入口已清理, 这里兜住手改配置)
   const readDescriptionTable = (raw: Record<string, string>): Record<string, string> => {
     const out: Record<string, string> = {}
@@ -275,18 +287,74 @@ export function clampApprovalTimeout(value: number): number {
  * 唯一的"重启"是 host/port/http 三个监听级字段——由插件自己重建监听器, 只断 MCP 传输连接。
  */
 export const Config = Schema.object({
-  http: Schema.boolean().default(true).volatile().description('Start the HTTP MCP server (off keeps the GUI panel and the native self-use tools; toggling it restarts only the listener).'),
+  http: Schema.boolean()
+    .default(true)
+    .volatile()
+    .description('Start the HTTP MCP server (off keeps the GUI panel and the native self-use tools; toggling it restarts only the listener).'),
   port: Schema.number().default(5642).volatile().description('MCP listen port (changing it restarts only the listener; connected MCP clients must reconnect).'),
-  host: Schema.string().default('127.0.0.1').volatile().description('MCP listen address (safe default: loopback only; add auth + reverse proxy + TLS before exposing to LAN/WAN). Changing it restarts only the listener.'),
-  allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).volatile().description('Model allowlist in "provider/model" form. When enabled (allowedModelsEnabled) and non-empty, session_create/session_select_model reject models outside the list.'),
-  allowedModelsEnabled: Schema.boolean().volatile().description('Model allowlist switch. Off = temporarily unrestricted, the list is kept (turning it back on restores the constraint); defaults to "enabled when the list is non-empty".'),
-  authToken: Schema.string().default(DEFAULTS.authToken).role('secret').volatile().description('Bearer token (when auth is enabled, every request must send Authorization: Bearer <token>).'),
-  authEnabled: Schema.boolean().volatile().description('Auth switch. Off = do not verify, the token is kept (turning it back on restores verification); defaults to "enabled when a token is configured".'),
-  selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).'),
-  allowedHosts: Schema.array(Schema.string()).default([]).volatile().description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases). Read per request: edits apply immediately.'),
-  sessionTtlMs: Schema.number().default(DEFAULTS.sessionTtlMs).volatile().description('Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec). Read live: edits apply to the next sweep.'),
-  approvalTimeoutMs: Schema.number().default(DEFAULTS.approvalTimeoutMs).volatile().description('Wait limit for a dsh endpoint call parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the dsh answer-client chain and are not bounded by this value.'),
-  endpointAllowlist: Schema.array(Schema.string()).default(DEFAULTS.endpointAllowlist).volatile().description('dsh endpoint allowlist in "namespace/method" form (default empty = every non-stream endpoint parks for per-call panel approval). Allowlisted endpoints — read-only ones included — execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.'),
-  modelDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.modelDescriptions).volatile().description('Per-model blurbs keyed by "provider/model", written on the settings panel and surfaced through model_list / dsh://models so callers can see them when picking a model. Entries outside the live catalog are kept but not shown.'),
-  providerDescriptions: Schema.dict(Schema.string()).default(DEFAULTS.providerDescriptions).volatile().description('Per-provider blurbs keyed by provider id, surfaced on the provider rows of model_list / dsh://models (same semantics as modelDescriptions).'),
+  host: Schema.string()
+    .default('127.0.0.1')
+    .volatile()
+    .description(
+      'MCP listen address (safe default: loopback only; add auth + reverse proxy + TLS before exposing to LAN/WAN). Changing it restarts only the listener.',
+    ),
+  allowedModels: Schema.array(Schema.string())
+    .default(DEFAULTS.allowedModels)
+    .volatile()
+    .description(
+      'Model allowlist in "provider/model" form. When enabled (allowedModelsEnabled) and non-empty, session_create/session_select_model reject models outside the list.',
+    ),
+  allowedModelsEnabled: Schema.boolean()
+    .volatile()
+    .description(
+      'Model allowlist switch. Off = temporarily unrestricted, the list is kept (turning it back on restores the constraint); defaults to "enabled when the list is non-empty".',
+    ),
+  authToken: Schema.string()
+    .default(DEFAULTS.authToken)
+    .role('secret')
+    .volatile()
+    .description('Bearer token (when auth is enabled, every request must send Authorization: Bearer <token>).'),
+  authEnabled: Schema.boolean()
+    .volatile()
+    .description(
+      'Auth switch. Off = do not verify, the token is kept (turning it back on restores verification); defaults to "enabled when a token is configured".',
+    ),
+  selfToolsEnabled: Schema.boolean()
+    .default(DEFAULTS.selfToolsEnabled)
+    .volatile()
+    .description(
+      'Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).',
+    ),
+  allowedHosts: Schema.array(Schema.string())
+    .default([])
+    .volatile()
+    .description('Host header allowlist (extra hostnames beyond the bind address and loopback aliases). Read per request: edits apply immediately.'),
+  sessionTtlMs: Schema.number()
+    .default(DEFAULTS.sessionTtlMs)
+    .volatile()
+    .description(
+      'Idle TTL for MCP transport sessions in milliseconds (default one week; 0 = never reap; expired sessions are closed and the client re-initializes per spec). Read live: edits apply to the next sweep.',
+    ),
+  approvalTimeoutMs: Schema.number()
+    .default(DEFAULTS.approvalTimeoutMs)
+    .volatile()
+    .description(
+      'Wait limit for a dsh endpoint call parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the dsh answer-client chain and are not bounded by this value.',
+    ),
+  endpointAllowlist: Schema.array(Schema.string())
+    .default(DEFAULTS.endpointAllowlist)
+    .volatile()
+    .description(
+      'dsh endpoint allowlist in "namespace/method" form (default empty = every non-stream endpoint parks for per-call panel approval). Allowlisted endpoints — read-only ones included — execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.',
+    ),
+  modelDescriptions: Schema.dict(Schema.string())
+    .default(DEFAULTS.modelDescriptions)
+    .volatile()
+    .description(
+      'Per-model blurbs keyed by "provider/model", written on the settings panel and surfaced through model_list / dsh://models so callers can see them when picking a model. Entries outside the live catalog are kept but not shown.',
+    ),
+  providerDescriptions: Schema.dict(Schema.string())
+    .default(DEFAULTS.providerDescriptions)
+    .volatile()
+    .description('Per-provider blurbs keyed by provider id, surfaced on the provider rows of model_list / dsh://models (same semantics as modelDescriptions).'),
 })

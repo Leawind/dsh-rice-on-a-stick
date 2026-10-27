@@ -179,9 +179,7 @@ export interface AnswerQuestionInput {
 }
 
 /** 回答结果(失败时给出可诊断原因) */
-export type AnswerResult =
-  | { ok: true; eventId: string; outcome?: ApprovalOutcome }
-  | { ok: false; error: string }
+export type AnswerResult = { ok: true; eventId: string; outcome?: ApprovalOutcome } | { ok: false; error: string }
 
 /**
  * 本插件的回答运行时: 像一个普通 Web 用户那样持有 forwarded

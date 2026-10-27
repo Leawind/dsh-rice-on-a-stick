@@ -1,0 +1,19 @@
+# 构建产物与依赖（生成物，不手改）
+node_modules/
+lib/
+client/
+.tmp/
+*.tsbuildinfo
+
+# 锁文件：由 npm 生成，不手改
+package-lock.json
+
+# 发布元数据：AGENTS.md 约定开发期不动（含 Unreleased 段），不参与格式化
+CHANGELOG.md
+
+# 资源：prettier 没有 SVG 解析器（显式传入会报错）
+*.svg
+
+# 工具/编辑器私有目录
+.zcode/
+.vscode/

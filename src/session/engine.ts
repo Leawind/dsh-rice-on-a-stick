@@ -53,7 +53,14 @@ async function resolvePreset(ctx: Context, preset: string): Promise<string> {
   if (typeof presets?.list === 'function') {
     const roster = await presets.list().catch(() => undefined)
     if (roster && !roster.some((p) => p?.id === preset)) {
-      throw new Error(`unknown preset "${preset}" (available: ${roster.map((p) => p?.id ?? '').filter(Boolean).join(', ') || 'none'}; check model_list presets / dsh://presets for valid ids)`)
+      throw new Error(
+        `unknown preset "${preset}" (available: ${
+          roster
+            .map((p) => p?.id ?? '')
+            .filter(Boolean)
+            .join(', ') || 'none'
+        }; check model_list presets / dsh://presets for valid ids)`,
+      )
     }
   }
   return preset
@@ -64,8 +71,7 @@ async function resolvePreset(ctx: Context, preset: string): Promise<string> {
  * 仅用于模型目录的"缺省选择"展示(与 Web UI 的模型选择器同源)——引擎不做任何默认回填。
  */
 export function hostDefaultSelection(ctx: Context): ModelSelectionOverride | undefined {
-  return serviceOf<{ currentSelection?: () => ModelSelectionOverride | undefined }>(ctx, 'agentDefaultModel')
-    ?.currentSelection?.()
+  return serviceOf<{ currentSelection?: () => ModelSelectionOverride | undefined }>(ctx, 'agentDefaultModel')?.currentSelection?.()
 }
 
 /** 转成宿主 ctx.agents.create/resume 要的 agentOptions。
@@ -84,8 +90,10 @@ function assertModelAllowed(selection: ModelSelection): void {
   const allowed = state.config.allowedModels
   if (!state.config.allowedModelsEnabled || allowed.length === 0) return
   if (!allowed.includes(`${selection.provider}/${selection.model}`)) {
-    throw new Error(`model "${selection.provider}/${selection.model}" is not in allowedModels [${allowed.join(', ')}]; `
-      + 'choose a model from the allowlist (see model_list), or have the deployment adjust/disable the plugin\'s allowedModels config')
+    throw new Error(
+      `model "${selection.provider}/${selection.model}" is not in allowedModels [${allowed.join(', ')}]; ` +
+        "choose a model from the allowlist (see model_list), or have the deployment adjust/disable the plugin's allowedModels config",
+    )
   }
 }
 
@@ -95,8 +103,10 @@ export function selectionOf(args: { provider?: string; model?: string; reasoning
   const provider = args.provider
   const model = args.model
   if (!provider || !model) {
-    throw new Error('provider + model are required (must be explicit per call); '
-      + 'call model_list first and pass the pair, or pass sessionId to continue an existing session (live sessions keep their own model)')
+    throw new Error(
+      'provider + model are required (must be explicit per call); ' +
+        'call model_list first and pass the pair, or pass sessionId to continue an existing session (live sessions keep their own model)',
+    )
   }
   const selection: ModelSelection = { provider, model }
   if (args.reasoningEffort) selection.reasoningEffort = args.reasoningEffort
@@ -222,8 +232,10 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
     try {
       setPermissionPreset(ctx, handle.agent.session, permission)
     } catch (e) {
-      throw new Error(`session "${String(newSessionId)}" was created, but applying permission preset "${permission}" failed: `
-        + `${(e as Error)?.message ?? String(e)}; retry with session_set_permission({ sessionId: "${String(newSessionId)}", permission: "${permission}" })`)
+      throw new Error(
+        `session "${String(newSessionId)}" was created, but applying permission preset "${permission}" failed: ` +
+          `${(e as Error)?.message ?? String(e)}; retry with session_set_permission({ sessionId: "${String(newSessionId)}", permission: "${permission}" })`,
+      )
     }
   }
   // 分组: 把会话归属到 cwd 对应的工作区(resolveByPath ?? create + attachSession; 可选依赖; headless 环境自动跳过)
@@ -292,8 +304,10 @@ export async function resolveSessionForPrompt(ctx: Context, sessionId: string): 
   // 2. 官方冷恢复(界面打开旧会话同一条路): 模型选择、preset 组装与格式迁移都由宿主完成
   const controller = sessionControllerOf(ctx)
   if (typeof controller?.resolveAgent !== 'function') {
-    throw new Error(`cannot resume session "${sessionId}": the host session controller is unavailable `
-      + '(continuing a persisted session needs the web profile session controller)')
+    throw new Error(
+      `cannot resume session "${sessionId}": the host session controller is unavailable ` +
+        '(continuing a persisted session needs the web profile session controller)',
+    )
   }
   let resolved: Awaited<ReturnType<NonNullable<typeof controller.resolveAgent>>> | undefined
   try {
@@ -343,26 +357,22 @@ async function awaitIdleOrAbort(pending: Promise<void>, signal?: AbortSignal): P
     }
     const onAbort = () => finish(true)
     signal.addEventListener('abort', onAbort, { once: true })
-    pending.then(() => finish(false), () => finish(false))
+    pending.then(
+      () => finish(false),
+      () => finish(false),
+    )
   })
 }
 
 /** prompt 等待的三种收敛: turn 结束 / 会话开始等输入 / 调用方取消等待 */
-type PromptWait =
-  | { kind: 'idle' }
-  | { kind: 'input'; input: PendingInput }
-  | { kind: 'aborted' }
+type PromptWait = { kind: 'idle' } | { kind: 'input'; input: PendingInput } | { kind: 'aborted' }
 
 /**
  * 同时等 "turn 结束" 与 "会话开始等输入"。
  * 输入先到就把控制权还给调用方(turn 继续等), 不 cancel、不跳过问题;
  * idle 先到则取消输入 waiter, 回到普通结果路径。
  */
-async function awaitIdleOrInput(
-  idle: Promise<void>,
-  input: Promise<PendingInput | undefined> | undefined,
-  signal?: AbortSignal,
-): Promise<PromptWait> {
+async function awaitIdleOrInput(idle: Promise<void>, input: Promise<PendingInput | undefined> | undefined, signal?: AbortSignal): Promise<PromptWait> {
   if (signal?.aborted === true) return { kind: 'aborted' }
   return await new Promise<PromptWait>((resolve) => {
     let settled = false
@@ -374,11 +384,17 @@ async function awaitIdleOrInput(
     }
     const onAbort = (): void => finish({ kind: 'aborted' })
     signal?.addEventListener('abort', onAbort, { once: true })
-    idle.then(() => finish({ kind: 'idle' }), () => finish({ kind: 'idle' }))
+    idle.then(
+      () => finish({ kind: 'idle' }),
+      () => finish({ kind: 'idle' }),
+    )
     if (input !== undefined) {
-      input.then((value) => {
-        if (value !== undefined) finish({ kind: 'input', input: value })
-      }, () => {})
+      input.then(
+        (value) => {
+          if (value !== undefined) finish({ kind: 'input', input: value })
+        },
+        () => {},
+      )
     }
   })
 }
@@ -436,11 +452,11 @@ function resolveSendMode(agent: { status?: string }, requested: SendMode | undef
   if ((agent.status ?? 'idle') !== 'running') return 'queue'
   const queued = queuedCountOf(agent) ?? 0
   const err = new Error(
-    `mode is required while session "${sessionId}" is running: nothing was sent, so retrying with the same requestId is safe. `
-    + 'mode="queue" delivers after the current turn ends (a new turn); '
-    + 'mode="steer" delivers at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted). '
-    + (queued > 0 ? `${queued} message(s) are already queued — a queue delivery goes behind them. ` : '')
-    + 'Pass mode on every prompt to avoid this extra round trip; if you already queued a message, promote it with session_queue action="steer".',
+    `mode is required while session "${sessionId}" is running: nothing was sent, so retrying with the same requestId is safe. ` +
+      'mode="queue" delivers after the current turn ends (a new turn); ' +
+      'mode="steer" delivers at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted). ' +
+      (queued > 0 ? `${queued} message(s) are already queued — a queue delivery goes behind them. ` : '') +
+      'Pass mode on every prompt to avoid this extra round trip; if you already queued a message, promote it with session_queue action="steer".',
   )
   ;(err as Error & { code?: string }).code = 'MODE_REQUIRED'
   throw err
@@ -460,14 +476,23 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
       throw new Error(`requestId "${requestId}" already belongs to session "${existing.sessionId}"`)
     }
     // 幂等回执: 不再投递第二次
-    return { requestId, messageId: existing.messageId, handle: resolved.handle, record: existing, selection: resolved.selection, preset: resolved.preset, attachments: [] }
+    return {
+      requestId,
+      messageId: existing.messageId,
+      handle: resolved.handle,
+      record: existing,
+      selection: resolved.selection,
+      preset: resolved.preset,
+      attachments: [],
+    }
   }
 
   // 图片附件: 幂等回执不重复准入(同一 requestId 直接回首次结果); 相对 path 以会话 cwd 为基线。
   // 准入在投递之前: 任一失败整体抛错, 不产生"文字已发、图片没跟上"的半残消息。
-  const attachmentBlocks = opts.attachments !== undefined && opts.attachments.length > 0
-    ? await admitImages(ctx, opts.attachments, { baseDir: resolved.handle.agent.session.header.cwd })
-    : []
+  const attachmentBlocks =
+    opts.attachments !== undefined && opts.attachments.length > 0
+      ? await admitImages(ctx, opts.attachments, { baseDir: resolved.handle.agent.session.header.cwd })
+      : []
 
   // 投递模式在此定下: 从这里到 followup/steer 之间没有任何 await(单线程内不会被打断),
   // 所以"判空闲"与"真发送"看到的是同一瞬间的状态。失败时附件已准入但无别的副作用。
@@ -496,7 +521,15 @@ async function submitTurn(opts: SubmitOptions): Promise<SubmittedTurn> {
     if (state.latestRequestBySession.get(sessionId) === record.requestId) state.latestRequestBySession.delete(sessionId)
     throw e
   }
-  return { requestId, messageId: record.messageId, handle: resolved.handle, record, selection: resolved.selection, preset: resolved.preset, attachments: attachmentBlocks }
+  return {
+    requestId,
+    messageId: record.messageId,
+    handle: resolved.handle,
+    record,
+    selection: resolved.selection,
+    preset: resolved.preset,
+    attachments: attachmentBlocks,
+  }
 }
 
 /** session_submit 的回执(admission, 不是结果) */
@@ -572,7 +605,11 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
   const { handle, record } = submitted
   // 活动窗口订阅推送: 固定 1s 尾沿节流(hub 侧), 无人订阅时零开销
   const activityTimer = setInterval(() => {
-    try { state.hooks.notifySessionActivity(sessionId) } catch { /* 忽略单次失败 */ }
+    try {
+      state.hooks.notifySessionActivity(sessionId)
+    } catch {
+      /* 忽略单次失败 */
+    }
   }, 1000)
   const useInputWait = (opts.waitFor ?? 'input') === 'input' && state.answers.available
   const inputLifetime = new AbortController()
@@ -580,11 +617,7 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
   let input: PendingInput | undefined
   try {
     if (useInputWait) {
-      const outcome = await awaitIdleOrInput(
-        handle.agent.whenIdle(),
-        state.answers.waitForInput(sessionId, inputLifetime.signal),
-        signal,
-      )
+      const outcome = await awaitIdleOrInput(handle.agent.whenIdle(), state.answers.waitForInput(sessionId, inputLifetime.signal), signal)
       if (outcome.kind === 'aborted') aborted = true
       else if (outcome.kind === 'input') input = outcome.input
     } else {
@@ -600,8 +633,11 @@ export async function promptSession(opts: PromptOptions): Promise<SessionTurnRes
   // 结构化读输出。模型回报以本轮实际写入日志的 request/header 为准(冷恢复时 agent.options
   // 是宿主的部署默认, 不一定是会话实际使用的模型), 日志头缺席才退回解析阶段的选择。
   const events = eventsOf(handle.agent.session)
-  const range: TurnRange = findRequestTurn(events, record.requestId, record.messageId, record.startSeq)
-    ?? { start: record.startSeq, userIndex: record.startSeq, open: true }
+  const range: TurnRange = findRequestTurn(events, record.requestId, record.messageId, record.startSeq) ?? {
+    start: record.startSeq,
+    userIndex: record.startSeq,
+    open: true,
+  }
   const effectiveSelection = selectionOfAgent(handle.agent)
   const selection = effectiveSelection.provider && effectiveSelection.model ? effectiveSelection : submitted.selection
   const result = buildTurnResult(events, range, {
@@ -658,19 +694,24 @@ export async function queueManage(opts: QueueManageOptions): Promise<unknown> {
   const live = ctx.agents.get(asSessionId(sessionId))
   if (!live) return { error: `session "${sessionId}" is not running (no live agent); queue management needs the session to be live` }
   // inbox 形状来自宿主 agent-loop(readonly UserMessage 数组 + replace/remove); 经 unknown 桥接
-  const inbox = (live as unknown as {
-    inbox?: {
-      nextTurn: readonly { id?: string; content?: { type?: string; text?: string }[]; source?: { rpcId?: unknown } }[]
-      nextStep: readonly unknown[]
-      remove?: (messageId: string) => void
-      replace?: (messageId: string, message: unknown) => void
+  const inbox = (
+    live as unknown as {
+      inbox?: {
+        nextTurn: readonly { id?: string; content?: { type?: string; text?: string }[]; source?: { rpcId?: unknown } }[]
+        nextStep: readonly unknown[]
+        remove?: (messageId: string) => void
+        replace?: (messageId: string, message: unknown) => void
+      }
     }
-  }).inbox
+  ).inbox
   if (!inbox || typeof inbox.remove !== 'function') {
     return { error: 'host inbox API unavailable (agent too old?)' }
   }
   const textOf = (m: { content?: { type?: string; text?: string }[] }) =>
-    (m.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
+    (m.content ?? [])
+      .filter((c) => c.type === 'text' && c.text)
+      .map((c) => c.text)
+      .join('\n')
   // 重建消息必须继承原消息的 source.rpcId: 它是 session_result 定位这次提交的持久键, 丢了对该 requestId 的结果永远 pending
   const rpcIdOf = (m: { source?: { rpcId?: unknown } }) => {
     const id = m.source?.rpcId

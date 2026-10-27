@@ -47,7 +47,10 @@ const fakeWs = {
   path: FAKE_CWD,
   sessionIds: [],
   // 真实跟踪花名册: session_create 的工作区归组断言(attach 只发生一次)靠它验证
-  attachSession: async (id) => { fakeWs.sessionIds.push(id); attachedIds.push(id) },
+  attachSession: async (id) => {
+    fakeWs.sessionIds.push(id)
+    attachedIds.push(id)
+  },
 }
 const wsRegistry = {
   list: () => [fakeWs],
@@ -78,9 +81,15 @@ function makeAgent(id, cwd, options) {
     /** 测试用: 直接往日志里追加事件(如 session/title), 模拟宿主自己写的日志 */
     __events: events,
     // 状态桩: 普通 agent 的 turn 立即收敛, 观测窗口里恒为 idle
-    get status() { return 'idle' },
-    steer: (message) => { steered.push({ id, message }) },
-    inject: (message) => { injected.push({ id, message }) },
+    get status() {
+      return 'idle'
+    },
+    steer: (message) => {
+      steered.push({ id, message })
+    },
+    inject: (message) => {
+      injected.push({ id, message })
+    },
     session: {
       id,
       header: { version: 0, id, createdAt: Date.now(), cwd },
@@ -99,7 +108,10 @@ function makeAgent(id, cwd, options) {
         type: 'assistant/message',
         // usage 桩(TokenUsage 形状): 0.1.7+ 在事件载荷上, 更早宿主在 message.usage——
         // 两条各带一处, 验证双形状的机会式用量聚合(120/45/165 = 100+20 / 30+15 / 130+35)
-        data: { message: { content: [{ type: 'text', text: 'done {"changes":"c1","verification":"v1","leftovers":"l1"}' }] }, usage: { inputTokens: 100, outputTokens: 30, totalTokens: 130 } },
+        data: {
+          message: { content: [{ type: 'text', text: 'done {"changes":"c1","verification":"v1","leftovers":"l1"}' }] },
+          usage: { inputTokens: 100, outputTokens: 30, totalTokens: 130 },
+        },
       })
       events.push({
         type: 'assistant/message',
@@ -153,12 +165,16 @@ function makeSlowAgent(id, cwd, options) {
     inbox,
     cancelCalls: [],
     // 状态桩: whenIdle 挂起期间(= turn 进行中)为 running, cancel 收敛后为 idle
-    get status() { return settled ? 'idle' : 'running' },
+    get status() {
+      return settled ? 'idle' : 'running'
+    },
     steer: (message) => {
       steered.push({ id, message, running: !settled })
       events.push({ type: 'user/message', data: { message } })
     },
-    inject: (message) => { injected.push({ id, message, running: !settled }) },
+    inject: (message) => {
+      injected.push({ id, message, running: !settled })
+    },
     cancel: (cause) => {
       agent.cancelCalls.push(cause)
       slowCancelCalls.push({ id, cause })
@@ -179,7 +195,10 @@ function makeSlowAgent(id, cwd, options) {
       events.push({ type: 'user/message', data: { message } })
       events.push({ type: 'turn/start', data: { turn: 1 } })
     },
-    whenIdle: () => new Promise((r) => { resolveIdle = r }),
+    whenIdle: () =>
+      new Promise((r) => {
+        resolveIdle = r
+      }),
   }
   slowAgents.push(agent)
   return agent
@@ -209,7 +228,9 @@ export const approvalAgent = {
 // whenIdle 永不收敛——只用于 session_submit(admission)与失败路径, 不要对它跑 session_prompt。
 const busyEvents = []
 export const busyAgent = {
-  get status() { return 'running' },
+  get status() {
+    return 'running'
+  },
   __events: busyEvents,
   inbox: { nextTurn: [], nextStep: [], remove: () => {}, replace: () => {} },
   session: {
@@ -217,7 +238,9 @@ export const busyAgent = {
     header: { version: 0, id: 'sess-busy', createdAt: Date.now(), cwd: FAKE_CWD },
     snapshotEvents: (from = 0) => busyEvents.slice(from),
   },
-  steer: (message) => { steered.push({ id: 'sess-busy', message }) },
+  steer: (message) => {
+    steered.push({ id: 'sess-busy', message })
+  },
   followup: (message) => {
     followups.push({ id: 'sess-busy' })
     busyEvents.push({ type: 'user/message', data: { message } })
@@ -232,7 +255,9 @@ export const modeIdleAgent = makeAgent('sess-mode-idle', FAKE_CWD, { provider: '
 const errAgent = (() => {
   const events = []
   return {
-    get status() { return 'idle' },
+    get status() {
+      return 'idle'
+    },
     session: { id: 'sess-err', header: { version: 0, id: 'sess-err', createdAt: 1, cwd: FAKE_CWD }, snapshotEvents: (from = 0) => events.slice(from) },
     followup: (message) => {
       followups.push({ id: 'sess-err' })
@@ -256,15 +281,14 @@ function makeFakeTools() {
   const registered = new Map<string, any>()
   return {
     // 0.1.5+ 面: schemas(); 有意不提供 keys() 以证明不再依赖它
-    schemas: () => [
-      ...STATIC_TOOLS,
-      ...Array.from(registered.values(), (d: any) => ({ name: d.name, description: d.description, parameters: d.parameters })),
-    ],
+    schemas: () => [...STATIC_TOOLS, ...Array.from(registered.values(), (d: any) => ({ name: d.name, description: d.description, parameters: d.parameters }))],
     get: (name: string) => registered.get(name) ?? STATIC_TOOLS.find((t) => t.name === name),
     register: (definition: any) => {
       if (registered.has(definition.name)) throw new Error(`tool already registered: ${definition.name}`)
       registered.set(definition.name, definition)
-      return () => { registered.delete(definition.name) }
+      return () => {
+        registered.delete(definition.name)
+      }
     },
     __registered: registered,
   }
@@ -282,7 +306,17 @@ export const fakeSessionController = {
         name: 'Provider One',
         models: [
           { id: 'm1', name: 'Model One', description: 'LONG-DESCRIPTION-MUST-NOT-LEAK' },
-          { id: 'm2', name: 'Model Two', reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } },
+          {
+            id: 'm2',
+            name: 'Model Two',
+            reasoning: {
+              efforts: [
+                { id: 'low', name: 'Low' },
+                { id: 'high', name: 'High' },
+              ],
+              defaultEffort: 'low',
+            },
+          },
         ],
       },
       { id: 'p2', name: 'Provider Two', models: [{ id: 'm9', name: 'Model Nine' }] },
@@ -409,7 +443,10 @@ export const fakePermissionPresets = {
   },
 }
 export const fakeLlm = {
-  listProviders: () => [{ id: 'p1', name: 'Provider One' }, { id: 'p2', name: 'Provider Two' }],
+  listProviders: () => [
+    { id: 'p1', name: 'Provider One' },
+    { id: 'p2', name: 'Provider Two' },
+  ],
   listModels: async (provider) => {
     if (provider === 'p2') throw new Error('catalog unavailable')
     return [{ provider, id: 'm1', name: 'Model One' }]
@@ -452,8 +489,9 @@ export const fakeCommands = {
 
 // ── 图片附件桩(ctx.attachments): 对齐真机契约 —— saveImages 收 {data, mediaType, name} 回
 // ImageAttachmentRef 形状(attachmentId/mediaType/bytes/width/height/name); readImage 回 {ref, data} ──
-export const FAKE_PNG = new Uint8Array(Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'))
+export const FAKE_PNG = new Uint8Array(
+  Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
+)
 export const attachmentCalls = []
 let attachmentSeq = 0
 export const fakeAttachments = {
@@ -477,14 +515,82 @@ export const fakeAttachments = {
 // gateway.invoke 记录请求并按端点返回; connection.createPeer 回可 dispose 的 peer ──
 export const endpointInvokes = []
 const endpointDescriptors = [
-  { id: 'd1', service: 'sessionController', namespace: 'session', method: 'modelCatalog', description: 'Describe every routable model. Returns the catalog.', parameters: [], result: { spec: { description: 'the catalog', jsonSchema: { type: 'object' } } } },
-  { id: 'd2', service: 'sessionController', namespace: 'session', method: 'list', description: 'List sessions.', parameters: [{ name: 'request', wire: 'request', source: 'json', description: 'list filters' }], result: { spec: {} } },
-  { id: 'd3', service: 'sessionController', namespace: 'session', method: 'prompt', description: 'Send a prompt.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
-  { id: 'd4', service: 'sessionController', namespace: 'session', method: 'follow', mode: 'stream', description: 'Follow a session.', parameters: [], result: { spec: {} } },
-  { id: 'd5', service: 'sessionController', namespace: 'session', method: 'page', description: 'Read one session page.', parameters: [{ name: 'session', wire: 'session', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
-  { id: 'd6', service: 'credentials', namespace: 'credentials', method: 'set', description: 'Write a credential.', parameters: [{ name: 'ref', wire: 'ref', source: 'json' }, { name: 'value', wire: 'value', source: 'json' }], result: { spec: {} } },
-  { id: 'd7', service: 'schedule', namespace: 'schedule', method: 'update', description: 'Update a schedule.', parameters: [{ name: 'request', wire: 'request', source: 'json' }], result: { spec: {} } },
-  { id: 'd8', service: 'goal', namespace: 'goals', method: 'get', description: 'Read the session goal.', parameters: [{ name: 'agent', wire: 'agent', source: 'lookup', lookup: 'agent' }], result: { spec: {} } },
+  {
+    id: 'd1',
+    service: 'sessionController',
+    namespace: 'session',
+    method: 'modelCatalog',
+    description: 'Describe every routable model. Returns the catalog.',
+    parameters: [],
+    result: { spec: { description: 'the catalog', jsonSchema: { type: 'object' } } },
+  },
+  {
+    id: 'd2',
+    service: 'sessionController',
+    namespace: 'session',
+    method: 'list',
+    description: 'List sessions.',
+    parameters: [{ name: 'request', wire: 'request', source: 'json', description: 'list filters' }],
+    result: { spec: {} },
+  },
+  {
+    id: 'd3',
+    service: 'sessionController',
+    namespace: 'session',
+    method: 'prompt',
+    description: 'Send a prompt.',
+    parameters: [{ name: 'request', wire: 'request', source: 'json' }],
+    result: { spec: {} },
+  },
+  {
+    id: 'd4',
+    service: 'sessionController',
+    namespace: 'session',
+    method: 'follow',
+    mode: 'stream',
+    description: 'Follow a session.',
+    parameters: [],
+    result: { spec: {} },
+  },
+  {
+    id: 'd5',
+    service: 'sessionController',
+    namespace: 'session',
+    method: 'page',
+    description: 'Read one session page.',
+    parameters: [{ name: 'session', wire: 'session', source: 'lookup', lookup: 'agent' }],
+    result: { spec: {} },
+  },
+  {
+    id: 'd6',
+    service: 'credentials',
+    namespace: 'credentials',
+    method: 'set',
+    description: 'Write a credential.',
+    parameters: [
+      { name: 'ref', wire: 'ref', source: 'json' },
+      { name: 'value', wire: 'value', source: 'json' },
+    ],
+    result: { spec: {} },
+  },
+  {
+    id: 'd7',
+    service: 'schedule',
+    namespace: 'schedule',
+    method: 'update',
+    description: 'Update a schedule.',
+    parameters: [{ name: 'request', wire: 'request', source: 'json' }],
+    result: { spec: {} },
+  },
+  {
+    id: 'd8',
+    service: 'goal',
+    namespace: 'goals',
+    method: 'get',
+    description: 'Read the session goal.',
+    parameters: [{ name: 'agent', wire: 'agent', source: 'lookup', lookup: 'agent' }],
+    result: { spec: {} },
+  },
   // d9 故意不带 description: 插件端点只有元数据描述, 验证摘要/契约/搜索回退到 endpoint-meta 的英文
   { id: 'd9', service: 'mcpManager', namespace: 'mcpManager', method: 'list', parameters: [], result: { spec: {} } },
 ]
@@ -496,7 +602,12 @@ export const fakeTypert = {
 }
 export const fakeGateway = {
   invoke: async (request) => {
-    endpointInvokes.push({ endpoint: `${request.namespace}/${request.method}`, args: request.args, peerKind: request.peer?.principal?.kind, interactions: request.peer?.interactions })
+    endpointInvokes.push({
+      endpoint: `${request.namespace}/${request.method}`,
+      args: request.args,
+      peerKind: request.peer?.principal?.kind,
+      interactions: request.peer?.interactions,
+    })
     if (`${request.namespace}/${request.method}` === 'session/modelCatalog') return { ok: true, models: ['m1'] }
     if (`${request.namespace}/${request.method}` === 'schedule/update') return { updated: true }
     if (`${request.namespace}/${request.method}` === 'goals/get') return { agentArg: request.args.agent ?? null }
@@ -507,7 +618,12 @@ export const fakeGateway = {
 }
 let callerPeerSeq = 0
 export const fakeConnection = {
-  createPeer: (options) => ({ id: `caller-peer-${++callerPeerSeq}`, principal: options?.principal, interactions: options?.interactions, dispose: async () => {} }),
+  createPeer: (options) => ({
+    id: `caller-peer-${++callerPeerSeq}`,
+    principal: options?.principal,
+    interactions: options?.interactions,
+    dispose: async () => {},
+  }),
 }
 
 /**
@@ -518,35 +634,78 @@ export const fakeConnection = {
  * extraPersisted: [{id, cwd}] → 合成持久化-only 会话(进 persistence.list, 不在 agents.get)。
  * projectionCache / sessionQuery: 宿主的持久化投影检查点与批量标题折叠面(可选), 供冷标题零 I/O 路径的用例注入。
  */
-export function makeCtx(opts: {
-  sessionController?: any
-  llm?: any
-  sessionTitle?: any
-  tools?: any
-  workspaceController?: any
-  configEditor?: any
-  tokenMeter?: any
-  commands?: any
-  /** 权限预设服务; 传 null 表示该部署没有权限预设(headless 降级路径) */
-  permissionPresets?: any
-  extraSessions?: { id: string; cwd?: string }[]
-  extraPersisted?: { id: string; cwd?: string }[]
-  projectionCache?: any
-  sessionQuery?: any
-} = {}): any {
-  const { sessionController, llm = {}, sessionTitle, tools = makeFakeTools(), workspaceController = fakeWorkspaceController, configEditor, tokenMeter = fakeTokenMeter, commands = fakeCommands, permissionPresets = fakePermissionPresets, extraSessions = [], extraPersisted = [], projectionCache, sessionQuery } = opts
+export function makeCtx(
+  opts: {
+    sessionController?: any
+    llm?: any
+    sessionTitle?: any
+    tools?: any
+    workspaceController?: any
+    configEditor?: any
+    tokenMeter?: any
+    commands?: any
+    /** 权限预设服务; 传 null 表示该部署没有权限预设(headless 降级路径) */
+    permissionPresets?: any
+    extraSessions?: { id: string; cwd?: string }[]
+    extraPersisted?: { id: string; cwd?: string }[]
+    projectionCache?: any
+    sessionQuery?: any
+  } = {},
+): any {
+  const {
+    sessionController,
+    llm = {},
+    sessionTitle,
+    tools = makeFakeTools(),
+    workspaceController = fakeWorkspaceController,
+    configEditor,
+    tokenMeter = fakeTokenMeter,
+    commands = fakeCommands,
+    permissionPresets = fakePermissionPresets,
+    extraSessions = [],
+    extraPersisted = [],
+    projectionCache,
+    sessionQuery,
+  } = opts
   const permissionService = permissionPresets === null ? undefined : permissionPresets
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))
   const fakeSessions = {
-    get: (id) => liveCreatedSessions.get(id)
-      ?? (id === 'sess-live' ? liveAgent.session : id === 'sess-live2' ? liveSession2 : id === 'sess-err' ? errAgent.session
-        : id === 'sess-slow' ? slowLiveAgent.session : id === 'sess-slow2' ? slowLiveAgent2.session
-          : id === 'sess-slow3' ? slowLiveAgent3.session : id === 'sess-approval' ? approvalAgent.session
-            : id === 'sess-busy' ? busyAgent.session : id === 'sess-mode-idle' ? modeIdleAgent.session : undefined)
-      ?? extraAgents.get(id)?.session,
-    list: () => [liveSession2, liveAgent.session, slowLiveAgent.session, slowLiveAgent2.session, slowLiveAgent3.session, approvalAgent.session, ...[...extraAgents.values()].map((a) => a.session)],
-    flush: async (session) => { flushed.push(session.id); return true },
+    get: (id) =>
+      liveCreatedSessions.get(id) ??
+      (id === 'sess-live'
+        ? liveAgent.session
+        : id === 'sess-live2'
+          ? liveSession2
+          : id === 'sess-err'
+            ? errAgent.session
+            : id === 'sess-slow'
+              ? slowLiveAgent.session
+              : id === 'sess-slow2'
+                ? slowLiveAgent2.session
+                : id === 'sess-slow3'
+                  ? slowLiveAgent3.session
+                  : id === 'sess-approval'
+                    ? approvalAgent.session
+                    : id === 'sess-busy'
+                      ? busyAgent.session
+                      : id === 'sess-mode-idle'
+                        ? modeIdleAgent.session
+                        : undefined) ??
+      extraAgents.get(id)?.session,
+    list: () => [
+      liveSession2,
+      liveAgent.session,
+      slowLiveAgent.session,
+      slowLiveAgent2.session,
+      slowLiveAgent3.session,
+      approvalAgent.session,
+      ...[...extraAgents.values()].map((a) => a.session),
+    ],
+    flush: async (session) => {
+      flushed.push(session.id)
+      return true
+    },
   }
   // 0.1.5+ 的 SessionPersistenceSnapshot(header 在 .header) + 一条旧版裸 header 形状(+ phase 注入的额外持久化会话)
   // sess-persisted 带原始 agentPreset('reviewer'): 验证 resume 恢复会话原 preset 而非部署默认。
@@ -602,22 +761,41 @@ export function makeCtx(opts: {
   }
   const fireApproval = async (request) => {
     const list = eventListeners.get('approval/request') ?? []
-    const run = (i) => i >= list.length
-      ? Promise.resolve('unavailable')
-      : Promise.resolve(list[i](request, () => run(i + 1)))
+    const run = (i) => (i >= list.length ? Promise.resolve('unavailable') : Promise.resolve(list[i](request, () => run(i + 1))))
     return run(0)
   }
   // 原生子代理发现桩: sess-live 有一个 continuable 子级; 递归时带 parentId/depth
   const fakeSubagents = {
-    listChildren: async (parentId) => parentId === 'sess-live'
-      ? [{ id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', kind: 'child', activity: 'running', hasChildren: true }]
-      : [],
-    listDescendants: async (rootId) => rootId === 'sess-live'
-      ? [
-        { id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', parentId: 'sess-live', depth: 1, kind: 'child', activity: 'running', hasChildren: true },
-        { id: 'sess-grandchild', createdAt: 6, mode: 'one-shot', parentId: 'sess-child', depth: 2, kind: 'child', activity: 'inactive', hasChildren: false },
-      ]
-      : [],
+    listChildren: async (parentId) =>
+      parentId === 'sess-live'
+        ? [{ id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', kind: 'child', activity: 'running', hasChildren: true }]
+        : [],
+    listDescendants: async (rootId) =>
+      rootId === 'sess-live'
+        ? [
+            {
+              id: 'sess-child',
+              createdAt: 5,
+              mode: 'continuable',
+              label: 'child',
+              parentId: 'sess-live',
+              depth: 1,
+              kind: 'child',
+              activity: 'running',
+              hasChildren: true,
+            },
+            {
+              id: 'sess-grandchild',
+              createdAt: 6,
+              mode: 'one-shot',
+              parentId: 'sess-child',
+              depth: 2,
+              kind: 'child',
+              activity: 'inactive',
+              hasChildren: false,
+            },
+          ]
+        : [],
   }
   const ctx = {
     tools,
@@ -629,24 +807,44 @@ export function makeCtx(opts: {
     // GUI 配置写入需要 fiber.entry; 只有提供 configEditor 的测试才模拟出条目
     fiber: configEditor ? { entry: {} } : undefined,
     agents: {
-      get: (id) => (id === 'sess-live' ? liveAgent : id === 'sess-err' ? errAgent : id === 'sess-slow' ? slowLiveAgent
-        : id === 'sess-slow2' ? slowLiveAgent2 : id === 'sess-slow3' ? slowLiveAgent3
-          : id === 'sess-approval' ? approvalAgent : id === 'sess-busy' ? busyAgent : id === 'sess-mode-idle' ? modeIdleAgent : undefined)
-        ?? extraAgents.get(id),
+      get: (id) =>
+        (id === 'sess-live'
+          ? liveAgent
+          : id === 'sess-err'
+            ? errAgent
+            : id === 'sess-slow'
+              ? slowLiveAgent
+              : id === 'sess-slow2'
+                ? slowLiveAgent2
+                : id === 'sess-slow3'
+                  ? slowLiveAgent3
+                  : id === 'sess-approval'
+                    ? approvalAgent
+                    : id === 'sess-busy'
+                      ? busyAgent
+                      : id === 'sess-mode-idle'
+                        ? modeIdleAgent
+                        : undefined) ?? extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {
         const id = String(sessionId)
         created.push({ id, cwd: meta?.cwd, agentOptions, preset: meta?.agentPreset })
         // cwd 含 slow-cwd: 建慢 agent(whenIdle 挂起, 仅 cancel 收敛), 供取消链路测试
-        const agent = String(meta?.cwd ?? '').includes('slow-cwd')
-          ? makeSlowAgent(id, meta?.cwd, agentOptions)
-          : makeAgent(id, meta?.cwd, agentOptions)
+        const agent = String(meta?.cwd ?? '').includes('slow-cwd') ? makeSlowAgent(id, meta?.cwd, agentOptions) : makeAgent(id, meta?.cwd, agentOptions)
         liveCreatedSessions.set(id, agent.session)
         if (setup) await setup({}, agent)
-        return { agent, dispose: async () => { disposed.push(id) } }
+        return {
+          agent,
+          dispose: async () => {
+            disposed.push(id)
+          },
+        }
       },
     },
     agentPresets: {
-      mount: async (agentCtx, id) => { mounted.push(id); return { id } },
+      mount: async (agentCtx, id) => {
+        mounted.push(id)
+        return { id }
+      },
       // roster(校验 per-call preset 存在性 + dsh://presets 资源投影): standard 带 name/description, reviewer 只有 id
       list: async () => [{ id: 'standard', name: 'Standard', description: 'default persona' }, { id: 'reviewer' }],
     },
@@ -667,34 +865,65 @@ export function makeCtx(opts: {
     __fireVolatile: (paths) => {
       for (const listener of eventListeners.get('loader/volatile-update') ?? []) listener(paths)
     },
-    effect: (fn) => { const d = fn(); disposers.push(d); return d },
+    effect: (fn) => {
+      const d = fn()
+      disposers.push(d)
+      return d
+    },
     inject: (deps, fn) => {
       if (deps.includes('webServer')) {
         // 注入的子 ctx 同样要带 effect(GUI 路由的卸载清理经它登记)
-        fn({ webServer: fakeWebServer, effect: (fn2) => { const d = fn2(); disposers.push(d); return d } })
+        fn({
+          webServer: fakeWebServer,
+          effect: (fn2) => {
+            const d = fn2()
+            disposers.push(d)
+            return d
+          },
+        })
       }
     },
     __webHandlers: webHandlers,
-    get: (name) => (name === 'workspaceRegistry' ? wsRegistry
-      : name === 'sessions' ? fakeSessions
-        : name === 'sessionPersistence' ? fakePersistence
-          : name === 'approval' ? approvalService
-            : name === 'permissionPresets' ? permissionService
-              : name === 'subagents' ? fakeSubagents
-              : name === 'attachments' ? fakeAttachments
-                : name === 'typert' ? fakeTypert
-                  : name === 'typertGateway' ? fakeGateway
-                    : name === 'connection' ? fakeConnection
-: name === 'tools' ? tools
-            : name === 'tokenMeter' ? tokenMeter
-            : name === 'commands' ? commands
-            : name === 'agentDefaultModel' ? fakeAgentDefaultModel
-              : name === 'sessionTitle' ? sessionTitle
-                : name === 'sessionProjectionCache' ? projectionCache
-                  : name === 'sessionQuery' ? sessionQuery
-                    : name === 'workspaceController' ? workspaceController
-                      : name === 'configEditor' ? configEditor
-                        : undefined),
+    get: (name) =>
+      name === 'workspaceRegistry'
+        ? wsRegistry
+        : name === 'sessions'
+          ? fakeSessions
+          : name === 'sessionPersistence'
+            ? fakePersistence
+            : name === 'approval'
+              ? approvalService
+              : name === 'permissionPresets'
+                ? permissionService
+                : name === 'subagents'
+                  ? fakeSubagents
+                  : name === 'attachments'
+                    ? fakeAttachments
+                    : name === 'typert'
+                      ? fakeTypert
+                      : name === 'typertGateway'
+                        ? fakeGateway
+                        : name === 'connection'
+                          ? fakeConnection
+                          : name === 'tools'
+                            ? tools
+                            : name === 'tokenMeter'
+                              ? tokenMeter
+                              : name === 'commands'
+                                ? commands
+                                : name === 'agentDefaultModel'
+                                  ? fakeAgentDefaultModel
+                                  : name === 'sessionTitle'
+                                    ? sessionTitle
+                                    : name === 'sessionProjectionCache'
+                                      ? projectionCache
+                                      : name === 'sessionQuery'
+                                        ? sessionQuery
+                                        : name === 'workspaceController'
+                                          ? workspaceController
+                                          : name === 'configEditor'
+                                            ? configEditor
+                                            : undefined,
   }
   return ctx
 }
@@ -721,11 +950,21 @@ export async function rpc(sessionId, body, extraHeaders = {}, base = BASE) {
 }
 
 /** 原始 HTTP 请求(fetch 会规范化 Host 头, 伪造 Host 必须走 http.request) */
-export function rawRequest(port: number, { method = 'POST', path = '/mcp', headers = {}, body = '' }: { method?: string; path?: string; headers?: Record<string, string | undefined>; body?: string } = {}): Promise<{ status: number | undefined; text: string }> {
+export function rawRequest(
+  port: number,
+  {
+    method = 'POST',
+    path = '/mcp',
+    headers = {},
+    body = '',
+  }: { method?: string; path?: string; headers?: Record<string, string | undefined>; body?: string } = {},
+): Promise<{ status: number | undefined; text: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
     const r = httpRequest({ host: '127.0.0.1', port, method, path, headers }, (res) => {
       let data = ''
-      res.on('data', (chunk) => { data += chunk })
+      res.on('data', (chunk) => {
+        data += chunk
+      })
       res.on('end', () => resolvePromise({ status: res.statusCode, text: data }))
     })
     r.on('error', rejectPromise)
@@ -734,11 +973,17 @@ export function rawRequest(port: number, { method = 'POST', path = '/mcp', heade
 }
 
 /** chunked POST(分段 write, 不设 Content-Length): 请求体上限不能只看 content-length 头 */
-export function chunkedRequest(port: number, chunks: string[], headers: Record<string, string | undefined> = {}): Promise<{ status: number | undefined; text: string }> {
+export function chunkedRequest(
+  port: number,
+  chunks: string[],
+  headers: Record<string, string | undefined> = {},
+): Promise<{ status: number | undefined; text: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
     const r = httpRequest({ host: '127.0.0.1', port, method: 'POST', path: '/mcp', headers }, (res) => {
       let data = ''
-      res.on('data', (chunk) => { data += chunk })
+      res.on('data', (chunk) => {
+        data += chunk
+      })
       res.on('end', () => resolvePromise({ status: res.statusCode, text: data }))
     })
     r.on('error', rejectPromise)
@@ -783,7 +1028,11 @@ export async function waitFor(fn, timeoutMs = 5000, step = 100) {
  * 资源订阅(notifications/resources/updated | list_changed)经此投递——不打开本流的客户端
  * 收不到推送, 这是 StreamableHTTP 的传输语义而非插件行为。
  */
-export function openSse(sessionId: string, base: string = BASE, extraHeaders: Record<string, string> = {}): { events: any[]; ready: Promise<void>; close: () => void } {
+export function openSse(
+  sessionId: string,
+  base: string = BASE,
+  extraHeaders: Record<string, string> = {},
+): { events: any[]; ready: Promise<void>; close: () => void } {
   const events: any[] = []
   const controller = new AbortController()
   const ready = (async () => {
@@ -794,20 +1043,28 @@ export function openSse(sessionId: string, base: string = BASE, extraHeaders: Re
     })
     const reader = (res.body as any).getReader()
     const decoder = new TextDecoder()
-      ;(async () => {
-        try {
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            for (const line of decoder.decode(value, { stream: true }).split('\n')) {
-              const t = line.trim()
-              if (t.startsWith('data: ')) {
-                try { events.push(JSON.parse(t.slice(6))) } catch { /* 非 JSON 行(心跳注释等)忽略 */ }
+    ;(async () => {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+            const t = line.trim()
+            if (t.startsWith('data: ')) {
+              try {
+                events.push(JSON.parse(t.slice(6)))
+              } catch {
+                /* 非 JSON 行(心跳注释等)忽略 */
               }
             }
           }
-        } catch { /* 流被 close() 中断: 正常退出路径 */ }
-      })()
-  })().catch(() => { /* 连接失败: 断言会在 events 上超时暴露 */ })
+        }
+      } catch {
+        /* 流被 close() 中断: 正常退出路径 */
+      }
+    })()
+  })().catch(() => {
+    /* 连接失败: 断言会在 events 上超时暴露 */
+  })
   return { events, ready, close: () => controller.abort() }
 }

@@ -10,6 +10,7 @@ in each tool's own description — this guide covers what those descriptions ass
 you already know.
 
 <!-- section: concepts -->
+
 ## Concepts
 
 - **dsh / Harness** — the host process this plugin runs inside. Sessions, agents, model
@@ -36,7 +37,7 @@ you already know.
   `changed`/`timedOut`); `session_result` fetches the structured result by `requestId`.
   The id is persisted on the user message, so it survives a plugin restart. `session_prompt`
   is the blocking convenience wrapper: cancelling its wait never cancels the dsh turn.
-- **turn vs step** — a *turn* is one full run ending in a structured result. *Steps* are
+- **turn vs step** — a _turn_ is one full run ending in a structured result. _Steps_ are
   the model rounds inside it. `steer` is consumed at the next step boundary;
   `session_select_model` takes effect on the next step.
 - **Session lifecycle** — sessions live until the host process ends or the session is
@@ -107,6 +108,7 @@ you already know.
   tools do not cover.
 
 <!-- section: workflows -->
+
 ## Workflow recipes
 
 1. **One-off task** — `session_create` (cwd + provider/model pair + preset, plus an
@@ -186,27 +188,29 @@ you already know.
     to look closely; a deployment can also whitelist an endpoint so it no longer parks.
 
 <!-- section: errors -->
+
 ## Error → alternative path
 
-| Situation | Do this instead |
-|---|---|
-| "provider + model are required" | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
-| "unknown preset" | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset |
-| "unknown permission preset" | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults) |
-| "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_prompt` |
-| model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from `model_list` that appears there |
-| "session is not running" (cancel/queue) | the session has no live agent right now; send a `session_prompt` / `session_submit` first |
-| turn ends `blocked` | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_prompt` |
-| `pending: true` with `waiting` | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling) |
-| "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history` |
-| `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
-| `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
-| "not a recognized image" | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet |
-| "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe` |
-| "declined by the human reviewer" | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint |
-| "approval timed out ... failed closed" | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry |
+| Situation                                       | Do this instead                                                                                                                                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| "provider + model are required"                 | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own)                                                                                                                      |
+| "unknown preset"                                | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset                                                                                                             |
+| "unknown permission preset"                     | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults)                                                                    |
+| "cannot resume session"                         | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_prompt`                               |
+| model refused (allowedModels)                   | the model is not in the deployment's allowlist — pick one from `model_list` that appears there                                                                                                                                             |
+| "session is not running" (cancel/queue)         | the session has no live agent right now; send a `session_prompt` / `session_submit` first                                                                                                                                                  |
+| turn ends `blocked`                             | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_prompt` |
+| `pending: true` with `waiting`                  | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling)                                     |
+| "unknown requestId"                             | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history`                                                     |
+| `status: "pending"` / `pending: true`           | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it                                                                                                                                   |
+| `status: "cancelled"`                           | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit                                                                                                                     |
+| "not a recognized image"                        | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet                                                                                                                                                      |
+| "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe`                                                                   |
+| "declined by the human reviewer"                | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint                                                                                            |
+| "approval timed out ... failed closed"          | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry                                                                                                  |
 
 <!-- section: results -->
+
 ## Reading results without blowing your context
 
 `detail` controls read-back size on both `session_prompt` and `session_result`: `uri`
@@ -247,6 +251,7 @@ same non-activating host read as `session_history`; when a session's log is unre
 they degrade to the `session_list` row and say so with `eventsReadable: false`.
 
 <!-- section: limits -->
+
 ## Deployment-imposed limits (visible via `dsh_status` / `model_list`)
 
 - `allowedModels`: the allowlist of models sessions may be created with

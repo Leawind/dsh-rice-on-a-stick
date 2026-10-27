@@ -158,12 +158,7 @@ export interface CommandExecutionView {
 export interface CommandServiceView {
   list?: (agent: unknown) => readonly CommandDescriptorView[]
   find?: (agent: unknown, name: string) => unknown
-  execute?: (
-    agent: unknown,
-    line: string,
-    attachments: readonly unknown[],
-    signal: AbortSignal,
-  ) => Promise<CommandExecutionView | undefined>
+  execute?: (agent: unknown, line: string, attachments: readonly unknown[], signal: AbortSignal) => Promise<CommandExecutionView | undefined>
 }
 
 /** 取命令注册表(可选依赖; 缺席 = headless/无 commands 插件的部署) */
@@ -179,10 +174,13 @@ export function commandsOf(ctx: Context): CommandServiceView | undefined {
  */
 export interface SessionControllerHostView {
   inspect?: (sessionId: SessionId, signal?: AbortSignal) => Promise<SessionInspectionView | undefined>
-  resolveAgent?: (sessionId: SessionId) => Promise<{
-    agent?: LiveAgentView
-    error?: { code?: string; message?: string }
-  } | undefined>
+  resolveAgent?: (sessionId: SessionId) => Promise<
+    | {
+        agent?: LiveAgentView
+        error?: { code?: string; message?: string }
+      }
+    | undefined
+  >
 }
 
 // ── 持久化后端与会话查询(单点读取 / 零 I/O 投影 / 批量标题) ──

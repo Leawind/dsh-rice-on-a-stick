@@ -50,31 +50,16 @@ interface PeerView {
 }
 
 interface ConnectionView {
-  createPeer?: (options: {
-    principal: { kind: string }
-    interactions: 'answer' | 'none'
-  }) => PeerView | undefined
+  createPeer?: (options: { principal: { kind: string }; interactions: 'answer' | 'none' }) => PeerView | undefined
 }
 
 interface GatewayView {
-  openRemoteEvents?: (
-    payload: { args: Record<string, never> },
-    signal: AbortSignal,
-    peer: unknown,
-  ) => AsyncIterable<RemoteEventFrame>
-  dispatchRpc?: (
-    endpoint: string,
-    payload: { args: unknown },
-    signal: AbortSignal,
-    peer: unknown,
-  ) => Promise<unknown>
+  openRemoteEvents?: (payload: { args: Record<string, never> }, signal: AbortSignal, peer: unknown) => AsyncIterable<RemoteEventFrame>
+  dispatchRpc?: (endpoint: string, payload: { args: unknown }, signal: AbortSignal, peer: unknown) => Promise<unknown>
 }
 
 /** 回答一个 forwarded event 的发送器(测试可替换) */
-export type AnswerSender = (
-  eventId: string,
-  value: unknown,
-) => Promise<{ ok: boolean; error?: string }>
+export type AnswerSender = (eventId: string, value: unknown) => Promise<{ ok: boolean; error?: string }>
 
 export interface AnswerRuntimeOptions {
   /** 只记录这些会话(缺省 = state.sessionRecords) */
@@ -102,10 +87,11 @@ export function createUnavailableAnswerRuntime(): AnswerRuntimeInternals {
     findApproval: () => undefined,
     findQuestion: () => undefined,
     pendingInput: () => ({ approvals: [], questions: [] }),
-    waitForInput: (_sessionId, signal) => new Promise((resolve) => {
-      if (signal?.aborted === true) resolve(undefined)
-      else signal?.addEventListener('abort', () => resolve(undefined), { once: true })
-    }),
+    waitForInput: (_sessionId, signal) =>
+      new Promise((resolve) => {
+        if (signal?.aborted === true) resolve(undefined)
+        else signal?.addEventListener('abort', () => resolve(undefined), { once: true })
+      }),
     answerApproval: async () => ({ ok: false, error: ANSWER_UNAVAILABLE }),
     answerQuestion: async () => ({ ok: false, error: ANSWER_UNAVAILABLE }),
     applyFrame: () => {},
@@ -113,8 +99,8 @@ export function createUnavailableAnswerRuntime(): AnswerRuntimeInternals {
   }
 }
 
-const ANSWER_UNAVAILABLE = 'the plugin is not acting as a Web answer client in this host '
-  + '(the gateway remote-event client seam is unavailable); the UI/host owns this request'
+const ANSWER_UNAVAILABLE =
+  'the plugin is not acting as a Web answer client in this host ' + '(the gateway remote-event client seam is unavailable); the UI/host owns this request'
 
 /** 回答校验: 每个问题 id 恰好一次; 单选不接受多个 label */
 function validateAnswers(questions: readonly QuestionView[], answers: readonly QuestionAnswerItem[]): string | undefined {
@@ -137,9 +123,7 @@ function validateAnswers(questions: readonly QuestionView[], answers: readonly Q
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 
 function asString(value: unknown): string | undefined {
@@ -232,14 +216,10 @@ export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerR
   const runtime: AnswerRuntimeInternals = {
     available,
     listApprovals(sessionId) {
-      return [...approvals.values()]
-        .filter((entry) => sessionId === undefined || entry.sessionId === sessionId)
-        .sort((a, b) => a.requestedAt - b.requestedAt)
+      return [...approvals.values()].filter((entry) => sessionId === undefined || entry.sessionId === sessionId).sort((a, b) => a.requestedAt - b.requestedAt)
     },
     listQuestions(sessionId) {
-      return [...questions.values()]
-        .filter((entry) => sessionId === undefined || entry.sessionId === sessionId)
-        .sort((a, b) => a.requestedAt - b.requestedAt)
+      return [...questions.values()].filter((entry) => sessionId === undefined || entry.sessionId === sessionId).sort((a, b) => a.requestedAt - b.requestedAt)
     },
     findApproval(sessionId, eventId, callId) {
       if (eventId !== undefined && eventId !== '') {
@@ -283,8 +263,9 @@ export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerR
       if (entry === undefined) {
         return {
           ok: false,
-          error: `no pending approval for session "${input.sessionId}" (${input.eventId !== undefined ? `eventId=${input.eventId}` : `callId=${input.callId ?? ''}`}); `
-            + 'it may already be answered by the UI or another client, or this host has no answer-client seam',
+          error:
+            `no pending approval for session "${input.sessionId}" (${input.eventId !== undefined ? `eventId=${input.eventId}` : `callId=${input.callId ?? ''}`}); ` +
+            'it may already be answered by the UI or another client, or this host has no answer-client seam',
         }
       }
       if (options.send === undefined) return { ok: false, error: ANSWER_UNAVAILABLE }
@@ -299,8 +280,9 @@ export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerR
       if (entry === undefined) {
         return {
           ok: false,
-          error: `no pending question for session "${input.sessionId}" (${input.eventId !== undefined ? `eventId=${input.eventId}` : `callId=${input.callId ?? ''}`}); `
-            + 'it may already be answered by the UI or another client, or this host has no answer-client seam',
+          error:
+            `no pending question for session "${input.sessionId}" (${input.eventId !== undefined ? `eventId=${input.eventId}` : `callId=${input.callId ?? ''}`}); ` +
+            'it may already be answered by the UI or another client, or this host has no answer-client seam',
         }
       }
       const invalid = validateAnswers(entry.questions, input.answers)
@@ -393,12 +375,7 @@ export function installRemoteAnswerClient(ctx: Context): {
       if (clientId === undefined) return { ok: false, error: 'the forwarded event stream is not ready yet; retry shortly' }
       try {
         const outcome = value === undefined ? { kind: 'result' } : { kind: 'result', value }
-        const response = await gateway.dispatchRpc!(
-          '$events/result',
-          { args: { clientId, eventId, outcome } },
-          lifetime.signal,
-          peer,
-        )
+        const response = await gateway.dispatchRpc!('$events/result', { args: { clientId, eventId, outcome } }, lifetime.signal, peer)
         const rec = asRecord(response)
         if (rec?.ok === false) {
           return { ok: false, error: `the gateway rejected the answer: ${String(rec.error ?? 'unknown error')}` }

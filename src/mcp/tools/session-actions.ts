@@ -23,26 +23,38 @@ interface WorkspaceControllerView {
 }
 
 /** 图片附件参数(session_prompt / session_submit 共用): 引用不传值, 字节在宿主侧读取 */
-const ATTACHMENTS_ARG = z.array(z.object({
-  path: z.string().optional().describe('Image file path readable by the dsh host process (absolute, or relative to the session cwd).'),
-  url: z.string().optional().describe('HTTP(S) URL of the image; the dsh host fetches the bytes (64MB source cap).'),
-  name: z.string().optional().describe('Display name (default: file name or URL tail).'),
-})).max(8).optional()
-  .describe('Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the receipt (session_submit) or session_history (images fields) and can be fetched with attachment_read.')
+const ATTACHMENTS_ARG = z
+  .array(
+    z.object({
+      path: z.string().optional().describe('Image file path readable by the dsh host process (absolute, or relative to the session cwd).'),
+      url: z.string().optional().describe('HTTP(S) URL of the image; the dsh host fetches the bytes (64MB source cap).'),
+      name: z.string().optional().describe('Display name (default: file name or URL tail).'),
+    }),
+  )
+  .max(8)
+  .optional()
+  .describe(
+    'Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the receipt (session_submit) or session_history (images fields) and can be fetched with attachment_read.',
+  )
 
 /**
  * 投递模式参数(session_prompt / session_submit 共用): 可省略只在"会话空闲"时有意义——
  * 那时两者等价、引擎补 queue; 会话在跑 turn 时语义不同, 省略即失败(MODE_REQUIRED)。
  */
-const MODE_ARG = z.enum(['queue', 'steer']).optional()
-  .describe('Delivery mode. Omit only while the session is idle (queue and steer are then identical, and queue is assumed); while it is running the call fails without it. queue = deliver after the current turn ends, as a new turn; steer = deliver at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted).')
+const MODE_ARG = z
+  .enum(['queue', 'steer'])
+  .optional()
+  .describe(
+    'Delivery mode. Omit only while the session is idle (queue and steer are then identical, and queue is assumed); while it is running the call fails without it. queue = deliver after the current turn ends, as a new turn; steer = deliver at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted).',
+  )
 
 export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'session_create',
     {
       title: 'Create session',
-      description: 'Create a session (the UI\'s New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` and `preset` are all required (values from `model_list`) — nothing is backfilled.',
+      description:
+        "Create a session (the UI's New Session button): a blank session bound to the `cwd` workspace, with the given model and preset. Returns `sessionId`; use `session_prompt` to send work. `provider` + `model` and `preset` are all required (values from `model_list`) — nothing is backfilled.",
       inputSchema: {
         cwd: z.string().describe('Working directory bound to the session workspace.'),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
@@ -50,7 +62,12 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         reasoningEffort: z.string().optional().describe('Reasoning effort id (see model_list reasoningEfforts; default = adapter default).'),
         preset: z.string().describe('Agent preset id to mount (required; see model_list.presets / dsh://presets).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
-        permission: z.string().optional().describe('Permission preset to apply (a sandbox + approval bundle; values from permission_list, e.g. "workspace-write" / "danger-full-access"). Omit to inherit the host default preset; prefer switching presets over knob-level approval changes.'),
+        permission: z
+          .string()
+          .optional()
+          .describe(
+            'Permission preset to apply (a sandbox + approval bundle; values from permission_list, e.g. "workspace-write" / "danger-full-access"). Omit to inherit the host default preset; prefer switching presets over knob-level approval changes.',
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -58,15 +75,21 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       try {
         const selection = selectionOf({ provider, model, reasoningEffort })
         const r = await createSession({ ctx, cwd, selection, preset, title, permission })
-        return out(JSON.stringify({
-          sessionId: r.sessionId,
-          cwd: r.cwd,
-          model: projectModel(r.selection),
-          preset: r.preset,
-          ...(r.permission !== undefined ? { permission: r.permission } : {}),
-          ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
-          note: 'blank session created; send work via session_submit (async) or session_prompt (blocking)',
-        }, null, 2))
+        return out(
+          JSON.stringify(
+            {
+              sessionId: r.sessionId,
+              cwd: r.cwd,
+              model: projectModel(r.selection),
+              preset: r.preset,
+              ...(r.permission !== undefined ? { permission: r.permission } : {}),
+              ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
+              note: 'blank session created; send work via session_submit (async) or session_prompt (blocking)',
+            },
+            null,
+            2,
+          ),
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
@@ -79,7 +102,8 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_set_permission',
     {
       title: 'Switch session permission',
-      description: 'Switch a session\'s permission preset (the UI\'s permission switcher / `/permission`): records the preset and adjusts the sandbox mode and approval policy through their authoritative setters — the way to fix a session whose permission reads `custom` (knob-level changes match no preset). Values come from `permission_list`; a cold session is resumed first. Requires the host permission-presets service.',
+      description:
+        "Switch a session's permission preset (the UI's permission switcher / `/permission`): records the preset and adjusts the sandbox mode and approval policy through their authoritative setters — the way to fix a session whose permission reads `custom` (knob-level changes match no preset). Values come from `permission_list`; a cold session is resumed first. Requires the host permission-presets service.",
       inputSchema: {
         sessionId: z.string().describe('Session id to switch.'),
         permission: z.string().describe('Permission preset id (from permission_list).'),
@@ -96,11 +120,17 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         const resolved = await resolveSessionForPrompt(ctx, sessionId)
         setPermissionPreset(ctx, resolved.handle.agent.session, permission)
         state.hooks.notifyListChanged()
-        return out(JSON.stringify({
-          ok: true,
-          sessionId,
-          permission: currentPermissionOf(ctx, resolved.handle.agent.session) ?? permission,
-        }, null, 2))
+        return out(
+          JSON.stringify(
+            {
+              ok: true,
+              sessionId,
+              permission: currentPermissionOf(ctx, resolved.handle.agent.session) ?? permission,
+            },
+            null,
+            2,
+          ),
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_set_permission failed: ${(e as Error)?.message ?? String(e)}` }))
       }
@@ -111,15 +141,31 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_prompt',
     {
       title: 'Prompt session',
-      description: 'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). The delivery mode is chosen per call and is independent of any UI preference (see the `mode` argument). With the default `waitFor: "input"`, the call returns early with `pending=true` and `waiting.approvals` / `waiting.questions` when the session starts waiting for an approval or a question: the turn keeps running, nothing is cancelled or skipped, and you answer with `approval_answer` / `question_answer` before fetching the final result via `session_result`. Set `waitFor: "turn"` to block until the turn ends regardless. Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
+      description:
+        'Send a message into a session and wait for the turn to finish; returns the structured result (the UI\'s Send). The delivery mode is chosen per call and is independent of any UI preference (see the `mode` argument). With the default `waitFor: "input"`, the call returns early with `pending=true` and `waiting.approvals` / `waiting.questions` when the session starts waiting for an approval or a question: the turn keeps running, nothing is cancelled or skipped, and you answer with `approval_answer` / `question_answer` before fetching the final result via `session_result`. Set `waitFor: "turn"` to block until the turn ends regardless. Cancelling the MCP wait only stops the wait, not the dsh turn: the result then carries `pending=true` with a `requestId` for `session_poll`/`session_result` (or `session_cancel` to stop the turn); pass your own `requestId` up front so a lost response can be refetched. For parallel orchestration prefer `session_submit` + `session_poll` + `session_result`.',
       inputSchema: {
-        sessionId: z.string().describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
+        sessionId: z
+          .string()
+          .describe('Target session id (returned by session_create; or a session from session_list — continuing it keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
-        waitFor: z.enum(['turn', 'input']).optional().describe('What to wait for (default input): input = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends.'),
-        requestId: z.string().min(1).max(200).optional().describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
-        detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
+        waitFor: z
+          .enum(['turn', 'input'])
+          .optional()
+          .describe(
+            'What to wait for (default input): input = return early when the session awaits an approval/question, so the caller can answer it; turn = block until the turn ends.',
+          ),
+        requestId: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Idempotency key (use session_result to fetch the result if the response is lost; generated if omitted).'),
+        detail: z
+          .enum(['uri', 'summary', 'normal', 'full'])
+          .optional()
+          .describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -127,24 +173,27 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       try {
         const result = await promptSession({ ctx, sessionId, task, mode, waitFor, attachments, requestId, signal: extra.signal })
         const effDetail = detail ?? 'summary'
-        const pendingNote = result.waiting !== undefined
-          ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
-          : result.pending === true
-            ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
-            : undefined
+        const pendingNote =
+          result.waiting !== undefined
+            ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
+            : result.pending === true
+              ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
+              : undefined
         if (effDetail === 'uri') {
           const uri = renderUriResult(result, resUri.sessionHistory(sessionId))
-          const rendered = pendingNote !== undefined
-            ? { ...uri, note: `${String(uri.note ?? '')} ${pendingNote}`.trim() }
-            : uri
+          const rendered = pendingNote !== undefined ? { ...uri, note: `${String(uri.note ?? '')} ${pendingNote}`.trim() } : uri
           const text = JSON.stringify(rendered, null, 2)
           return result.error && result.pending !== true ? outError(text) : out(text)
         }
-        const rendered = JSON.stringify({
-          ...renderResult(result, effDetail),
-          resource: resUri.sessionHistory(sessionId),
-          ...(pendingNote !== undefined ? { note: pendingNote } : {}),
-        }, null, 2)
+        const rendered = JSON.stringify(
+          {
+            ...renderResult(result, effDetail),
+            resource: resUri.sessionHistory(sessionId),
+            ...(pendingNote !== undefined ? { note: pendingNote } : {}),
+          },
+          null,
+          2,
+        )
         return result.error && result.pending !== true ? outError(rendered) : out(rendered)
       } catch (e) {
         return outError(errorJson(e))
@@ -158,24 +207,36 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_submit',
     {
       title: 'Submit session task',
-      description: 'Admit a task into a session asynchronously and return `requestId`/`messageId` immediately (does not wait for the turn). Observe with `session_poll`, fetch the structured result with `session_result`, stop the turn with `session_cancel`. `mode` matches `session_prompt` (queue / steer; required while the session is running). Reusing a `requestId` is idempotent: it is not delivered twice and returns the first receipt. Best for fan-out workers polled together.',
+      description:
+        'Admit a task into a session asynchronously and return `requestId`/`messageId` immediately (does not wait for the turn). Observe with `session_poll`, fetch the structured result with `session_result`, stop the turn with `session_cancel`. `mode` matches `session_prompt` (queue / steer; required while the session is running). Reusing a `requestId` is idempotent: it is not delivered twice and returns the first receipt. Best for fan-out workers polled together.',
       inputSchema: {
         sessionId: z.string().describe('Target session id (returned by session_create; continuing keeps its original model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
-        requestId: z.string().min(1).max(200).optional().describe('Idempotency key (caller-supplied; generated if omitted). Repeating the same id returns the first receipt.'),
+        requestId: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Idempotency key (caller-supplied; generated if omitted). Repeating the same id returns the first receipt.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ sessionId, task, attachments, mode, requestId }) => {
       try {
         const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
-        return out(JSON.stringify({
-          ...r,
-          resource: resUri.sessionHistory(sessionId),
-          note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
-        }, null, 2))
+        return out(
+          JSON.stringify(
+            {
+              ...r,
+              resource: resUri.sessionHistory(sessionId),
+              note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
+            },
+            null,
+            2,
+          ),
+        )
       } catch (e) {
         return outError(errorJson(e))
       }
@@ -187,10 +248,17 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_poll',
     {
       title: 'Poll sessions',
-      description: 'Observe session state in bulk (the async control plane\'s wait primitive): pass multiple `sessionIds` and get each session\'s `state` (idle/running/waiting-approval/waiting-question/inactive/not-found), `lastTurn`, `queued`, `pendingApprovals`, `pendingQuestions`, `cursor`, and the last assistant message. With `waitMs` > 0 it waits up to 30s and returns when any watched session changes (`changed=true`), or times out (`timedOut=true` + `retryAfterMs`); call again as needed. Read-only: it does not advance a turn and does not rely on server push.',
+      description:
+        "Observe session state in bulk (the async control plane's wait primitive): pass multiple `sessionIds` and get each session's `state` (idle/running/waiting-approval/waiting-question/inactive/not-found), `lastTurn`, `queued`, `pendingApprovals`, `pendingQuestions`, `cursor`, and the last assistant message. With `waitMs` > 0 it waits up to 30s and returns when any watched session changes (`changed=true`), or times out (`timedOut=true` + `retryAfterMs`); call again as needed. Read-only: it does not advance a turn and does not rely on server push.",
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to observe (1-20).'),
-        waitMs: z.number().int().min(0).max(POLL_MAX_WAIT_MS).optional().describe(`Maximum wait in milliseconds (0-${POLL_MAX_WAIT_MS}; default 0 = return immediately).`),
+        waitMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(POLL_MAX_WAIT_MS)
+          .optional()
+          .describe(`Maximum wait in milliseconds (0-${POLL_MAX_WAIT_MS}; default 0 = return immediately).`),
         detail: z.enum(['summary', 'normal', 'full']).optional().describe('Truncation level for lastMessage (default summary).'),
       },
       annotations: { readOnlyHint: true },
@@ -210,11 +278,20 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_result',
     {
       title: 'Get session task result',
-      description: 'Fetch the structured result of one `session_submit` / `session_prompt` by `requestId`: `status` is completed/blocked/errored/cancelled; while unsettled it is `running` with `pending=true` and the currently visible partial result; before a turn claims the request it is `pending`. Omitting `requestId` returns the session\'s latest request. The result is projected by `detail`; a successful tool call does not mean the turn succeeded — read `status`/`error`.',
+      description:
+        "Fetch the structured result of one `session_submit` / `session_prompt` by `requestId`: `status` is completed/blocked/errored/cancelled; while unsettled it is `running` with `pending=true` and the currently visible partial result; before a turn claims the request it is `pending`. Omitting `requestId` returns the session's latest request. The result is projected by `detail`; a successful tool call does not mean the turn succeeded — read `status`/`error`.",
       inputSchema: {
         sessionId: z.string().describe('Session id used when the task was submitted.'),
-        requestId: z.string().min(1).max(200).optional().describe('Request id returned by session_submit/session_prompt; omit for the latest request in the session.'),
-        detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
+        requestId: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Request id returned by session_submit/session_prompt; omit for the latest request in the session.'),
+        detail: z
+          .enum(['uri', 'summary', 'normal', 'full'])
+          .optional()
+          .describe(`Result detail: ${DETAIL_ARG.uri}; ${DETAIL_ARG.summary}; ${DETAIL_ARG.normal}; ${DETAIL_ARG.full}`),
       },
       annotations: { readOnlyHint: true },
     },
@@ -232,7 +309,8 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_cancel',
     {
       title: 'Stop session turn',
-      description: 'Stop the current turn of a session (the UI\'s Stop button): calls the official `agent.cancel` and keeps queued messages that have not started (see `session_queue`). If no turn is running, returns a clear message.',
+      description:
+        "Stop the current turn of a session (the UI's Stop button): calls the official `agent.cancel` and keeps queued messages that have not started (see `session_queue`). If no turn is running, returns a clear message.",
       inputSchema: {
         sessionId: z.string().describe('Session id to stop.'),
       },
@@ -253,7 +331,8 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_queue',
     {
       title: 'Manage session queue',
-      description: 'Manage a session\'s queued messages (the UI\'s QueueDock): `list` = list queued messages; `remove` = remove one; `edit` = rewrite its text; `steer` = dequeue and immediately steer it into the running turn. Requires a live session (queued messages are durable in the host inbox; prompt a cold session once first).',
+      description:
+        "Manage a session's queued messages (the UI's QueueDock): `list` = list queued messages; `remove` = remove one; `edit` = rewrite its text; `steer` = dequeue and immediately steer it into the running turn. Requires a live session (queued messages are durable in the host inbox; prompt a cold session once first).",
       inputSchema: {
         sessionId: z.string().describe('Session id.'),
         action: z.enum(['list', 'edit', 'remove', 'steer']).describe('list = list; edit = rewrite; remove = remove; steer = promote and steer.'),
@@ -294,9 +373,11 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       }
       const sc = serviceOf<SessionControllerView>(ctx, 'sessionController')
       if (typeof sc?.selectModel !== 'function') {
-        return outError(JSON.stringify({
-          error: 'sessionController service unavailable (session_select_model needs the web profile session controller)',
-        }))
+        return outError(
+          JSON.stringify({
+            error: 'sessionController service unavailable (session_select_model needs the web profile session controller)',
+          }),
+        )
       }
       try {
         const requested: ModelSelection = reasoningEffort ? { provider, model, reasoningEffort } : { provider, model }
@@ -315,7 +396,8 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_rename',
     {
       title: 'Rename session',
-      description: 'Rename an existing session (via the `sessionTitle` service\'s `rename`, the same path as the UI; a user rename pins the auto-generated title).',
+      description:
+        "Rename an existing session (via the `sessionTitle` service's `rename`, the same path as the UI; a user rename pins the auto-generated title).",
       inputSchema: {
         sessionId: z.string().describe('Session id to rename.'),
         title: z.string().describe('New title.'),
@@ -373,9 +455,15 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_command',
     {
       title: 'List or run session commands',
-      description: 'List the slash commands a live session can run, or run one — without sending it to the model and without creating a turn (nothing enters model history). Commands follow the host registry, the same path the UI composer uses; plugin-registered commands appear automatically.',
+      description:
+        'List the slash commands a live session can run, or run one — without sending it to the model and without creating a turn (nothing enters model history). Commands follow the host registry, the same path the UI composer uses; plugin-registered commands appear automatically.',
       inputSchema: {
-        sessionId: z.string().optional().describe('Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Session id (must be live: commands are registered per agent, so a cold session has none until it is prompted once). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+          ),
         action: z.enum(['list', 'run']).describe('list = commands available to this session; run = execute one.'),
         name: z.string().optional().describe('Command name without the leading slash (required for action=run), e.g. "compact".'),
         args: z.string().optional().describe('Raw argument text appended after the name; commands that take no arguments reject extra input themselves.'),
@@ -387,29 +475,39 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       const live = ctx.agents.get(asSessionId(target.sessionId))
       if (live === undefined) {
-        return outError(JSON.stringify({
-          error: `session "${target.sessionId}" is not live; slash commands are registered per live agent`,
-          hint: 'prompt or submit once to activate the session, then retry',
-        }))
+        return outError(
+          JSON.stringify({
+            error: `session "${target.sessionId}" is not live; slash commands are registered per live agent`,
+            hint: 'prompt or submit once to activate the session, then retry',
+          }),
+        )
       }
       const commands = commandsOf(ctx)
       if (typeof commands?.list !== 'function' || typeof commands.execute !== 'function') {
-        return outError(JSON.stringify({
-          error: 'the host command registry is unavailable (ctx.commands); this deployment composes no command adapter',
-        }))
+        return outError(
+          JSON.stringify({
+            error: 'the host command registry is unavailable (ctx.commands); this deployment composes no command adapter',
+          }),
+        )
       }
       try {
         if (action === 'list') {
           const rows = commands.list(live) ?? []
-          return out(JSON.stringify({
-            sessionId: target.sessionId,
-            total: rows.length,
-            commands: rows.map((row) => ({
-              name: row.name ?? '',
-              ...(row.description !== undefined ? { description: row.description } : {}),
-              ...(row.input !== undefined ? { input: row.input } : {}),
-            })),
-          }, null, 2))
+          return out(
+            JSON.stringify(
+              {
+                sessionId: target.sessionId,
+                total: rows.length,
+                commands: rows.map((row) => ({
+                  name: row.name ?? '',
+                  ...(row.description !== undefined ? { description: row.description } : {}),
+                  ...(row.input !== undefined ? { input: row.input } : {}),
+                })),
+              },
+              null,
+              2,
+            ),
+          )
         }
         const command = name?.trim().replace(/^\//, '') ?? ''
         if (command === '') {
@@ -418,19 +516,27 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         const line = `/${command}${args !== undefined && args !== '' ? ` ${args}` : ''}`
         const execution = await commands.execute(live, line, [], extra?.signal ?? new AbortController().signal)
         if (execution === undefined) {
-          return outError(JSON.stringify({
-            error: `unknown command "${line}"`,
-            hint: 'call session_command with action=list to see the commands this session can run',
-          }))
+          return outError(
+            JSON.stringify({
+              error: `unknown command "${line}"`,
+              hint: 'call session_command with action=list to see the commands this session can run',
+            }),
+          )
         }
         const result = execution.result ?? {}
-        return out(JSON.stringify({
-          sessionId: target.sessionId,
-          line,
-          ...(execution.commandId !== undefined ? { commandId: String(execution.commandId) } : {}),
-          ok: result.kind === 'success',
-          result,
-        }, null, 2))
+        return out(
+          JSON.stringify(
+            {
+              sessionId: target.sessionId,
+              line,
+              ...(execution.commandId !== undefined ? { commandId: String(execution.commandId) } : {}),
+              ok: result.kind === 'success',
+              result,
+            },
+            null,
+            2,
+          ),
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_command failed: ${(e as Error)?.message ?? String(e)}` }))
       }
@@ -445,7 +551,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE} (subagent lineage included; the log stays readable via session_history / session_list with scope="archived"). An active session requires \`stopActivity=true\` (the UI's Stop-and-Archive confirmation: stops the current turn and background tasks first). ${NEEDS_WORKSPACE_CONTROLLER}`,
       inputSchema: {
         sessionId: z.string().describe('Session id to archive.'),
-        stopActivity: z.boolean().optional().describe('Set true for an active session = stop its current turn first (the UI\'s Stop and Archive).'),
+        stopActivity: z.boolean().optional().describe("Set true for an active session = stop its current turn first (the UI's Stop and Archive)."),
       },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
@@ -492,14 +598,20 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           ? (res as { archivedSessionIds: readonly unknown[] }).archivedSessionIds.map(String)
           : undefined
         state.hooks.notifyListChanged()
-        return out(JSON.stringify({
-          ok: true,
-          sessionId,
-          archived: false,
-          wasArchived,
-          ...(remaining !== undefined ? { archivedRemaining: remaining.length } : {}),
-          ...(wasArchived ? {} : { note: 'the session was not archived; nothing to restore (host-side no-op)' }),
-        }, null, 2))
+        return out(
+          JSON.stringify(
+            {
+              ok: true,
+              sessionId,
+              archived: false,
+              wasArchived,
+              ...(remaining !== undefined ? { archivedRemaining: remaining.length } : {}),
+              ...(wasArchived ? {} : { note: 'the session was not archived; nothing to restore (host-side no-op)' }),
+            },
+            null,
+            2,
+          ),
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_unarchive failed: ${(e as Error)?.message ?? String(e)}` }))
       }
@@ -512,7 +624,8 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'attachment_read',
     {
       title: 'Read image attachment',
-      description: 'Read one image attachment of a session by reference, never as base64 text: returns its metadata plus the host-local file path (zero image tokens — use the path directly on the same machine). `inline=true` additionally returns an MCP image content block for multimodal clients.',
+      description:
+        'Read one image attachment of a session by reference, never as base64 text: returns its metadata plus the host-local file path (zero image tokens — use the path directly on the same machine). `inline=true` additionally returns an MCP image content block for multimodal clients.',
       inputSchema: {
         sessionId: z.string().optional().describe('Session owning the image (omit only on the native rice_ tools: it targets the calling session).'),
         attachmentId: z.string().describe('Image attachment id (from a submit receipt, prompt confirmation, or session_history images).'),
@@ -526,14 +639,15 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       try {
         // 定位引用: live 事件快照优先, 冷会话走官方 inspect(非激活读)
         const live = ctx.agents.get(asSessionId(target.sessionId))
-        const events = live !== undefined
-          ? eventsOf((live as { session?: unknown }).session ?? live)
-          : await inspectSessionEvents(ctx, asSessionId(target.sessionId))
+        const events =
+          live !== undefined ? eventsOf((live as { session?: unknown }).session ?? live) : await inspectSessionEvents(ctx, asSessionId(target.sessionId))
         const ref = findImageRefInEvents(events, attachmentId)
         if (ref === undefined) {
-          return outError(JSON.stringify({
-            error: `attachment "${attachmentId}" not found in session "${target.sessionId}" (it must appear in a message or tool result of that session; check session_history images fields)`,
-          }))
+          return outError(
+            JSON.stringify({
+              error: `attachment "${attachmentId}" not found in session "${target.sessionId}" (it must appear in a message or tool result of that session; check session_history images fields)`,
+            }),
+          )
         }
         const svc = attachmentsOf(ctx)
         const hostPath = svc?.imageHostPath?.(ref)
@@ -555,7 +669,9 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         const stored = await svc.readImage(ref, extra?.signal)
         // inline 传输面护栏: 超大图拒绝内联(默认引用模式仍可用)
         if (stored.data.byteLength > 8 * 1024 * 1024) {
-          return outError(JSON.stringify({ error: `image is ${stored.data.byteLength} bytes; inline mode caps at 8MB — use the reference mode (hostPath) instead` }))
+          return outError(
+            JSON.stringify({ error: `image is ${stored.data.byteLength} bytes; inline mode caps at 8MB — use the reference mode (hostPath) instead` }),
+          )
         }
         return {
           content: [

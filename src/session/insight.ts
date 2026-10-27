@@ -7,14 +7,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelection } from '../core/types.js'
-import {
-  asSessionId,
-  eventsOf,
-  inspectSessionEvents,
-  presetOfAgent,
-  selectionOfSession,
-  serviceOf,
-} from '../host/bridge.js'
+import { asSessionId, eventsOf, inspectSessionEvents, presetOfAgent, selectionOfSession, serviceOf } from '../host/bridge.js'
 import { knownSelectionOf } from './engine.js'
 import { selectionOfEvents } from './turn.js'
 import { approvalEntriesFor } from './approvals.js'
@@ -272,24 +265,23 @@ export async function sessionInsightPayload(
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const agent = ctx.agents.get(asSessionId(sessionId)) as LiveAgentLike | undefined
-  const acquired = source ?? await sessionEventSourceOf(ctx, sessionId, signal)
+  const acquired = source ?? (await sessionEventSourceOf(ctx, sessionId, signal))
   const session = acquired.session as LiveAgentLike['session']
   const events = acquired.events
   const live = acquired.live
 
   const rowModel = row.model as ModelSelection | undefined
   // 模型: 日志里的有效选择优先(select_model 之后日志才是事实), 其次插件记录, 最后清单行
-  const model = (session !== undefined ? selectionOfSession(session) : undefined)
-    ?? (events !== undefined ? selectionOfEvents(events) : undefined)
-    ?? knownSelectionOf(ctx, sessionId)
-    ?? rowModel
+  const model =
+    (session !== undefined ? selectionOfSession(session) : undefined) ??
+    (events !== undefined ? selectionOfEvents(events) : undefined) ??
+    knownSelectionOf(ctx, sessionId) ??
+    rowModel
   // preset: live 取绑定, 冷会话取 header(清单行里就是 header 的投影)
-  const preset = session?.header?.agentPreset
-    || (agent !== undefined ? presetOfAgent(ctx, agent) : '')
-    || (typeof row.agentPreset === 'string' ? row.agentPreset : '')
-  const title = (typeof row.title === 'string' && row.title !== '' ? row.title : undefined)
-    ?? (events !== undefined ? latestTitleOf(events) : undefined)
-    ?? session?.title
+  const preset =
+    session?.header?.agentPreset || (agent !== undefined ? presetOfAgent(ctx, agent) : '') || (typeof row.agentPreset === 'string' ? row.agentPreset : '')
+  const title =
+    (typeof row.title === 'string' && row.title !== '' ? row.title : undefined) ?? (events !== undefined ? latestTitleOf(events) : undefined) ?? session?.title
 
   const approvals = events !== undefined ? approvalEntriesFor(sessionId, events) : []
   const questions = events !== undefined ? questionEntriesFor(sessionId, events, live) : []
@@ -297,7 +289,11 @@ export async function sessionInsightPayload(
     ? 'inactive'
     : approvals.length > 0
       ? 'waiting-approval'
-      : questions.length > 0 ? 'waiting-question' : agent?.status === 'running' ? 'running' : 'idle'
+      : questions.length > 0
+        ? 'waiting-question'
+        : agent?.status === 'running'
+          ? 'running'
+          : 'idle'
 
   const stats = turnStepStatsOf(events ?? [])
   const context = await contextOccupancyOf(ctx, session, events ?? [], model)

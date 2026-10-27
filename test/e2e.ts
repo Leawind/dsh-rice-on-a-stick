@@ -102,30 +102,72 @@ async function callTool(sid, id, name, args = {}, timeoutMs = 60_000) {
 
 try {
   const init = await rpc(undefined, {
-    jsonrpc: '2.0', id: 1, method: 'initialize',
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
     params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1.0' } },
   })
   const initPayload = init.status === 200 ? parsePayload(init.text).result : undefined
-  report('initialize(MCP 握手)', init.status === 200 && Boolean(init.sid), `server=${initPayload?.serverInfo?.name ?? '?'} v${initPayload?.serverInfo?.version ?? '?'}`)
-  report('initialize 携带 instructions(工作流引导)', typeof initPayload?.instructions === 'string'
-    && initPayload.instructions.length > 200 && initPayload.instructions.includes('dsh_get_started'),
-    `${typeof initPayload?.instructions === 'string' ? initPayload.instructions.length : 0} chars`)
-  report('initialize 声明 resources 能力(listChanged+subscribe)', initPayload?.capabilities?.resources?.listChanged === true
-    && initPayload?.capabilities?.resources?.subscribe === true)
+  report(
+    'initialize(MCP 握手)',
+    init.status === 200 && Boolean(init.sid),
+    `server=${initPayload?.serverInfo?.name ?? '?'} v${initPayload?.serverInfo?.version ?? '?'}`,
+  )
+  report(
+    'initialize 携带 instructions(工作流引导)',
+    typeof initPayload?.instructions === 'string' && initPayload.instructions.length > 200 && initPayload.instructions.includes('dsh_get_started'),
+    `${typeof initPayload?.instructions === 'string' ? initPayload.instructions.length : 0} chars`,
+  )
+  report(
+    'initialize 声明 resources 能力(listChanged+subscribe)',
+    initPayload?.capabilities?.resources?.listChanged === true && initPayload?.capabilities?.resources?.subscribe === true,
+  )
   const sid = init.sid
   await rpc(sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
   // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复 + 附件/端点直通) ──
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
-  const expected = ['echo', 'dsh_get_started', 'dsh_list_tools', 'dsh_status', 'workspace_list', 'model_list',
-    'session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-    'session_cancel', 'session_queue', 'session_command', 'session_select_model',
-    'session_rename', 'session_list', 'session_meta', 'session_overview', 'session_history', 'session_search', 'session_fork',
-    'session_archive', 'session_unarchive',
-    'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list',
-    'attachment_read', 'endpoint_describe', 'endpoint_call']
-  report('tools/list 会话中心 + 异步/审批控制面工具齐', expected.every((n) => names.includes(n)) && names.length === expected.length, names.join(','))
+  const expected = [
+    'echo',
+    'dsh_get_started',
+    'dsh_list_tools',
+    'dsh_status',
+    'workspace_list',
+    'model_list',
+    'session_create',
+    'session_prompt',
+    'session_submit',
+    'session_poll',
+    'session_result',
+    'session_cancel',
+    'session_queue',
+    'session_command',
+    'session_select_model',
+    'session_rename',
+    'session_list',
+    'session_meta',
+    'session_overview',
+    'session_history',
+    'session_search',
+    'session_fork',
+    'session_archive',
+    'session_unarchive',
+    'approval_list',
+    'approval_answer',
+    'approval_policy',
+    'question_list',
+    'question_answer',
+    'subagent_list',
+    'attachment_read',
+    'endpoint_describe',
+    'endpoint_call',
+  ]
+  report(
+    'tools/list 会话中心 + 异步/审批控制面工具齐',
+    expected.every((n) => names.includes(n)),
+    names.join(','),
+  )
 
   const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
   report('echo 往返', echo.resp.status === 200 && echo.resp.text.includes('e2e-ping'))
@@ -135,52 +177,79 @@ try {
   report('dsh_get_started(section=errors) 返回错误对照表', guideText.includes('Error → alternative path'), `${guideText.length} chars`)
 
   const listTools = await callTool(sid, 5, 'dsh_list_tools')
-  report('dsh_list_tools 返回全局注册表', listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
-    `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`)
+  report(
+    'dsh_list_tools 返回全局注册表',
+    listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
+    `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`,
+  )
   const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
-  report('将工具注册到本dsh实例(全局表可见 36 个 rice_ 工具)', nativeNames.length === 36
-    && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
-  `native=${nativeNames.length}`)
+  report(
+    '将工具注册到本dsh实例(每个 MCP 工具都有 rice_ 原生孪生)',
+    names.every((n) => nativeNames.includes(`rice_${n}`)) && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
+    `native=${nativeNames.length} mcp=${names.length}`,
+  )
 
   const status = await callTool(sid, 6, 'dsh_status')
-  report('dsh_status 返回部署状态', status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
-    `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`)
-  report('dsh_status 回报自用工具开关与数量', status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === 36,
-    `selfTools=${status.inner?.stats?.selfTools ?? '?'}`)
+  report(
+    'dsh_status 返回部署状态',
+    status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
+    `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`,
+  )
+  report(
+    'dsh_status 回报自用工具开关与数量',
+    status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === nativeNames.length,
+    `selfTools=${status.inner?.stats?.selfTools ?? '?'}`,
+  )
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
   report('workspace_list 返回工作区', Array.isArray(workspaces.inner?.workspaces), `total=${workspaces.inner?.total ?? '?'}`)
 
   const modelList = await callTool(sid, 8, 'model_list', {}, 60_000)
   const modelCount = (modelList.inner?.providers ?? []).reduce((n, p) => n + (p.models?.length ?? 0), 0)
-  report('model_list 返回目录与 preset 花名册', Array.isArray(modelList.inner?.providers) && Array.isArray(modelList.inner?.presets),
-    `source=${modelList.inner?.source} providers=${modelList.inner?.providers?.length ?? 0} models=${modelCount} presets=${(modelList.inner?.presets ?? []).join(',')}`)
+  report(
+    'model_list 返回目录与 preset 花名册',
+    Array.isArray(modelList.inner?.providers) && Array.isArray(modelList.inner?.presets),
+    `source=${modelList.inner?.source} providers=${modelList.inner?.providers?.length ?? 0} models=${modelCount} presets=${(modelList.inner?.presets ?? []).join(',')}`,
+  )
 
   const sessions = await callTool(sid, 9, 'session_list', { limit: 10 })
   const sessionItems = sessions.inner?.sessions ?? []
-  report('session_list 返回清单', Number.isInteger(sessions.inner?.total) && Array.isArray(sessionItems),
-    `total=${sessions.inner?.total ?? '?'}`)
+  report('session_list 返回清单', Number.isInteger(sessions.inner?.total) && Array.isArray(sessionItems), `total=${sessions.inner?.total ?? '?'}`)
 
   // ── 异步控制面(零 token): 不存在会话的批量状态 + 未知 requestId ──
   const pollMissing = await callTool(sid, 91, 'session_poll', { sessionIds: ['e2e-nonexistent-session'], waitMs: 0 })
-  report('session_poll 批量状态(不存在会话 → not-found)', pollMissing.inner.sessions?.[0]?.state === 'not-found',
-    JSON.stringify(pollMissing.inner.sessions ?? pollMissing.inner.error))
+  report(
+    'session_poll 批量状态(不存在会话 → not-found)',
+    pollMissing.inner.sessions?.[0]?.state === 'not-found',
+    JSON.stringify(pollMissing.inner.sessions ?? pollMissing.inner.error),
+  )
   const knownSession = sessionItems[0]?.sessionId
   if (knownSession) {
     const resultMissing = await callTool(sid, 92, 'session_result', { sessionId: knownSession, requestId: 'e2e-nonexistent-request' })
-    report('session_result 未知 requestId 明确报错', String(resultMissing.inner.error ?? '').includes('unknown requestId'),
-      String(resultMissing.inner.error ?? '').slice(0, 160))
+    report(
+      'session_result 未知 requestId 明确报错',
+      String(resultMissing.inner.error ?? '').includes('unknown requestId'),
+      String(resultMissing.inner.error ?? '').slice(0, 160),
+    )
   } else {
     console.log('  SKIP  session_result 未知 requestId — 当前没有可读会话')
   }
   const approvalsMissing = await callTool(sid, 93, 'approval_list', { sessionIds: ['e2e-nonexistent-session'] })
-  report('approval_list 不可读会话 → not-found', approvalsMissing.inner.sessions?.[0]?.state === 'not-found',
-    `state=${approvalsMissing.inner.sessions?.[0]?.state ?? '?'}`)
+  report(
+    'approval_list 不可读会话 → not-found',
+    approvalsMissing.inner.sessions?.[0]?.state === 'not-found',
+    `state=${approvalsMissing.inner.sessions?.[0]?.state ?? '?'}`,
+  )
   const approvalAnswerMissing = await callTool(sid, 94, 'approval_answer', {
-    sessionId: 'e2e-nonexistent-session', eventId: 'e2e-nonexistent-event', decision: 'allow',
+    sessionId: 'e2e-nonexistent-session',
+    eventId: 'e2e-nonexistent-event',
+    decision: 'allow',
   })
-  report('approval_answer 未知审批明确报错', String(approvalAnswerMissing.inner.error ?? '').includes('no held approval'),
-    String(approvalAnswerMissing.inner.error ?? '').slice(0, 160))
+  report(
+    'approval_answer 未知审批明确报错',
+    String(approvalAnswerMissing.inner.error ?? '').includes('no held approval'),
+    String(approvalAnswerMissing.inner.error ?? '').slice(0, 160),
+  )
 
   // ── 冷会话历史: 经宿主 sessionController.inspect 非激活读取 ──
   // 首轮(宿主刚启动、还没有历史会话)没有 persisted-only 会话可测; 重启后第二轮才可测。
@@ -190,47 +259,71 @@ try {
     if (hist.inner.source === 'live') {
       console.log('  SKIP  session_history 冷会话可读(宿主 inspect) — 该会话仍是 live(重启宿主后测 persisted/inspect 路径)')
     } else {
-      report('session_history 冷会话可读(宿主 inspect)', !hist.inner.error && hist.inner.source === 'persisted'
-        && Number.isInteger(hist.inner.totalEvents),
-        hist.inner.error ? String(hist.inner.error).slice(0, 140)
-          : `session=${String(persisted.sessionId).slice(0, 8)} source=${hist.inner.source} events=${hist.inner.totalEvents} turns=${hist.inner.turns?.length ?? 0}`)
+      report(
+        'session_history 冷会话可读(宿主 inspect)',
+        !hist.inner.error && hist.inner.source === 'persisted' && Number.isInteger(hist.inner.totalEvents),
+        hist.inner.error
+          ? String(hist.inner.error).slice(0, 140)
+          : `session=${String(persisted.sessionId).slice(0, 8)} source=${hist.inner.source} events=${hist.inner.totalEvents} turns=${hist.inner.turns?.length ?? 0}`,
+      )
       const meta = await readResource(sid, 11, `dsh://sessions/${encodeURIComponent(persisted.sessionId)}`)
-      report('资源 dsh://sessions/{id} 标出 historyReadable', meta.json?.historyReadable === true,
-        meta.error ? String(meta.error).slice(0, 140) : `session=${String(persisted.sessionId).slice(0, 8)}`)
+      report(
+        '资源 dsh://sessions/{id} 标出 historyReadable',
+        meta.json?.historyReadable === true,
+        meta.error ? String(meta.error).slice(0, 140) : `session=${String(persisted.sessionId).slice(0, 8)}`,
+      )
     }
   } else {
     console.log('  SKIP  session_history 冷会话可读(宿主 inspect) — 当前没有持久化会话(重启宿主后再测)')
   }
   const histMissing = await callTool(sid, 12, 'session_history', { sessionId: 'e2e-nonexistent-session' })
-  report('session_history 未知会话以 isError 拒绝', histMissing.inner.error !== undefined && String(histMissing.inner.error).includes('not readable'),
-    String(histMissing.inner.error ?? '').slice(0, 140))
+  report(
+    'session_history 未知会话以 isError 拒绝',
+    histMissing.inner.error !== undefined && String(histMissing.inner.error).includes('not readable'),
+    String(histMissing.inner.error ?? '').slice(0, 140),
+  )
 
   // ── 资源面 ──
   const resList = await rpc(sid, { jsonrpc: '2.0', id: 20, method: 'resources/list', params: {} })
   const resUris = parsePayload(resList.text).result?.resources?.map((r) => r.uri) ?? []
-  report('resources/list 静态资源全集', ['dsh://status', 'dsh://guide', 'dsh://tools', 'dsh://models', 'dsh://presets',
-    'dsh://workspaces', 'dsh://sessions'].every((u) => resUris.includes(u)), `${resUris.length} 个静态资源`)
+  report(
+    'resources/list 静态资源全集',
+    ['dsh://status', 'dsh://guide', 'dsh://tools', 'dsh://models', 'dsh://presets', 'dsh://workspaces', 'dsh://sessions'].every((u) => resUris.includes(u)),
+    `${resUris.length} 个静态资源`,
+  )
   const rPresets = await readResource(sid, 21, 'dsh://presets')
-  report('resources/read dsh://presets', !rPresets.error && Number.isInteger(rPresets.json?.total),
-    rPresets.error ? String(rPresets.error).slice(0, 120) : `total=${rPresets.json?.total}: ${(rPresets.json?.presets ?? []).map((p) => p.id).join(',')}`)
+  report(
+    'resources/read dsh://presets',
+    !rPresets.error && Number.isInteger(rPresets.json?.total),
+    rPresets.error ? String(rPresets.error).slice(0, 120) : `total=${rPresets.json?.total}: ${(rPresets.json?.presets ?? []).map((p) => p.id).join(',')}`,
+  )
   const rModels = await readResource(sid, 22, 'dsh://models')
   report('resources/read dsh://models', !rModels.error && Array.isArray(rModels.json?.providers), rModels.error ? String(rModels.error).slice(0, 120) : '')
   const rSessions = await readResource(sid, 23, 'dsh://sessions')
-  report('resources/read dsh://sessions', !rSessions.error && Number.isInteger(rSessions.json?.total),
-    rSessions.error ? String(rSessions.error).slice(0, 120) : `total=${rSessions.json?.total}`)
+  report(
+    'resources/read dsh://sessions',
+    !rSessions.error && Number.isInteger(rSessions.json?.total),
+    rSessions.error ? String(rSessions.error).slice(0, 120) : `total=${rSessions.json?.total}`,
+  )
 
   // ── 附件与端点直通只读面(零 token, 不花模型调用) ──
   const endpointDir = await callTool(sid, 24, 'endpoint_describe', {})
-  report('endpoint_describe 目录可读(按 namespace 分组)', Array.isArray(endpointDir.inner?.namespaces) && (endpointDir.inner?.total ?? 0) > 0,
-    `total=${endpointDir.inner?.total ?? String(endpointDir.inner?.error ?? '?').slice(0, 120)}`)
+  report(
+    'endpoint_describe 目录可读(按 namespace 分组)',
+    Array.isArray(endpointDir.inner?.namespaces) && (endpointDir.inner?.total ?? 0) > 0,
+    `total=${endpointDir.inner?.total ?? String(endpointDir.inner?.error ?? '?').slice(0, 120)}`,
+  )
   const catalog = await callTool(sid, 25, 'endpoint_call', { endpoint: 'session/modelCatalog' })
-  report('endpoint_call 只读端点经网关返回模型目录', catalog.inner?.error === undefined && typeof catalog.inner === 'object'
-    && (Array.isArray((catalog.inner as any).routableProviders) || typeof (catalog.inner as any).default === 'object'),
-  String(catalog.inner?.error ?? `providers=${((catalog.inner as any)?.routableProviders ?? []).length}`).slice(0, 140))
+  report(
+    'endpoint_call 只读端点经网关返回模型目录',
+    catalog.inner?.error === undefined &&
+      typeof catalog.inner === 'object' &&
+      (Array.isArray((catalog.inner as any).routableProviders) || typeof (catalog.inner as any).default === 'object'),
+    String(catalog.inner?.error ?? `providers=${((catalog.inner as any)?.routableProviders ?? []).length}`).slice(0, 140),
+  )
   if (knownSession) {
     const attMissing = await callTool(sid, 26, 'attachment_read', { sessionId: knownSession, attachmentId: 'e2e-nope' })
-    report('attachment_read 未知附件明确报错', String(attMissing.inner.error ?? '').includes('not found'),
-      String(attMissing.inner.error ?? '').slice(0, 140))
+    report('attachment_read 未知附件明确报错', String(attMissing.inner.error ?? '').includes('not found'), String(attMissing.inner.error ?? '').slice(0, 140))
   } else {
     console.log('  SKIP  attachment_read 未知附件 — 当前没有可读会话')
   }
@@ -250,65 +343,110 @@ try {
         finish()
         process.exit(1)
       }
-      const created = await callTool(sid, 30, 'session_create', {
-        cwd: CWD, provider, model, preset,
-        ...(PERMISSION_PRESET ? { permission: PERMISSION_PRESET } : {}),
-      }, 60_000)
+      const created = await callTool(
+        sid,
+        30,
+        'session_create',
+        {
+          cwd: CWD,
+          provider,
+          model,
+          preset,
+          ...(PERMISSION_PRESET ? { permission: PERMISSION_PRESET } : {}),
+        },
+        60_000,
+      )
       sessionId = String(created.inner?.sessionId ?? '')
-      report('session_create 新建会话', sessionId !== '' && created.inner?.preset === preset,
-        `session=${sessionId.slice(0, 8)} model=${JSON.stringify(created.inner?.model)} preset=${created.inner?.preset} permission=${created.inner?.permission ?? '(宿主默认)'}`)
+      report(
+        'session_create 新建会话',
+        sessionId !== '' && created.inner?.preset === preset,
+        `session=${sessionId.slice(0, 8)} model=${JSON.stringify(created.inner?.model)} preset=${created.inner?.preset} permission=${created.inner?.permission ?? '(宿主默认)'}`,
+      )
       if (PERMISSION_PRESET) {
-        report('session_create 应用权限预设(宿主 permissionPresets.set)', created.inner?.permission === PERMISSION_PRESET
-          && created.inner?.permissionRequested === PERMISSION_PRESET,
-          `permission=${created.inner?.permission ?? '?'} requested=${created.inner?.permissionRequested ?? '?'}`)
+        report(
+          'session_create 应用权限预设(宿主 permissionPresets.set)',
+          created.inner?.permission === PERMISSION_PRESET && created.inner?.permissionRequested === PERMISSION_PRESET,
+          `permission=${created.inner?.permission ?? '?'} requested=${created.inner?.permissionRequested ?? '?'}`,
+        )
       }
       const permList = await callTool(sid, 301, 'permission_list', {})
-      report('permission_list 返回宿主预设目录', Array.isArray(permList.inner?.options) && permList.inner.options.length > 0
-        && typeof permList.inner?.defaultPreset === 'string',
-        `options=${(permList.inner?.options ?? []).map((o: any) => o.value).join(',')} default=${permList.inner?.defaultPreset ?? '?'}`)
+      report(
+        'permission_list 返回宿主预设目录',
+        Array.isArray(permList.inner?.options) && permList.inner.options.length > 0 && typeof permList.inner?.defaultPreset === 'string',
+        `options=${(permList.inner?.options ?? []).map((o: any) => o.value).join(',')} default=${permList.inner?.defaultPreset ?? '?'}`,
+      )
     } else {
       console.log(`\nagent leg: cold resume of ${sessionId}`)
     }
     if (sessionId !== '') {
       const t0 = Date.now()
-      const prompt = await callTool(sid, 31, 'session_prompt', {
-        sessionId,
-        task: '用 pwsh 运行 `node -e "console.log(2+2)"`(只要这一条命令), 然后在最后一行输出总结 JSON: {"changes":"...","verification":"...","leftovers":"..."}',
-        detail: 'normal',
-      }, AGENT_TIMEOUT_MS)
+      const prompt = await callTool(
+        sid,
+        31,
+        'session_prompt',
+        {
+          sessionId,
+          task: '用 pwsh 运行 `node -e "console.log(2+2)"`(只要这一条命令), 然后在最后一行输出总结 JSON: {"changes":"...","verification":"...","leftovers":"..."}',
+          detail: 'normal',
+        },
+        AGENT_TIMEOUT_MS,
+      )
       const secs = ((Date.now() - t0) / 1000).toFixed(1)
-      report('session_prompt 完成真实 turn', prompt.inner.error === undefined && prompt.inner.sessionId === sessionId,
-        prompt.inner.error ? String(prompt.inner.error).slice(0, 300) : `${secs}s`)
-      report('结果回报实际模型(prompt 后读 request/header)', prompt.inner.model?.provider !== undefined && prompt.inner.model?.model !== undefined,
-        `model=${JSON.stringify(prompt.inner.model)} preset=${prompt.inner.preset ?? '(无)'}`)
-      report('preset 工具挂载(toolCalls 非空)', Array.isArray(prompt.inner.toolCalls) && prompt.inner.toolCalls.length > 0,
-        `calls=${(prompt.inner.toolCalls ?? []).map((c) => c.name).join(',')}`)
-      report('一行 JSON 总结解析(changes/verification)', Boolean(prompt.inner.changes || prompt.inner.verification),
-        `changes="${String(prompt.inner.changes ?? '').slice(0, 80)}"`)
+      report(
+        'session_prompt 完成真实 turn',
+        prompt.inner.error === undefined && prompt.inner.sessionId === sessionId,
+        prompt.inner.error ? String(prompt.inner.error).slice(0, 300) : `${secs}s`,
+      )
+      report(
+        '结果回报实际模型(prompt 后读 request/header)',
+        prompt.inner.model?.provider !== undefined && prompt.inner.model?.model !== undefined,
+        `model=${JSON.stringify(prompt.inner.model)} preset=${prompt.inner.preset ?? '(无)'}`,
+      )
+      report(
+        'preset 工具挂载(toolCalls 非空)',
+        Array.isArray(prompt.inner.toolCalls) && prompt.inner.toolCalls.length > 0,
+        `calls=${(prompt.inner.toolCalls ?? []).map((c) => c.name).join(',')}`,
+      )
+      report(
+        '一行 JSON 总结解析(changes/verification)',
+        Boolean(prompt.inner.changes || prompt.inner.verification),
+        `changes="${String(prompt.inner.changes ?? '').slice(0, 80)}"`,
+      )
       report('结果带会话纪要资源引用', String(prompt.inner.resource ?? '').includes(`${sessionId}/history`), String(prompt.inner.resource ?? ''))
       if (PERMISSION_PRESET) {
         const meta = await callTool(sid, 36, 'session_meta', { sessionId })
-        report('session_meta 回报权限预设', meta.inner?.permission === PERMISSION_PRESET,
-          `permission=${meta.inner?.permission ?? meta.inner?.error ?? '?'}`)
+        report('session_meta 回报权限预设', meta.inner?.permission === PERMISSION_PRESET, `permission=${meta.inner?.permission ?? meta.inner?.error ?? '?'}`)
         const approvalPolicy = await callTool(sid, 38, 'approval_policy', { sessionId, action: 'get' })
-        report('approval_policy 读取生效策略(预设捆绑的审批旋钮)', typeof approvalPolicy.inner?.policy === 'string' || approvalPolicy.inner?.policy === null,
-          `policy=${approvalPolicy.inner?.policy ?? approvalPolicy.inner?.error ?? '?'} live=${approvalPolicy.inner?.live ?? '?'}`)
+        report(
+          'approval_policy 读取生效策略(预设捆绑的审批旋钮)',
+          typeof approvalPolicy.inner?.policy === 'string' || approvalPolicy.inner?.policy === null,
+          `policy=${approvalPolicy.inner?.policy ?? approvalPolicy.inner?.error ?? '?'} live=${approvalPolicy.inner?.live ?? '?'}`,
+        )
       }
       const approvalList = await callTool(sid, 37, 'approval_list', { sessionIds: [sessionId] })
-      report('approval_list 读 live 会话(无挂起)', approvalList.inner?.sessions?.[0]?.state !== 'not-found'
-        && (approvalList.inner?.sessions?.[0]?.approvals?.length ?? -1) === 0,
-        `state=${approvalList.inner?.sessions?.[0]?.state ?? '?'}`)
+      report(
+        'approval_list 读 live 会话(无挂起)',
+        approvalList.inner?.sessions?.[0]?.state !== 'not-found' && (approvalList.inner?.sessions?.[0]?.approvals?.length ?? -1) === 0,
+        `state=${approvalList.inner?.sessions?.[0]?.state ?? '?'}`,
+      )
       const questionList = await callTool(sid, 39, 'question_list', { sessionIds: [sessionId] })
-      report('question_list 读 live 会话(无挂起)', questionList.inner?.sessions?.[0]?.state !== 'not-found'
-        && (questionList.inner?.sessions?.[0]?.questions?.length ?? -1) === 0,
-        `state=${questionList.inner?.sessions?.[0]?.state ?? '?'}`)
+      report(
+        'question_list 读 live 会话(无挂起)',
+        questionList.inner?.sessions?.[0]?.state !== 'not-found' && (questionList.inner?.sessions?.[0]?.questions?.length ?? -1) === 0,
+        `state=${questionList.inner?.sessions?.[0]?.state ?? '?'}`,
+      )
       const subagents = await callTool(sid, 38, 'subagent_list', { parentSessionId: sessionId })
-      report('subagent_list 读到空的原生子代理目录', Array.isArray(subagents.inner?.subagents)
-        && subagents.inner?.total === 0,
-        subagents.inner?.error ? String(subagents.inner.error).slice(0, 180) : `total=${subagents.inner?.total ?? '?'}`)
+      report(
+        'subagent_list 读到空的原生子代理目录',
+        Array.isArray(subagents.inner?.subagents) && subagents.inner?.total === 0,
+        subagents.inner?.error ? String(subagents.inner.error).slice(0, 180) : `total=${subagents.inner?.total ?? '?'}`,
+      )
       const hist = await callTool(sid, 32, 'session_history', { sessionId, roles: ['assistant'], limit: 5 })
-      report('session_history 读到刚完成的轮次', !hist.inner.error && (hist.inner.turns?.length ?? 0) > 0,
-        hist.inner.error ? String(hist.inner.error).slice(0, 160) : `turns=${hist.inner.turns?.length} source=${hist.inner.source ?? '?'}`)
+      report(
+        'session_history 读到刚完成的轮次',
+        !hist.inner.error && (hist.inner.turns?.length ?? 0) > 0,
+        hist.inner.error ? String(hist.inner.error).slice(0, 160) : `turns=${hist.inner.turns?.length} source=${hist.inner.source ?? '?'}`,
+      )
       const search = await callTool(sid, 33, 'session_search', { query: '2+2' })
       if (search.inner.error && String(search.inner.error).includes('disabled')) {
         console.log('  SKIP  session_search 走宿主搜索 — 部署关闭了会话检索索引(session-query-sqlite openAt=never)')
@@ -316,19 +454,30 @@ try {
         report('session_search 走宿主搜索', Array.isArray(search.inner?.results), `hits=${search.inner?.results?.length ?? '?'}`)
       }
       const fork = await callTool(sid, 34, 'session_fork', { sessionId })
-      report('session_fork 分叉成功', typeof fork.inner?.sessionId === 'string' && fork.inner.sessionId !== sessionId,
-        `fork=${String(fork.inner?.sessionId ?? '').slice(0, 8)}`)
+      report(
+        'session_fork 分叉成功',
+        typeof fork.inner?.sessionId === 'string' && fork.inner.sessionId !== sessionId,
+        `fork=${String(fork.inner?.sessionId ?? '').slice(0, 8)}`,
+      )
       if (process.env.E2E_ARCHIVE === '1') {
         const archived = await callTool(sid, 35, 'session_archive', { sessionId, stopActivity: true })
-        report('session_archive 归档测试会话', archived.inner?.archived === true || archived.inner?.error === undefined,
-          String(archived.inner?.error ?? '').slice(0, 120))
+        report(
+          'session_archive 归档测试会话',
+          archived.inner?.archived === true || archived.inner?.error === undefined,
+          String(archived.inner?.error ?? '').slice(0, 120),
+        )
         const archiveList = await callTool(sid, 36, 'session_list', { scope: 'archived' })
-        report('session_list(scope=archived) 列出刚归档的会话', Array.isArray(archiveList.inner?.sessions)
-          && archiveList.inner.sessions.some((s: any) => s.sessionId === sessionId && s.archived === true),
-          `total=${archiveList.inner?.total ?? '?'}`)
+        report(
+          'session_list(scope=archived) 列出刚归档的会话',
+          Array.isArray(archiveList.inner?.sessions) && archiveList.inner.sessions.some((s: any) => s.sessionId === sessionId && s.archived === true),
+          `total=${archiveList.inner?.total ?? '?'}`,
+        )
         const unarchived = await callTool(sid, 37, 'session_unarchive', { sessionId })
-        report('session_unarchive 恢复测试会话', unarchived.inner?.wasArchived === true && unarchived.inner?.archived === false,
-          String(unarchived.inner?.error ?? '').slice(0, 120))
+        report(
+          'session_unarchive 恢复测试会话',
+          unarchived.inner?.wasArchived === true && unarchived.inner?.archived === false,
+          String(unarchived.inner?.error ?? '').slice(0, 120),
+        )
       }
       console.log(`\nSESSION_ID=${sessionId}`)
     }

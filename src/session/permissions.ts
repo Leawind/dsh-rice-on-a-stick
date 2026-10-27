@@ -63,9 +63,7 @@ export function permissionNamesOf(svc: PermissionPresetsView | undefined): strin
   } catch {
     catalog = undefined
   }
-  return (catalog?.options ?? [])
-    .map((option) => option.value)
-    .filter((value): value is string => typeof value === 'string' && value !== '')
+  return (catalog?.options ?? []).map((option) => option.value).filter((value): value is string => typeof value === 'string' && value !== '')
 }
 
 /** 目录投影(permission_list 工具与创建前的取值发现共用); 服务缺席时 undefined */
@@ -121,11 +119,7 @@ export function permissionOfEvents(events: readonly unknown[]): string | undefin
 }
 
 /** 统一的读口径: live 用宿主推导, 否则折叠日志; 都读不到返回 undefined */
-export function effectivePermissionOf(
-  ctx: Context,
-  session: unknown | undefined,
-  events: readonly unknown[] | undefined,
-): string | undefined {
+export function effectivePermissionOf(ctx: Context, session: unknown | undefined, events: readonly unknown[] | undefined): string | undefined {
   if (session !== undefined) {
     const live = currentPermissionOf(ctx, session)
     if (live !== undefined) return live
@@ -140,8 +134,9 @@ export function effectivePermissionOf(
 export function assertPermissionAvailable(ctx: Context, name: string): PermissionPresetsView {
   const svc = permissionPresetsOf(ctx)
   if (svc === undefined || typeof svc.set !== 'function') {
-    throw new Error(`the host permission-presets service is unavailable (this deployment composes no permission presets); `
-      + `cannot switch to preset "${name}"`)
+    throw new Error(
+      `the host permission-presets service is unavailable (this deployment composes no permission presets); ` + `cannot switch to preset "${name}"`,
+    )
   }
   const names = permissionNamesOf(svc)
   if (names.length > 0 && !names.includes(name)) {

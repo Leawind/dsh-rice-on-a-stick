@@ -96,11 +96,7 @@ async function readSourceBytes(input: ImageRefInput, baseDir: string | undefined
  * 任一环节失败整体抛错(提交是原子的: 不会出现"文字已发、图片没跟上"的半残消息)。
  * baseDir 是相对 path 的解析基线, 传目标会话的 cwd。
  */
-export async function admitImages(
-  ctx: Context,
-  inputs: readonly ImageRefInput[],
-  opts: { baseDir?: string } = {},
-): Promise<ImageBlockView[]> {
+export async function admitImages(ctx: Context, inputs: readonly ImageRefInput[], opts: { baseDir?: string } = {}): Promise<ImageBlockView[]> {
   const svc = attachmentsOf(ctx)
   if (typeof svc?.saveImages !== 'function') {
     throw new Error('the host attachments service is unavailable (sending images needs the web profile attachment service)')
@@ -132,8 +128,7 @@ export function findImageRefInEvents(events: readonly unknown[], attachmentId: s
     if (value === null || typeof value !== 'object') return undefined
     const rec = value as Record<string, unknown>
     const attachment = rec.attachment as Record<string, unknown> | undefined
-    if (rec.type === 'image' && attachment !== null && typeof attachment === 'object'
-      && attachment.attachmentId === attachmentId) {
+    if (rec.type === 'image' && attachment !== null && typeof attachment === 'object' && attachment.attachmentId === attachmentId) {
       const num = (v: unknown) => (typeof v === 'number' ? v : 0)
       const str = (v: unknown) => (typeof v === 'string' ? v : '')
       const ref: ImageRefView = {

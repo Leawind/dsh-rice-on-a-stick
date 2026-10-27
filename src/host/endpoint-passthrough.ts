@@ -247,10 +247,11 @@ export function describeDirectory(ctx: Context): Record<string, unknown> {
       ...(g.writable > 0 ? { writable: g.writable } : {}),
       ...(g.approvalRequired > 0 ? { approvalRequired: g.approvalRequired } : {}),
     })),
-    note: 'Compact namespace index: query=… keyword-searches endpoint names + descriptions (preferred entry), '
-      + 'namespace=… lists one domain, endpoint=… gives the exact contract. Allowlisted non-stream endpoints '
-      + 'execute directly (allowed: true); every other non-stream endpoint parks each call for a human decision '
-      + 'on this deployment\'s settings panel (approvalRequired: true). readOnly is a semantic flag, not a gate.',
+    note:
+      'Compact namespace index: query=… keyword-searches endpoint names + descriptions (preferred entry), ' +
+      'namespace=… lists one domain, endpoint=… gives the exact contract. Allowlisted non-stream endpoints ' +
+      'execute directly (allowed: true); every other non-stream endpoint parks each call for a human decision ' +
+      "on this deployment's settings panel (approvalRequired: true). readOnly is a semantic flag, not a gate.",
   }
 }
 
@@ -264,7 +265,10 @@ const SEARCH_RESULT_CAP = 30
  */
 export function searchEndpoints(ctx: Context, query: string, namespace?: string): Record<string, unknown> {
   const invocations = listInvocations(ctx)
-  const terms = query.toLowerCase().split(/\s+/).filter((t) => t !== '')
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t !== '')
   const pool = namespace === undefined ? invocations : invocations.filter((inv) => inv.namespace === namespace)
   const matched = pool.filter((inv) => {
     const hay = `${inv.namespace}/${inv.method} ${descriptionOf(inv) ?? ''}`.toLowerCase()
@@ -277,11 +281,12 @@ export function searchEndpoints(ctx: Context, query: string, namespace?: string)
     endpoints: matched.slice(0, SEARCH_RESULT_CAP).map(endpointSummary),
     ...(matched.length > SEARCH_RESULT_CAP ? { truncatedTo: SEARCH_RESULT_CAP } : {}),
     ...(matched.length === 0 ? { namespaces: endpointNamespaces(ctx) } : {}),
-    note: matched.length === 0
-      ? 'no endpoint matched — available namespaces are listed for manual browsing; try broader or different terms, or drop the arguments'
-      : matched.length > SEARCH_RESULT_CAP
-        ? `showing ${SEARCH_RESULT_CAP} of ${matched.length} matches — add a term to narrow; endpoint=… gives the exact contract`
-        : 'pass endpoint=… to endpoint_describe for the exact contract (the step before endpoint_call)',
+    note:
+      matched.length === 0
+        ? 'no endpoint matched — available namespaces are listed for manual browsing; try broader or different terms, or drop the arguments'
+        : matched.length > SEARCH_RESULT_CAP
+          ? `showing ${SEARCH_RESULT_CAP} of ${matched.length} matches — add a term to narrow; endpoint=… gives the exact contract`
+          : 'pass endpoint=… to endpoint_describe for the exact contract (the step before endpoint_call)',
   }
 }
 
@@ -376,9 +381,7 @@ export async function disposeCallerPeer(): Promise<void> {
 }
 
 /** 一次端点调用的两种结局: 成功 / 拒绝(含审批拒绝、超时、断连等失败关闭) */
-export type EndpointCallOutcome =
-  | { ok: true; result: unknown }
-  | { ok: false; error: string }
+export type EndpointCallOutcome = { ok: true; result: unknown } | { ok: false; error: string }
 
 /**
  * 端点调用入口: 白名单内的非流式端点直接执行; 白名单外的非流式端点不停留在拒绝——先停泊
@@ -476,11 +479,7 @@ function argsPreviewOf(args: Record<string, unknown>): string {
 }
 
 /** 停泊一次端点调用并等待应答; 有限时时到点判超时, 调用方 signal 中止判取消 */
-function parkCall(
-  endpoint: string,
-  args: Record<string, unknown>,
-  signal: AbortSignal | undefined,
-): Promise<CallVerdict> {
+function parkCall(endpoint: string, args: Record<string, unknown>, signal: AbortSignal | undefined): Promise<CallVerdict> {
   if (signal?.aborted === true) return Promise.resolve('cancelled')
   const timeoutMs = state.config.approvalTimeoutMs
   const requestedAt = Date.now()
@@ -496,7 +495,9 @@ function parkCall(
     // 先占位再赋值(闭包里引用 entry, 不能写在对象字面量里)
     settle: () => {},
   }
-  const promise = new Promise<CallVerdict>((resolve) => { entry.settle = resolve })
+  const promise = new Promise<CallVerdict>((resolve) => {
+    entry.settle = resolve
+  })
   if (timeoutMs > 0) {
     entry.timer = setTimeout(() => settleCall(entry, 'timeout'), timeoutMs)
   }

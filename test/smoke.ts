@@ -1,7 +1,7 @@
 /**
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
- *   A. 协议: initialize(instructions)/echo/tools_list(精确 35 工具)/版本协商
+ *   A. 协议: initialize(instructions)/echo/tools_list(工具齐备)/版本协商
  *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
  *   C. session_prompt: live 接管(沿用原模型)/mode 省略规则(空闲可省、运行中必填)/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_submit(幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
@@ -112,13 +112,22 @@ try {
 
   // ── 原生自用工具: 与 MCP 工具同一份注册, 前缀 rice_, 默认开启 ──
   const nativeSchemas = ctx.tools.schemas().filter((s: any) => String(s.name).startsWith('rice_'))
-  checks['原生自用工具: 默认注册全部 35 个(rice_ 前缀)'] = nativeSchemas.length === 35
-    && ['rice_echo', 'rice_session_create', 'rice_session_prompt', 'rice_dsh_status', 'rice_session_archive', 'rice_session_unarchive', 'rice_permission_list', 'rice_session_set_permission', 'rice_session_overview']
-      .every((n) => nativeSchemas.some((s: any) => s.name === n))
+  checks['原生自用工具: 默认注册(rice_ 前缀)'] =
+    nativeSchemas.length > 0 &&
+    [
+      'rice_echo',
+      'rice_session_create',
+      'rice_session_prompt',
+      'rice_dsh_status',
+      'rice_session_archive',
+      'rice_session_unarchive',
+      'rice_permission_list',
+      'rice_session_set_permission',
+      'rice_session_overview',
+    ].every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_prompt')?.description ?? ''
-    return description.includes('rice_session_poll')
-      && !/(?<!rice_)session_poll/.test(description)
+    return description.includes('rice_session_poll') && !/(?<!rice_)session_poll/.test(description)
   })()
   const nativeListDef = ctx.tools.get('rice_session_list')
   const nativeListValue = await nativeListDef.execute({}, { signal: new AbortController().signal } as any)
@@ -127,8 +136,8 @@ try {
   const nativeStatusDef = ctx.tools.get('rice_dsh_status')
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
-  checks['原生自用工具: dsh_status 报告开关与已注册数'] = nativeStatusJson.config?.selfToolsEnabled === true
-    && nativeStatusJson.stats?.selfTools === 35
+  checks['原生自用工具: dsh_status 报告开关与已注册数'] =
+    nativeStatusJson.config?.selfToolsEnabled === true && nativeStatusJson.stats?.selfTools === nativeSchemas.length
   const nativeGuideDef = ctx.tools.get('rice_dsh_get_started')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
   const nativeGuideText = nativeGuideDef.output.render({}, nativeGuideValue)[0]?.text ?? ''
@@ -137,19 +146,20 @@ try {
   const nativeMetaDef = ctx.tools.get('rice_session_meta')
   const nativeMetaValue = await nativeMetaDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeMetaJson = JSON.parse(nativeMetaDef.output.render({}, nativeMetaValue)[0]?.text ?? '{}')
-  checks['原生自用工具: session_meta 省略 sessionId 取当前会话'] = nativeMetaJson.sessionId === 'sess-live'
-    && nativeMetaJson.live === true && nativeMetaJson.model?.model === 'live-m'
+  checks['原生自用工具: session_meta 省略 sessionId 取当前会话'] =
+    nativeMetaJson.sessionId === 'sess-live' && nativeMetaJson.live === true && nativeMetaJson.model?.model === 'live-m'
   const nativeOverviewDef = ctx.tools.get('rice_session_overview')
   const nativeOverviewValue = await nativeOverviewDef.execute({}, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeOverviewJson = JSON.parse(nativeOverviewDef.output.render({}, nativeOverviewValue)[0]?.text ?? '{}')
-  checks['原生自用工具: session_overview 省略 sessionId 取当前会话'] = nativeOverviewJson.sessionId === 'sess-live'
-    && nativeOverviewJson.title === 'Live One' && nativeOverviewJson.recent?.entries?.length === 1
-    && nativeOverviewJson.recent.entries[0]?.kind === 'assistant'
+  checks['原生自用工具: session_overview 省略 sessionId 取当前会话'] =
+    nativeOverviewJson.sessionId === 'sess-live' &&
+    nativeOverviewJson.title === 'Live One' &&
+    nativeOverviewJson.recent?.entries?.length === 1 &&
+    nativeOverviewJson.recent.entries[0]?.kind === 'assistant'
   const nativeCmdDef = ctx.tools.get('rice_session_command')
   const nativeCmdValue = await nativeCmdDef.execute({ action: 'list' }, { signal: new AbortController().signal, agent: liveAgent } as any)
   const nativeCmdJson = JSON.parse(nativeCmdDef.output.render({}, nativeCmdValue)[0]?.text ?? '{}')
-  checks['原生自用工具: session_command 省略 sessionId 取当前会话'] = nativeCmdJson.sessionId === 'sess-live'
-    && nativeCmdJson.total === 2
+  checks['原生自用工具: session_command 省略 sessionId 取当前会话'] = nativeCmdJson.sessionId === 'sess-live' && nativeCmdJson.total === 2
   // 没有调用方 agent(= MCP 面): 不猜会话, 明确报错
   let nativeNoAgentError = ''
   try {
@@ -160,13 +170,15 @@ try {
   checks['原生自用工具: 无 agent 上下文时省略 sessionId 明确报错'] = nativeNoAgentError.includes('sessionId is required')
 
   const init = await rpc(undefined, {
-    jsonrpc: '2.0', id: 1, method: 'initialize',
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
     params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } },
   })
   checks['initialize 拿到 sessionId'] = Boolean(init.sid)
   const initResult = init.status === 200 ? parsePayload(init.text).result : undefined
-  checks['initialize 携带 instructions(含 dsh_get_started 指路)'] = typeof initResult?.instructions === 'string'
-    && initResult.instructions.includes('dsh_get_started')
+  checks['initialize 携带 instructions(含 dsh_get_started 指路)'] =
+    typeof initResult?.instructions === 'string' && initResult.instructions.includes('dsh_get_started')
   await rpc(init.sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
   const echo = await rpc(init.sid, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'echo', arguments: { text: 'ping-8099' } } })
@@ -175,14 +187,39 @@ try {
   const toolsList = await rpc(init.sid, { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} })
   const toolsArr: any[] = parsePayload(toolsList.text).result?.tools ?? []
   const toolNames = toolsArr.map((t) => t.name)
-  const SESSION_TOOLS = ['session_create', 'session_prompt', 'session_submit', 'session_poll', 'session_result',
-    'session_cancel', 'session_queue', 'session_command', 'session_select_model', 'session_rename', 'session_set_permission', 'session_list', 'session_meta', 'session_overview',
-    'session_history', 'attachment_read', 'endpoint_describe', 'endpoint_call',
-    'session_search', 'session_fork', 'session_archive', 'session_unarchive',
-    'approval_list', 'approval_answer', 'approval_policy', 'question_list', 'question_answer', 'subagent_list', 'permission_list']
-  checks['tools/list: 精确 35 个工具(会话中心 + 异步/审批/问题/子代理/归档/附件/权限/端点直通面)'] = toolNames.length === 35
-    && SESSION_TOOLS.every((n) => toolNames.includes(n))
-    && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
+  const SESSION_TOOLS = [
+    'session_create',
+    'session_prompt',
+    'session_submit',
+    'session_poll',
+    'session_result',
+    'session_cancel',
+    'session_queue',
+    'session_command',
+    'session_select_model',
+    'session_rename',
+    'session_set_permission',
+    'session_list',
+    'session_meta',
+    'session_overview',
+    'session_history',
+    'attachment_read',
+    'endpoint_describe',
+    'endpoint_call',
+    'session_search',
+    'session_fork',
+    'session_archive',
+    'session_unarchive',
+    'approval_list',
+    'approval_answer',
+    'approval_policy',
+    'question_list',
+    'question_answer',
+    'subagent_list',
+    'permission_list',
+  ]
+  checks['tools/list: 会话中心与各控制面工具齐(无 agent_/task_ 前缀漂移)'] =
+    SESSION_TOOLS.every((n) => toolNames.includes(n)) && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
   checks['tools/list: session_list 带 outputSchema'] = (() => {
     const s = toolsArr.find((t) => t.name === 'session_list')?.outputSchema
     return Boolean(s && typeof s === 'object' && Object.keys(s).length > 0)
@@ -193,183 +230,341 @@ try {
   const echoTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'echo')
   checks['工具带 title + annotations(2025-06-18 协议字段)'] = echoTool?.title === 'Echo' && echoTool?.annotations?.readOnlyHint === true
   // 身份注入: 每条描述统一前置 TOOL_IDENTITY_PREFIX("白饭钓竿"的唯一 DSH 原生可见通道)
-  checks['tools/list: 每条描述带身份前缀'] = toolsArr.length > 0
-    && toolsArr.every((t) => t.description?.startsWith(TOOL_IDENTITY_PREFIX) === true)
+  checks['tools/list: 每条描述带身份前缀'] = toolsArr.length > 0 && toolsArr.every((t) => t.description?.startsWith(TOOL_IDENTITY_PREFIX) === true)
   // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文。
   // 唯一例外是身份前缀本身(中文名必须能被认出): 断言时剥离后校验。
   const CJK = /[\u4e00-\u9fff]/
   const stripIdentity = (s: string) => s.split(TOOL_IDENTITY_PREFIX).join('')
-  checks['tools/list: 面向客户端的说明统一为英文(身份前缀除外)'] = toolsArr.every((t) =>
-    !CJK.test(stripIdentity([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n'))))
+  checks['tools/list: 面向客户端的说明统一为英文(身份前缀除外)'] = toolsArr.every(
+    (t) => !CJK.test(stripIdentity([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n'))),
+  )
 
   // 原生子代理发现: 只读目录(不激活 child)
-  const subList = await rpc(init.sid, { jsonrpc: '2.0', id: 95, method: 'tools/call', params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live' } } })
+  const subList = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 95,
+    method: 'tools/call',
+    params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live' } },
+  })
   const subInner = subList.status === 200 ? innerOf(subList) : { error: 'bad' }
-  checks['subagent_list: 直接子级目录'] = subInner.total === 1 && subInner.subagents?.[0]?.sessionId === 'sess-child'
-    && subInner.subagents?.[0]?.mode === 'continuable' && subInner.subagents?.[0]?.activity === 'running'
-  const subTree = await rpc(init.sid, { jsonrpc: '2.0', id: 96, method: 'tools/call', params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live', recursive: true } } })
+  checks['subagent_list: 直接子级目录'] =
+    subInner.total === 1 &&
+    subInner.subagents?.[0]?.sessionId === 'sess-child' &&
+    subInner.subagents?.[0]?.mode === 'continuable' &&
+    subInner.subagents?.[0]?.activity === 'running'
+  const subTree = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 96,
+    method: 'tools/call',
+    params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live', recursive: true } },
+  })
   const subTreeInner = subTree.status === 200 ? innerOf(subTree) : { error: 'bad' }
-  checks['subagent_list: 递归后代带 parentId/depth'] = subTreeInner.total === 2
-    && subTreeInner.subagents?.[1]?.sessionId === 'sess-grandchild'
-    && subTreeInner.subagents?.[1]?.parentId === 'sess-child' && subTreeInner.subagents?.[1]?.depth === 2
+  checks['subagent_list: 递归后代带 parentId/depth'] =
+    subTreeInner.total === 2 &&
+    subTreeInner.subagents?.[1]?.sessionId === 'sess-grandchild' &&
+    subTreeInner.subagents?.[1]?.parentId === 'sess-child' &&
+    subTreeInner.subagents?.[1]?.depth === 2
 
   // 协议版本协商: 旧版(2025-03-26 主流程已验) + 新版均可接入
-  for (const [pv, pid] of [['2025-06-18', 93], ['2025-11-25', 94]]) {
-    const r = await rpc(undefined, { jsonrpc: '2.0', id: pid, method: 'initialize', params: { protocolVersion: pv, capabilities: {}, clientInfo: { name: 'smoke-pv', version: '1.0' } } })
+  for (const [pv, pid] of [
+    ['2025-06-18', 93],
+    ['2025-11-25', 94],
+  ]) {
+    const r = await rpc(undefined, {
+      jsonrpc: '2.0',
+      id: pid,
+      method: 'initialize',
+      params: { protocolVersion: pv, capabilities: {}, clientInfo: { name: 'smoke-pv', version: '1.0' } },
+    })
     const negotiated = r.status === 200 ? parsePayload(r.text).result?.protocolVersion : undefined
     checks[`协议版本协商 ${pv}`] = negotiated === pv
     await rpc(r.sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
   }
 
   // ── session_create ──
-  const mk = await rpc(init.sid, { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', permission: 'danger-full-access' } } })
+  const mk = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 10,
+    method: 'tools/call',
+    params: {
+      name: 'session_create',
+      arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', permission: 'danger-full-access' },
+    },
+  })
   const mkInner = mk.status === 200 ? innerOf(mk) : { error: 'bad' }
-  checks['session_create 返回 sessionId/模型/preset'] = typeof mkInner.sessionId === 'string'
-    && mkInner.model?.provider === 'p1' && mkInner.model?.model === 'm1' && mkInner.preset === 'standard'
+  checks['session_create 返回 sessionId/模型/preset'] =
+    typeof mkInner.sessionId === 'string' && mkInner.model?.provider === 'p1' && mkInner.model?.model === 'm1' && mkInner.preset === 'standard'
   // 权限预设: 走宿主 permissionPresets.set(与界面 /permission 同源), 结果回显生效值
-  checks['session_create 应用权限预设(permissionPresets.set)'] = mkInner.permission === 'danger-full-access'
-    && mkInner.permissionRequested === 'danger-full-access'
-    && permissionPresetCalls.some((c) => c.id === mkInner.sessionId && c.preset === 'danger-full-access')
-  checks['session_create 走宿主 create(meta.cwd realpath + agentOptions + preset)'] = created.some((c) =>
-    c.cwd === FAKE_CWD && c.agentOptions?.provider === 'p1' && c.agentOptions?.model === 'm1' && c.preset === 'standard')
+  checks['session_create 应用权限预设(permissionPresets.set)'] =
+    mkInner.permission === 'danger-full-access' &&
+    mkInner.permissionRequested === 'danger-full-access' &&
+    permissionPresetCalls.some((c) => c.id === mkInner.sessionId && c.preset === 'danger-full-access')
+  checks['session_create 走宿主 create(meta.cwd realpath + agentOptions + preset)'] = created.some(
+    (c) => c.cwd === FAKE_CWD && c.agentOptions?.provider === 'p1' && c.agentOptions?.model === 'm1' && c.preset === 'standard',
+  )
   checks['session_create 挂载 preset'] = mounted.includes('standard')
   checks['session_create 归组到工作区'] = attachedIds.includes(mkInner.sessionId)
   checks['session_create title 经 sessionTitle.rename'] = fakeSessionTitle.renamed.some((r) => r.title === 'smoke 会话')
 
   // 省略 permission = 继承宿主默认预设(宿主在创建时固定), 且不额外调用 set
-  const mkDefaultPerm = await rpc(init.sid, { jsonrpc: '2.0', id: 115, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } } })
+  const mkDefaultPerm = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 115,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+  })
   const mkDefaultPermInner = mkDefaultPerm.status === 200 ? innerOf(mkDefaultPerm) : { error: 'bad' }
-  checks['session_create 省略 permission 继承宿主默认并回显'] = mkDefaultPermInner.permission === 'workspace-write'
-    && mkDefaultPermInner.permissionRequested === undefined
-    && !permissionPresetCalls.some((c) => c.id === mkDefaultPermInner.sessionId)
+  checks['session_create 省略 permission 继承宿主默认并回显'] =
+    mkDefaultPermInner.permission === 'workspace-write' &&
+    mkDefaultPermInner.permissionRequested === undefined &&
+    !permissionPresetCalls.some((c) => c.id === mkDefaultPermInner.sessionId)
 
   // 未知预设被拒, 且不留下半残会话
   const createdBeforeBadPerm = created.length
-  const mkBadPerm = await rpc(init.sid, { jsonrpc: '2.0', id: 116, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'nope' } } })
-  checks['session_create 未知权限预设被拒且不建会话'] = String(innerOf(mkBadPerm).error ?? '').includes('unknown permission preset')
-    && created.length === createdBeforeBadPerm
+  const mkBadPerm = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 116,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'nope' } },
+  })
+  checks['session_create 未知权限预设被拒且不建会话'] =
+    String(innerOf(mkBadPerm).error ?? '').includes('unknown permission preset') && created.length === createdBeforeBadPerm
 
   // 权限预设目录(取值发现面)
   const pl = await rpc(init.sid, { jsonrpc: '2.0', id: 117, method: 'tools/call', params: { name: 'permission_list', arguments: {} } })
   const plInner = innerOf(pl)
-  checks['permission_list: 目录/默认预设'] = plInner.defaultPreset === 'workspace-write'
-    && plInner.options?.some((o: any) => o.value === 'danger-full-access' && o.name === 'Full access')
+  checks['permission_list: 目录/默认预设'] =
+    plInner.defaultPreset === 'workspace-write' && plInner.options?.some((o: any) => o.value === 'danger-full-access' && o.name === 'Full access')
 
   // 参数校验: provider+model 必须成对显式给出(不做默认回填)
-  const mkNoModel = await rpc(init.sid, { jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1' } } })
-  checks['session_create 缺 model 被明确拒绝'] = String(innerOf(mkNoModel).error ?? '').includes('session_create') && String(innerOf(mkNoModel).error ?? '').includes('model')
+  const mkNoModel = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 11,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1' } },
+  })
+  checks['session_create 缺 model 被明确拒绝'] =
+    String(innerOf(mkNoModel).error ?? '').includes('session_create') && String(innerOf(mkNoModel).error ?? '').includes('model')
 
   // 参数校验: preset 同契约必填(不做默认回填)
-  const mkNoPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 113, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1' } } })
-  checks['session_create 缺 preset 被明确拒绝'] = String(innerOf(mkNoPreset).error ?? '').toLowerCase().includes('preset')
+  const mkNoPreset = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 113,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1' } },
+  })
+  checks['session_create 缺 preset 被明确拒绝'] = String(innerOf(mkNoPreset).error ?? '')
+    .toLowerCase()
+    .includes('preset')
 
   // 未知 preset 被拒(roster 校验)
-  const mkBadPreset = await rpc(init.sid, { jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } } })
-  checks['session_create 未知 preset 被拒'] = String(mkBadPreset.status === 200 ? innerOf(mkBadPreset).error ?? '' : '').includes('unknown preset')
+  const mkBadPreset = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 12,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } },
+  })
+  checks['session_create 未知 preset 被拒'] = String(mkBadPreset.status === 200 ? (innerOf(mkBadPreset).error ?? '') : '').includes('unknown preset')
 
   // model_list 并出 preset 花名册(session_create 两个必填参数一次查齐)
   const ml = await rpc(init.sid, { jsonrpc: '2.0', id: 114, method: 'tools/call', params: { name: 'model_list', arguments: {} } })
-  checks['model_list 输出带 presets 花名册'] = JSON.stringify(innerOf(ml)).includes('"standard"')
-    && JSON.stringify(innerOf(ml)).includes('"reviewer"')
+  checks['model_list 输出带 presets 花名册'] = JSON.stringify(innerOf(ml)).includes('"standard"') && JSON.stringify(innerOf(ml)).includes('"reviewer"')
 
   // ── session_prompt: live 接管(沿用原模型) ──
-  const runLive = await rpc(init.sid, { jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'say ok' } } })
+  const runLive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 20,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'say ok' } },
+  })
   const runLiveInner = runLive.status === 200 ? innerOf(runLive) : { error: 'bad' }
-  checks['session_prompt 接管 live 会话(结果自报其原模型)'] = runLiveInner.sessionId === 'sess-live'
-    && runLiveInner.model?.provider === 'live-p' && runLiveInner.model?.model === 'live-m'
-  checks['session_prompt 结构化结果(changes/verification/leftovers)'] = runLiveInner.changes === 'c1'
-    && runLiveInner.verification === 'v1' && runLiveInner.leftovers === 'l1'
+  checks['session_prompt 接管 live 会话(结果自报其原模型)'] =
+    runLiveInner.sessionId === 'sess-live' && runLiveInner.model?.provider === 'live-p' && runLiveInner.model?.model === 'live-m'
+  checks['session_prompt 结构化结果(changes/verification/leftovers)'] =
+    runLiveInner.changes === 'c1' && runLiveInner.verification === 'v1' && runLiveInner.leftovers === 'l1'
   checks['session_prompt usage 机会式聚合'] = runLiveInner.usage?.totalTokens === 165
   checks['session_prompt 结果带 history 资源引用(HATEOAS)'] = String(runLiveInner.resource ?? '').includes('sess-live/history')
   // 投递即原文: 插件不包装 task、不追加任何提示词(发送内容 = 调用方给的 task 字符串)
-  checks['session_prompt 原样投递 task(不包装、不追加)'] = String(
-    followups[followups.length - 1]?.message?.content?.[0]?.text ?? '',
-  ) === 'say ok'
+  checks['session_prompt 原样投递 task(不包装、不追加)'] = String(followups[followups.length - 1]?.message?.content?.[0]?.text ?? '') === 'say ok'
 
   // mode=steer: 步边界插话路径(断言 steer 送达)
-  const runSteer = await rpc(init.sid, { jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'STEER-MARKER-1', mode: 'steer' } } })
-  checks['session_prompt mode=steer 送达 agent.steer'] = runSteer.status === 200
-    && steered.some((s) => s.id === 'sess-live' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-MARKER-1'))
+  const runSteer = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 21,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'STEER-MARKER-1', mode: 'steer' } },
+  })
+  checks['session_prompt mode=steer 送达 agent.steer'] =
+    runSteer.status === 200 && steered.some((s) => s.id === 'sess-live' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-MARKER-1'))
 
   // turn 失败透出(sess-err: turn/end reason=error)
-  const runErr = await rpc(init.sid, { jsonrpc: '2.0', id: 22, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-err', task: 'boom' } } })
-  checks['session_prompt turn 失败透出(isError)'] = parsePayload(runErr.text).result?.isError === true
-    && String(innerOf(runErr).error ?? '').includes('AUTH') && String(innerOf(runErr).error ?? '').includes('invalid api key')
+  const runErr = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 22,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-err', task: 'boom' } },
+  })
+  checks['session_prompt turn 失败透出(isError)'] =
+    parsePayload(runErr.text).result?.isError === true &&
+    String(innerOf(runErr).error ?? '').includes('AUTH') &&
+    String(innerOf(runErr).error ?? '').includes('invalid api key')
 
   // ── session_prompt: 持久化冷恢复(宿主 sessionController.resolveAgent, 与界面打开旧会话同一路径) ──
-  const runResumed = await rpc(init.sid, { jsonrpc: '2.0', id: 23, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-persisted', task: 'continue' } } })
+  const runResumed = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 23,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-persisted', task: 'continue' } },
+  })
   const runResumedInner = runResumed.status === 200 ? innerOf(runResumed) : { error: 'bad' }
   checks['session_prompt 冷恢复走官方 resolveAgent'] = resolvedAgents.includes('sess-persisted')
-  checks['session_prompt 冷恢复结果用日志头里的模型'] = runResumedInner.model?.provider === 'p1'
-    && runResumedInner.model?.model === 'm1'
+  checks['session_prompt 冷恢复结果用日志头里的模型'] = runResumedInner.model?.provider === 'p1' && runResumedInner.model?.model === 'm1'
   checks['session_prompt 冷恢复沿用会话原 preset'] = runResumedInner.preset === 'reviewer'
   checks['session_prompt 冷恢复结果正常返回'] = Boolean(runResumedInner.sessionId) && runResumedInner.error === undefined
 
   // 宿主拒绝冷恢复(未知会话): 透出宿主错误
-  const runNoModel = await rpc(init.sid, { jsonrpc: '2.0', id: 24, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-legacy', task: 'x' } } })
-  checks['session_prompt 冷恢复被宿主拒绝时透出原因'] = String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '')
-    .includes('cannot resume session') && String(runNoModel.status === 200 ? innerOf(runNoModel).error ?? '' : '').includes('not found')
+  const runNoModel = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 24,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-legacy', task: 'x' } },
+  })
+  checks['session_prompt 冷恢复被宿主拒绝时透出原因'] =
+    String(runNoModel.status === 200 ? (innerOf(runNoModel).error ?? '') : '').includes('cannot resume session') &&
+    String(runNoModel.status === 200 ? (innerOf(runNoModel).error ?? '') : '').includes('not found')
 
   // ── 异步控制面: session_submit / session_poll / session_result ──
   const beforeIdem = followups.length
-  const submitIdem1 = await rpc(init.sid, { jsonrpc: '2.0', id: 25, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-live', task: 'idem task', requestId: 'smoke-req-idem' } } })
+  const submitIdem1 = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 25,
+    method: 'tools/call',
+    params: { name: 'session_submit', arguments: { sessionId: 'sess-live', task: 'idem task', requestId: 'smoke-req-idem' } },
+  })
   const idem1 = innerOf(submitIdem1)
-  const submitIdem2 = await rpc(init.sid, { jsonrpc: '2.0', id: 26, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-live', task: 'idem task again', requestId: 'smoke-req-idem' } } })
+  const submitIdem2 = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 26,
+    method: 'tools/call',
+    params: { name: 'session_submit', arguments: { sessionId: 'sess-live', task: 'idem task again', requestId: 'smoke-req-idem' } },
+  })
   const idem2 = innerOf(submitIdem2)
-  checks['session_submit 返回回执(requestId/messageId)'] = idem1.accepted === true && idem1.requestId === 'smoke-req-idem'
-    && typeof idem1.messageId === 'string' && ['idle', 'running'].includes(idem1.state)
+  checks['session_submit 返回回执(requestId/messageId)'] =
+    idem1.accepted === true && idem1.requestId === 'smoke-req-idem' && typeof idem1.messageId === 'string' && ['idle', 'running'].includes(idem1.state)
   checks['session_submit requestId 幂等(重复不投递)'] = idem2.messageId === idem1.messageId && followups.length === beforeIdem + 1
 
-  const resIdem = await rpc(init.sid, { jsonrpc: '2.0', id: 27, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } } })
+  const resIdem = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 27,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } },
+  })
   const resIdemInner = innerOf(resIdem)
-  checks['session_result 按 requestId 取回结果'] = resIdemInner.status === 'completed'
-    && resIdemInner.pending !== true && resIdemInner.changes === 'c1' && resIdemInner.requestId === 'smoke-req-idem'
-    && resIdemInner.truncated === undefined
+  checks['session_result 按 requestId 取回结果'] =
+    resIdemInner.status === 'completed' &&
+    resIdemInner.pending !== true &&
+    resIdemInner.changes === 'c1' &&
+    resIdemInner.requestId === 'smoke-req-idem' &&
+    resIdemInner.truncated === undefined
   // detail='uri' 与 session_prompt 同一档: 只回引用与簿记, 结果本体不内联
-  const resUriDetail = await rpc(init.sid, { jsonrpc: '2.0', id: 274, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem', detail: 'uri' } } })
+  const resUriDetail = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 274,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem', detail: 'uri' } },
+  })
   const resUriInner = innerOf(resUriDetail)
-  checks['session_result detail=uri 只回引用(两端同一档)'] = resUriInner.detail === 'uri'
-    && String(resUriInner.resource ?? '').includes('sess-live/history')
-    && resUriInner.assistantTail === undefined && resUriInner.changes === undefined && resUriInner.toolCalls === undefined
-    && typeof resUriInner.note === 'string'
+  checks['session_result detail=uri 只回引用(两端同一档)'] =
+    resUriInner.detail === 'uri' &&
+    String(resUriInner.resource ?? '').includes('sess-live/history') &&
+    resUriInner.assistantTail === undefined &&
+    resUriInner.changes === undefined &&
+    resUriInner.toolCalls === undefined &&
+    typeof resUriInner.note === 'string'
   // 索引丢失(模拟插件重启/TTL 淘汰): requestId 写进了 user 消息的 source.rpcId, 应从日志重建
   state.sessionRequests.delete('smoke-req-idem')
-  const resRecovered = await rpc(init.sid, { jsonrpc: '2.0', id: 271, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } } })
-  checks['session_result 索引丢失后从日志 rpcId 重建'] = innerOf(resRecovered).status === 'completed'
-    && innerOf(resRecovered).changes === 'c1'
+  const resRecovered = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 271,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'smoke-req-idem' } },
+  })
+  checks['session_result 索引丢失后从日志 rpcId 重建'] = innerOf(resRecovered).status === 'completed' && innerOf(resRecovered).changes === 'c1'
 
   // session_prompt 也接受调用方 requestId: 响应丢失时可再用 session_result 取回
-  const promptWithId = await rpc(init.sid, { jsonrpc: '2.0', id: 272, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'prompt id probe', requestId: 'smoke-prompt-req' } } })
-  checks['session_prompt 支持调用方 requestId'] = innerOf(promptWithId).requestId === 'smoke-prompt-req'
-    && innerOf(promptWithId).status === 'completed'
+  const promptWithId = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 272,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'prompt id probe', requestId: 'smoke-prompt-req' } },
+  })
+  checks['session_prompt 支持调用方 requestId'] = innerOf(promptWithId).requestId === 'smoke-prompt-req' && innerOf(promptWithId).status === 'completed'
 
-  const poll = await rpc(init.sid, { jsonrpc: '2.0', id: 28, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-live', 'sess-live2', 'sess-nope'], waitMs: 0 } } })
+  const poll = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 28,
+    method: 'tools/call',
+    params: { name: 'session_poll', arguments: { sessionIds: ['sess-live', 'sess-live2', 'sess-nope'], waitMs: 0 } },
+  })
   const pollInner = innerOf(poll)
   const pollLive = pollInner.sessions?.find((s: any) => s.sessionId === 'sess-live')
   const pollInactive = pollInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
   const pollMissing = pollInner.sessions?.find((s: any) => s.sessionId === 'sess-nope')
-  checks['session_poll 批量返回状态/游标/最后 turn'] = pollLive?.state === 'idle'
-    && typeof pollLive?.cursor === 'number' && pollLive?.lastTurn?.reason === 'completed'
-  checks['session_poll 冷/不存在会话区分'] = pollInactive?.state === 'inactive'
-    && pollInactive?.parentSession === 'sess-live' && pollInactive?.origin === 'subagent' && pollInactive?.delegationDepth === 1
-    && pollMissing?.state === 'not-found'
-  const pollTimeout = await rpc(init.sid, { jsonrpc: '2.0', id: 29, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-live2'], waitMs: 150 } } })
-  checks['session_poll waitMs 超时返回 timedOut/retryAfterMs'] = innerOf(pollTimeout).timedOut === true
-    && innerOf(pollTimeout).changed === false && typeof innerOf(pollTimeout).retryAfterMs === 'number'
+  checks['session_poll 批量返回状态/游标/最后 turn'] =
+    pollLive?.state === 'idle' && typeof pollLive?.cursor === 'number' && pollLive?.lastTurn?.reason === 'completed'
+  checks['session_poll 冷/不存在会话区分'] =
+    pollInactive?.state === 'inactive' &&
+    pollInactive?.parentSession === 'sess-live' &&
+    pollInactive?.origin === 'subagent' &&
+    pollInactive?.delegationDepth === 1 &&
+    pollMissing?.state === 'not-found'
+  const pollTimeout = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 29,
+    method: 'tools/call',
+    params: { name: 'session_poll', arguments: { sessionIds: ['sess-live2'], waitMs: 150 } },
+  })
+  checks['session_poll waitMs 超时返回 timedOut/retryAfterMs'] =
+    innerOf(pollTimeout).timedOut === true && innerOf(pollTimeout).changed === false && typeof innerOf(pollTimeout).retryAfterMs === 'number'
 
-  const unknownRes = await rpc(init.sid, { jsonrpc: '2.0', id: 291, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'no-such-request' } } })
+  const unknownRes = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 291,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-live', requestId: 'no-such-request' } },
+  })
   checks['session_result 未知 requestId 明确报错'] = String(innerOf(unknownRes).error ?? '').includes('unknown requestId')
 
   // 慢会话: 提交后未收敛 → pending/running; 显式 cancel 后 → cancelled
-  const slowSubmit = await rpc(init.sid, { jsonrpc: '2.0', id: 292, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-slow3', task: 'async slow', requestId: 'smoke-req-slow', mode: 'queue' } } })
+  const slowSubmit = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 292,
+    method: 'tools/call',
+    params: { name: 'session_submit', arguments: { sessionId: 'sess-slow3', task: 'async slow', requestId: 'smoke-req-slow', mode: 'queue' } },
+  })
   checks['session_submit 慢会话返回 accepted'] = innerOf(slowSubmit).accepted === true && innerOf(slowSubmit).state === 'running'
-  const slowPending = await rpc(init.sid, { jsonrpc: '2.0', id: 293, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } } })
+  const slowPending = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 293,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } },
+  })
   checks['session_result 未收敛 → running/pending'] = innerOf(slowPending).status === 'running' && innerOf(slowPending).pending === true
-  const slowPollBefore = await rpc(init.sid, { jsonrpc: '2.0', id: 294, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow3'], waitMs: 0 } } })
+  const slowPollBefore = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 294,
+    method: 'tools/call',
+    params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow3'], waitMs: 0 } },
+  })
   checks['session_poll 慢会话 state=running'] = innerOf(slowPollBefore).sessions?.[0]?.state === 'running'
   const slowCancel = await cancelSession(ctx, 'sess-slow3')
   checks['session_cancel 停止异步提交的 turn'] = slowCancel.cancelled === true
-  const slowSettled = await rpc(init.sid, { jsonrpc: '2.0', id: 295, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } } })
+  const slowSettled = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 295,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-slow3', requestId: 'smoke-req-slow' } },
+  })
   checks['session_result 取消后 → cancelled(非工具错误)'] = innerOf(slowSettled).status === 'cancelled' && slowSettled.status === 200
 
   // 客户端取消等待: 只停止等待, 不 cancel turn(用独立慢 agent, 避免和上面的 turn 交错)
@@ -379,11 +574,16 @@ try {
   await waitFor(() => followups.some((f) => f.id === 'sess-slow2'), 5000)
   aborted.abort()
   const pendingPrompt = await pendingPromptPromise
-  checks['session_prompt 客户端取消只停止等待, 不 cancel turn'] = pendingPrompt.pending === true
-    && typeof pendingPrompt.requestId === 'string' && slowLiveAgent2.cancelCalls.length === beforeClientCancel
+  checks['session_prompt 客户端取消只停止等待, 不 cancel turn'] =
+    pendingPrompt.pending === true && typeof pendingPrompt.requestId === 'string' && slowLiveAgent2.cancelCalls.length === beforeClientCancel
   const explicitCancel = await cancelSession(ctx, 'sess-slow2')
   checks['session_cancel 仍是显式停止路径'] = explicitCancel.cancelled === true && slowLiveAgent2.cancelCalls.length > beforeClientCancel
-  const clientCancelSettled = await rpc(init.sid, { jsonrpc: '2.0', id: 296, method: 'tools/call', params: { name: 'session_result', arguments: { sessionId: 'sess-slow2', requestId: pendingPrompt.requestId } } })
+  const clientCancelSettled = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 296,
+    method: 'tools/call',
+    params: { name: 'session_result', arguments: { sessionId: 'sess-slow2', requestId: pendingPrompt.requestId } },
+  })
   checks['session_result 客户端取消后仍可取回 cancelled 结果'] = innerOf(clientCancelSettled).status === 'cancelled'
 
   // ── 投递模式: 空闲可省略(两种模式等价), 运行中必须显式指定(消息归属哪个 turn 无法事后修正) ──
@@ -392,173 +592,333 @@ try {
     steered: steered.filter((s) => s.id === 'sess-busy').length,
   })
   const busyBefore = busyModeCounts()
-  const busyNoMode = await rpc(init.sid, { jsonrpc: '2.0', id: 310, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-busy', task: 'NO-MODE', requestId: 'smoke-mode-retry' } } })
+  const busyNoMode = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 310,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-busy', task: 'NO-MODE', requestId: 'smoke-mode-retry' } },
+  })
   let busyErr: any = {}
-  try { busyErr = JSON.parse(innerOf(busyNoMode).error ?? '{}') } catch { /* 非 JSON 即失败 */ }
-  checks['投递模式: 运行中省略 mode → isError + MODE_REQUIRED'] = parsePayload(busyNoMode.text).result?.isError === true
-    && busyErr.code === 'MODE_REQUIRED' && String(busyErr.error ?? '').includes('mode is required')
-  checks['投递模式: 省略失败时什么都没投递'] = busyModeCounts().followups === busyBefore.followups
-    && busyModeCounts().steered === busyBefore.steered
+  try {
+    busyErr = JSON.parse(innerOf(busyNoMode).error ?? '{}')
+  } catch {
+    /* 非 JSON 即失败 */
+  }
+  checks['投递模式: 运行中省略 mode → isError + MODE_REQUIRED'] =
+    parsePayload(busyNoMode.text).result?.isError === true && busyErr.code === 'MODE_REQUIRED' && String(busyErr.error ?? '').includes('mode is required')
+  checks['投递模式: 省略失败时什么都没投递'] = busyModeCounts().followups === busyBefore.followups && busyModeCounts().steered === busyBefore.steered
 
   // 失败那次没有登记请求: 同一 requestId 重试可正常投递(queue 只入队)
-  const busyRetry = await rpc(init.sid, { jsonrpc: '2.0', id: 311, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-busy', task: 'NO-MODE', mode: 'queue', requestId: 'smoke-mode-retry' } } })
-  checks['投递模式: 失败后同 requestId 重试正常投递(回执带生效模式)'] = innerOf(busyRetry).accepted === true
-    && innerOf(busyRetry).mode === 'queue' && innerOf(busyRetry).requestId === 'smoke-mode-retry'
-    && busyModeCounts().followups === busyBefore.followups + 1
+  const busyRetry = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 311,
+    method: 'tools/call',
+    params: { name: 'session_submit', arguments: { sessionId: 'sess-busy', task: 'NO-MODE', mode: 'queue', requestId: 'smoke-mode-retry' } },
+  })
+  checks['投递模式: 失败后同 requestId 重试正常投递(回执带生效模式)'] =
+    innerOf(busyRetry).accepted === true &&
+    innerOf(busyRetry).mode === 'queue' &&
+    innerOf(busyRetry).requestId === 'smoke-mode-retry' &&
+    busyModeCounts().followups === busyBefore.followups + 1
 
-  const busySteer = await rpc(init.sid, { jsonrpc: '2.0', id: 312, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-busy', task: 'STEER-BUSY', mode: 'steer', requestId: 'smoke-mode-steer' } } })
-  checks['投递模式: 显式 steer 走 agent.steer(回执 mode=steer)'] = innerOf(busySteer).mode === 'steer'
-    && steered.some((s) => s.id === 'sess-busy' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-BUSY'))
-    && busyModeCounts().followups === busyBefore.followups + 1
+  const busySteer = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 312,
+    method: 'tools/call',
+    params: { name: 'session_submit', arguments: { sessionId: 'sess-busy', task: 'STEER-BUSY', mode: 'steer', requestId: 'smoke-mode-steer' } },
+  })
+  checks['投递模式: 显式 steer 走 agent.steer(回执 mode=steer)'] =
+    innerOf(busySteer).mode === 'steer' &&
+    steered.some((s) => s.id === 'sess-busy' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-BUSY')) &&
+    busyModeCounts().followups === busyBefore.followups + 1
 
   // 空闲: 两种模式等价, 省略由引擎补 queue(安全方向: 只入队、绝不注入), 回执可见
-  const idleOmit = await rpc(init.sid, { jsonrpc: '2.0', id: 313, method: 'tools/call', params: { name: 'session_submit', arguments: { sessionId: 'sess-mode-idle', task: 'idle omit', requestId: 'smoke-mode-idle' } } })
-  checks['投递模式: 空闲省略 → 补 queue 并在回执回报'] = innerOf(idleOmit).accepted === true && innerOf(idleOmit).mode === 'queue'
-    && followups.some((f) => f.id === 'sess-mode-idle')
+  const idleOmit = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 313,
+    method: 'tools/call',
+    params: { name: 'session_submit', arguments: { sessionId: 'sess-mode-idle', task: 'idle omit', requestId: 'smoke-mode-idle' } },
+  })
+  checks['投递模式: 空闲省略 → 补 queue 并在回执回报'] =
+    innerOf(idleOmit).accepted === true && innerOf(idleOmit).mode === 'queue' && followups.some((f) => f.id === 'sess-mode-idle')
 
   // ── session_cancel / session_queue(慢 agent: whenIdle 挂起, 仅 cancel 收敛) ──
-  const slowPrompt = rpc(init.sid, { jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-slow', task: 'long job', mode: 'queue' } } })
+  const slowPrompt = rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 30,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-slow', task: 'long job', mode: 'queue' } },
+  })
   await waitFor(() => followups.some((f) => f.id === 'sess-slow'), 5000)
   // 有界 long-poll: 先挂起一个 poll, 再从另一个请求 cancel, poll 应观察到状态变化
-  const slowPoll = rpc(init.sid, { jsonrpc: '2.0', id: 301, method: 'tools/call', params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow'], waitMs: 5000 } } })
+  const slowPoll = rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 301,
+    method: 'tools/call',
+    params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow'], waitMs: 5000 } },
+  })
   await new Promise((r) => setTimeout(r, 250))
-  const cancelRun = await rpc(init.sid, { jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'session_cancel', arguments: { sessionId: 'sess-slow' } } })
-  checks['session_cancel 停止运行中的会话(官方 agent.cancel)'] = innerOf(cancelRun).cancelled === true
-    && slowLiveAgent.cancelCalls.length > 0
+  const cancelRun = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 31,
+    method: 'tools/call',
+    params: { name: 'session_cancel', arguments: { sessionId: 'sess-slow' } },
+  })
+  checks['session_cancel 停止运行中的会话(官方 agent.cancel)'] = innerOf(cancelRun).cancelled === true && slowLiveAgent.cancelCalls.length > 0
   const slowPollInner = innerOf(await slowPoll)
   checks['session_poll waitMs 观察到状态变化'] = slowPollInner.changed === true && slowPollInner.sessions?.[0]?.state === 'idle'
   await waitFor(() => slowAgents.find((a) => a.session.id === 'sess-slow')?.status === 'idle', 5000)
   await slowPrompt
 
-  const cancelIdle = await rpc(init.sid, { jsonrpc: '2.0', id: 32, method: 'tools/call', params: { name: 'session_cancel', arguments: { sessionId: 'sess-nope' } } })
-    {
+  const cancelIdle = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 32,
+    method: 'tools/call',
+    params: { name: 'session_cancel', arguments: { sessionId: 'sess-nope' } },
+  })
+  {
     let cancelErr: any = {}
-    try { cancelErr = JSON.parse(innerOf(cancelIdle).error ?? '{}') } catch { /* 非 JSON 即失败 */ }
+    try {
+      cancelErr = JSON.parse(innerOf(cancelIdle).error ?? '{}')
+    } catch {
+      /* 非 JSON 即失败 */
+    }
     checks['session_cancel 无 live agent 明确报错'] = cancelErr.cancelled === false && String(cancelErr.error ?? '').includes('not running')
   }
 
   // session_queue: 假 live agent 的 inbox 桩(list/edit/remove)
   slowLiveAgent.inbox.nextTurn.push({ id: 'qm-1', content: [{ type: 'text', text: 'queued one' }] })
   slowLiveAgent.inbox.nextTurn.push({ id: 'qm-2', content: [{ type: 'text', text: 'queued two' }] })
-  const qList = await rpc(init.sid, { jsonrpc: '2.0', id: 33, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'list' } } })
-  checks['session_queue list 列出排队消息'] = Array.isArray(innerOf(qList).queued)
-    && innerOf(qList).queued?.some((q: any) => q.messageId === 'qm-1' && q.text === 'queued one')
-  const qEdit = await rpc(init.sid, { jsonrpc: '2.0', id: 34, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-1', content: 'queued one (edited)' } } })
-  checks['session_queue edit 改写排队文本'] = innerOf(qEdit).updated === 'qm-1'
-    && slowLiveAgent.inbox.nextTurn.some((m) => m.content?.[0]?.text === 'queued one (edited)')
-  const qRemove = await rpc(init.sid, { jsonrpc: '2.0', id: 35, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-2' } } })
-  checks['session_queue remove 移除排队消息'] = innerOf(qRemove).removed === 'qm-2'
-    && !slowLiveAgent.inbox.nextTurn.some((m) => m.id === 'qm-2')
-    && slowLiveAgent.inbox.nextTurn.some((m) => m.content?.[0]?.text === 'queued one (edited)')
-  const qNoItem = await rpc(init.sid, { jsonrpc: '2.0', id: 36, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-missing' } } })
+  const qList = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 33,
+    method: 'tools/call',
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'list' } },
+  })
+  checks['session_queue list 列出排队消息'] =
+    Array.isArray(innerOf(qList).queued) && innerOf(qList).queued?.some((q: any) => q.messageId === 'qm-1' && q.text === 'queued one')
+  const qEdit = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 34,
+    method: 'tools/call',
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-1', content: 'queued one (edited)' } },
+  })
+  checks['session_queue edit 改写排队文本'] =
+    innerOf(qEdit).updated === 'qm-1' && slowLiveAgent.inbox.nextTurn.some((m) => m.content?.[0]?.text === 'queued one (edited)')
+  const qRemove = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 35,
+    method: 'tools/call',
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-2' } },
+  })
+  checks['session_queue remove 移除排队消息'] =
+    innerOf(qRemove).removed === 'qm-2' &&
+    !slowLiveAgent.inbox.nextTurn.some((m) => m.id === 'qm-2') &&
+    slowLiveAgent.inbox.nextTurn.some((m) => m.content?.[0]?.text === 'queued one (edited)')
+  const qNoItem = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 36,
+    method: 'tools/call',
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'remove', itemId: 'qm-missing' } },
+  })
   checks['session_queue 未知 itemId 报错'] = String(innerOf(qNoItem).error ?? '').includes('not found')
 
   // edit/steer 重建消息必须保留原消息的 source.rpcId: 丢了它, 该 requestId 在 session_result 里永远 pending
   slowLiveAgent.inbox.nextTurn.push({ id: 'qm-e1', content: [{ type: 'text', text: 'queued edit-me' }], source: { kind: 'user', rpcId: 'req-edit-keep' } })
-  const qEditRpc = await rpc(init.sid, { jsonrpc: '2.0', id: 37, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-e1', content: 'edited text' } } })
-  checks['session_queue edit 保留 rpcId(结果仍可按 requestId 取回)'] = innerOf(qEditRpc).updated === 'qm-e1'
-    && slowLiveAgent.inbox.nextTurn.some((m: any) => m.content?.[0]?.text === 'edited text' && m.source?.rpcId === 'req-edit-keep')
+  const qEditRpc = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 37,
+    method: 'tools/call',
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'edit', itemId: 'qm-e1', content: 'edited text' } },
+  })
+  checks['session_queue edit 保留 rpcId(结果仍可按 requestId 取回)'] =
+    innerOf(qEditRpc).updated === 'qm-e1' &&
+    slowLiveAgent.inbox.nextTurn.some((m: any) => m.content?.[0]?.text === 'edited text' && m.source?.rpcId === 'req-edit-keep')
   slowLiveAgent.inbox.nextTurn.push({ id: 'qm-s1', content: [{ type: 'text', text: 'queued steer-me' }], source: { kind: 'user', rpcId: 'req-steer-keep' } })
-  const qSteerRpc = await rpc(init.sid, { jsonrpc: '2.0', id: 38, method: 'tools/call', params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'steer', itemId: 'qm-s1' } } })
-  checks['session_queue steer 保留 rpcId'] = innerOf(qSteerRpc).steered === 'qm-s1'
-    && steered.at(-1)?.message?.source?.rpcId === 'req-steer-keep'
+  const qSteerRpc = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 38,
+    method: 'tools/call',
+    params: { name: 'session_queue', arguments: { sessionId: 'sess-slow', action: 'steer', itemId: 'qm-s1' } },
+  })
+  checks['session_queue steer 保留 rpcId'] = innerOf(qSteerRpc).steered === 'qm-s1' && steered.at(-1)?.message?.source?.rpcId === 'req-steer-keep'
 
   // ── session_select_model / session_rename / session_search / session_fork / session_archive ──
-  const selOk = await rpc(init.sid, { jsonrpc: '2.0', id: 40, method: 'tools/call', params: { name: 'session_select_model', arguments: { sessionId: 'sess-live', provider: 'p2', model: 'm9' } } })
-  checks['session_select_model 走官方 selectModel'] = innerOf(selOk).ok === true
-    && selectModelCalls.some((r) => r.provider === 'p2' && r.model === 'm9')
-  const selBoom = await rpc(init.sid, { jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'session_select_model', arguments: { sessionId: 'sess-live', provider: 'p2', model: 'boom' } } })
+  const selOk = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 40,
+    method: 'tools/call',
+    params: { name: 'session_select_model', arguments: { sessionId: 'sess-live', provider: 'p2', model: 'm9' } },
+  })
+  checks['session_select_model 走官方 selectModel'] = innerOf(selOk).ok === true && selectModelCalls.some((r) => r.provider === 'p2' && r.model === 'm9')
+  const selBoom = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 41,
+    method: 'tools/call',
+    params: { name: 'session_select_model', arguments: { sessionId: 'sess-live', provider: 'p2', model: 'boom' } },
+  })
   checks['session_select_model 宿主拒绝透出'] = String(innerOf(selBoom).error ?? '').includes('not routable')
 
-  const ren = await rpc(init.sid, { jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'session_rename', arguments: { sessionId: 'sess-live2', title: 'renamed-1' } } })
+  const ren = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 42,
+    method: 'tools/call',
+    params: { name: 'session_rename', arguments: { sessionId: 'sess-live2', title: 'renamed-1' } },
+  })
   checks['session_rename 改名'] = innerOf(ren).ok === true && innerOf(ren).title === 'renamed-1'
 
   const search = await rpc(init.sid, { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle' } } })
-  checks['session_search 走宿主 search'] = searched.includes('needle')
-    && search.status === 200 && JSON.stringify(innerOf(search)).includes('hit for needle')
+  checks['session_search 走宿主 search'] = searched.includes('needle') && search.status === 200 && JSON.stringify(innerOf(search)).includes('hit for needle')
 
   // ── session_command(宿主 ctx.commands): list / run / 未知 / 非 live ──
-  const cmdList = await rpc(init.sid, { jsonrpc: '2.0', id: 47, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'list' } } })
+  const cmdList = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 47,
+    method: 'tools/call',
+    params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'list' } },
+  })
   const cmdListInner = innerOf(cmdList)
-  checks['session_command: 列出会话可用命令'] = cmdListInner.total === 2
-    && cmdListInner.commands?.some((c: any) => c.name === 'compact')
-  const cmdRun = await rpc(init.sid, { jsonrpc: '2.0', id: 48, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'compact' } } })
+  checks['session_command: 列出会话可用命令'] = cmdListInner.total === 2 && cmdListInner.commands?.some((c: any) => c.name === 'compact')
+  const cmdRun = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 48,
+    method: 'tools/call',
+    params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'compact' } },
+  })
   const cmdRunInner = innerOf(cmdRun)
-  checks['session_command: 执行 /compact 走命令注册表'] = cmdRunInner.ok === true
-    && String(cmdRunInner.result?.text ?? '').includes('Compacted')
-    && commandCalls.at(-1)?.line === '/compact' && commandCalls.at(-1)?.attachments === 0
-    && commandCalls.at(-1)?.agent === 'sess-live'
-  const cmdUnknown = await rpc(init.sid, { jsonrpc: '2.0', id: 49, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'unknown' } } })
+  checks['session_command: 执行 /compact 走命令注册表'] =
+    cmdRunInner.ok === true &&
+    String(cmdRunInner.result?.text ?? '').includes('Compacted') &&
+    commandCalls.at(-1)?.line === '/compact' &&
+    commandCalls.at(-1)?.attachments === 0 &&
+    commandCalls.at(-1)?.agent === 'sess-live'
+  const cmdUnknown = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 49,
+    method: 'tools/call',
+    params: { name: 'session_command', arguments: { sessionId: 'sess-live', action: 'run', name: 'unknown' } },
+  })
   checks['session_command: 未知命令明确报错'] = String(innerOf(cmdUnknown).error ?? '').includes('unknown command')
-  const cmdCold = await rpc(init.sid, { jsonrpc: '2.0', id: 491, method: 'tools/call', params: { name: 'session_command', arguments: { sessionId: 'sess-persisted', action: 'list' } } })
+  const cmdCold = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 491,
+    method: 'tools/call',
+    params: { name: 'session_command', arguments: { sessionId: 'sess-persisted', action: 'list' } },
+  })
   checks['session_command: 非 live 会话明确拒绝'] = String(innerOf(cmdCold).error ?? '').includes('not live')
   const cmdNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 492, method: 'tools/call', params: { name: 'session_command', arguments: { action: 'list' } } })
   checks['session_command: MCP 面省略 sessionId 明确报错'] = String(innerOf(cmdNoId).error ?? '').includes('sessionId is required')
   checks['session_search 传取消信号(0.2.x Remote 契约)'] = searchSignals.length > 0 && searchSignals.every(Boolean)
 
-  const fork = await rpc(init.sid, { jsonrpc: '2.0', id: 44, method: 'tools/call', params: { name: 'session_fork', arguments: { sessionId: 'sess-live', atSeq: 7 } } })
-  checks['session_fork 走宿主 fork 返回新会话'] = innerOf(fork).sessionId === 'sess-forked'
-    && forked.some((f) => f.sessionId === 'sess-live' && f.atSeq === 7)
+  const fork = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 44,
+    method: 'tools/call',
+    params: { name: 'session_fork', arguments: { sessionId: 'sess-live', atSeq: 7 } },
+  })
+  checks['session_fork 走宿主 fork 返回新会话'] = innerOf(fork).sessionId === 'sess-forked' && forked.some((f) => f.sessionId === 'sess-live' && f.atSeq === 7)
 
-  const archiveActive = await rpc(init.sid, { jsonrpc: '2.0', id: 45, method: 'tools/call', params: { name: 'session_archive', arguments: { sessionId: 'sess-live' } } })
-  checks['session_archive 活动会话拒绝并提示 stopActivity'] = String(archiveActive.status === 200 ? innerOf(archiveActive).error ?? '' : '').includes('stopActivity')
-  const archiveOk = await rpc(init.sid, { jsonrpc: '2.0', id: 46, method: 'tools/call', params: { name: 'session_archive', arguments: { sessionId: 'sess-live', stopActivity: true } } })
-  checks['session_archive stopActivity 归档成功'] = archived.some((a) => a.sessionId === 'sess-live' && a.stopActivity === true)
-    && innerOf(archiveOk).archived === true
+  const archiveActive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 45,
+    method: 'tools/call',
+    params: { name: 'session_archive', arguments: { sessionId: 'sess-live' } },
+  })
+  checks['session_archive 活动会话拒绝并提示 stopActivity'] = String(archiveActive.status === 200 ? (innerOf(archiveActive).error ?? '') : '').includes(
+    'stopActivity',
+  )
+  const archiveOk = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 46,
+    method: 'tools/call',
+    params: { name: 'session_archive', arguments: { sessionId: 'sess-live', stopActivity: true } },
+  })
+  checks['session_archive stopActivity 归档成功'] =
+    archived.some((a) => a.sessionId === 'sess-live' && a.stopActivity === true) && innerOf(archiveOk).archived === true
 
   // ── session_list / session_history ──
   const sl = await rpc(init.sid, { jsonrpc: '2.0', id: 50, method: 'tools/call', params: { name: 'session_list', arguments: {} } })
   const slInner = sl.status === 200 ? innerOf(sl) : { sessions: [] }
   // 默认 active: 归档会话不出现(sess-live 与 sess-legacy 已在前面归档)
-  checks['session_list 合并 live+持久化(默认排除归档)'] = slInner.total >= 3
-    && slInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted')
-    && slInner.sessions?.every((s: any) => s.archived === false)
-    && !slInner.sessions?.some((s: any) => s.sessionId === 'sess-live')
-    && !slInner.sessions?.some((s: any) => s.sessionId === 'sess-legacy')
+  checks['session_list 合并 live+持久化(默认排除归档)'] =
+    slInner.total >= 3 &&
+    slInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted') &&
+    slInner.sessions?.every((s: any) => s.archived === false) &&
+    !slInner.sessions?.some((s: any) => s.sessionId === 'sess-live') &&
+    !slInner.sessions?.some((s: any) => s.sessionId === 'sess-legacy')
   // scope=all 才把归档行放回来(行上带 archived 标记, 供下面的断言用)
   const slAll = await rpc(init.sid, { jsonrpc: '2.0', id: 501, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'all' } } })
   const slAllInner = innerOf(slAll)
-  checks['session_list: scope=all 同时列出归档'] = slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-live' && s.archived === true)
-    && slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted' && s.archived === false)
+  checks['session_list: scope=all 同时列出归档'] =
+    slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-live' && s.archived === true) &&
+    slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted' && s.archived === false)
   const live2Row = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
-  checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live'
-    && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
+  checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live' && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
   // 权限预设: live 行经宿主推导; 冷会话行不读日志(字段省略)
-  checks['session_list: live 行回报权限预设'] = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write'
-    && slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === undefined
+  checks['session_list: live 行回报权限预设'] =
+    slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write' &&
+    slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === undefined
   // 标题检索: live 标题在内存里; 冷会话默认不读日志, includeCold 才折叠
   const slTitle = await rpc(init.sid, { jsonrpc: '2.0', id: 53, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live two' } } })
   const slTitleInner = innerOf(slTitle)
-  checks['session_list: title 过滤大小写不敏感且不扫冷会话'] = slTitleInner.total === 1
-    && slTitleInner.sessions?.[0]?.sessionId === 'sess-live2'
-    && slTitleInner.titleSearch?.coldScanned === 0
+  checks['session_list: title 过滤大小写不敏感且不扫冷会话'] =
+    slTitleInner.total === 1 && slTitleInner.sessions?.[0]?.sessionId === 'sess-live2' && slTitleInner.titleSearch?.coldScanned === 0
   // 真实 0.2.x 形态: live 会话对象不带 title, 标题只在日志里 → 清单行与过滤都折内存日志(零 I/O)
-  checks['session_list: 清单行折叠 live 日志标题'] =
-    slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.title === 'Live One'
-  const slFolded = await rpc(init.sid, { jsonrpc: '2.0', id: 532, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live one', scope: 'all' } } })
+  checks['session_list: 清单行折叠 live 日志标题'] = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.title === 'Live One'
+  const slFolded = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 532,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { title: 'live one', scope: 'all' } },
+  })
   const slFoldedInner = innerOf(slFolded)
-  checks['session_list: title 过滤折叠 live 日志标题(不扫冷会话)'] = slFoldedInner.total === 1
-    && slFoldedInner.sessions?.[0]?.sessionId === 'sess-live'
-    && slFoldedInner.sessions?.[0]?.title === 'Live One'
-    && slFoldedInner.titleSearch?.coldScanned === 0
-  const slColdOff = await rpc(init.sid, { jsonrpc: '2.0', id: 54, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older' } } })
+  checks['session_list: title 过滤折叠 live 日志标题(不扫冷会话)'] =
+    slFoldedInner.total === 1 &&
+    slFoldedInner.sessions?.[0]?.sessionId === 'sess-live' &&
+    slFoldedInner.sessions?.[0]?.title === 'Live One' &&
+    slFoldedInner.titleSearch?.coldScanned === 0
+  const slColdOff = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 54,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { title: 'persisted older' } },
+  })
   checks['session_list: 默认不为标题读冷日志'] = innerOf(slColdOff).total === 0
-  const slColdOn = await rpc(init.sid, { jsonrpc: '2.0', id: 55, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true } } })
+  const slColdOn = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 55,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true } },
+  })
   const slColdInner = innerOf(slColdOn)
-  checks['session_list: includeCold 折叠冷会话标题'] = slColdInner.total === 1
-    && slColdInner.sessions?.[0]?.sessionId === 'sess-persisted'
-    && slColdInner.sessions?.[0]?.title === 'Persisted Older'
-    && slColdInner.titleSearch?.coldScanned >= 1 && slColdInner.titleSearch?.coldTruncated === false
+  checks['session_list: includeCold 折叠冷会话标题'] =
+    slColdInner.total === 1 &&
+    slColdInner.sessions?.[0]?.sessionId === 'sess-persisted' &&
+    slColdInner.sessions?.[0]?.title === 'Persisted Older' &&
+    slColdInner.titleSearch?.coldScanned >= 1 &&
+    slColdInner.titleSearch?.coldTruncated === false
   // coldScanMax: 单次扫描预算可调(默认 50, 上限 500); 预算耗尽即截断, 命中取决于扫描顺序(新→旧)
-  const slCap1 = await rpc(init.sid, { jsonrpc: '2.0', id: 551, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true, coldScanMax: 1 } } })
+  const slCap1 = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 551,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true, coldScanMax: 1 } },
+  })
   const slCap1Inner = innerOf(slCap1)
-  checks['session_list: coldScanMax 缩小预算即截断'] = slCap1Inner.total === 0
-    && slCap1Inner.titleSearch?.coldScanned === 1 && slCap1Inner.titleSearch?.coldTruncated === true
-  const slCapBig = await rpc(init.sid, { jsonrpc: '2.0', id: 552, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true, coldScanMax: 20 } } })
+  checks['session_list: coldScanMax 缩小预算即截断'] =
+    slCap1Inner.total === 0 && slCap1Inner.titleSearch?.coldScanned === 1 && slCap1Inner.titleSearch?.coldTruncated === true
+  const slCapBig = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 552,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { title: 'persisted older', includeCold: true, coldScanMax: 20 } },
+  })
   const slCapBigInner = innerOf(slCapBig)
-  checks['session_list: coldScanMax 放大预算后命中较旧会话'] = slCapBigInner.total === 1
-    && slCapBigInner.sessions?.[0]?.sessionId === 'sess-persisted'
-    && slCapBigInner.titleSearch?.coldScanned > 1 && slCapBigInner.titleSearch?.coldTruncated === false
+  checks['session_list: coldScanMax 放大预算后命中较旧会话'] =
+    slCapBigInner.total === 1 &&
+    slCapBigInner.sessions?.[0]?.sessionId === 'sess-persisted' &&
+    slCapBigInner.titleSearch?.coldScanned > 1 &&
+    slCapBigInner.titleSearch?.coldTruncated === false
 
   // ── 冷标题零 I/O 路径: 宿主持久化投影检查点优先, 检查点答不了才读日志 ──
   // (独立 ctx 直调数据层: 与 MCP 面同一实现, 断言只关心"有没有读日志/列语料")
@@ -593,24 +953,22 @@ try {
   })
   const inspectedBeforeProjection = inspectedSessions.length
   const cachedHit = await collectSessions(perfCtx, { title: 'cached needle', includeCold: true })
-  checks['冷标题: 投影检查点命中即命中, 一次日志都不读'] = cachedHit.total === 1
-    && cachedHit.sessions?.[0]?.sessionId === 'sess-cold-a'
-    && cachedHit.titleSearch?.coldLogReads === 0
-    && inspectedSessions.length === inspectedBeforeProjection
+  checks['冷标题: 投影检查点命中即命中, 一次日志都不读'] =
+    cachedHit.total === 1 &&
+    cachedHit.sessions?.[0]?.sessionId === 'sess-cold-a' &&
+    cachedHit.titleSearch?.coldLogReads === 0 &&
+    inspectedSessions.length === inspectedBeforeProjection
   const predecessorHit = await collectSessions(perfCtx, { title: 'legacy migrated', includeCold: true, scope: 'all' })
-  checks['冷标题: 旧格式代际走 cachedPredecessorTitle'] = predecessorHit.total === 1
-    && predecessorHit.sessions?.[0]?.sessionId === 'sess-legacy'
-    && predecessorHit.titleSearch?.coldLogReads === 0
-  checks['冷标题: 检查点覆盖的冷会话不再逐个 inspect'] = projectionReads.length > 0
-    && projectionReads.includes('predecessor:sess-legacy')
+  checks['冷标题: 旧格式代际走 cachedPredecessorTitle'] =
+    predecessorHit.total === 1 && predecessorHit.sessions?.[0]?.sessionId === 'sess-legacy' && predecessorHit.titleSearch?.coldLogReads === 0
+  checks['冷标题: 检查点覆盖的冷会话不再逐个 inspect'] = projectionReads.length > 0 && projectionReads.includes('predecessor:sess-legacy')
 
   // 检查点答不了(无投影缓存)时仍能落回日志, 并如实计数
   state.coldTitles.clear()
   const missCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
   const projectionMiss = await collectSessions(missCtx, { title: 'persisted newer', includeCold: true })
-  checks['冷标题: 检查点答不了才落回日志(并计数)'] = projectionMiss.total === 1
-    && projectionMiss.sessions?.[0]?.sessionId === 'sess-persisted2'
-    && (projectionMiss.titleSearch?.coldLogReads ?? 0) > 0
+  checks['冷标题: 检查点答不了才落回日志(并计数)'] =
+    projectionMiss.total === 1 && projectionMiss.sessions?.[0]?.sessionId === 'sess-persisted2' && (projectionMiss.titleSearch?.coldLogReads ?? 0) > 0
 
   // ── 批量折叠: 未命中数达到门槛时一次批量, 不逐个 inspect ──
   state.coldTitles.clear()
@@ -628,19 +986,19 @@ try {
   })
   const inspectedBeforeBatch = inspectedSessions.length
   const batched = await collectSessions(batchCtx, { title: 'batch sess-batch-b', includeCold: true })
-  checks['冷标题: 达到门槛时一次批量折叠, 不逐个 inspect'] = batched.total === 1
-    && batched.sessions?.[0]?.sessionId === 'sess-batch-b'
-    && batchCalls.length === 1 && batchCalls[0].length >= 4
-    && inspectedSessions.length === inspectedBeforeBatch
+  checks['冷标题: 达到门槛时一次批量折叠, 不逐个 inspect'] =
+    batched.total === 1 &&
+    batched.sessions?.[0]?.sessionId === 'sess-batch-b' &&
+    batchCalls.length === 1 &&
+    batchCalls[0].length >= 4 &&
+    inspectedSessions.length === inspectedBeforeBatch
 
   // ── 单会话读取: stat 单点观察 + 投影检查点取标题, 不再列全语料 ──
   const listCallsBefore = persistenceCalls.list
   const statCallsBefore = persistenceCalls.stat
   const coldMeta = await sessionMetaPayload(perfCtx, 'sess-cold-a')
-  checks['session_meta: 单会话读取用 stat, 不列全语料'] = persistenceCalls.list === listCallsBefore
-    && persistenceCalls.stat > statCallsBefore
-  checks['session_meta: 冷会话标题取自投影检查点'] = coldMeta.title === 'Cached Needle A'
-    && coldMeta.eventsReadable === false
+  checks['session_meta: 单会话读取用 stat, 不列全语料'] = persistenceCalls.list === listCallsBefore && persistenceCalls.stat > statCallsBefore
+  checks['session_meta: 冷会话标题取自投影检查点'] = coldMeta.title === 'Cached Needle A' && coldMeta.eventsReadable === false
   let coldMissing = ''
   try {
     await sessionMetaPayload(perfCtx, 'sess-does-not-exist')
@@ -654,63 +1012,129 @@ try {
   checks['session_list: all 视图行带 archived 标记'] = (() => {
     const liveRow = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')
     const legacyRow = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-legacy')
-    return liveRow?.archived === true && legacyRow?.archived === true
-      && slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.archived === false
+    return (
+      liveRow?.archived === true && legacyRow?.archived === true && slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.archived === false
+    )
   })()
   const slArch = await rpc(init.sid, { jsonrpc: '2.0', id: 60, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'archived' } } })
   const slArchInner = innerOf(slArch)
-  checks['session_list: scope=archived 只列归档'] = slArchInner.total === 2
-    && slArchInner.sessions?.every((s: any) => s.archived === true)
-    && ['sess-legacy', 'sess-live'].every((id) => slArchInner.sessions?.some((s: any) => s.sessionId === id))
-  const slActive = await rpc(init.sid, { jsonrpc: '2.0', id: 61, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'active', limit: 100 } } })
+  checks['session_list: scope=archived 只列归档'] =
+    slArchInner.total === 2 &&
+    slArchInner.sessions?.every((s: any) => s.archived === true) &&
+    ['sess-legacy', 'sess-live'].every((id) => slArchInner.sessions?.some((s: any) => s.sessionId === id))
+  const slActive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 61,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { scope: 'active', limit: 100 } },
+  })
   const slActiveInner = innerOf(slActive)
-  checks['session_list: scope=active 排除归档'] = slActiveInner.total >= 3
-    && slActiveInner.sessions?.every((s: any) => s.archived === false)
-    && !slActiveInner.sessions?.some((s: any) => s.sessionId === 'sess-live')
+  checks['session_list: scope=active 排除归档'] =
+    slActiveInner.total >= 3 &&
+    slActiveInner.sessions?.every((s: any) => s.archived === false) &&
+    !slActiveInner.sessions?.some((s: any) => s.sessionId === 'sess-live')
   // 内容检索同样默认排除归档(宿主 page 后过滤: 本页唯一命中 sess-live 被裁掉)
-  const searchDefault = await rpc(init.sid, { jsonrpc: '2.0', id: 621, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle' } } })
+  const searchDefault = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 621,
+    method: 'tools/call',
+    params: { name: 'session_search', arguments: { query: 'needle' } },
+  })
   const searchDefaultInner = innerOf(searchDefault)
-  checks['session_search: 默认排除归档命中'] = (searchDefaultInner.results?.length ?? 0) === 0
-    && searchDefaultInner.filteredArchived === 1 && searchDefaultInner.scope === 'active'
-  const searchAll = await rpc(init.sid, { jsonrpc: '2.0', id: 622, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle', scope: 'all' } } })
+  checks['session_search: 默认排除归档命中'] =
+    (searchDefaultInner.results?.length ?? 0) === 0 && searchDefaultInner.filteredArchived === 1 && searchDefaultInner.scope === 'active'
+  const searchAll = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 622,
+    method: 'tools/call',
+    params: { name: 'session_search', arguments: { query: 'needle', scope: 'all' } },
+  })
   const searchAllInner = innerOf(searchAll)
-  checks['session_search: scope=all 保留归档命中'] = searchAllInner.results?.[0]?.sessionId === 'sess-live'
-    && searchAllInner.scope === 'all' && searchAllInner.filteredArchived === undefined
-  const searchArchived = await rpc(init.sid, { jsonrpc: '2.0', id: 623, method: 'tools/call', params: { name: 'session_search', arguments: { query: 'needle', scope: 'archived' } } })
-  checks['session_search: scope=archived 只回归档'] = innerOf(searchArchived).results?.[0]?.sessionId === 'sess-live'
-    && innerOf(searchArchived).scope === 'archived'
-  const unarchive = await rpc(init.sid, { jsonrpc: '2.0', id: 63, method: 'tools/call', params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } } })
+  checks['session_search: scope=all 保留归档命中'] =
+    searchAllInner.results?.[0]?.sessionId === 'sess-live' && searchAllInner.scope === 'all' && searchAllInner.filteredArchived === undefined
+  const searchArchived = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 623,
+    method: 'tools/call',
+    params: { name: 'session_search', arguments: { query: 'needle', scope: 'archived' } },
+  })
+  checks['session_search: scope=archived 只回归档'] =
+    innerOf(searchArchived).results?.[0]?.sessionId === 'sess-live' && innerOf(searchArchived).scope === 'archived'
+  const unarchive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 63,
+    method: 'tools/call',
+    params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } },
+  })
   const unarchiveInner = innerOf(unarchive)
-  checks['session_unarchive: 恢复并回传剩余集合'] = unarchiveInner.ok === true && unarchiveInner.archived === false
-    && unarchiveInner.wasArchived === true && unarchiveInner.archivedRemaining === 1
-    && unarchived.some((u: any) => u.sessionId === 'sess-live' && u.wasArchived === true)
-  const unarchiveAgain = await rpc(init.sid, { jsonrpc: '2.0', id: 64, method: 'tools/call', params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } } })
-  checks['session_unarchive: 未归档会话幂等 no-op(wasArchived=false)'] = innerOf(unarchiveAgain).ok === true
-    && innerOf(unarchiveAgain).wasArchived === false && innerOf(unarchiveAgain).archivedRemaining === 1
-  const archiveListAfter = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'tools/call', params: { name: 'session_list', arguments: { scope: 'archived' } } })
-  checks['session_list(scope=archived): 恢复后不再列出'] = innerOf(archiveListAfter).total === 1
-    && innerOf(archiveListAfter).sessions?.[0]?.sessionId === 'sess-legacy'
-  checks['归档集合与宿主 registry 同步(unarchive 已生效)'] = archivedSessionIds.includes('sess-legacy')
-    && !archivedSessionIds.includes('sess-live')
+  checks['session_unarchive: 恢复并回传剩余集合'] =
+    unarchiveInner.ok === true &&
+    unarchiveInner.archived === false &&
+    unarchiveInner.wasArchived === true &&
+    unarchiveInner.archivedRemaining === 1 &&
+    unarchived.some((u: any) => u.sessionId === 'sess-live' && u.wasArchived === true)
+  const unarchiveAgain = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 64,
+    method: 'tools/call',
+    params: { name: 'session_unarchive', arguments: { sessionId: 'sess-live' } },
+  })
+  checks['session_unarchive: 未归档会话幂等 no-op(wasArchived=false)'] =
+    innerOf(unarchiveAgain).ok === true && innerOf(unarchiveAgain).wasArchived === false && innerOf(unarchiveAgain).archivedRemaining === 1
+  const archiveListAfter = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 65,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { scope: 'archived' } },
+  })
+  checks['session_list(scope=archived): 恢复后不再列出'] =
+    innerOf(archiveListAfter).total === 1 && innerOf(archiveListAfter).sessions?.[0]?.sessionId === 'sess-legacy'
+  checks['归档集合与宿主 registry 同步(unarchive 已生效)'] = archivedSessionIds.includes('sess-legacy') && !archivedSessionIds.includes('sess-live')
   // 会话元信息: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志)
-  const metaLive = await rpc(init.sid, { jsonrpc: '2.0', id: 56, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } })
+  const metaLive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 56,
+    method: 'tools/call',
+    params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } },
+  })
   const metaLiveInner = innerOf(metaLive)
-  checks['session_meta: live 会话模型/状态/轮步'] = metaLiveInner.live === true && metaLiveInner.state === 'idle'
-    && metaLiveInner.model?.provider === 'live-p' && metaLiveInner.model?.model === 'live-m'
-    && metaLiveInner.turn?.started >= 1 && metaLiveInner.turn?.open === false
-    && metaLiveInner.step?.total >= 1 && metaLiveInner.step?.inCurrentTurn === 1 && metaLiveInner.step?.open === false
-  checks['session_meta: 上下文占用优先 tokenMeter'] = metaLiveInner.context?.tokens === 12345
-    && metaLiveInner.context?.source === 'tokenMeter'
-  const metaCold = await rpc(init.sid, { jsonrpc: '2.0', id: 57, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-persisted' } } })
+  checks['session_meta: live 会话模型/状态/轮步'] =
+    metaLiveInner.live === true &&
+    metaLiveInner.state === 'idle' &&
+    metaLiveInner.model?.provider === 'live-p' &&
+    metaLiveInner.model?.model === 'live-m' &&
+    metaLiveInner.turn?.started >= 1 &&
+    metaLiveInner.turn?.open === false &&
+    metaLiveInner.step?.total >= 1 &&
+    metaLiveInner.step?.inCurrentTurn === 1 &&
+    metaLiveInner.step?.open === false
+  checks['session_meta: 上下文占用优先 tokenMeter'] = metaLiveInner.context?.tokens === 12345 && metaLiveInner.context?.source === 'tokenMeter'
+  const metaCold = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 57,
+    method: 'tools/call',
+    params: { name: 'session_meta', arguments: { sessionId: 'sess-persisted' } },
+  })
   const metaColdInner = innerOf(metaCold)
-  checks['session_meta: 冷会话按日志折标题/模型/轮数/上下文'] = metaColdInner.live === false
-    && metaColdInner.state === 'inactive' && metaColdInner.eventsReadable === true
-    && metaColdInner.title === 'Persisted Older' && metaColdInner.preset === 'reviewer'
-    && metaColdInner.model?.provider === 'p1' && metaColdInner.model?.model === 'm1'
-    && metaColdInner.turn?.completed === 1
-    && metaColdInner.context?.tokens === 1200 && metaColdInner.context?.contextWindow === 80000
-    && metaColdInner.context?.ratio === 0.015 && metaColdInner.context?.source === 'log'
-  const metaMissing = await rpc(init.sid, { jsonrpc: '2.0', id: 58, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-nope' } } })
+  checks['session_meta: 冷会话按日志折标题/模型/轮数/上下文'] =
+    metaColdInner.live === false &&
+    metaColdInner.state === 'inactive' &&
+    metaColdInner.eventsReadable === true &&
+    metaColdInner.title === 'Persisted Older' &&
+    metaColdInner.preset === 'reviewer' &&
+    metaColdInner.model?.provider === 'p1' &&
+    metaColdInner.model?.model === 'm1' &&
+    metaColdInner.turn?.completed === 1 &&
+    metaColdInner.context?.tokens === 1200 &&
+    metaColdInner.context?.contextWindow === 80000 &&
+    metaColdInner.context?.ratio === 0.015 &&
+    metaColdInner.context?.source === 'log'
+  const metaMissing = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 58,
+    method: 'tools/call',
+    params: { name: 'session_meta', arguments: { sessionId: 'sess-nope' } },
+  })
   checks['session_meta: 未知会话明确报错'] = String(innerOf(metaMissing).error ?? '').includes('session not found')
   const metaNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'session_meta', arguments: {} } })
   checks['session_meta: MCP 面省略 sessionId 明确报错'] = String(innerOf(metaNoId).error ?? '').includes('sessionId is required')
@@ -720,98 +1144,198 @@ try {
   checks['session_meta: 冷会话折叠权限预设'] = metaColdInner.permission === 'danger-full-access'
 
   // 会话现状概览: 一次调用给齐标题/权限/模型/进行态/上下文占用 + 最近内容摘要
-  const ovLive = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 575, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live' } } }))
-  checks['session_overview: live 默认档(标题/权限/模型/进行态)'] = ovLive.title === 'Live One'
-    && ovLive.permission === 'workspace-write' && ovLive.state === 'idle' && ovLive.inProgress === false
-    && ovLive.model?.provider === 'live-p' && ovLive.model?.model === 'live-m'
-    && ovLive.eventsReadable === true && ovLive.archived === false
+  const ovLive = innerOf(
+    await rpc(init.sid, { jsonrpc: '2.0', id: 575, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live' } } }),
+  )
+  checks['session_overview: live 默认档(标题/权限/模型/进行态)'] =
+    ovLive.title === 'Live One' &&
+    ovLive.permission === 'workspace-write' &&
+    ovLive.state === 'idle' &&
+    ovLive.inProgress === false &&
+    ovLive.model?.provider === 'live-p' &&
+    ovLive.model?.model === 'live-m' &&
+    ovLive.eventsReadable === true &&
+    ovLive.archived === false
   const ovRecent = ovLive.recent?.entries ?? []
-  checks['session_overview: recent 混排对话与工具调用(时间正序)'] = ovRecent.length === 5
-    && ovRecent.every((e: any, i: number) => i === 0 || e.index > ovRecent[i - 1].index)
-    && ovRecent.some((e: any) => e.kind === 'user' && e.text === 'prompt id probe')
-    && ovRecent.some((e: any) => e.kind === 'tool_call' && e.name === 'bash' && e.args === '{"command":"ls"}')
-    && ovRecent.at(-1)?.kind === 'assistant' && ovRecent.at(-1)?.text === 'extra'
-  checks['session_overview: 默认档含上下文占用(tokenMeter 口径)'] = ovLive.context?.tokens === 12345
-    && ovLive.context?.source === 'tokenMeter'
-  checks['session_overview: 默认档不带 progress/preset(字段裁剪)'] = ovLive.turn === undefined
-    && ovLive.step === undefined && ovLive.preset === undefined
-  const ovFields = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 576, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['context', 'progress'] } } }))
-  checks['session_overview: fields 显式选段(context/progress)'] = ovFields.context?.tokens === 12345
-    && ovFields.context?.source === 'tokenMeter' && ovFields.turn?.started >= 1
-    && ovFields.title === undefined && ovFields.recent === undefined && ovFields.state === undefined
+  checks['session_overview: recent 混排对话与工具调用(时间正序)'] =
+    ovRecent.length === 5 &&
+    ovRecent.every((e: any, i: number) => i === 0 || e.index > ovRecent[i - 1].index) &&
+    ovRecent.some((e: any) => e.kind === 'user' && e.text === 'prompt id probe') &&
+    ovRecent.some((e: any) => e.kind === 'tool_call' && e.name === 'bash' && e.args === '{"command":"ls"}') &&
+    ovRecent.at(-1)?.kind === 'assistant' &&
+    ovRecent.at(-1)?.text === 'extra'
+  checks['session_overview: 默认档含上下文占用(tokenMeter 口径)'] = ovLive.context?.tokens === 12345 && ovLive.context?.source === 'tokenMeter'
+  checks['session_overview: 默认档不带 progress/preset(字段裁剪)'] = ovLive.turn === undefined && ovLive.step === undefined && ovLive.preset === undefined
+  const ovFields = innerOf(
+    await rpc(init.sid, {
+      jsonrpc: '2.0',
+      id: 576,
+      method: 'tools/call',
+      params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['context', 'progress'] } },
+    }),
+  )
+  checks['session_overview: fields 显式选段(context/progress)'] =
+    ovFields.context?.tokens === 12345 &&
+    ovFields.context?.source === 'tokenMeter' &&
+    ovFields.turn?.started >= 1 &&
+    ovFields.title === undefined &&
+    ovFields.recent === undefined &&
+    ovFields.state === undefined
   // 未知字段: 工具面被入参 schema(enum)先行拒绝; 载荷层兜底(资源面等无 schema 调用方)直调断言
-  const ovBadField = await rpc(init.sid, { jsonrpc: '2.0', id: 577, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['nope'] } } })
+  const ovBadField = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 577,
+    method: 'tools/call',
+    params: { name: 'session_overview', arguments: { sessionId: 'sess-live', fields: ['nope'] } },
+  })
   let ovBadFieldError = ''
   try {
     await sessionOverviewPayload(ctx, 'sess-live', ['nope'])
   } catch (e) {
     ovBadFieldError = String((e as Error)?.message ?? e)
   }
-  checks['session_overview: 未知字段名被拒(schema 层 + 载荷层兜底)'] = String(innerOf(ovBadField).error ?? '') !== ''
-    && ovBadFieldError.includes('unknown overview field')
-  const ovCold = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 578, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-persisted' } } }))
+  checks['session_overview: 未知字段名被拒(schema 层 + 载荷层兜底)'] =
+    String(innerOf(ovBadField).error ?? '') !== '' && ovBadFieldError.includes('unknown overview field')
+  const ovCold = innerOf(
+    await rpc(init.sid, { jsonrpc: '2.0', id: 578, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-persisted' } } }),
+  )
   const ovColdEntries = ovCold.recent?.entries ?? []
   const ovColdLong = ovColdEntries.at(-1)
-  checks['session_overview: 冷会话经 inspect 折默认档'] = ovCold.state === 'inactive' && ovCold.inProgress === false
-    && ovCold.title === 'Persisted Older' && ovCold.permission === 'danger-full-access'
-    && ovCold.model?.provider === 'p1' && ovCold.model?.model === 'm1'
-    && ovColdEntries[0]?.kind === 'user' && ovColdEntries[0]?.text === 'earlier question'
-  checks['session_overview: 长文本按界面同源预算截断(160 + …)'] = ovColdLong?.kind === 'assistant'
-    && ovColdLong?.text?.startsWith(LONG_HEAD) === true && ovColdLong?.text?.length === 160
-    && ovColdLong?.text?.endsWith('…') === true && !String(ovColdLong?.text).includes(LONG_TAIL)
-  const ovMissing = await rpc(init.sid, { jsonrpc: '2.0', id: 579, method: 'tools/call', params: { name: 'session_overview', arguments: { sessionId: 'sess-nope' } } })
+  checks['session_overview: 冷会话经 inspect 折默认档'] =
+    ovCold.state === 'inactive' &&
+    ovCold.inProgress === false &&
+    ovCold.title === 'Persisted Older' &&
+    ovCold.permission === 'danger-full-access' &&
+    ovCold.model?.provider === 'p1' &&
+    ovCold.model?.model === 'm1' &&
+    ovColdEntries[0]?.kind === 'user' &&
+    ovColdEntries[0]?.text === 'earlier question'
+  checks['session_overview: 长文本按界面同源预算截断(160 + …)'] =
+    ovColdLong?.kind === 'assistant' &&
+    ovColdLong?.text?.startsWith(LONG_HEAD) === true &&
+    ovColdLong?.text?.length === 160 &&
+    ovColdLong?.text?.endsWith('…') === true &&
+    !String(ovColdLong?.text).includes(LONG_TAIL)
+  const ovMissing = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 579,
+    method: 'tools/call',
+    params: { name: 'session_overview', arguments: { sessionId: 'sess-nope' } },
+  })
   checks['session_overview: 未知会话明确报错'] = String(innerOf(ovMissing).error ?? '').includes('session not found')
   const ovNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 580, method: 'tools/call', params: { name: 'session_overview', arguments: {} } })
   checks['session_overview: MCP 面省略 sessionId 明确报错'] = String(innerOf(ovNoId).error ?? '').includes('sessionId is required')
 
   // 权限预设切换(界面 /permission 的服务端语义): live 直接切, 冷会话先官方恢复
-  const permSetLive = await rpc(init.sid, { jsonrpc: '2.0', id: 571, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'danger-full-access' } } })
+  const permSetLive = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 571,
+    method: 'tools/call',
+    params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'danger-full-access' } },
+  })
   const permSetLiveInner = innerOf(permSetLive)
-  checks['session_set_permission: live 切换走 permissionPresets.set'] = permSetLiveInner.ok === true
-    && permSetLiveInner.permission === 'danger-full-access'
-    && permissionPresetCalls.some((c) => c.id === 'sess-live' && c.preset === 'danger-full-access')
-  const metaLiveAfterPerm = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 572, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } }))
+  checks['session_set_permission: live 切换走 permissionPresets.set'] =
+    permSetLiveInner.ok === true &&
+    permSetLiveInner.permission === 'danger-full-access' &&
+    permissionPresetCalls.some((c) => c.id === 'sess-live' && c.preset === 'danger-full-access')
+  const metaLiveAfterPerm = innerOf(
+    await rpc(init.sid, { jsonrpc: '2.0', id: 572, method: 'tools/call', params: { name: 'session_meta', arguments: { sessionId: 'sess-live' } } }),
+  )
   checks['session_set_permission: 切换后 session_meta 反映新预设'] = metaLiveAfterPerm.permission === 'danger-full-access'
-  const permSetBad = await rpc(init.sid, { jsonrpc: '2.0', id: 573, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'nope' } } })
+  const permSetBad = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 573,
+    method: 'tools/call',
+    params: { name: 'session_set_permission', arguments: { sessionId: 'sess-live', permission: 'nope' } },
+  })
   checks['session_set_permission: 未知预设被拒'] = String(innerOf(permSetBad).error ?? '').includes('unknown permission preset')
   const resolvedBefore = resolvedAgents.length
-  const permSetCold = await rpc(init.sid, { jsonrpc: '2.0', id: 574, method: 'tools/call', params: { name: 'session_set_permission', arguments: { sessionId: 'sess-persisted', permission: 'workspace-write' } } })
+  const permSetCold = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 574,
+    method: 'tools/call',
+    params: { name: 'session_set_permission', arguments: { sessionId: 'sess-persisted', permission: 'workspace-write' } },
+  })
   const permSetColdInner = innerOf(permSetCold)
-  checks['session_set_permission: 冷会话先官方恢复再切换'] = permSetColdInner.ok === true
-    && resolvedAgents.length > resolvedBefore
-    && permissionPresetCalls.some((c) => c.id === 'sess-persisted' && c.preset === 'workspace-write')
+  checks['session_set_permission: 冷会话先官方恢复再切换'] =
+    permSetColdInner.ok === true &&
+    resolvedAgents.length > resolvedBefore &&
+    permissionPresetCalls.some((c) => c.id === 'sess-persisted' && c.preset === 'workspace-write')
 
-  const sh = await rpc(init.sid, { jsonrpc: '2.0', id: 51, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'] } } })
-  checks['session_history 按 roles 取轮次'] = JSON.stringify(innerOf(sh)).includes('"role":"assistant"')
-    && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
+  const sh = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 51,
+    method: 'tools/call',
+    params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'] } },
+  })
+  checks['session_history 按 roles 取轮次'] =
+    JSON.stringify(innerOf(sh)).includes('"role":"assistant"') && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
   // 冷会话: 经宿主 sessionController.inspect 非激活读取(不激活 agent)
-  const shCold = await rpc(init.sid, { jsonrpc: '2.0', id: 52, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'] } } })
-  checks['session_history 冷会话经官方 inspect 读取'] = innerOf(shCold).source === 'persisted'
-    && JSON.stringify(innerOf(shCold)).includes('earlier answer') && inspectedSessions.includes('sess-persisted')
+  const shCold = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 52,
+    method: 'tools/call',
+    params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'] } },
+  })
+  checks['session_history 冷会话经官方 inspect 读取'] =
+    innerOf(shCold).source === 'persisted' && JSON.stringify(innerOf(shCold)).includes('earlier answer') && inspectedSessions.includes('sess-persisted')
   // 默认视角: 只给对话消息(user + assistant); 工具调用过程要显式传 roles
-  const shDefault = await rpc(init.sid, { jsonrpc: '2.0', id: 521, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live' } } })
+  const shDefault = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 521,
+    method: 'tools/call',
+    params: { name: 'session_history', arguments: { sessionId: 'sess-live' } },
+  })
   const shDefaultInner = innerOf(shDefault)
-  checks['session_history 默认只给对话消息(工具条目 opt-in)'] = Array.isArray(shDefaultInner.turns)
-    && shDefaultInner.turns.length > 0
-    && shDefaultInner.turns.every((t: any) => t.role === 'user' || t.role === 'assistant')
-  const shTools = await rpc(init.sid, { jsonrpc: '2.0', id: 522, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['tool_call'] } } })
+  checks['session_history 默认只给对话消息(工具条目 opt-in)'] =
+    Array.isArray(shDefaultInner.turns) &&
+    shDefaultInner.turns.length > 0 &&
+    shDefaultInner.turns.every((t: any) => t.role === 'user' || t.role === 'assistant')
+  const shTools = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 522,
+    method: 'tools/call',
+    params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['tool_call'] } },
+  })
   const shToolsInner = innerOf(shTools)
-  checks['session_history: roles 显式取工具调用'] = shToolsInner.turns.length > 0
-    && shToolsInner.turns.every((t: any) => t.role === 'tool_call')
+  checks['session_history: roles 显式取工具调用'] = shToolsInner.turns.length > 0 && shToolsInner.turns.every((t: any) => t.role === 'tool_call')
   // detail 档位: 默认 digest 按角色截断(带 truncated 标记), full 是不截断的逃生门(live 与冷会话同路)
-  const shDigest = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 523, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'], limit: 50 } } }))
+  const shDigest = innerOf(
+    await rpc(init.sid, {
+      jsonrpc: '2.0',
+      id: 523,
+      method: 'tools/call',
+      params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'], limit: 50 } },
+    }),
+  )
   const longDigest = (shDigest.turns ?? []).find((t: any) => t.text?.startsWith(LONG_HEAD))
-  checks['session_history 默认 digest 截断长文本并标记 truncated'] = shDigest.detail === 'summary'
-    && longDigest !== undefined && longDigest.text.length === 600
-    && !longDigest.text.includes(LONG_TAIL) && longDigest.truncated === true
-  const shFull = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 524, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'], limit: 50, detail: 'full' } } }))
+  checks['session_history 默认 digest 截断长文本并标记 truncated'] =
+    shDigest.detail === 'summary' &&
+    longDigest !== undefined &&
+    longDigest.text.length === 600 &&
+    !longDigest.text.includes(LONG_TAIL) &&
+    longDigest.truncated === true
+  const shFull = innerOf(
+    await rpc(init.sid, {
+      jsonrpc: '2.0',
+      id: 524,
+      method: 'tools/call',
+      params: { name: 'session_history', arguments: { sessionId: 'sess-live', roles: ['assistant'], limit: 50, detail: 'full' } },
+    }),
+  )
   const longFull = (shFull.turns ?? []).find((t: any) => t.text?.startsWith(LONG_HEAD))
-  checks['session_history detail=full 返回未截断全文'] = shFull.detail === 'full'
-    && longFull !== undefined && longFull.text === longAnswer && longFull.truncated === undefined
-  const shColdFull = innerOf(await rpc(init.sid, { jsonrpc: '2.0', id: 525, method: 'tools/call', params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'], detail: 'full' } } }))
-  checks['session_history 冷会话(inspect)detail=full 同样未截断'] = shColdFull.detail === 'full'
-    && shColdFull.source === 'persisted'
-    && (shColdFull.turns ?? []).some((t: any) => t.text === longAnswer)
+  checks['session_history detail=full 返回未截断全文'] =
+    shFull.detail === 'full' && longFull !== undefined && longFull.text === longAnswer && longFull.truncated === undefined
+  const shColdFull = innerOf(
+    await rpc(init.sid, {
+      jsonrpc: '2.0',
+      id: 525,
+      method: 'tools/call',
+      params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'], detail: 'full' } },
+    }),
+  )
+  checks['session_history 冷会话(inspect)detail=full 同样未截断'] =
+    shColdFull.detail === 'full' && shColdFull.source === 'persisted' && (shColdFull.turns ?? []).some((t: any) => t.text === longAnswer)
 
   // ── 资源面: 会话/模型/预设/工作区/status + 订阅 ──
   const sse = openSse(init.sid)
@@ -827,50 +1351,55 @@ try {
   const readSessions = await rpc(init.sid, { jsonrpc: '2.0', id: 64, method: 'resources/read', params: { uri: 'dsh://sessions' } })
   checks['资源 dsh://sessions 清单'] = readSessions.status === 200 && JSON.stringify(parsePayload(readSessions.text)).includes('sess-live')
   const readPersistedMeta = await rpc(init.sid, { jsonrpc: '2.0', id: 641, method: 'resources/read', params: { uri: 'dsh://sessions/sess-persisted' } })
-  const persistedMeta = readPersistedMeta.status === 200
-    ? JSON.parse(parsePayload(readPersistedMeta.text).result?.contents?.[0]?.text ?? '{}')
-    : {}
+  const persistedMeta = readPersistedMeta.status === 200 ? JSON.parse(parsePayload(readPersistedMeta.text).result?.contents?.[0]?.text ?? '{}') : {}
   checks['资源 dsh://sessions/{id} 冷会话 historyReadable'] = persistedMeta.historyReadable === true
-  checks['资源 dsh://sessions/{id} 携带轮数/上下文'] = persistedMeta.turn?.completed === 1
-    && persistedMeta.context?.tokens === 1200
+  checks['资源 dsh://sessions/{id} 携带轮数/上下文'] = persistedMeta.turn?.completed === 1 && persistedMeta.context?.tokens === 1200
   const readOverviewRes = await rpc(init.sid, { jsonrpc: '2.0', id: 642, method: 'resources/read', params: { uri: 'dsh://sessions/sess-persisted/overview' } })
-  const overviewRes = readOverviewRes.status === 200
-    ? JSON.parse(parsePayload(readOverviewRes.text).result?.contents?.[0]?.text ?? '{}')
-    : {}
-  checks['资源 dsh://sessions/{id}/overview 默认档概览'] = overviewRes.state === 'inactive'
-    && overviewRes.title === 'Persisted Older' && Array.isArray(overviewRes.recent?.entries)
-    && overviewRes.recent.entries[0]?.text === 'earlier question'
-    && overviewRes.context?.tokens === 1200
+  const overviewRes = readOverviewRes.status === 200 ? JSON.parse(parsePayload(readOverviewRes.text).result?.contents?.[0]?.text ?? '{}') : {}
+  checks['资源 dsh://sessions/{id}/overview 默认档概览'] =
+    overviewRes.state === 'inactive' &&
+    overviewRes.title === 'Persisted Older' &&
+    Array.isArray(overviewRes.recent?.entries) &&
+    overviewRes.recent.entries[0]?.text === 'earlier question' &&
+    overviewRes.context?.tokens === 1200
   const readStatus = await rpc(init.sid, { jsonrpc: '2.0', id: 65, method: 'resources/read', params: { uri: 'dsh://status' } })
   checks['资源 dsh://status 总览'] = readStatus.status === 200
   // 资源不存在 → McpError(-32602), 不返回空 contents
   const readMissing = await rpc(init.sid, { jsonrpc: '2.0', id: 66, method: 'resources/read', params: { uri: 'dsh://sessions/sess-nope/history' } })
-  checks['资源不可读 → -32602(绝不空 contents)'] = readMissing.status === 200
-    && parsePayload(readMissing.text).error?.code === -32602
+  checks['资源不可读 → -32602(绝不空 contents)'] = readMissing.status === 200 && parsePayload(readMissing.text).error?.code === -32602
   // 触发一轮 → 订阅者收到 history/activity 的 updated 推送
   const before = sse.events.length
-  await rpc(init.sid, { jsonrpc: '2.0', id: 67, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'push probe' } } })
+  await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 67,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'push probe' } },
+  })
   await waitFor(() => {
     const seen = sse.events.slice(before).map((e: any) => e.params?.uri ?? '')
     return seen.some((u) => u.includes('sess-live/history')) && seen.some((u) => u.includes('sess-live/activity'))
   }, 8000)
-  checks['订阅推送: turn 收敛后 history/activity 收到 updated'] = sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/history'))
-    && sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/activity'))
+  checks['订阅推送: turn 收敛后 history/activity 收到 updated'] =
+    sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/history')) &&
+    sse.events.slice(before).some((e: any) => e.params?.uri?.includes('sess-live/activity'))
 
   // 订阅推送的 URI 覆盖: events(活动面的同族)/sessions/{id}(历史收敛的元数据面)/游标变体/概览也要收到 updated
   const subEvents = await rpc(init.sid, { jsonrpc: '2.0', id: 68, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/events' } })
   const subMeta = await rpc(init.sid, { jsonrpc: '2.0', id: 69, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live' } })
   const subCursor = await rpc(init.sid, { jsonrpc: '2.0', id: 70, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/history/2' } })
   const subOverview = await rpc(init.sid, { jsonrpc: '2.0', id: 643, method: 'resources/subscribe', params: { uri: 'dsh://sessions/sess-live/overview' } })
-  checks['resources/subscribe events/元数据/游标变体'] = subEvents.status === 200 && subMeta.status === 200 && subCursor.status === 200
-    && subOverview.status === 200
+  checks['resources/subscribe events/元数据/游标变体'] =
+    subEvents.status === 200 && subMeta.status === 200 && subCursor.status === 200 && subOverview.status === 200
   const before2 = sse.events.length
-  await rpc(init.sid, { jsonrpc: '2.0', id: 71, method: 'tools/call', params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'family push probe' } } })
+  await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 71,
+    method: 'tools/call',
+    params: { name: 'session_prompt', arguments: { sessionId: 'sess-live', task: 'family push probe' } },
+  })
   await waitFor(() => {
     const seen = sse.events.slice(before2).map((e: any) => e.params?.uri ?? '')
-    return seen.includes('dsh://sessions/sess-live/events')
-      && seen.includes('dsh://sessions/sess-live')
-      && seen.includes('dsh://sessions/sess-live/history/2')
+    return seen.includes('dsh://sessions/sess-live/events') && seen.includes('dsh://sessions/sess-live') && seen.includes('dsh://sessions/sess-live/history/2')
   }, 8000)
   const seen2 = sse.events.slice(before2).map((e: any) => e.params?.uri ?? '')
   checks['订阅推送: events(活动同族)收到 updated'] = seen2.includes('dsh://sessions/sess-live/events')
@@ -886,7 +1415,7 @@ try {
   {
     const phase = await startPhase(8098, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
     const mkOut = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
-    checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? innerOf(mkOut).error ?? '' : '').includes('not in allowedModels')
+    checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? (innerOf(mkOut).error ?? '') : '').includes('not in allowedModels')
     const mkIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
@@ -902,7 +1431,10 @@ try {
 
   // ── Phase B2: 开关显式关闭 = 暂时不限制(清单保留) ──
   {
-    const phase = await startPhase(8092, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'], allowedModelsEnabled: false })
+    const phase = await startPhase(8092, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      allowedModels: ['p1/m1'],
+      allowedModelsEnabled: false,
+    })
     const mkOff = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
     checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
     const stOff = await phase.call('dsh_status', {})
@@ -931,12 +1463,11 @@ try {
     checks['权限预设缺席: permission_list 明确报不可用'] = String(innerOf(plOut).error ?? '').includes('permission-presets service is unavailable')
     const before = created.length
     const mkNoPermSvc = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'danger-full-access' })
-    checks['权限预设缺席: 指定 permission 被拒且不建会话'] = String(innerOf(mkNoPermSvc).error ?? '').includes('permission-presets service is unavailable')
-      && created.length === before
+    checks['权限预设缺席: 指定 permission 被拒且不建会话'] =
+      String(innerOf(mkNoPermSvc).error ?? '').includes('permission-presets service is unavailable') && created.length === before
     const mkPlain = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     const mkPlainInner = innerOf(mkPlain)
-    checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string'
-      && mkPlainInner.permission === undefined
+    checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string' && mkPlainInner.permission === undefined
     const meta = await phase.call('session_meta', { sessionId: 'sess-live' })
     checks['权限预设缺席: session_meta 省略 permission 字段'] = innerOf(meta).permission === undefined
     const setOut = await phase.call('session_set_permission', { sessionId: 'sess-live', permission: 'danger-full-access' })
@@ -956,62 +1487,73 @@ try {
     checks['图片入站: prompt 携带图片引用成功'] = imgPrompt.status === 200 && innerOf(imgPrompt).error === undefined
     const lastMsg = followups[followups.length - 1]?.message as any
     const imgId = lastMsg?.content?.find((c: any) => c.type === 'image')?.attachment?.attachmentId
-    checks['图片入站: 消息 content = text + image 块(引用不传值)'] = typeof imgId === 'string' && imgId.startsWith('img-')
-      && lastMsg.content.filter((c: any) => c.type === 'text').length === 1
-      && !JSON.stringify(lastMsg.content).includes('base64')
-    checks['图片入站: 字节在宿主侧读取并准入'] = attachmentCalls.length === 1
-      && attachmentCalls[0][0].mediaType === 'image/png'
-      && attachmentCalls[0][0].bytes === FAKE_PNG.length
+    checks['图片入站: 消息 content = text + image 块(引用不传值)'] =
+      typeof imgId === 'string' &&
+      imgId.startsWith('img-') &&
+      lastMsg.content.filter((c: any) => c.type === 'text').length === 1 &&
+      !JSON.stringify(lastMsg.content).includes('base64')
+    checks['图片入站: 字节在宿主侧读取并准入'] =
+      attachmentCalls.length === 1 && attachmentCalls[0][0].mediaType === 'image/png' && attachmentCalls[0][0].bytes === FAKE_PNG.length
 
     const badPrompt = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'bad file', attachments: [{ path: join(tmpDir, 'note.txt') }] })
-    checks['图片入站: 非图片文件明确拒绝'] = badPrompt.status === 200
-      && String(innerOf(badPrompt).error ?? '').includes('not a recognized image')
+    checks['图片入站: 非图片文件明确拒绝'] = badPrompt.status === 200 && String(innerOf(badPrompt).error ?? '').includes('not a recognized image')
 
     const badScheme = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'bad scheme', attachments: [{ url: 'file:///etc/passwd' }] })
-    checks['图片入站: url 仅接受 http(s)(file 协议拒绝)'] = badScheme.status === 200
-      && String(innerOf(badScheme).error ?? '').includes('must be http(s)')
+    checks['图片入站: url 仅接受 http(s)(file 协议拒绝)'] = badScheme.status === 200 && String(innerOf(badScheme).error ?? '').includes('must be http(s)')
 
-    const bothRefs = await phase.call('session_prompt', { sessionId: 'sess-live', task: 'both refs', attachments: [{ path: pngPath, url: 'https://example.com/x.png' }] })
-    checks['图片入站: path 与 url 同时给出明确拒绝'] = bothRefs.status === 200
-      && String(innerOf(bothRefs).error ?? '').includes('not both')
+    const bothRefs = await phase.call('session_prompt', {
+      sessionId: 'sess-live',
+      task: 'both refs',
+      attachments: [{ path: pngPath, url: 'https://example.com/x.png' }],
+    })
+    checks['图片入站: path 与 url 同时给出明确拒绝'] = bothRefs.status === 200 && String(innerOf(bothRefs).error ?? '').includes('not both')
 
-    const submitImg = await phase.call('session_submit', { sessionId: 'sess-live', task: 'second image', attachments: [{ path: pngPath, name: 'two.png' }], requestId: 'rice-img-2' })
+    const submitImg = await phase.call('session_submit', {
+      sessionId: 'sess-live',
+      task: 'second image',
+      attachments: [{ path: pngPath, name: 'two.png' }],
+      requestId: 'rice-img-2',
+    })
     const submitReceipt = innerOf(submitImg) as any
-    checks['图片入站: submit 回执带 attachmentId 列表'] = Array.isArray(submitReceipt.attachments)
-      && submitReceipt.attachments.length === 1 && typeof submitReceipt.attachments[0] === 'string'
+    checks['图片入站: submit 回执带 attachmentId 列表'] =
+      Array.isArray(submitReceipt.attachments) && submitReceipt.attachments.length === 1 && typeof submitReceipt.attachments[0] === 'string'
 
     // 上限防线: 第 9 张在入参校验(SDK zod)被拒, 不会发生字节读取与准入
     const admissionsBefore = attachmentCalls.length
     const tooMany = await phase.call('session_submit', {
-      sessionId: 'sess-live', task: 'too many images',
+      sessionId: 'sess-live',
+      task: 'too many images',
       attachments: Array.from({ length: 9 }, (_v, i) => ({ path: `no-such-${i}.png` })),
     })
     const tooManyErr = String(innerOf(tooMany).error ?? '')
-    checks['图片入站: 第 9 张在入参校验被拒(不到准入)'] = tooManyErr.includes('session_submit')
-      && /attachment|items|maxItems|8/i.test(tooManyErr)
-      && attachmentCalls.length === admissionsBefore
+    checks['图片入站: 第 9 张在入参校验被拒(不到准入)'] =
+      tooManyErr.includes('session_submit') && /attachment|items|maxItems|8/i.test(tooManyErr) && attachmentCalls.length === admissionsBefore
 
     const hist = await phase.call('session_history', { sessionId: 'sess-live', limit: 12 })
     const histPayload = innerOf(hist) as any
     const userWithImages = (histPayload.turns ?? []).filter((t: any) => t.role === 'user' && Array.isArray(t.images))
-    checks['出站投影: history user 条目带 images 引用(无字节)'] = userWithImages.length >= 1
-      && userWithImages.some((t: any) => t.images.some((i: any) => i.attachmentId === imgId))
-      && !JSON.stringify(userWithImages).includes('base64')
+    checks['出站投影: history user 条目带 images 引用(无字节)'] =
+      userWithImages.length >= 1 &&
+      userWithImages.some((t: any) => t.images.some((i: any) => i.attachmentId === imgId)) &&
+      !JSON.stringify(userWithImages).includes('base64')
 
     const readRef = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: imgId })
     const readRefMeta = innerOf(readRef) as any
-    checks['attachment_read: 引用模式 = 元数据 + hostPath, 零图片字节'] = readRef.status === 200
-      && readRefMeta.error === undefined
-      && parsePayload(readRef.text).result?.content?.length === 1
-      && parsePayload(readRef.text).result?.content?.[0]?.type === 'text'
-      && readRefMeta.attachmentId === imgId && String(readRefMeta.hostPath ?? '').includes(imgId)
+    checks['attachment_read: 引用模式 = 元数据 + hostPath, 零图片字节'] =
+      readRef.status === 200 &&
+      readRefMeta.error === undefined &&
+      parsePayload(readRef.text).result?.content?.length === 1 &&
+      parsePayload(readRef.text).result?.content?.[0]?.type === 'text' &&
+      readRefMeta.attachmentId === imgId &&
+      String(readRefMeta.hostPath ?? '').includes(imgId)
 
     const readInline = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: imgId, inline: true })
     const readInlineBlocks = parsePayload(readInline.text).result?.content ?? []
-    checks['attachment_read: inline 模式回 MCP image 内容块'] = readInline.status === 200
-      && readInlineBlocks[0]?.type === 'image'
-      && readInlineBlocks[0]?.mimeType === 'image/png'
-      && readInlineBlocks[0]?.data === Buffer.from(FAKE_PNG).toString('base64')
+    checks['attachment_read: inline 模式回 MCP image 内容块'] =
+      readInline.status === 200 &&
+      readInlineBlocks[0]?.type === 'image' &&
+      readInlineBlocks[0]?.mimeType === 'image/png' &&
+      readInlineBlocks[0]?.data === Buffer.from(FAKE_PNG).toString('base64')
 
     const readMissing = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: 'img-nope' })
     checks['attachment_read: 未知 id 明确报错'] = String(innerOf(readMissing).error ?? '').includes('not found')
@@ -1024,44 +1566,54 @@ try {
     const dir = await phase.call('endpoint_describe', {})
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
-    checks['端点索引: 无参只给 namespace 计数, 不倾倒端点条目'] = dirPayload.total === 9 && dirPayload.readable === 5 && dirPayload.writable === 0
-      && sessionGroup?.methods === 5 && sessionGroup?.readable === 3 && sessionGroup?.approvalRequired === 4
-      && sessionGroup?.endpoints === undefined
-      && (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'goals')?.methods === 1
+    checks['端点索引: 无参只给 namespace 计数, 不倾倒端点条目'] =
+      dirPayload.total === 9 &&
+      dirPayload.readable === 5 &&
+      dirPayload.writable === 0 &&
+      sessionGroup?.methods === 5 &&
+      sessionGroup?.readable === 3 &&
+      sessionGroup?.approvalRequired === 4 &&
+      sessionGroup?.endpoints === undefined &&
+      (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'goals')?.methods === 1
 
     const nsList = await phase.call('endpoint_describe', { namespace: 'session' })
     const nsPayload = innerOf(nsList) as any
     const byEndpoint = Object.fromEntries((nsPayload.endpoints ?? []).map((m: any) => [m.endpoint, m]))
-    checks['端点单域清单: 逐端点 readOnly/approvalRequired/blockedBy 标记正确'] = nsPayload.total === 5
-      && byEndpoint['session/modelCatalog']?.readOnly === true
-      && byEndpoint['session/modelCatalog']?.approvalRequired === true && byEndpoint['session/modelCatalog']?.blockedBy === 'requires approval'
-      && byEndpoint['session/prompt']?.approvalRequired === true && byEndpoint['session/prompt']?.blockedBy === 'requires approval'
-      && byEndpoint['session/follow']?.blockedBy === 'stream'
+    checks['端点单域清单: 逐端点 readOnly/approvalRequired/blockedBy 标记正确'] =
+      nsPayload.total === 5 &&
+      byEndpoint['session/modelCatalog']?.readOnly === true &&
+      byEndpoint['session/modelCatalog']?.approvalRequired === true &&
+      byEndpoint['session/modelCatalog']?.blockedBy === 'requires approval' &&
+      byEndpoint['session/prompt']?.approvalRequired === true &&
+      byEndpoint['session/prompt']?.blockedBy === 'requires approval' &&
+      byEndpoint['session/follow']?.blockedBy === 'stream'
     const credNs = await phase.call('endpoint_describe', { namespace: 'credentials' })
     const credEp = ((innerOf(credNs) as any).endpoints ?? [])[0]
-    checks['端点单域清单: 危险端点标 dangerous 且走审批闸门(无永久拒绝)'] = credEp?.dangerous === true
-      && credEp?.approvalRequired === true && credEp?.blockedBy === 'requires approval'
+    checks['端点单域清单: 危险端点标 dangerous 且走审批闸门(无永久拒绝)'] =
+      credEp?.dangerous === true && credEp?.approvalRequired === true && credEp?.blockedBy === 'requires approval'
 
     const hit = await phase.call('endpoint_describe', { query: 'routable model' })
     const hitPayload = innerOf(hit) as any
     checks['端点搜索: 多词 AND 同时命中端点名与描述'] = hitPayload.total === 1 && hitPayload.endpoints?.[0]?.endpoint === 'session/modelCatalog'
     const scoped = await phase.call('endpoint_describe', { query: 'list', namespace: 'session' })
-    checks['端点搜索: namespace 参数把搜索收窄到单域'] = (innerOf(scoped) as any).total === 1
-      && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
+    checks['端点搜索: namespace 参数把搜索收窄到单域'] =
+      (innerOf(scoped) as any).total === 1 && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
     // descriptor 不带描述的插件端点: 摘要/契约/搜索都回退到端点元数据的英文
     const mcpNs = await phase.call('endpoint_describe', { namespace: 'mcpManager' })
     const mcpList = ((innerOf(mcpNs) as any).endpoints ?? []).find((m: any) => m.endpoint === 'mcpManager/list')
-    checks['端点清单: descriptor 无描述时摘要回退元数据英文'] = typeof mcpList?.summary === 'string'
-      && mcpList.summary.startsWith('Read managed and external MCP server rows')
+    checks['端点清单: descriptor 无描述时摘要回退元数据英文'] =
+      typeof mcpList?.summary === 'string' && mcpList.summary.startsWith('Read managed and external MCP server rows')
     const mcpContract = await phase.call('endpoint_describe', { endpoint: 'mcpManager/list' })
-    checks['端点契约: descriptor 无描述时 description 回退元数据英文'] = String((innerOf(mcpContract) as any).description ?? '')
-      .startsWith('Read managed and external MCP server rows')
+    checks['端点契约: descriptor 无描述时 description 回退元数据英文'] = String((innerOf(mcpContract) as any).description ?? '').startsWith(
+      'Read managed and external MCP server rows',
+    )
     const metaHit = await phase.call('endpoint_describe', { query: 'loader state' })
-    checks['端点搜索: 元数据英文参与无描述端点的关键词匹配'] = (innerOf(metaHit) as any).total === 1
-      && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'mcpManager/list'
+    checks['端点搜索: 元数据英文参与无描述端点的关键词匹配'] =
+      (innerOf(metaHit) as any).total === 1 && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'mcpManager/list'
     const zero = await phase.call('endpoint_describe', { query: 'zzz-nothing' })
     const zeroPayload = innerOf(zero) as any
-    checks['端点搜索: 零命中附 namespace 名单供换词续搜'] = zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 5
+    checks['端点搜索: 零命中附 namespace 名单供换词续搜'] =
+      zeroPayload.total === 0 && Array.isArray(zeroPayload.namespaces) && zeroPayload.namespaces.length === 5
     const mixed = await phase.call('endpoint_describe', { endpoint: 'session/list', query: 'x' })
     checks['端点解析: endpoint 与 query/namespace 互斥'] = String(innerOf(mixed).error ?? '').includes('at most one')
     const badNs = await phase.call('endpoint_describe', { namespace: 'nope' })
@@ -1069,21 +1621,26 @@ try {
 
     const contract = await phase.call('endpoint_describe', { endpoint: 'session/modelCatalog' })
     const contractPayload = innerOf(contract) as any
-    checks['端点契约: 单端点给参数表与 result schema'] = contractPayload.endpoint === 'session/modelCatalog'
-      && contractPayload.readOnly === true
-      && contractPayload.allowed === false && contractPayload.approvalRequired === true
-      && contractPayload.dangerous === undefined
-      && Array.isArray(contractPayload.parameters) && contractPayload.parameters.length === 0
-      && contractPayload.result?.jsonSchema?.type === 'object'
+    checks['端点契约: 单端点给参数表与 result schema'] =
+      contractPayload.endpoint === 'session/modelCatalog' &&
+      contractPayload.readOnly === true &&
+      contractPayload.allowed === false &&
+      contractPayload.approvalRequired === true &&
+      contractPayload.dangerous === undefined &&
+      Array.isArray(contractPayload.parameters) &&
+      contractPayload.parameters.length === 0 &&
+      contractPayload.result?.jsonSchema?.type === 'object'
 
     const contractWrite = await phase.call('endpoint_describe', { endpoint: 'session/prompt' })
     const contractWritePayload = innerOf(contractWrite) as any
-    checks['端点契约: 停泊端点带 approvalRequired'] = contractWritePayload.endpoint === 'session/prompt'
-      && contractWritePayload.allowed === false && contractWritePayload.writable === false && contractWritePayload.approvalRequired === true
+    checks['端点契约: 停泊端点带 approvalRequired'] =
+      contractWritePayload.endpoint === 'session/prompt' &&
+      contractWritePayload.allowed === false &&
+      contractWritePayload.writable === false &&
+      contractWritePayload.approvalRequired === true
     const contractDangerous = await phase.call('endpoint_describe', { endpoint: 'credentials/set' })
     const contractDangerousPayload = innerOf(contractDangerous) as any
-    checks['端点契约: 危险端点带 dangerous(与清单一致)'] = contractDangerousPayload.dangerous === true
-      && contractDangerousPayload.approvalRequired === true
+    checks['端点契约: 危险端点带 dangerous(与清单一致)'] = contractDangerousPayload.dangerous === true && contractDangerousPayload.approvalRequired === true
 
     const unknown = await phase.call('endpoint_describe', { endpoint: 'nope/missing' })
     checks['端点契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
@@ -1091,58 +1648,60 @@ try {
     // 只读端点也走白名单闸门: 未入白名单先停泊, 允许后执行一次
     let heldRead: { approvalId: string; endpoint: string } | undefined
     const callRead = phase.call('endpoint_call', { endpoint: 'session/modelCatalog' })
-    checks['端点调用: 只读端点未入白名单也停泊进台账(不执行)'] = await waitFor(() => {
-      heldRead = listParkedCalls().find((p) => p.endpoint === 'session/modelCatalog')
-      return heldRead !== undefined && typeof heldRead.approvalId === 'string'
-    }) && endpointInvokes.length === 0
+    checks['端点调用: 只读端点未入白名单也停泊进台账(不执行)'] =
+      (await waitFor(() => {
+        heldRead = listParkedCalls().find((p) => p.endpoint === 'session/modelCatalog')
+        return heldRead !== undefined && typeof heldRead.approvalId === 'string'
+      })) && endpointInvokes.length === 0
     answerParkedCall(heldRead!.approvalId, 'allow')
     const callOk = await callRead
     const callOkPayload = innerOf(callOk) as any
-    checks['端点调用: 只读端点经人工允许后执行一次'] = callOk.status === 200
-      && callOkPayload.ok === true && callOkPayload.models?.[0] === 'm1'
-      && listParkedCalls().length === 0
-    checks['端点调用: 以 owner 身份(peer)发起'] = endpointInvokes.length === 1
-      && endpointInvokes[0].endpoint === 'session/modelCatalog'
-      && endpointInvokes[0].peerKind === 'owner'
+    checks['端点调用: 只读端点经人工允许后执行一次'] =
+      callOk.status === 200 && callOkPayload.ok === true && callOkPayload.models?.[0] === 'm1' && listParkedCalls().length === 0
+    checks['端点调用: 以 owner 身份(peer)发起'] =
+      endpointInvokes.length === 1 && endpointInvokes[0].endpoint === 'session/modelCatalog' && endpointInvokes[0].peerKind === 'owner'
 
     // 清单外写端点: 不再直接拒绝, 停泊等审批(拒绝收尾, 顺便覆盖 decline 路径)
     let heldWrite: { approvalId: string; endpoint: string } | undefined
     const callWrite = phase.call('endpoint_call', { endpoint: 'session/prompt', args: { request: {} } })
-    checks['端点调用: 清单外写端点停泊进台账(不执行)'] = await waitFor(() => {
-      heldWrite = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
-      return heldWrite !== undefined && typeof heldWrite.approvalId === 'string'
-    }) && endpointInvokes.length === 1
+    checks['端点调用: 清单外写端点停泊进台账(不执行)'] =
+      (await waitFor(() => {
+        heldWrite = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
+        return heldWrite !== undefined && typeof heldWrite.approvalId === 'string'
+      })) && endpointInvokes.length === 1
     answerParkedCall(heldWrite!.approvalId, 'reject')
     const writeOutcome = await callWrite
-    checks['端点调用: 停泊被拒后失败关闭(declined)'] = String(innerOf(writeOutcome).error ?? '').includes('declined')
-      && endpointInvokes.length === 1
-      && listParkedCalls().length === 0
+    checks['端点调用: 停泊被拒后失败关闭(declined)'] =
+      String(innerOf(writeOutcome).error ?? '').includes('declined') && endpointInvokes.length === 1 && listParkedCalls().length === 0
     const callStream = await phase.call('endpoint_call', { endpoint: 'session/follow' })
     checks['端点调用: 流式端点拒绝'] = String(innerOf(callStream).error ?? '').includes('not callable')
     // lookup 参数透传: goals/get 同样是只读端点, 未入白名单先停泊, 允许后由网关解析 agent id
     let heldLookup: { approvalId: string; endpoint: string } | undefined
     const callLookup = phase.call('endpoint_call', { endpoint: 'goals/get', args: { agent: 'sess-live' } })
-    checks['端点调用: lookup 端点未入白名单也停泊(不执行)'] = await waitFor(() => {
-      heldLookup = listParkedCalls().find((p) => p.endpoint === 'goals/get')
-      return heldLookup !== undefined
-    }) && endpointInvokes.length === 1
+    checks['端点调用: lookup 端点未入白名单也停泊(不执行)'] =
+      (await waitFor(() => {
+        heldLookup = listParkedCalls().find((p) => p.endpoint === 'goals/get')
+        return heldLookup !== undefined
+      })) && endpointInvokes.length === 1
     answerParkedCall(heldLookup!.approvalId, 'allow')
     const callLookupPayload = innerOf(await callLookup) as any
-    checks['端点调用: lookup 参数透传给网关解析(允许后执行)'] = callLookupPayload.agentArg === 'sess-live'
-      && listParkedCalls().length === 0
+    checks['端点调用: lookup 参数透传给网关解析(允许后执行)'] = callLookupPayload.agentArg === 'sess-live' && listParkedCalls().length === 0
     // 危险端点(元数据标注)未入白名单: 同样停泊等审批, 台账条目带 dangerous 标注; 允许后执行
     let heldDangerous: { approvalId: string; endpoint: string } | undefined
     const callDangerous = phase.call('endpoint_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
-    checks['端点调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] = await waitFor(() => {
-      heldDangerous = listParkedCalls().find((p) => p.endpoint === 'credentials/set')
-      return heldDangerous !== undefined && (heldDangerous as any).dangerous === true
-    }) && endpointInvokes.length === 2
+    checks['端点调用: 危险端点未入白名单也停泊进台账(带 dangerous 标注)'] =
+      (await waitFor(() => {
+        heldDangerous = listParkedCalls().find((p) => p.endpoint === 'credentials/set')
+        return heldDangerous !== undefined && (heldDangerous as any).dangerous === true
+      })) && endpointInvokes.length === 2
     answerParkedCall(heldDangerous!.approvalId, 'allow')
     const dangerousOutcome = await callDangerous
-    checks['端点调用: 危险端点经人工允许后执行'] = dangerousOutcome.status === 200
-      && (innerOf(dangerousOutcome) as any).set === true
-      && endpointInvokes.length === 3 && endpointInvokes[2].endpoint === 'credentials/set'
-      && listParkedCalls().length === 0
+    checks['端点调用: 危险端点经人工允许后执行'] =
+      dangerousOutcome.status === 200 &&
+      (innerOf(dangerousOutcome) as any).set === true &&
+      endpointInvokes.length === 3 &&
+      endpointInvokes[2].endpoint === 'credentials/set' &&
+      listParkedCalls().length === 0
     const callUnknown = await phase.call('endpoint_call', { endpoint: 'nope/missing' })
     checks['端点调用: 未知端点明确报错'] = String(innerOf(callUnknown).error ?? '').includes('unknown endpoint')
     await phase.dispose()
@@ -1161,48 +1720,59 @@ try {
     const prompt = (sessNs.endpoints ?? []).find((m: any) => m.endpoint === 'session/prompt')
     const schedNs = innerOf(await phase.call('endpoint_describe', { namespace: 'schedule' })) as any
     const credNs = innerOf(await phase.call('endpoint_describe', { namespace: 'credentials' })) as any
-    checks['写端点目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] = dirPayload.writable === 1
-      && (schedNs.endpoints ?? [])[0]?.writable === true
-      && prompt?.writable !== true && prompt?.approvalRequired === true && prompt?.blockedBy === 'requires approval'
-      && (credNs.endpoints ?? [])[0]?.dangerous === true && (credNs.endpoints ?? [])[0]?.approvalRequired === true
+    checks['写端点目录: 索引聚合 writable 计数, 单域清单给逐端点标记'] =
+      dirPayload.writable === 1 &&
+      (schedNs.endpoints ?? [])[0]?.writable === true &&
+      prompt?.writable !== true &&
+      prompt?.approvalRequired === true &&
+      prompt?.blockedBy === 'requires approval' &&
+      (credNs.endpoints ?? [])[0]?.dangerous === true &&
+      (credNs.endpoints ?? [])[0]?.approvalRequired === true
 
     const directCall = await phase.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
-    checks['写端点: 白名单端点直接执行(无审批)'] = directCall.status === 200
-      && (innerOf(directCall) as any).updated === true
-      && endpointInvokes.length === 1 && listParkedCalls().length === 0
+    checks['写端点: 白名单端点直接执行(无审批)'] =
+      directCall.status === 200 && (innerOf(directCall) as any).updated === true && endpointInvokes.length === 1 && listParkedCalls().length === 0
 
     // 危险端点也可以入白名单直行(永久黑名单已移除): 白名单内的危险端点无审批直接执行
     let heldCred: any
     const credParked = phase.call('endpoint_call', { endpoint: 'credentials/set', args: { ref: 'x', value: 'y' } })
-    checks['写端点: 危险端点未入白名单先停泊(台账带 dangerous)'] = await waitFor(() => {
-      heldCred = listParkedCalls().find((p) => p.endpoint === 'credentials/set')
-      return heldCred !== undefined && heldCred.dangerous === true
-    }) && endpointInvokes.length === 1
+    checks['写端点: 危险端点未入白名单先停泊(台账带 dangerous)'] =
+      (await waitFor(() => {
+        heldCred = listParkedCalls().find((p) => p.endpoint === 'credentials/set')
+        return heldCred !== undefined && heldCred.dangerous === true
+      })) && endpointInvokes.length === 1
     answerParkedCall(heldCred.approvalId, 'allow')
     const credCall = await credParked
-    checks['写端点: 危险端点经人工允许后执行'] = (innerOf(credCall) as any).set === true
-      && endpointInvokes.length === 2 && listParkedCalls().length === 0
+    checks['写端点: 危险端点经人工允许后执行'] = (innerOf(credCall) as any).set === true && endpointInvokes.length === 2 && listParkedCalls().length === 0
 
     // GUI 端点目录路由(设置面板白名单清单的数据源): 全量端点 + 分类 + 白名单标记
     const epsRes = await phase.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsBody = epsRes.status === 200 ? JSON.parse(epsRes.body) : {}
     const epsMap = Object.fromEntries((epsBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
-    checks['GUI endpoint-allowlist: 全量端点+分类+白名单标记'] = epsBody.available === true
-      && epsBody.total === 9 && (epsBody.endpoints ?? []).length === 9
-      && epsMap['session/modelCatalog']?.kind === 'selectable' && epsMap['session/modelCatalog']?.readOnly === true
-      && epsMap['session/modelCatalog']?.allowed === false
-      && epsMap['session/follow']?.kind === 'stream'
-      && epsMap['credentials/set']?.kind === 'selectable' && epsMap['credentials/set']?.dangerous === true
-      && epsMap['session/prompt']?.kind === 'selectable' && epsMap['session/prompt']?.allowed === false
-      && epsMap['schedule/update']?.kind === 'selectable' && epsMap['schedule/update']?.allowed === true
-      && Array.isArray(epsBody.stale) && epsBody.stale.length === 0
-      && typeof epsMap['session/modelCatalog']?.description === 'string'
+    checks['GUI endpoint-allowlist: 全量端点+分类+白名单标记'] =
+      epsBody.available === true &&
+      epsBody.total === 9 &&
+      (epsBody.endpoints ?? []).length === 9 &&
+      epsMap['session/modelCatalog']?.kind === 'selectable' &&
+      epsMap['session/modelCatalog']?.readOnly === true &&
+      epsMap['session/modelCatalog']?.allowed === false &&
+      epsMap['session/follow']?.kind === 'stream' &&
+      epsMap['credentials/set']?.kind === 'selectable' &&
+      epsMap['credentials/set']?.dangerous === true &&
+      epsMap['session/prompt']?.kind === 'selectable' &&
+      epsMap['session/prompt']?.allowed === false &&
+      epsMap['schedule/update']?.kind === 'selectable' &&
+      epsMap['schedule/update']?.allowed === true &&
+      Array.isArray(epsBody.stale) &&
+      epsBody.stale.length === 0 &&
+      typeof epsMap['session/modelCatalog']?.description === 'string' &&
       // 元数据中文始终透出; 英文只在 descriptor 没有描述(插件端点)时附上, 核心端点不重复
-      && typeof epsMap['session/modelCatalog']?.descriptionZh === 'string'
-      && epsMap['session/modelCatalog']?.descriptionEn === undefined
-      && typeof epsMap['mcpManager/list']?.descriptionEn === 'string'
+      typeof epsMap['session/modelCatalog']?.descriptionZh === 'string' &&
+      epsMap['session/modelCatalog']?.descriptionEn === undefined &&
+      typeof epsMap['mcpManager/list']?.descriptionEn === 'string' &&
       // 命名空间一句话描述透出(面板组头显示)
-      && typeof epsBody.namespaces?.session?.zh === 'string' && typeof epsBody.namespaces?.session?.en === 'string'
+      typeof epsBody.namespaces?.session?.zh === 'string' &&
+      typeof epsBody.namespaces?.session?.en === 'string'
 
     // 停泊 → 允许 → 执行
     let held: any
@@ -1211,16 +1781,17 @@ try {
       held = listParkedCalls().find((p) => p.endpoint === 'session/prompt')
       return held !== undefined
     })
-    checks['调用停泊: 台账条目带端点/参数摘要/过期时刻'] = typeof held?.approvalId === 'string'
-      && String(held?.argsPreview).includes('hi') && typeof held?.expiresAt === 'number'
+    checks['调用停泊: 台账条目带端点/参数摘要/过期时刻'] =
+      typeof held?.approvalId === 'string' && String(held?.argsPreview).includes('hi') && typeof held?.expiresAt === 'number'
     checks['调用停泊: 等待期间未执行'] = endpointInvokes.length === 2
 
     // GUI 审批卡路由: 读取在途审批(带不限时标记), 经同源 POST 应答允许
     const gaRead = await phase.gui('endpoint-approvals', { httpMethod: 'GET' })
     const gaBody = gaRead.status === 200 ? JSON.parse(gaRead.body) : {}
-    checks['GUI endpoint-approvals: 在途审批可读'] = gaRead.status === 200
-      && (gaBody.approvals ?? []).some((p: any) => p.approvalId === held.approvalId && p.endpoint === 'session/prompt')
-      && gaBody.unlimitedWait === false
+    checks['GUI endpoint-approvals: 在途审批可读'] =
+      gaRead.status === 200 &&
+      (gaBody.approvals ?? []).some((p: any) => p.approvalId === held.approvalId && p.endpoint === 'session/prompt') &&
+      gaBody.unlimitedWait === false
     const gaAllow = await phase.gui('endpoint-approval-answer', {
       httpMethod: 'POST',
       headers: { 'sec-fetch-site': 'same-origin' },
@@ -1229,10 +1800,13 @@ try {
     const gaAllowBody = gaAllow.status === 200 ? JSON.parse(gaAllow.body) : {}
     checks['GUI endpoint-approval-answer: 同源允许成功'] = gaAllow.status === 200 && gaAllowBody.ok === true
     const parkedResult = await parkedCall
-    checks['调用停泊: 允许后放行执行'] = gaAllowBody.ok === true && parkedResult.status === 200
-      && (innerOf(parkedResult) as any).prompted === true
-      && endpointInvokes.length === 3 && endpointInvokes[2].endpoint === 'session/prompt'
-      && listParkedCalls().length === 0
+    checks['调用停泊: 允许后放行执行'] =
+      gaAllowBody.ok === true &&
+      parkedResult.status === 200 &&
+      (innerOf(parkedResult) as any).prompted === true &&
+      endpointInvokes.length === 3 &&
+      endpointInvokes[2].endpoint === 'session/prompt' &&
+      listParkedCalls().length === 0
 
     // 停泊 → 拒绝 → 失败关闭
     const declinedCall = phase.call('endpoint_call', { endpoint: 'session/prompt', args: { request: { q: 'no' } } })
@@ -1242,21 +1816,21 @@ try {
     })
     answerParkedCall(held.approvalId, 'reject')
     const declined = await declinedCall
-    checks['调用停泊: 拒绝后失败关闭'] = String(innerOf(declined).error ?? '').includes('declined')
-      && endpointInvokes.length === 3 && listParkedCalls().length === 0
+    checks['调用停泊: 拒绝后失败关闭'] =
+      String(innerOf(declined).error ?? '').includes('declined') && endpointInvokes.length === 3 && listParkedCalls().length === 0
 
-    checks['调用停泊: 未知审批 id 明确报错'] = answerParkedCall('nope', 'allow').ok === false
-      && listParkedCalls().length === 0
+    checks['调用停泊: 未知审批 id 明确报错'] = answerParkedCall('nope', 'allow').ok === false && listParkedCalls().length === 0
 
     // GUI 应答边界: 未知 id 回 ok:false; 非法 decision 400; 跨站应答被同源守卫拦下
     const gaUnknown = await phase.gui('endpoint-approval-answer', {
-      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      httpMethod: 'POST',
+      headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ approvalId: 'nope', decision: 'allow' }),
     })
-    checks['GUI endpoint-approval-answer: 未知 id 回 ok:false'] = gaUnknown.status === 200
-      && JSON.parse(gaUnknown.body).ok === false
+    checks['GUI endpoint-approval-answer: 未知 id 回 ok:false'] = gaUnknown.status === 200 && JSON.parse(gaUnknown.body).ok === false
     const gaBadDecision = await phase.gui('endpoint-approval-answer', {
-      httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' },
+      httpMethod: 'POST',
+      headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ approvalId: 'x', decision: 'maybe' }),
     })
     checks['GUI endpoint-approval-answer: 非法 decision 400'] = gaBadDecision.status === 400
@@ -1266,14 +1840,13 @@ try {
       return held !== undefined
     })
     const gaCross = await phase.gui('endpoint-approval-answer', {
-      httpMethod: 'POST', headers: { origin: 'http://evil.example.com', 'sec-fetch-site': 'cross-site' },
+      httpMethod: 'POST',
+      headers: { origin: 'http://evil.example.com', 'sec-fetch-site': 'cross-site' },
       body: JSON.stringify({ approvalId: held.approvalId, decision: 'allow' }),
     })
-    checks['GUI endpoint-approval-answer: 跨站应答 403(同源守卫)'] = gaCross.status === 403
-      && listParkedCalls().length === 1
+    checks['GUI endpoint-approval-answer: 跨站应答 403(同源守卫)'] = gaCross.status === 403 && listParkedCalls().length === 1
     answerParkedCall(held.approvalId, 'reject')
-    checks['端点调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined')
-      && endpointInvokes.length === 3
+    checks['端点调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined') && endpointInvokes.length === 3
 
     // 限时超时: 测试钩子把在途审批的过期时间前移, 不真等超时
     const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
@@ -1283,8 +1856,8 @@ try {
     })
     const epsStale = await phaseT.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsStaleBody = epsStale.status === 200 ? JSON.parse(epsStale.body) : {}
-    checks['GUI endpoint-allowlist: 白名单失效条目标记 stale'] = JSON.stringify(epsStaleBody.stale) === JSON.stringify(['ghost/gone'])
-      && (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
+    checks['GUI endpoint-allowlist: 白名单失效条目标记 stale'] =
+      JSON.stringify(epsStaleBody.stale) === JSON.stringify(['ghost/gone']) && (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
     const timeoutCall = phaseT.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 't1' } } })
     await waitFor(() => {
       held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
@@ -1292,15 +1865,14 @@ try {
     })
     ageParkedCallsForTest(1001)
     const timedOut = await timeoutCall
-    checks['调用停泊: 限时超时失败关闭且台账清空'] = String(innerOf(timedOut).error ?? '').includes('timed out')
-      && listParkedCalls().length === 0 && endpointInvokes.length === 3
+    checks['调用停泊: 限时超时失败关闭且台账清空'] =
+      String(innerOf(timedOut).error ?? '').includes('timed out') && listParkedCalls().length === 0 && endpointInvokes.length === 3
 
     // 不限时(0): 时间流逝不停泊消失, 允许后执行
     const ctxU = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
     const phaseU = await startPhase(8074, ctxU, { approvalTimeoutMs: 0 })
     const guRead = await phaseU.gui('endpoint-approvals', { httpMethod: 'GET' })
-    checks['GUI endpoint-approvals: 0 = 不限时标记'] = guRead.status === 200
-      && JSON.parse(guRead.body).unlimitedWait === true
+    checks['GUI endpoint-approvals: 0 = 不限时标记'] = guRead.status === 200 && JSON.parse(guRead.body).unlimitedWait === true
     const unlimitedCall = phaseU.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'u1' } } })
     await waitFor(() => {
       held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
@@ -1311,8 +1883,8 @@ try {
     checks['调用停泊: 不限时不因时间流逝超时'] = listParkedCalls().length === 1
     answerParkedCall(held.approvalId, 'allow')
     const unlimitedResult = await unlimitedCall
-    checks['调用停泊: 不限时允许后执行'] = unlimitedResult.status === 200
-      && (innerOf(unlimitedResult) as any).updated === true && listParkedCalls().length === 0
+    checks['调用停泊: 不限时允许后执行'] =
+      unlimitedResult.status === 200 && (innerOf(unlimitedResult) as any).updated === true && listParkedCalls().length === 0
 
     // 断连取消: 直接经 invokeEndpoint 带 AbortSignal(真机由 MCP 请求中止触发)
     const ctrl = new AbortController()
@@ -1323,16 +1895,15 @@ try {
     })
     ctrl.abort()
     const cancelled = await cancelCall
-    checks['调用停泊: 调用方断开取消且不执行'] = cancelled.ok === false
-      && String(cancelled.error).includes('disconnected')
-      && listParkedCalls().length === 0 && endpointInvokes.length === 4
+    checks['调用停泊: 调用方断开取消且不执行'] =
+      cancelled.ok === false && String(cancelled.error).includes('disconnected') && listParkedCalls().length === 0 && endpointInvokes.length === 4
 
     // 已中止的信号: 不停泊直接取消
     const ctrl2 = new AbortController()
     ctrl2.abort()
     const preAborted = await invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c2' } }, { signal: ctrl2.signal })
-    checks['调用停泊: 已中止信号直接取消(不停泊)'] = preAborted.ok === false
-      && String(preAborted.error).includes('disconnected') && listParkedCalls().length === 0
+    checks['调用停泊: 已中止信号直接取消(不停泊)'] =
+      preAborted.ok === false && String(preAborted.error).includes('disconnected') && listParkedCalls().length === 0
 
     await phase.dispose()
     await phaseT.dispose()
@@ -1346,12 +1917,15 @@ try {
       endpointAllowlist: ['session/modelCatalog'],
     })
     const contract = innerOf(await phaseR.call('endpoint_describe', { endpoint: 'session/modelCatalog' })) as any
-    checks['只读端点入白名单: allowed=true, writable=false, 无 approvalRequired'] = contract.allowed === true
-      && contract.readOnly === true && contract.writable === false && contract.approvalRequired === undefined
+    checks['只读端点入白名单: allowed=true, writable=false, 无 approvalRequired'] =
+      contract.allowed === true && contract.readOnly === true && contract.writable === false && contract.approvalRequired === undefined
     const readCall = await phaseR.call('endpoint_call', { endpoint: 'session/modelCatalog' })
-    checks['只读端点入白名单: 直接执行(无审批, 不进台账)'] = readCall.status === 200
-      && (innerOf(readCall) as any).ok === true && (innerOf(readCall) as any).models?.[0] === 'm1'
-      && endpointInvokes.length === 1 && listParkedCalls().length === 0
+    checks['只读端点入白名单: 直接执行(无审批, 不进台账)'] =
+      readCall.status === 200 &&
+      (innerOf(readCall) as any).ok === true &&
+      (innerOf(readCall) as any).models?.[0] === 'm1' &&
+      endpointInvokes.length === 1 &&
+      listParkedCalls().length === 0
     await phaseR.dispose()
   }
 
@@ -1401,17 +1975,17 @@ try {
     })
     const list = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
     const held = innerOf(list).sessions?.[0]?.approvals?.[0]
-    checks['approval_list: 持有后 answerable=true'] = held?.eventId === 'ev-1' && held?.approvalId === 'ap-1'
-      && held?.answerable === true && held?.callId === 'call-1' && held?.toolName === 'pwsh'
+    checks['approval_list: 持有后 answerable=true'] =
+      held?.eventId === 'ev-1' && held?.approvalId === 'ap-1' && held?.answerable === true && held?.callId === 'call-1' && held?.toolName === 'pwsh'
     const pollHeld = await phase.call('session_poll', { sessionIds: ['sess-approval'], waitMs: 0 })
-    checks['session_poll: pendingApprovals 带 answerable/eventId'] = pollHeld.status === 200
-      && innerOf(pollHeld).sessions?.[0]?.state === 'waiting-approval'
-      && innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.answerable === true
-      && innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.eventId === 'ev-1'
+    checks['session_poll: pendingApprovals 带 answerable/eventId'] =
+      pollHeld.status === 200 &&
+      innerOf(pollHeld).sessions?.[0]?.state === 'waiting-approval' &&
+      innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.answerable === true &&
+      innerOf(pollHeld).sessions?.[0]?.pendingApprovals?.[0]?.eventId === 'ev-1'
     const answer = await phase.call('approval_answer', { sessionId: 'sess-approval', callId: 'call-1', decision: 'reject' })
-    checks['approval_answer: 按 callId 拒绝并经 $events/result 发送'] = innerOf(answer).ok === true
-      && innerOf(answer).outcome === 'rejected'
-      && sends.some((s) => s.eventId === 'ev-1' && s.value === 'rejected')
+    checks['approval_answer: 按 callId 拒绝并经 $events/result 发送'] =
+      innerOf(answer).ok === true && innerOf(answer).outcome === 'rejected' && sends.some((s) => s.eventId === 'ev-1' && s.value === 'rejected')
     approvalAgent.__events.push({ type: 'approval/decided', data: { id: 'ap-1', outcome: 'rejected' } })
     const cleared = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
     checks['approval_list: 答完 pending 清空'] = innerOf(cleared).sessions?.[0]?.approvals?.length === 0
@@ -1424,11 +1998,13 @@ try {
       agentId: 'sess-approval',
       request: { toolName: 'write', callId: 'call-2' },
     })
-    checks['approval_list: 第二个审批可见'] = innerOf(await phase.call('approval_list', { sessionIds: ['sess-approval'] }))
-      .sessions?.[0]?.approvals?.some((a: any) => a.eventId === 'ev-2' && a.answerable === true) === true
+    checks['approval_list: 第二个审批可见'] =
+      innerOf(await phase.call('approval_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.approvals?.some(
+        (a: any) => a.eventId === 'ev-2' && a.answerable === true,
+      ) === true
     runtime.applyFrame({ type: 'cancel', eventId: 'ev-2' })
-    checks['approval_list: 收到 cancel 后条目消失(别处已答)'] = innerOf(await phase.call('approval_list', { sessionIds: ['sess-approval'] }))
-      .sessions?.[0]?.approvals?.length === 0
+    checks['approval_list: 收到 cancel 后条目消失(别处已答)'] =
+      innerOf(await phase.call('approval_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.approvals?.length === 0
 
     // 问题: 同一条 forwarded 流, 回答值为 { answers }
     runtime.applyFrame({
@@ -1437,46 +2013,48 @@ try {
       eventId: 'qev-1',
       agentId: 'sess-approval',
       request: {
-        questions: [{
-          id: 'q1',
-          question: 'Continue?',
-          header: 'Confirm',
-          options: [{ label: 'yes' }, { label: 'no' }],
-        }],
+        questions: [
+          {
+            id: 'q1',
+            question: 'Continue?',
+            header: 'Confirm',
+            options: [{ label: 'yes' }, { label: 'no' }],
+          },
+        ],
         wait: { callId: 'qcall-1' },
       },
     })
     const qlist = await phase.call('question_list', { sessionIds: ['sess-approval'] })
     const qentry = innerOf(qlist).sessions?.[0]?.questions?.[0]
-    checks['question_list: 持有后 answerable=true'] = qentry?.eventId === 'qev-1' && qentry?.answerable === true
-      && qentry?.callId === 'qcall-1' && qentry?.questions?.[0]?.question === 'Continue?'
+    checks['question_list: 持有后 answerable=true'] =
+      qentry?.eventId === 'qev-1' && qentry?.answerable === true && qentry?.callId === 'qcall-1' && qentry?.questions?.[0]?.question === 'Continue?'
     const qpoll = await phase.call('session_poll', { sessionIds: ['sess-approval'], waitMs: 0 })
-    checks['session_poll: waiting-question + pendingQuestions'] = innerOf(qpoll).sessions?.[0]?.state === 'waiting-question'
-      && innerOf(qpoll).sessions?.[0]?.pendingQuestions?.[0]?.eventId === 'qev-1'
+    checks['session_poll: waiting-question + pendingQuestions'] =
+      innerOf(qpoll).sessions?.[0]?.state === 'waiting-question' && innerOf(qpoll).sessions?.[0]?.pendingQuestions?.[0]?.eventId === 'qev-1'
     const qbad = await phase.call('question_answer', {
       sessionId: 'sess-approval',
       eventId: 'qev-1',
       answers: [{ id: 'q1', selected: ['yes', 'no'] }],
     })
-    checks['question_answer: 单选多标签被拒, 问题仍持有'] = String(innerOf(qbad).error ?? '').includes('single-select')
-      && innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.questions?.[0]?.answerable === true
+    checks['question_answer: 单选多标签被拒, 问题仍持有'] =
+      String(innerOf(qbad).error ?? '').includes('single-select') &&
+      innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.questions?.[0]?.answerable === true
     const qanswer = await phase.call('question_answer', {
       sessionId: 'sess-approval',
       eventId: 'qev-1',
       answers: [{ id: 'q1', selected: ['yes'] }],
     })
-    checks['question_answer: 回答经 $events/result 发送'] = innerOf(qanswer).ok === true
-      && sends.some((s) => s.eventId === 'qev-1'
-        && Array.isArray((s.value as any)?.answers)
-        && (s.value as any).answers[0]?.selected?.[0] === 'yes')
-    checks['question_list: 答完 pending 清空'] = innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] }))
-      .sessions?.[0]?.questions?.length === 0
+    checks['question_answer: 回答经 $events/result 发送'] =
+      innerOf(qanswer).ok === true &&
+      sends.some((s) => s.eventId === 'qev-1' && Array.isArray((s.value as any)?.answers) && (s.value as any).answers[0]?.selected?.[0] === 'yes')
+    checks['question_list: 答完 pending 清空'] =
+      innerOf(await phase.call('question_list', { sessionIds: ['sess-approval'] })).sessions?.[0]?.questions?.length === 0
 
     const polGet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
     checks['approval_policy: get 返回生效策略'] = innerOf(polGet).live === true && innerOf(polGet).policy === 'ask'
     const polSet = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'set', policy: 'never' })
-    checks['approval_policy: set 调宿主 setPolicy'] = innerOf(polSet).ok === true
-      && approvalPolicyCalls.some((c) => c.id === 'sess-approval' && c.policy === 'never')
+    checks['approval_policy: set 调宿主 setPolicy'] =
+      innerOf(polSet).ok === true && approvalPolicyCalls.some((c) => c.id === 'sess-approval' && c.policy === 'never')
     const polGet2 = await phase.call('approval_policy', { sessionId: 'sess-approval', action: 'get' })
     checks['approval_policy: 切换后 get 读到 never'] = innerOf(polGet2).policy === 'never'
     await phase.dispose()
@@ -1489,19 +2067,27 @@ try {
     checks['安全: 无 Bearer 401(带挑战头)'] = noAuth.status === 401
     const badAuth = await phase.call('echo', { text: 'x' }, { token: 'wrong' })
     checks['安全: 错 Bearer 401'] = badAuth.status === 401
-    const badHost = await rawRequest(8088, { headers: { Host: 'evil.example.com', Authorization: 'Bearer secret-token' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } } }) })
+    const badHost = await rawRequest(8088, {
+      headers: { Host: 'evil.example.com', Authorization: 'Bearer secret-token' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } },
+      }),
+    })
     checks['安全: 伪造 Host 403(DNS rebinding 防线)'] = badHost.status === 403
     const okAuth = await phase.call('echo', { text: 'with-token' })
     checks['安全: 正确 Bearer 放行'] = okAuth.status === 200 && okAuth.text.includes('with-token')
     // 令牌掩码与回显边界: GUI status(同源面板)可回显完整值供复制; MCP dsh_status 只透掩码
     const stAuth = await phase.gui('status')
     const stAuthBody = stAuth.status === 200 ? JSON.parse(stAuth.body) : {}
-    checks['安全: GUI status 回显令牌+掩码'] = stAuthBody.config?.authEnabled === true
-      && stAuthBody.config?.authToken === 'secret-token' && stAuthBody.config?.authTokenHint === 'secr...oken'
+    checks['安全: GUI status 回显令牌+掩码'] =
+      stAuthBody.config?.authEnabled === true && stAuthBody.config?.authToken === 'secret-token' && stAuthBody.config?.authTokenHint === 'secr...oken'
     const dshSt = await phase.call('dsh_status', {})
-    const dshStText = dshSt.status === 200 ? innerOf(dshSt).config ?? {} : {}
-    checks['安全: MCP dsh_status 只透掩码不回显令牌'] = dshStText.authEnabled === true
-      && dshStText.authTokenHint === 'secr...oken' && !String(dshSt.text).includes('secret-token')
+    const dshStText = dshSt.status === 200 ? (innerOf(dshSt).config ?? {}) : {}
+    checks['安全: MCP dsh_status 只透掩码不回显令牌'] =
+      dshStText.authEnabled === true && dshStText.authTokenHint === 'secr...oken' && !String(dshSt.text).includes('secret-token')
     // TTL GC: 初始化后闲置, 400ms TTL(sweeper 间隔 200ms)到期被关; 重新 initialize 恢复
     const stale = await phase.callAfter(1200, 'echo', { text: 'after-ttl' })
     checks['传输 TTL: 空闲超时会话被关(旧 sid 404)'] = stale.status === 404
@@ -1511,9 +2097,13 @@ try {
     const sseAlive = openSse(reInit.sid, 'http://127.0.0.1:8088/mcp', { Authorization: 'Bearer secret-token' })
     await sseAlive.ready
     await new Promise((r) => setTimeout(r, 1000))
-    const sseStillAlive = await rpc(reInit.sid, { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'echo', arguments: { text: 'sse-keepalive' } } }, { Authorization: 'Bearer secret-token' }, 'http://127.0.0.1:8088/mcp')
-    checks['传输 TTL: 打开着的 SSE 流算活跃(会话不被回收)'] = sseStillAlive.status === 200
-      && sseStillAlive.text.includes('sse-keepalive')
+    const sseStillAlive = await rpc(
+      reInit.sid,
+      { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'echo', arguments: { text: 'sse-keepalive' } } },
+      { Authorization: 'Bearer secret-token' },
+      'http://127.0.0.1:8088/mcp',
+    )
+    checks['传输 TTL: 打开着的 SSE 流算活跃(会话不被回收)'] = sseStillAlive.status === 200 && sseStillAlive.text.includes('sse-keepalive')
     sseAlive.close()
     await phase.dispose()
   }
@@ -1526,13 +2116,18 @@ try {
     // 不带 Authorization 头直接握手: 开关关闭时不应再被令牌拦下
     const noHeader = await rawRequest(e2Port, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-auth-off', version: '1.0' } } }),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-auth-off', version: '1.0' } },
+      }),
     })
     checks['安全: 认证开关关闭时无 Authorization 头可握手'] = noHeader.status === 200
     const open = await phase.call('echo', { text: 'open' }, { noToken: true })
     checks['安全: 认证开关关闭时错令牌也放行'] = open.status === 200 && open.text.includes('open')
     const stOff = await phase.call('dsh_status', {})
-    const cfgOff = stOff.status === 200 ? innerOf(stOff).config ?? {} : {}
+    const cfgOff = stOff.status === 200 ? (innerOf(stOff).config ?? {}) : {}
     checks['安全: 关闭态 status 报 authEnabled=false 且令牌仍保留'] = cfgOff.authEnabled === false && cfgOff.authTokenHint === 'secr...oken'
     await phase.dispose()
   }
@@ -1543,32 +2138,59 @@ try {
     // (1) 无会话头的非 initialize POST: 直接 400, 不再为它构建 McpServer(旧实现每条这类请求泄漏一整套 server+transport)
     let registerCalls = 0
     const origRegister = (McpServer.prototype as any).registerTool
-    ;(McpServer.prototype as any).registerTool = function (...args: any[]) { registerCalls++; return origRegister.apply(this, args) }
-    const junk = await rawRequest(8085, { headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: { text: 'x' } } }) })
+    ;(McpServer.prototype as any).registerTool = function (...args: any[]) {
+      registerCalls++
+      return origRegister.apply(this, args)
+    }
+    const junk = await rawRequest(8085, {
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: { text: 'x' } } }),
+    })
     ;(McpServer.prototype as any).registerTool = origRegister
     checks['入站: 无会话头的非 initialize POST 400'] = junk.status === 400
     checks['入站: 垃圾 POST 不构建 McpServer(不再泄漏)'] = registerCalls === 0
     // (2) 畸形 initialize: SDK 拒绝建会话时本次构建被立即回收(close), 服务不受影响
     let closeCalls = 0
     const origClose = (StreamableHTTPServerTransport.prototype as any).close
-    ;(StreamableHTTPServerTransport.prototype as any).close = function (...args: any[]) { closeCalls++; return origClose.apply(this, args) }
-    const badInit = await rawRequest(8085, { headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} }) })
+    ;(StreamableHTTPServerTransport.prototype as any).close = function (...args: any[]) {
+      closeCalls++
+      return origClose.apply(this, args)
+    }
+    const badInit = await rawRequest(8085, {
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} }),
+    })
     ;(StreamableHTTPServerTransport.prototype as any).close = origClose
     checks['入站: 畸形 initialize 400'] = badInit.status === 400
     checks['入站: 未建会话的构建被兜底回收'] = closeCalls >= 1
     const reinit = await phase.initialize()
     checks['入站: 回收后正常握手不受影响'] = Boolean(reinit.sid)
     // (3) 请求体上限按实际字节计: chunked(无 content-length)的超限 POST 也要 413
-    const oversize = await chunkedRequest(8085, ['x'.repeat(6 * 1024 * 1024), 'y'.repeat(6 * 1024 * 1024)], { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' })
+    const oversize = await chunkedRequest(8085, ['x'.repeat(6 * 1024 * 1024), 'y'.repeat(6 * 1024 * 1024)], {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    })
     checks['入站: chunked 超限 POST 413(上限不看 content-length)'] = oversize.status === 413
     // (4) 传输层意外抛错: 回 500 兜底, 不让 unhandled rejection 打崩宿主进程
     let rejections = 0
-    const onUnhandled = () => { rejections++ }
+    const onUnhandled = () => {
+      rejections++
+    }
     process.on('unhandledRejection', onUnhandled)
     const origHandle = (StreamableHTTPServerTransport.prototype as any).handleRequest
-    ;(StreamableHTTPServerTransport.prototype as any).handleRequest = function () { throw new Error('boom-intake') }
+    ;(StreamableHTTPServerTransport.prototype as any).handleRequest = function () {
+      throw new Error('boom-intake')
+    }
     const crash = await Promise.race([
-      rawRequest(8085, { headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } } }) }),
+      rawRequest(8085, {
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'initialize',
+          params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0' } },
+        }),
+      }),
       new Promise<{ status: number; text: string }>((r) => setTimeout(() => r({ status: 0, text: 'timeout' }), 5000)),
     ])
     ;(StreamableHTTPServerTransport.prototype as any).handleRequest = origHandle
@@ -1631,7 +2253,12 @@ try {
     const hostCtx = makeCtx({ llm: fakeLlm })
     const hostPort = await firstBindablePort([8121, 8122])
     const hostPhase = await startPhase(hostPort, hostCtx, {})
-    const hostInitBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'host-probe', version: '1' } } })
+    const hostInitBody = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'host-probe', version: '1' } },
+    })
     const hostHeaders = { Host: 'extra.example.com', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }
     const deniedHost = await rawRequest(hostPort, { headers: hostHeaders, body: hostInitBody })
     pushVolatile(hostPhase, hostCtx, { allowedHosts: ['extra.example.com'] })
@@ -1659,13 +2286,17 @@ try {
     await new Promise((r) => setTimeout(r, 400))
     const stopped = JSON.parse((await svcPhase.gui('status')).body)
     const svcPortFree = await portBindable(svcPort)
-    checks['热改 http: 关闭后停止监听(端口释放, 状态如实)'] = stopped.listening === false
-      && stopped.httpEnabled === false && svcPortFree
+    checks['热改 http: 关闭后停止监听(端口释放, 状态如实)'] = stopped.listening === false && stopped.httpEnabled === false && svcPortFree
     pushVolatile(svcPhase, svcCtx, { http: true })
     await new Promise((r) => setTimeout(r, 400))
     const resumed = await rawRequest(svcPort, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'resume', version: '1' } } }),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'resume', version: '1' } },
+      }),
     })
     checks['热改 http: 重新开启后立即恢复服务'] = resumed.status === 200
     const nextPort = await firstBindablePort([8131, 8132])
@@ -1675,10 +2306,15 @@ try {
     const oldPortFree = await portBindable(svcPort)
     const onNewPort = await rawRequest(nextPort, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'moved', version: '1' } } }),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'moved', version: '1' } },
+      }),
     })
-    checks['热改 port: 只重建监听器(新端点生效, 旧端口释放)'] = moved.config.port === nextPort
-      && String(moved.endpoint).includes(`:${nextPort}/mcp`) && oldPortFree && onNewPort.status === 200
+    checks['热改 port: 只重建监听器(新端点生效, 旧端口释放)'] =
+      moved.config.port === nextPort && String(moved.endpoint).includes(`:${nextPort}/mcp`) && oldPortFree && onNewPort.status === 200
     await svcPhase.dispose()
   }
 
@@ -1687,29 +2323,40 @@ try {
     const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})
     const st = await phase.gui('status')
     const stBody = st.status === 200 ? JSON.parse(st.body) : {}
-    checks['GUI 路由: status 快照(版本/监听/配置摘要)'] = st.status === 200 && typeof stBody.version === 'string'
-      && typeof stBody.listening === 'boolean' && Array.isArray(stBody.config?.allowedModels)
-      && typeof stBody.stats?.connections === 'number' && Array.isArray(stBody.connections)
+    checks['GUI 路由: status 快照(版本/监听/配置摘要)'] =
+      st.status === 200 &&
+      typeof stBody.version === 'string' &&
+      typeof stBody.listening === 'boolean' &&
+      Array.isArray(stBody.config?.allowedModels) &&
+      typeof stBody.stats?.connections === 'number' &&
+      Array.isArray(stBody.connections)
     checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === 8087
     // 面板与 Config 完全对应: status 必须回显每个配置项(令牌只回掩码 hint, 不在此列)
     checks['GUI 路由: status 配置项覆盖面板全部字段'] = [
-      'http', 'host', 'port', 'allowedModels', 'allowedModelsEnabled', 'allowedHosts',
-      'authEnabled', 'selfToolsEnabled', 'sessionTtlMs', 'approvalTimeoutMs',
+      'http',
+      'host',
+      'port',
+      'allowedModels',
+      'allowedModelsEnabled',
+      'allowedHosts',
+      'authEnabled',
+      'selfToolsEnabled',
+      'sessionTtlMs',
+      'approvalTimeoutMs',
     ].every((k) => k in (stBody.config ?? {}))
     // 连接列表: 最新连接排最前(面板与 status/connections 资源同序)
     await new Promise((r) => setTimeout(r, 5))
     const second = await phase.initialize()
     const stOrder = await phase.gui('status')
-    const stOrderConns = stOrder.status === 200 ? JSON.parse(stOrder.body).connections ?? [] : []
-    checks['GUI 路由: 连接列表最新在前(connectedAt 倒序)'] = stOrderConns.length === 2
-      && stOrderConns[0]?.sessionId === second.sid
-      && stOrderConns[1]?.sessionId === stBody.connections?.[0]?.sessionId
-      && stOrderConns[0].connectedAt >= stOrderConns[1].connectedAt
-    checks['GUI 路由: 连接列表带直连地址与端口'] = typeof stOrderConns[0]?.remoteAddress === 'string'
-      && typeof stOrderConns[0]?.remotePort === 'number'
+    const stOrderConns = stOrder.status === 200 ? (JSON.parse(stOrder.body).connections ?? []) : []
+    checks['GUI 路由: 连接列表最新在前(connectedAt 倒序)'] =
+      stOrderConns.length === 2 &&
+      stOrderConns[0]?.sessionId === second.sid &&
+      stOrderConns[1]?.sessionId === stBody.connections?.[0]?.sessionId &&
+      stOrderConns[0].connectedAt >= stOrderConns[1].connectedAt
+    checks['GUI 路由: 连接列表带直连地址与端口'] = typeof stOrderConns[0]?.remoteAddress === 'string' && typeof stOrderConns[0]?.remotePort === 'number'
     const modelsRoute = await phase.gui('models')
-    checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200
-      && modelsRoute.body.includes('Provider One')
+    checks['GUI 路由: models 目录(面板选择器)'] = modelsRoute.status === 200 && modelsRoute.body.includes('Provider One')
     const cfgBadField = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { bogusKey: 1 } }) })
     checks['GUI 路由: config-update 白名单外字段 400'] = cfgBadField.status === 400
     const cfgBadHost = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { host: '   ' } }) })
@@ -1726,7 +2373,10 @@ try {
     checks['GUI 路由: dsh-app origin(无 Fetch Metadata)放行'] = cfgDesktopNoMeta.status === 400
     const cfgNullOrigin = await phase.gui('config-update', { headers: { origin: 'null', 'sec-fetch-site': 'same-origin' }, body: badBody })
     checks['GUI 路由: Origin null + Fetch Metadata 同源放行'] = cfgNullOrigin.status === 400
-    const cfgAlias = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087', origin: 'http://localhost:8087', 'sec-fetch-site': 'same-site' }, body: badBody })
+    const cfgAlias = await phase.gui('config-update', {
+      headers: { host: '127.0.0.1:8087', origin: 'http://localhost:8087', 'sec-fetch-site': 'same-site' },
+      body: badBody,
+    })
     checks['GUI 路由: localhost/127 回环别名视为同源'] = cfgAlias.status === 400
     const cfgCross = await phase.gui('config-update', { headers: { origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'cross-site' }, body: badBody })
     checks['GUI 路由: Fetch Metadata cross-site 即使 Origin 匹配也拒'] = cfgCross.status === 403
@@ -1743,11 +2393,17 @@ try {
     checks['GUI 路由: rebinding 形态(同源+外部域名 Host)的写操作拒'] = cfgRebind.status === 403
     const stRebind = await phase.gui('status', { httpMethod: 'GET', headers: rebindHeaders })
     checks['GUI 路由: rebinding 形态的 status(令牌回显面)拒'] = stRebind.status === 403
-    const cfgLocalBrowser = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087', origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'same-origin' }, body: badBody })
+    const cfgLocalBrowser = await phase.gui('config-update', {
+      headers: { host: '127.0.0.1:8087', origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'same-origin' },
+      body: badBody,
+    })
     checks['GUI 路由: 同源+回环 Host 的浏览器写操作放行'] = cfgLocalBrowser.status === 400
-    const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { selfToolsEnabled: true } }) })
-    checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
-      && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
+    const cfgNoEditor = await phase.gui('config-update', {
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { selfToolsEnabled: true } }),
+    })
+    checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] =
+      cfgNoEditor.status === 409 && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
     // 软启停已移除: 对外 MCP 服务只有配置开关 http(持久化, 写入只重建监听器), 不再有运行时启停
     const goneStop = await phase.gui('stop', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
     const goneStart = await phase.gui('start', { httpMethod: 'POST', headers: { 'sec-fetch-site': 'same-origin' } })
@@ -1772,46 +2428,44 @@ try {
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ values: { host: '0.0.0.0', port: 8096 } }),
     })
-    checks['GUI 路由: host/port 写入并标记监听器重建'] = cfgListen.status === 200
-      && JSON.parse(cfgListen.body).reloading === true
-    checks['GUI 路由: host/port 写入值正确'] = edits.length === 1
-      && edits[0].host === '0.0.0.0' && edits[0].port === 8096
+    checks['GUI 路由: host/port 写入并标记监听器重建'] = cfgListen.status === 200 && JSON.parse(cfgListen.body).reloading === true
+    checks['GUI 路由: host/port 写入值正确'] = edits.length === 1 && edits[0].host === '0.0.0.0' && edits[0].port === 8096
     // 面板与 Config 一一对应: 每个字段都必须能写(监听级标记重建), 且校验与 schema 同向
-    const guiPut = (values: Record<string, unknown>) => phase.gui('config-update', {
-      headers: { 'sec-fetch-site': 'same-origin' },
-      body: JSON.stringify({ values }),
-    })
+    const guiPut = (values: Record<string, unknown>) =>
+      phase.gui('config-update', {
+        headers: { 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify({ values }),
+      })
     const cfgTimeout = await guiPut({ approvalTimeoutMs: 5000 })
-    checks['GUI 路由: approvalTimeoutMs 写入(就地生效, 不重启)'] = cfgTimeout.status === 200
-      && JSON.parse(cfgTimeout.body).reloading !== true
-      && edits[edits.length - 1].approvalTimeoutMs === 5000
+    checks['GUI 路由: approvalTimeoutMs 写入(就地生效, 不重启)'] =
+      cfgTimeout.status === 200 && JSON.parse(cfgTimeout.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 5000
     const cfgTimeoutLow = await guiPut({ approvalTimeoutMs: 500 })
-    checks['GUI 路由: approvalTimeoutMs 低于下限静默钳制到 1000'] = cfgTimeoutLow.status === 200
-      && JSON.parse(cfgTimeoutLow.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 1000
+    checks['GUI 路由: approvalTimeoutMs 低于下限静默钳制到 1000'] =
+      cfgTimeoutLow.status === 200 && JSON.parse(cfgTimeoutLow.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 1000
     const cfgTimeoutHigh = await guiPut({ approvalTimeoutMs: 700000 })
-    checks['GUI 路由: approvalTimeoutMs 高于上限静默钳制到 600000'] = cfgTimeoutHigh.status === 200
-      && edits[edits.length - 1].approvalTimeoutMs === 600000
+    checks['GUI 路由: approvalTimeoutMs 高于上限静默钳制到 600000'] = cfgTimeoutHigh.status === 200 && edits[edits.length - 1].approvalTimeoutMs === 600000
     const cfgTimeoutZero = await guiPut({ approvalTimeoutMs: 0 })
-    checks['GUI 路由: approvalTimeoutMs 0(不限时)写入'] = cfgTimeoutZero.status === 200
-      && JSON.parse(cfgTimeoutZero.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 0
+    checks['GUI 路由: approvalTimeoutMs 0(不限时)写入'] =
+      cfgTimeoutZero.status === 200 && JSON.parse(cfgTimeoutZero.body).reloading !== true && edits[edits.length - 1].approvalTimeoutMs === 0
     const cfgTimeoutNeg = await guiPut({ approvalTimeoutMs: -1 })
     checks['GUI 路由: approvalTimeoutMs 负值仍 400'] = cfgTimeoutNeg.status === 400
     const cfgTtl = await guiPut({ sessionTtlMs: 0 })
-    checks['GUI 路由: sessionTtlMs 写入(0 = 永不淘汰, 就地生效)'] = cfgTtl.status === 200
-      && JSON.parse(cfgTtl.body).reloading !== true && edits[edits.length - 1].sessionTtlMs === 0
+    checks['GUI 路由: sessionTtlMs 写入(0 = 永不淘汰, 就地生效)'] =
+      cfgTtl.status === 200 && JSON.parse(cfgTtl.body).reloading !== true && edits[edits.length - 1].sessionTtlMs === 0
     const cfgHosts = await guiPut({ allowedHosts: ['example.com', '192.168.1.5', ' example.com '] })
-    checks['GUI 路由: allowedHosts 去重写入(就地生效, 不重启)'] = cfgHosts.status === 200
-      && JSON.parse(cfgHosts.body).reloading !== true
-      && JSON.stringify(edits[edits.length - 1].allowedHosts) === JSON.stringify(['example.com', '192.168.1.5'])
+    checks['GUI 路由: allowedHosts 去重写入(就地生效, 不重启)'] =
+      cfgHosts.status === 200 &&
+      JSON.parse(cfgHosts.body).reloading !== true &&
+      JSON.stringify(edits[edits.length - 1].allowedHosts) === JSON.stringify(['example.com', '192.168.1.5'])
     const cfgHostsBad = await guiPut({ allowedHosts: ['bad host/name'] })
     checks['GUI 路由: allowedHosts 非法主机名 400'] = cfgHostsBad.status === 400
     const cfgHttp = await guiPut({ http: false })
-    checks['GUI 路由: http 开关写入并标记监听器重建'] = cfgHttp.status === 200
-      && JSON.parse(cfgHttp.body).reloading === true && edits[edits.length - 1].http === false
+    checks['GUI 路由: http 开关写入并标记监听器重建'] =
+      cfgHttp.status === 200 && JSON.parse(cfgHttp.body).reloading === true && edits[edits.length - 1].http === false
     // volatile 字段只就地提交, 不重载(面板据此不做重载等待)
     const cfgVolatile = await guiPut({ selfToolsEnabled: true })
-    checks['GUI 路由: volatile 字段不标记重载'] = cfgVolatile.status === 200
-      && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].selfToolsEnabled === true
+    checks['GUI 路由: volatile 字段不标记重载'] =
+      cfgVolatile.status === 200 && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].selfToolsEnabled === true
     // 白名单完备性: Config schema 的每个字段都必须能被 GUI 写入(不得遗漏)
     const cfgSamples: Record<string, unknown> = {
       http: true,
@@ -1831,16 +2485,20 @@ try {
     }
     const cfgRejected: string[] = []
     for (const key of Object.keys(ConfigSchema({}) as Record<string, unknown>)) {
-      if (!(key in cfgSamples)) { cfgRejected.push(`${key}(无样本)`); continue }
+      if (!(key in cfgSamples)) {
+        cfgRejected.push(`${key}(无样本)`)
+        continue
+      }
       const r = await guiPut({ [key]: cfgSamples[key] })
       if (r.status !== 200) cfgRejected.push(`${key}(${r.status})`)
     }
     checks['GUI 路由: 写入白名单覆盖 Config 全部字段'] = cfgRejected.length === 0
     // 简介载荷清理: 空键/空值丢弃, 键值去空白
     const cfgDesc = await guiPut({ modelDescriptions: { ' p1/m1 ': '  有效的简介  ', '': '空键', 'p1/m9': '   ' }, providerDescriptions: { p2: '提供商简介' } })
-    checks['GUI 路由: 模型简介对象清理空键空值后写入'] = cfgDesc.status === 200
-      && JSON.stringify(edits[edits.length - 1].modelDescriptions) === JSON.stringify({ 'p1/m1': '有效的简介' })
-      && JSON.stringify(edits[edits.length - 1].providerDescriptions) === JSON.stringify({ p2: '提供商简介' })
+    checks['GUI 路由: 模型简介对象清理空键空值后写入'] =
+      cfgDesc.status === 200 &&
+      JSON.stringify(edits[edits.length - 1].modelDescriptions) === JSON.stringify({ 'p1/m1': '有效的简介' }) &&
+      JSON.stringify(edits[edits.length - 1].providerDescriptions) === JSON.stringify({ p2: '提供商简介' })
     await phase.dispose()
   }
 
@@ -1853,13 +2511,14 @@ try {
     const ml = await phase.call('model_list', {})
     const payload = innerOf(ml) as any
     const p1 = (payload.providers ?? []).find((p: any) => p.id === 'p1')
-    checks['model_list: 部署方简介并入 provider/model 行'] = p1?.description === '面向测试的假提供商'
-      && (p1.models ?? []).find((m: any) => m.id === 'm1')?.description === 'Provider One 的快速模型'
-      && (p1.models ?? []).find((m: any) => m.id === 'm2')?.description === undefined
+    checks['model_list: 部署方简介并入 provider/model 行'] =
+      p1?.description === '面向测试的假提供商' &&
+      (p1.models ?? []).find((m: any) => m.id === 'm1')?.description === 'Provider One 的快速模型' &&
+      (p1.models ?? []).find((m: any) => m.id === 'm2')?.description === undefined
     checks['model_list: 宿主自带长描述不透出(简介只认部署方配置)'] = JSON.stringify(payload).includes('LONG-DESCRIPTION-MUST-NOT-LEAK') === false
     const modelsRoute = await phase.gui('models')
-    checks['GUI 路由: models 目录带部署方简介'] = modelsRoute.status === 200
-      && modelsRoute.body.includes('面向测试的假提供商') && modelsRoute.body.includes('Provider One 的快速模型')
+    checks['GUI 路由: models 目录带部署方简介'] =
+      modelsRoute.status === 200 && modelsRoute.body.includes('面向测试的假提供商') && modelsRoute.body.includes('Provider One 的快速模型')
     await phase.dispose()
   }
 
@@ -1871,13 +2530,20 @@ try {
     await new Promise((r) => setTimeout(r, 150))
     const st = await guiRequest(ctx, 'status')
     const body = JSON.parse(st.body)
-    checks['http:false: 不监听, 面板仍可读配置'] = body.httpEnabled === false
-      && body.listening === false && body.config.http === false
+    checks['http:false: 不监听, 面板仍可读配置'] = body.httpEnabled === false && body.listening === false && body.config.http === false
     // 端口确实没有被占用: 用一次性 listen 试探(成功即说明插件没监听)
     await new Promise<void>((resolveProbe) => {
       const probe = createServer()
-      probe.once('error', () => { checks['http:false: 端口确实未监听'] = false; resolveProbe() })
-      probe.once('listening', () => { probe.close(() => { checks['http:false: 端口确实未监听'] = true; resolveProbe() }) })
+      probe.once('error', () => {
+        checks['http:false: 端口确实未监听'] = false
+        resolveProbe()
+      })
+      probe.once('listening', () => {
+        probe.close(() => {
+          checks['http:false: 端口确实未监听'] = true
+          resolveProbe()
+        })
+      })
       probe.listen(8089, '127.0.0.1')
     })
     for (const d of disposers.splice(0)) if (typeof d === 'function') d()
@@ -1897,49 +2563,72 @@ try {
   checks['parseSummary: 字符串里的花括号不干扰配对'] = parseSummary('{"changes":"a}b{c"}').changes === 'a}b{c'
   // 结果投影: 突破本档预算时必须显式标记, 并就近给出升档路径(不静默丢信息)
   const bigTurn = {
-    sessionId: 's1', model: { provider: 'p', model: 'm' }, preset: '', durationMs: 1,
+    sessionId: 's1',
+    model: { provider: 'p', model: 'm' },
+    preset: '',
+    durationMs: 1,
     assistantText: 'a'.repeat(9000),
     toolCalls: Array.from({ length: 20 }, (_, i) => ({ name: `t${i}`, args: 'x'.repeat(300) })),
     toolResults: Array.from({ length: 20 }, () => 'y'.repeat(600)),
-    changes: '', verification: '', leftovers: '', error: '',
+    changes: '',
+    verification: '',
+    leftovers: '',
+    error: '',
   } as any
   const sumBig = renderResult(bigTurn, 'summary') as any
-  checks['renderResult: summary 长回答被裁时带 truncated + 升档提示'] = sumBig.truncated === true
-    && String(sumBig.more).includes('detail="normal"') && sumBig.assistantTail.length === 1200
+  checks['renderResult: summary 长回答被裁时带 truncated + 升档提示'] =
+    sumBig.truncated === true && String(sumBig.more).includes('detail="normal"') && sumBig.assistantTail.length === 1200
   const normBig = renderResult(bigTurn, 'normal') as any
-  checks['renderResult: normal 超条数/单条上限被裁并标记'] = normBig.truncated === true
-    && normBig.toolCalls.length === 15 && normBig.toolResults.length === 6
-    && normBig.toolCalls[0].args.length === 250 && String(normBig.more).includes('detail="full"')
+  checks['renderResult: normal 超条数/单条上限被裁并标记'] =
+    normBig.truncated === true &&
+    normBig.toolCalls.length === 15 &&
+    normBig.toolResults.length === 6 &&
+    normBig.toolCalls[0].args.length === 250 &&
+    String(normBig.more).includes('detail="full"')
   const fullBig = renderResult(bigTurn, 'full') as any
-  checks['renderResult: full 也按预算裁并指向 session_history'] = fullBig.truncated === true
-    && fullBig.assistantText.length === 8000 && String(fullBig.more).includes('session_history')
+  checks['renderResult: full 也按预算裁并指向 session_history'] =
+    fullBig.truncated === true && fullBig.assistantText.length === 8000 && String(fullBig.more).includes('session_history')
   const smallTurn = { ...bigTurn, assistantText: 'short', toolCalls: [{ name: 'bash', args: '{}' }], toolResults: ['ok'] } as any
   const sumSmall = renderResult(smallTurn, 'summary') as any
-  checks['renderResult: 未超预算不误报(summary 只报工具名属档位约定)'] = sumSmall.truncated === undefined
-    && sumSmall.more === undefined && sumSmall.toolCallNames?.[0] === 'bash'
-  checks['sniffImageMediaType: png/jpeg/gif/webp 魔数与拒绝非图'] = sniffImageMediaType(FAKE_PNG) === 'image/png'
-    && sniffImageMediaType(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])) === 'image/jpeg'
-    && sniffImageMediaType(Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) === 'image/gif'
-    && sniffImageMediaType(Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])) === 'image/webp'
-    && sniffImageMediaType(new TextEncoder().encode('plain text')) === undefined
+  checks['renderResult: 未超预算不误报(summary 只报工具名属档位约定)'] =
+    sumSmall.truncated === undefined && sumSmall.more === undefined && sumSmall.toolCallNames?.[0] === 'bash'
+  checks['sniffImageMediaType: png/jpeg/gif/webp 魔数与拒绝非图'] =
+    sniffImageMediaType(FAKE_PNG) === 'image/png' &&
+    sniffImageMediaType(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])) === 'image/jpeg' &&
+    sniffImageMediaType(Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) === 'image/gif' &&
+    sniffImageMediaType(Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])) === 'image/webp' &&
+    sniffImageMediaType(new TextEncoder().encode('plain text')) === undefined
   checks['isWithin: 目录在根内'] = isWithin('/a', '/a/b/c')
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {
     const c = ConfigSchema(null) as any
-    return c.allowedModels.get().length === 0
-      && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
-      && c.selfToolsEnabled.get() === true && c.host.get() === '127.0.0.1' && c.port.get() === 5642
-      && c.http.get() === true && c.allowedHosts.get().length === 0
-      && c.approvalTimeoutMs.get() === 120000
-      && c.sessionTtlMs.get() === 7 * 24 * 60 * 60 * 1000
-      && !('preset' in c) && !('allowPresetOverride' in c)
+    return (
+      c.allowedModels.get().length === 0 &&
+      c.allowedModelsEnabled.get() === undefined &&
+      c.authEnabled.get() === undefined &&
+      c.authToken.get() === '' &&
+      c.selfToolsEnabled.get() === true &&
+      c.host.get() === '127.0.0.1' &&
+      c.port.get() === 5642 &&
+      c.http.get() === true &&
+      c.allowedHosts.get().length === 0 &&
+      c.approvalTimeoutMs.get() === 120000 &&
+      c.sessionTtlMs.get() === 7 * 24 * 60 * 60 * 1000 &&
+      !('preset' in c) &&
+      !('allowPresetOverride' in c)
+    )
   })()
   checks['Config schema: 全部字段是 volatile 引用(写入不重载插件)'] = (() => {
     const c = ConfigSchema(null) as any
     return Object.keys(c).every((key) => typeof c[key]?.get === 'function')
   })()
   checks['Config schema: 类型错误被拒且带路径'] = (() => {
-    try { ConfigSchema({ allowedModels: 'x' } as any); return false } catch (e) { return String((e as Error).message).includes('allowedModels') }
+    try {
+      ConfigSchema({ allowedModels: 'x' } as any)
+      return false
+    } catch (e) {
+      return String((e as Error).message).includes('allowedModels')
+    }
   })()
   // ── 面板契约(静态): 只断言两侧必须同步的契约, 不钉实现形状; 面板行为验证在 ui-harness ──
   // draftFromStatus 是 Config 字段在面板侧的唯一消费点, 新字段漏接会在这里失败
@@ -1947,8 +2636,7 @@ try {
   checks['设置面板: draftFromStatus 覆盖全部配置字段'] = (() => {
     const draftSrc = readFileSync(new URL('../src/client/configFields.ts', import.meta.url), 'utf8')
     // authToken 是只写字段(草稿恒为空串, 令牌行另行读 cfg.authToken), 不在此列
-    const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>)
-      .filter((key) => key !== 'authToken' && !draftSrc.includes(`c.${key}`))
+    const missing = Object.keys(ConfigSchema({}) as Record<string, unknown>).filter((key) => key !== 'authToken' && !draftSrc.includes(`c.${key}`))
     return missing.length === 0
   })()
   // GUI 路由是面板 ↔ web.ts 的双向契约: 客户端的每处 rpc 调用必须有服务端同名注册
@@ -1956,15 +2644,12 @@ try {
     const clientSrc = readClientSource()
     const webSrc = readFileSync(new URL('../src/mcp/web.ts', import.meta.url), 'utf8')
     const routes = ['status', 'models', 'config-update', 'endpoint-allowlist', 'endpoint-approvals', 'endpoint-approval-answer']
-    return routes.every((route) =>
-      clientSrc.includes(`rpc('${route}'`)
-      && new RegExp(`\\b${route}\\b['"]?\\s*:`).test(webSrc))
+    return routes.every((route) => clientSrc.includes(`rpc('${route}'`) && new RegExp(`\\b${route}\\b['"]?\\s*:`).test(webSrc))
   })()
   // 侧栏接线: panellist 条目出图标、main 条目出整页, 同 id 由宿主接线选中关系
   checks['设置面板: 侧栏注册 sidebar.panellist 与 main'] = (() => {
     const entrySrc = readFileSync(new URL('../src/client/client.ts', import.meta.url), 'utf8')
-    return entrySrc.includes("slots.inject('sidebar.panellist'")
-      && entrySrc.includes("slots.inject('main'")
+    return entrySrc.includes("slots.inject('sidebar.panellist'") && entrySrc.includes("slots.inject('main'")
   })()
 
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
@@ -1975,7 +2660,11 @@ try {
     const st = await guiRequest(ctxV6, 'status', { httpMethod: 'GET' })
     const stV6 = st.status === 200 ? JSON.parse(st.body) : {}
     let endpointUrl: URL | undefined
-    try { endpointUrl = new URL(String(stV6.endpoint ?? '')) } catch { endpointUrl = undefined }
+    try {
+      endpointUrl = new URL(String(stV6.endpoint ?? ''))
+    } catch {
+      endpointUrl = undefined
+    }
     // WHATWG URL 的 hostname 对 IPv6 保留方括号
     checks['endpoint: IPv6 绑定地址加方括号(合法 URL)'] = Boolean(endpointUrl) && endpointUrl?.hostname === '[::1]'
     for (const d of disposers.splice(0)) if (typeof d === 'function') d()
@@ -1985,23 +2674,28 @@ try {
   // 常量漂移(有人重新内联字面量)或漏接共享模块会在这里失败
   checks['设置面板: 兜底默认值单源(config-defaults)'] = (() => {
     const fallbackSrc = readFileSync(new URL('../src/client/configFields.ts', import.meta.url), 'utf8')
-    return DEFAULTS.host === DEFAULT_HOST
-      && DEFAULTS.port === DEFAULT_PORT
-      && DEFAULTS.approvalTimeoutMs === DEFAULT_APPROVAL_TIMEOUT_MS
-      && DEFAULTS.sessionTtlMs === DEFAULT_SESSION_TTL_MS
-      && fallbackSrc.includes('core/config-defaults')
+    return (
+      DEFAULTS.host === DEFAULT_HOST &&
+      DEFAULTS.port === DEFAULT_PORT &&
+      DEFAULTS.approvalTimeoutMs === DEFAULT_APPROVAL_TIMEOUT_MS &&
+      DEFAULTS.sessionTtlMs === DEFAULT_SESSION_TTL_MS &&
+      fallbackSrc.includes('core/config-defaults')
+    )
   })()
   checks['Config schema: ~standard.validate 合法配置通过并填默认'] = (() => {
     const r = ConfigSchema['~standard'].validate({ allowedModels: ['a/b'] }) as { value: any }
     return r.value.allowedModels.get().length === 1
   })()
   checks['serviceOf: 未注入服务的属性访问抛错时返回 undefined'] = (() => {
-    const ctx = new Proxy({}, {
-      get(_target, prop) {
-        if (prop === 'get') return () => undefined
-        throw new Error(`cannot get property "${String(prop)}" without inject`)
+    const ctx = new Proxy(
+      {},
+      {
+        get(_target, prop) {
+          if (prop === 'get') return () => undefined
+          throw new Error(`cannot get property "${String(prop)}" without inject`)
+        },
       },
-    })
+    )
     return serviceOf(ctx as any, 'sessionController') === undefined
   })()
   checks['serviceOf: ctx.get 命中时直接返回服务'] = (() => {
@@ -2032,7 +2726,10 @@ try {
   const sends: { eventId: string; value: unknown }[] = []
   const runtime = createAnswerRuntime({
     managed: (sessionId) => sessionId === 's1',
-    send: async (eventId, value) => { sends.push({ eventId, value }); return { ok: true } },
+    send: async (eventId, value) => {
+      sends.push({ eventId, value })
+      return { ok: true }
+    },
     now: () => 1_700_000_000_000,
   })
 
@@ -2043,8 +2740,8 @@ try {
     agentId: 's1',
     request: { toolName: 'pwsh', callId: 'c1', reason: 'write' },
   })
-  checks['answers: 审批帧进入 store 且可按 callId 找到'] = runtime.listApprovals('s1').length === 1
-    && runtime.findApproval('s1', undefined, 'c1')?.eventId === 'ev-1'
+  checks['answers: 审批帧进入 store 且可按 callId 找到'] =
+    runtime.listApprovals('s1').length === 1 && runtime.findApproval('s1', undefined, 'c1')?.eventId === 'ev-1'
   checks['answers: 未管理的会话帧被忽略'] = (() => {
     runtime.applyFrame({
       type: 'waterfall',
@@ -2058,8 +2755,8 @@ try {
 
   const wait = runtime.waitForInput('s1')
   const allow = await runtime.answerApproval({ sessionId: 's1', callId: 'c1', decision: 'allow' })
-  checks['answers: 审批 allow → allowed-once 并经 send 发出'] = allow.ok === true && allow.outcome === 'allowed-once'
-    && sends.some((s) => s.eventId === 'ev-1' && s.value === 'allowed-once')
+  checks['answers: 审批 allow → allowed-once 并经 send 发出'] =
+    allow.ok === true && allow.outcome === 'allowed-once' && sends.some((s) => s.eventId === 'ev-1' && s.value === 'allowed-once')
   checks['answers: 回答后从 store 移除'] = runtime.listApprovals('s1').length === 0
   checks['answers: waitForInput 在已有输入时立即返回'] = JSON.stringify(await wait) === JSON.stringify({ approvals: ['ev-1'], questions: [] })
 
@@ -2089,23 +2786,21 @@ try {
     eventId: 'qev-1',
     answers: [{ id: 'q1', selected: ['yes', 'no'] }],
   })
-  checks['answers: 单选多标签被拒且仍持有'] = bad.ok === false
-    && runtime.findQuestion('s1', 'qev-1') !== undefined
+  checks['answers: 单选多标签被拒且仍持有'] = bad.ok === false && runtime.findQuestion('s1', 'qev-1') !== undefined
   const good = await runtime.answerQuestion({
     sessionId: 's1',
     eventId: 'qev-1',
     answers: [{ id: 'q1', selected: ['yes'] }],
   })
-  checks['answers: 问题回答经 send 发出并移除'] = good.ok === true
-    && sends.some((s) => s.eventId === 'qev-1'
-      && (s.value as any)?.answers?.[0]?.selected?.[0] === 'yes')
-    && runtime.listQuestions('s1').length === 0
+  checks['answers: 问题回答经 send 发出并移除'] =
+    good.ok === true &&
+    sends.some((s) => s.eventId === 'qev-1' && (s.value as any)?.answers?.[0]?.selected?.[0] === 'yes') &&
+    runtime.listQuestions('s1').length === 0
 
   const unknown = await runtime.answerApproval({ sessionId: 's1', eventId: 'nope', decision: 'reject' })
   checks['answers: 未知 eventId 明确报错'] = unknown.ok === false && unknown.error.includes('no pending approval')
   runtime.dispose()
 }
-
 
 // ── 汇报 ──
 const failed = Object.entries(checks).filter(([, ok]) => !ok)
@@ -2119,7 +2814,18 @@ async function guiRequest(ctx: any, route: string, opts: { httpMethod?: string; 
   const handler = handlers.get('gui')
   const req = new EventEmitter()
   Object.assign(req, { method: opts.httpMethod ?? 'POST', url: `/_dsh/dsh-rice-on-a-stick/${route}`, headers: opts.headers ?? {} })
-  const res = { status: 0, headers: {} as Record<string, unknown>, body: '', writeHead(code: number, h: Record<string, unknown>) { this.status = code; Object.assign(this.headers, h) }, end(b?: string) { this.body = String(b ?? '') } }
+  const res = {
+    status: 0,
+    headers: {} as Record<string, unknown>,
+    body: '',
+    writeHead(code: number, h: Record<string, unknown>) {
+      this.status = code
+      Object.assign(this.headers, h)
+    },
+    end(b?: string) {
+      this.body = String(b ?? '')
+    },
+  }
   const done = handler(req, res)
   setImmediate(() => {
     if (opts.body !== undefined) req.emit('data', Buffer.from(opts.body))
@@ -2177,7 +2883,17 @@ async function startPhase(port: number, ctx: any, config: Record<string, unknown
   const initialize = async () => {
     const headers: Record<string, string> = {}
     if (config.authToken === 'secret-token') headers.Authorization = 'Bearer secret-token'
-    const r = await rpc(undefined, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-phase', version: '1.0' } } }, headers, base)
+    const r = await rpc(
+      undefined,
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke-phase', version: '1.0' } },
+      },
+      headers,
+      base,
+    )
     await rpc(r.sid, { jsonrpc: '2.0', method: 'notifications/initialized' }, headers, base)
     return r
   }
@@ -2186,7 +2902,8 @@ async function startPhase(port: number, ctx: any, config: Record<string, unknown
     const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'Mcp-Session-Id': init.sid }
     if (config.authToken === 'secret-token') headers.Authorization = `Bearer ${opts.token ?? (opts.noToken ? 'nope' : 'secret-token')}`
     const res = await fetch(base, {
-      method: 'POST', headers,
+      method: 'POST',
+      headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: 1000 + Math.floor(Math.random() * 8e8), method: 'tools/call', params: { name, arguments: args } }),
     })
     return { status: res.status, text: await res.text() }

@@ -133,8 +133,8 @@ function renderResult(result: McpToolResult): { type: 'text'; text: string }[] {
  */
 function withNativeGuideNote(tool: CapturedTool, result: McpToolResult): McpToolResult {
   if (tool.name !== 'dsh_get_started' || result.isError === true) return result
-  const note = `> Native self-use aliases: every tool name below is prefixed with \`${NATIVE_PREFIX}\` `
-    + `(for example \`${NATIVE_PREFIX}session_prompt\`).\n\n`
+  const note =
+    `> Native self-use aliases: every tool name below is prefixed with \`${NATIVE_PREFIX}\` ` + `(for example \`${NATIVE_PREFIX}session_prompt\`).\n\n`
   let prepended = false
   const content = result.content.map((block) => {
     if (prepended || block.type !== 'text' || typeof block.text !== 'string') return block
@@ -176,7 +176,11 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
   const unregisterAll = () => {
     registeredNames.length = 0
     for (const dispose of disposers.splice(0).reverse()) {
-      try { dispose() } catch { /* 尽力清理; 旧宿主/重复 dispose 不应打崩卸载 */ }
+      try {
+        dispose()
+      } catch {
+        /* 尽力清理; 旧宿主/重复 dispose 不应打崩卸载 */
+      }
     }
   }
 
@@ -217,7 +221,9 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
   }
 
   return {
-    get enabled() { return enabled },
+    get enabled() {
+      return enabled
+    },
     names: () => (enabled ? [...registeredNames] : []),
     sync: (next) => {
       if (next) registerAll()

@@ -18,7 +18,8 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_list',
     {
       title: 'List pending approvals',
-      description: 'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` means this plugin currently holds the forwarded request and `approval_answer` can answer it; false means the UI or another answer client owns it (or the plugin is not acting as a Web answer client in this host). Read-only; does not advance a turn.',
+      description:
+        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` means this plugin currently holds the forwarded request and `approval_answer` can answer it; false means the UI or another answer client owns it (or the plugin is not acting as a Web answer client in this host). Read-only; does not advance a turn.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -37,7 +38,8 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_answer',
     {
       title: 'Answer an approval',
-      description: 'Answer an approval this plugin is holding (only entries with `answerable=true` from `approval_list`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`. The plugin behaves like an ordinary Web client: the native approval card stays visible, whoever answers first wins, and the other side receives a cancel. Identify the approval by `eventId` or `callId`.',
+      description:
+        'Answer an approval this plugin is holding (only entries with `answerable=true` from `approval_list`): `decision=allow` returns `allowed-once` (one-time grant), `reject` returns `rejected`. The plugin behaves like an ordinary Web client: the native approval card stays visible, whoever answers first wins, and the other side receives a cancel. Identify the approval by `eventId` or `callId`.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the approval.'),
         eventId: z.string().optional().describe('eventId from approval_list (the forwarded-request key; preferred).'),
@@ -61,7 +63,8 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     'approval_policy',
     {
       title: 'Get or set approval policy',
-      description: 'Read or switch a session\'s approval policy knob: ask = request approval when needed; never = reject outright. `get` works for live and cold sessions (cold = folded from the log); `set` requires a live session and is written to the session log. This is one knob only — knob-level changes can leave a `custom` combination; for a named permission level use `session_set_permission` instead.',
+      description:
+        "Read or switch a session's approval policy knob: ask = request approval when needed; never = reject outright. `get` works for live and cold sessions (cold = folded from the log); `set` requires a live session and is written to the session log. This is one knob only — knob-level changes can leave a `custom` combination; for a named permission level use `session_set_permission` instead.",
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
         action: z.enum(['get', 'set']).describe('get = read the effective policy; set = switch it.'),
@@ -71,37 +74,49 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     },
     async ({ sessionId, action, policy }) => {
       try {
-        const live = ctx.agents.get(asSessionId(sessionId)) as
-          | { session: unknown }
-          | undefined
+        const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown } | undefined
         if (action === 'get') {
           if (live !== undefined) {
             const effective = effectiveApprovalPolicy(ctx, live.session)
-            return out(JSON.stringify({
-              sessionId,
-              live: true,
-              policy: effective ?? null,
-              note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
-            }, null, 2))
+            return out(
+              JSON.stringify(
+                {
+                  sessionId,
+                  live: true,
+                  policy: effective ?? null,
+                  note: effective === undefined ? 'the host approval service is unavailable; policy unknown' : undefined,
+                },
+                null,
+                2,
+              ),
+            )
           }
           try {
             const events = await inspectSessionEvents(ctx, asSessionId(sessionId))
             const effective = approvalPolicyOfEvents(events)
-            return out(JSON.stringify({
-              sessionId,
-              live: false,
-              policy: effective ?? null,
-              note: 'cold session: policy folded from the persisted log; the host default may differ',
-            }, null, 2))
+            return out(
+              JSON.stringify(
+                {
+                  sessionId,
+                  live: false,
+                  policy: effective ?? null,
+                  note: 'cold session: policy folded from the persisted log; the host default may differ',
+                },
+                null,
+                2,
+              ),
+            )
           } catch (e) {
             return outError(JSON.stringify({ error: `session "${sessionId}" is not readable: ${(e as Error)?.message ?? String(e)}` }))
           }
         }
         if (policy === undefined) return outError(JSON.stringify({ error: 'action "set" requires policy (ask|never)' }))
         if (live === undefined) {
-          return outError(JSON.stringify({
-            error: `session "${sessionId}" is not live; prompt/submit once to activate it, then retry (for a named permission level use session_set_permission, which also resumes cold sessions)`,
-          }))
+          return outError(
+            JSON.stringify({
+              error: `session "${sessionId}" is not live; prompt/submit once to activate it, then retry (for a named permission level use session_set_permission, which also resumes cold sessions)`,
+            }),
+          )
         }
         if (!setApprovalPolicy(ctx, live, policy)) {
           return outError(JSON.stringify({ error: 'the host approval service is unavailable (setPolicy); policy was not changed' }))

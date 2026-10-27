@@ -99,7 +99,10 @@ export function createNotifyHub(opts: { activityThrottleMs: number; listChangedC
       // 无人订阅(含游标变体)时零开销, 活动窗口的频繁触发不会积累定时器
       let anySubscribed = false
       for (const set of subs.values()) {
-        if (subscribedUrisOf(set, uri).length > 0) { anySubscribed = true; break }
+        if (subscribedUrisOf(set, uri).length > 0) {
+          anySubscribed = true
+          break
+        }
       }
       if (!anySubscribed) return
       // 尾沿节流: 悬空期间多次触发合并为悬空结束后的一次

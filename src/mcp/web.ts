@@ -17,21 +17,14 @@ import { NAMESPACE_META, endpointMetaOf } from '../host/endpoint-meta.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
 interface WebServerView {
-  register(options: {
-    kind: 'prefix'
-    path: string
-    handler: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
-  }): () => void
+  register(options: { kind: 'prefix'; path: string; handler: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void> }): () => void
 }
 
 /** 配置编辑通道视图(@deepseek-ai/dsh-config-editor 提供; 可选依赖, 仅类型声明合并零运行时副本):
  * edit 把 change 的返回值写为 profile patch 本条目的 config 行(原子写 + 文件锁 + hmr 串行),
  * 写前经条目 Config schema 校验, "等于继承层"的写入自动删除覆盖行。 */
 interface ConfigEditorView {
-  edit(
-    entry: unknown,
-    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
-  ): Promise<void>
+  edit(entry: unknown, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>): Promise<void>
 }
 
 export interface WebRouteDeps {
@@ -121,9 +114,7 @@ function sameOrigin(req: http.IncomingMessage): boolean {
   if (parsed.host === host) return true
   // 回环别名: Origin 用 localhost、Host 用 127.0.0.1(或反向)时端口相同即视为同源
   const hostUrl = new URL(`http://${host}`)
-  return parsed.port === hostUrl.port
-    && isLoopbackHostname(parsed.hostname)
-    && isLoopbackHostname(hostUrl.hostname)
+  return parsed.port === hostUrl.port && isLoopbackHostname(parsed.hostname) && isLoopbackHostname(hostUrl.hostname)
 }
 
 /**
@@ -135,9 +126,7 @@ function sameOrigin(req: http.IncomingMessage): boolean {
  * 浏览器必带 Host 头, 缺头说明是简化客户端, 也交回 sameOrigin 的既有判定。
  */
 function browserHostOk(req: http.IncomingMessage): boolean {
-  const hasFetchMeta = req.headers['sec-fetch-site'] !== undefined
-    || req.headers['sec-fetch-mode'] !== undefined
-    || req.headers['sec-fetch-dest'] !== undefined
+  const hasFetchMeta = req.headers['sec-fetch-site'] !== undefined || req.headers['sec-fetch-mode'] !== undefined || req.headers['sec-fetch-dest'] !== undefined
   if (!hasFetchMeta) return true
   const host = req.headers.host
   if (host === undefined) return true
@@ -147,9 +136,7 @@ function browserHostOk(req: http.IncomingMessage): boolean {
   } catch {
     return false
   }
-  return isLoopbackHostname(hostname)
-    || net.isIP(hostname) !== 0
-    || hostname === os.hostname().toLowerCase()
+  return isLoopbackHostname(hostname) || net.isIP(hostname) !== 0 || hostname === os.hostname().toLowerCase()
 }
 
 /** 读 GUI 路由请求体(限字节; 超限 413) */
@@ -308,11 +295,17 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         await new Promise<void>((resolveProbe, rejectProbe) => {
           const probe = net.createServer()
           const fail = (e: Error) => {
-            try { probe.close() } catch { /* 未监听时忽略 */ }
+            try {
+              probe.close()
+            } catch {
+              /* 未监听时忽略 */
+            }
             rejectProbe(httpError(409, `无法监听 ${nextHost}:${nextPort}: ${e.message}`))
           }
           probe.once('error', fail)
-          probe.once('listening', () => { probe.close(() => resolveProbe()) })
+          probe.once('listening', () => {
+            probe.close(() => resolveProbe())
+          })
           try {
             probe.listen(nextPort, nextHost)
           } catch (e) {
@@ -382,9 +375,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         available: invocations.length > 0,
         total: invocations.length,
         endpoints,
-        namespaces: Object.fromEntries(
-          Object.entries(NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }]),
-        ),
+        namespaces: Object.fromEntries(Object.entries(NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }])),
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
@@ -432,7 +423,9 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
               const site = req.headers['sec-fetch-site'] ?? '-'
               const origin = req.headers.origin ?? '-'
               const host = req.headers.host ?? '-'
-              webRespond(res, 403, { error: `browser request with non-local Host rejected (site=${site}, origin=${origin}, host=${host}; possible DNS rebinding)` })
+              webRespond(res, 403, {
+                error: `browser request with non-local Host rejected (site=${site}, origin=${origin}, host=${host}; possible DNS rebinding)`,
+              })
               return
             }
             // 变更类方法要求同源(防 CSRF 式改配置)
@@ -463,7 +456,9 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
           }
         },
       })
-      return () => { dispose() }
+      return () => {
+        dispose()
+      }
     }, `${PLUGIN_NAME}: web routes`)
   })
 }

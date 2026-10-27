@@ -68,14 +68,23 @@ export const resUri = {
  */
 export interface SessionControllerView {
   modelCatalog?: () => Promise<ModelCatalogView>
-  selectModel?: (
-    request: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string },
-  ) => Promise<{ selected?: ModelSelection } | undefined>
+  selectModel?: (request: {
+    sessionId: SessionId
+    provider: string
+    model: string
+    reasoningEffort?: string
+  }) => Promise<{ selected?: ModelSelection } | undefined>
   /** 按字面短语搜索会话内容(界面搜索框同源; 0.2.x Remote 必须带取消信号) */
-  search?: (request: { query: string }, signal: AbortSignal) => Promise<{
-    items?: readonly { sessionId?: unknown; snippet?: string; title?: string }[]
-    hasMore?: boolean
-  } | undefined>
+  search?: (
+    request: { query: string },
+    signal: AbortSignal,
+  ) => Promise<
+    | {
+        items?: readonly { sessionId?: unknown; snippet?: string; title?: string }[]
+        hasMore?: boolean
+      }
+    | undefined
+  >
   /** 分叉会话(界面会话菜单"分叉"): 以源会话事件前缀为起点创建新会话 */
   fork?: (request: { sessionId: SessionId; atSeq?: number }) => Promise<{ sessionId?: SessionId } | undefined>
 }
@@ -104,7 +113,11 @@ interface LlmView {
 }
 
 /** 目录里的模型投影: 只留 id/name + 推理档(选 reasoningEffort 要用), 丢掉 description 等长字段省上下文 */
-function projectCatalogModel(m: { id?: string; name?: string; reasoning?: { efforts?: readonly { id?: string; name?: string }[]; defaultEffort?: string } }): Record<string, unknown> {
+function projectCatalogModel(m: {
+  id?: string
+  name?: string
+  reasoning?: { efforts?: readonly { id?: string; name?: string }[]; defaultEffort?: string }
+}): Record<string, unknown> {
   const id = m.id ?? ''
   const o: Record<string, unknown> = { id, name: m.name ?? id }
   const efforts = (m.reasoning?.efforts ?? []).map((e) => ({ id: e.id ?? '', name: e.name ?? e.id ?? '' }))
@@ -153,16 +166,18 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
     source = 'llm'
     const providers = llm.listProviders()
     routable = providers.map((p) => p.id ?? '').filter(Boolean)
-    groups = await Promise.all(routable.map(async (id) => {
-      const name = providers.find((p) => (p.id ?? '') === id)?.name ?? id
-      try {
-        const models = typeof llm.listModels === 'function' ? await llm.listModels(id) : []
-        return { id, name, models: models.map(projectCatalogModel) }
-      } catch (e) {
-        failures.push({ id, name, message: String((e as Error)?.message ?? e) })
-        return { id, name, models: [] }
-      }
-    }))
+    groups = await Promise.all(
+      routable.map(async (id) => {
+        const name = providers.find((p) => (p.id ?? '') === id)?.name ?? id
+        try {
+          const models = typeof llm.listModels === 'function' ? await llm.listModels(id) : []
+          return { id, name, models: models.map(projectCatalogModel) }
+        } catch (e) {
+          failures.push({ id, name, message: String((e as Error)?.message ?? e) })
+          return { id, name, models: [] }
+        }
+      }),
+    )
   }
 
   // 缺省选择: 官方目录优先, 其次宿主默认选择(agentDefaultModel)
@@ -247,12 +262,7 @@ function revisionOfSnapshot(snap: unknown): string | undefined {
 }
 
 /** 一行会话的投影: 清单整表与单会话读取同一份字段(改字段只动这里) */
-function projectRow(
-  ctx: Context,
-  header: SessionHeader,
-  sources: RowSources,
-  archivedIds: ReadonlySet<string>,
-): Record<string, unknown> {
+function projectRow(ctx: Context, header: SessionHeader, sources: RowSources, archivedIds: ReadonlySet<string>): Record<string, unknown> {
   const model = knownSelectionOf(ctx, header.id)
   const title = sources.titleOf(header.id)
   // 权限预设只对 live 行推导(宿主投影读取; 冷会话推导需要读日志, 清单面不为它付 I/O)
@@ -391,9 +401,7 @@ async function resolveColdTitles(
   }
   if (pending.length === 0) return { titles, logReads: 0 }
 
-  const batched = pending.length >= COLD_TITLE_BATCH_MIN
-    ? await batchTitlesOf(ctx, pending, signal)
-    : new Map<string, string | undefined>()
+  const batched = pending.length >= COLD_TITLE_BATCH_MIN ? await batchTitlesOf(ctx, pending, signal) : new Map<string, string | undefined>()
   for (const sessionId of pending) {
     signal?.throwIfAborted()
     const title = batched.has(sessionId) ? batched.get(sessionId) : await coldTitleFromLog(ctx, sessionId, signal)
@@ -412,7 +420,11 @@ async function resolveColdTitles(
  * 归档: 每行带 archived 标记(workspaceRegistry 的全局归档集合); scope 决定列哪一档——
  * 默认 active(不含归档), archived 只看归档, all 两者都列。
  */
-export async function collectSessions(ctx: Context, query: SessionQuery = {}, signal?: AbortSignal): Promise<{
+export async function collectSessions(
+  ctx: Context,
+  query: SessionQuery = {},
+  signal?: AbortSignal,
+): Promise<{
   total: number
   sessions: Record<string, unknown>[]
   titleSearch?: { coldScanned: number; coldTruncated: boolean; coldLogReads: number }
@@ -423,10 +435,12 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}, si
   const revisions = new Map<string, string | undefined>()
   const liveTitles = new Map<string, string>()
   const liveById = new Map<string, unknown>()
-  const sessions = ctx.get('sessions') as {
-    list?: () => { header: SessionHeader; title?: unknown }[]
-    get?: (id: string) => unknown
-  } | undefined
+  const sessions = ctx.get('sessions') as
+    | {
+        list?: () => { header: SessionHeader; title?: unknown }[]
+        get?: (id: string) => unknown
+      }
+    | undefined
   for (const session of sessions?.list?.() ?? []) {
     headers.set(session.header.id, session.header)
     liveById.set(session.header.id, session)
@@ -466,25 +480,20 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}, si
   const archivedIds = new Set(archivedSessionIdsOf(ctx))
   // 范围默认 active: 归档 = 软删除, 不主动出现在清单里
   const scope: SessionScope = query.scope ?? 'active'
-  const visible = [...headers.values()]
-    .filter((h) => {
-      // 归档范围只看归档集合本身, 不影响 cwd/标题过滤的语义
-      if (scope !== 'all' && archivedIds.has(h.id) !== (scope === 'archived')) return false
-      const sessionCwd = h.cwd
-      return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
-    })
+  const visible = [...headers.values()].filter((h) => {
+    // 归档范围只看归档集合本身, 不影响 cwd/标题过滤的语义
+    if (scope !== 'all' && archivedIds.has(h.id) !== (scope === 'archived')) return false
+    const sessionCwd = h.cwd
+    return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
+  })
   const sources: RowSources = { liveOf: (id) => sessions?.get?.(id), titleOf: knownLiveTitle }
-  const items = visible
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((h) => projectRow(ctx, h, sources, archivedIds))
+  const items = visible.sort((a, b) => b.createdAt - a.createdAt).map((h) => projectRow(ctx, h, sources, archivedIds))
 
   const titleQuery = query.title?.trim().toLowerCase() ?? ''
   if (titleQuery === '') return { total: visible.length, sessions: items }
 
   // 预算: 调用方可按会话总量调大(只有"缓存与投影都答不了"的会话才真读日志), 夹在 1..COLD_TITLE_SCAN_LIMIT 防呆
-  const requested = typeof query.coldScanMax === 'number' && Number.isFinite(query.coldScanMax)
-    ? query.coldScanMax
-    : COLD_TITLE_SCAN_MAX
+  const requested = typeof query.coldScanMax === 'number' && Number.isFinite(query.coldScanMax) ? query.coldScanMax : COLD_TITLE_SCAN_MAX
   const coldScanMax = Math.min(COLD_TITLE_SCAN_LIMIT, Math.max(1, Math.floor(requested)))
 
   // 预算按清单顺序(= createdAt 新→旧)取: 没有内存标题的冷会话, 用尽即标记截断。
@@ -503,9 +512,10 @@ export async function collectSessions(ctx: Context, query: SessionQuery = {}, si
       selected.push(sessionId)
     }
   }
-  const resolved = selected.length === 0
-    ? { titles: new Map<string, string | undefined>(), logReads: 0 }
-    : await resolveColdTitles(ctx, selected, revisions, (id) => headers.get(id), signal)
+  const resolved =
+    selected.length === 0
+      ? { titles: new Map<string, string | undefined>(), logReads: 0 }
+      : await resolveColdTitles(ctx, selected, revisions, (id) => headers.get(id), signal)
 
   const matched: Record<string, unknown>[] = []
   for (const item of items) {
@@ -534,9 +544,10 @@ export async function sessionRowOf(ctx: Context, sessionId: string): Promise<Rec
   const live = sessions?.get?.(sessionId)
   const header = await findSessionHeader(ctx, asSessionId(sessionId))
   if (header === undefined) throw new Error(`session not found: ${sessionId}`)
-  const sources: RowSources = live === undefined
-    ? { liveOf: () => undefined, titleOf: () => projectedTitleOf(ctx, header).title }
-    : { liveOf: (id) => (id === sessionId ? live : undefined), titleOf: () => liveTitleOf(live) }
+  const sources: RowSources =
+    live === undefined
+      ? { liveOf: () => undefined, titleOf: () => projectedTitleOf(ctx, header).title }
+      : { liveOf: (id) => (id === sessionId ? live : undefined), titleOf: () => liveTitleOf(live) }
   return projectRow(ctx, header, sources, new Set(archivedSessionIdsOf(ctx)))
 }
 
@@ -625,7 +636,15 @@ export const HISTORY_DEFAULT_ROLES: readonly HistoryRole[] = ['user', 'assistant
  * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
  * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
  */
-export async function sessionHistoryPayload(ctx: Context, sessionId: string, limit: number, beforeIndex?: number, roles?: HistoryRole[], detail?: HistoryDetail, signal?: AbortSignal): Promise<Record<string, unknown>> {
+export async function sessionHistoryPayload(
+  ctx: Context,
+  sessionId: string,
+  limit: number,
+  beforeIndex?: number,
+  roles?: HistoryRole[],
+  detail?: HistoryDetail,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
   const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
   const session = sessions?.get?.(sessionId)
   const live = session !== undefined
@@ -637,8 +656,10 @@ export async function sessionHistoryPayload(ctx: Context, sessionId: string, lim
       events = await inspectSessionEvents(ctx, sessionId as SessionId, signal)
     } catch (e) {
       // 透出宿主原因(不存在 / 格式迁移待完成 / 无 sessionController), 不给"只支持 live"的误导
-      throw new Error(`session not readable: ${sessionId} (${(e as Error)?.message ?? String(e)}); `
-        + 'open the session in the dsh UI, or continue it with session_prompt first')
+      throw new Error(
+        `session not readable: ${sessionId} (${(e as Error)?.message ?? String(e)}); ` +
+          'open the session in the dsh UI, or continue it with session_prompt first',
+      )
     }
   }
   return {
@@ -672,13 +693,18 @@ export async function activityPayload(ctx: Context, sessionId: string): Promise<
   let turnEnds = 0
   for (const e of events) {
     const ev = e as { type?: string; time?: unknown; data?: unknown }
-    if (ev.type === 'turn/start') { turns++; turnStarts++ }
-    else if (ev.type === 'turn/end') turnEnds++
+    if (ev.type === 'turn/start') {
+      turns++
+      turnStarts++
+    } else if (ev.type === 'turn/end') turnEnds++
     else if (ev.type === 'tool/call') lastTool = (ev.data as { name?: string })?.name ?? lastTool
     if (typeof ev.time === 'number') lastEventTime = ev.time
     if (ev.type === 'assistant/message') {
       const d = ev.data as { message?: { content?: { type?: string; text?: string }[] } } | undefined
-      const text = (d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
+      const text = (d?.message?.content ?? [])
+        .filter((c) => c.type === 'text' && c.text)
+        .map((c) => c.text)
+        .join('\n')
       if (text.trim()) assistantTail = text.slice(-400)
     }
   }
@@ -698,7 +724,11 @@ export async function activityPayload(ctx: Context, sessionId: string): Promise<
 }
 
 /** 原始事件流(dsh://sessions/{id}/events): JSONL, after=日志下标游标翻页, 上限 500 行防灌穿 */
-export async function sessionEventsPayload(ctx: Context, sessionId: string, afterIndex?: number): Promise<{ sessionId: string; total: number; returned: number; after?: number; next?: number; truncated: boolean; lines: string[] }> {
+export async function sessionEventsPayload(
+  ctx: Context,
+  sessionId: string,
+  afterIndex?: number,
+): Promise<{ sessionId: string; total: number; returned: number; after?: number; next?: number; truncated: boolean; lines: string[] }> {
   const { events } = await liveSessionOf(ctx, sessionId)
   const from = Math.max(0, Math.min(afterIndex ?? -1, events.length - 1) + 1)
   const CAP = 500
@@ -771,9 +801,7 @@ export async function workspaceDetailPayload(ctx: Context, id: string): Promise<
 
 /** 宿主全局工具注册表(dsh://tools / dsh_list_tools 工具同数据) */
 export function hostToolsPayload(ctx: Context): Record<string, unknown> {
-  const tools = ctx.tools as unknown as
-    | { schemas?: () => { name: string; description?: string }[]; keys?: () => Iterable<string> }
-    | null
+  const tools = ctx.tools as unknown as { schemas?: () => { name: string; description?: string }[]; keys?: () => Iterable<string> } | null
   let list: { name: string; description?: string }[]
   if (tools && typeof tools.schemas === 'function') {
     list = tools.schemas().map((s) => ({ name: s.name, description: s.description ?? '' }))
@@ -784,7 +812,7 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   }
   return {
     source: 'global-registry',
-    note: 'the global registry includes this plugin\'s native self-use tools (when selfToolsEnabled=true) and other host/plugin global tools; model tools may also live in preset/agent scopes, so the tools a session can actually use are the toolCalls in a session_prompt result (run a small task to confirm a capability)',
+    note: "the global registry includes this plugin's native self-use tools (when selfToolsEnabled=true) and other host/plugin global tools; model tools may also live in preset/agent scopes, so the tools a session can actually use are the toolCalls in a session_prompt result (run a small task to confirm a capability)",
     tools: list,
   }
 }

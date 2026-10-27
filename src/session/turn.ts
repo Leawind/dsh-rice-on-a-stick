@@ -28,7 +28,7 @@ function messageOf(data: unknown): Record<string, unknown> | undefined {
   if (data === null || typeof data !== 'object') return undefined
   const d = data as Record<string, unknown>
   const inner = d.message
-  return inner !== null && typeof inner === 'object' ? inner as Record<string, unknown> : d
+  return inner !== null && typeof inner === 'object' ? (inner as Record<string, unknown>) : d
 }
 
 /** 一次提交在事件日志里的 turn 窗口 */
@@ -55,12 +55,7 @@ export interface RequestMessageLocation {
  * 在事件日志里定位一次提交的 user/message: 优先 source.rpcId, 回退 message id。
  * 这是 requestId 的持久锚点: 进程内索引丢了也能从日志恢复。
  */
-export function findRequestMessage(
-  events: readonly unknown[],
-  requestId: string,
-  startSeq = 0,
-  messageId?: string,
-): RequestMessageLocation | undefined {
+export function findRequestMessage(events: readonly unknown[], requestId: string, startSeq = 0, messageId?: string): RequestMessageLocation | undefined {
   for (let i = Math.max(0, startSeq); i < events.length; i++) {
     const ev = asEvent(events[i])
     if (ev.type !== 'user/message') continue
@@ -87,12 +82,7 @@ export function findRequestMessage(
  *
  * @returns 找不到用户消息(还没被 turn 认领)时 undefined
  */
-export function findRequestTurn(
-  events: readonly unknown[],
-  requestId: string,
-  messageId: string,
-  startSeq: number,
-): TurnRange | undefined {
+export function findRequestTurn(events: readonly unknown[], requestId: string, messageId: string, startSeq: number): TurnRange | undefined {
   const located = findRequestMessage(events, requestId, startSeq, messageId)
   if (located === undefined) return undefined
   const userIndex = located.index
@@ -183,8 +173,9 @@ export function turnEndError(turn: number | undefined, reason: TurnEndReasonView
   }
   let message = bits.join(' — ')
   if (kind === 'blocked') {
-    message += ' (host is waiting for interactive input/approval that an unattended run cannot grant; '
-      + 'arrange approval or relax the host approval policy, then continue via session_prompt with this sessionId)'
+    message +=
+      ' (host is waiting for interactive input/approval that an unattended run cannot grant; ' +
+      'arrange approval or relax the host approval policy, then continue via session_prompt with this sessionId)'
   }
   return message
 }
@@ -192,14 +183,19 @@ export function turnEndError(turn: number | undefined, reason: TurnEndReasonView
 /** turn/end reason → 请求状态 */
 export function statusOfReason(kind: string | undefined): RequestStatus {
   switch (kind) {
-    case 'completed': return 'completed'
-    case 'blocked': return 'blocked'
+    case 'completed':
+      return 'completed'
+    case 'blocked':
+      return 'blocked'
     case 'aborted':
     case 'canceled':
-    case 'cancelled': return 'cancelled'
+    case 'cancelled':
+      return 'cancelled'
     case 'error':
-    case 'max-tokens': return 'errored'
-    default: return kind === undefined ? 'pending' : 'errored'
+    case 'max-tokens':
+      return 'errored'
+    default:
+      return kind === undefined ? 'pending' : 'errored'
   }
 }
 
@@ -247,11 +243,13 @@ export function buildTurnResult(events: readonly unknown[], range: TurnRange, op
       lastTime = ev.time
     }
     if (ev.type === 'assistant/message') {
-      const d = ev.data as {
-        message?: { content?: { type?: string; text?: string }[]; usage?: { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown } }
-        /** 0.1.7+ 的 usage 挂在事件载荷上(不再随 message); 两处都试 */
-        usage?: { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown }
-      } | undefined
+      const d = ev.data as
+        | {
+            message?: { content?: { type?: string; text?: string }[]; usage?: { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown } }
+            /** 0.1.7+ 的 usage 挂在事件载荷上(不再随 message); 两处都试 */
+            usage?: { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown }
+          }
+        | undefined
       const content = d?.message?.content
       if (content) {
         const texts = content.filter((c) => c.type === 'text' && c.text).map((c) => c.text)
@@ -288,9 +286,7 @@ export function buildTurnResult(events: readonly unknown[], range: TurnRange, op
   result.status = range.open ? 'running' : statusOfReason(reason?.kind)
   result.pending = range.open
   result.error = turnEndError(result.turn, reason)
-  result.durationMs = firstTime !== undefined && lastTime !== undefined
-    ? Math.max(0, lastTime - firstTime)
-    : Math.max(0, Date.now() - opts.submittedAt)
+  result.durationMs = firstTime !== undefined && lastTime !== undefined ? Math.max(0, lastTime - firstTime) : Math.max(0, Date.now() - opts.submittedAt)
 
   const summary = parseSummary(result.assistantText)
   result.changes = summary.changes
@@ -326,9 +322,7 @@ export function lastTurnOf(events: readonly unknown[]): LastTurnInfo | undefined
       const d = ev.data as { turn?: unknown } | undefined
       const reason = reasonOf(ev.data)
       const turn = typeof d?.turn === 'number' ? d.turn : undefined
-      const error = reason?.error !== undefined
-        ? `${reason.error.code ?? 'ERROR'}: ${reason.error.message ?? ''}`
-        : undefined
+      const error = reason?.error !== undefined ? `${reason.error.code ?? 'ERROR'}: ${reason.error.message ?? ''}` : undefined
       last = {
         ...(turn !== undefined ? { turn } : {}),
         ...(reason?.kind !== undefined ? { reason: reason.kind } : {}),
@@ -384,9 +378,11 @@ export function selectionOfEvents(events: readonly unknown[]): ModelSelection | 
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = asEvent(events[i])
     if (ev.type !== 'request/header') continue
-    const d = ev.data as {
-      header?: { config?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }
-    } | undefined
+    const d = ev.data as
+      | {
+          header?: { config?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }
+        }
+      | undefined
     const config = d?.header?.config
     const provider = typeof config?.provider === 'string' ? config.provider : ''
     const model = typeof config?.model === 'string' ? config.model : ''
@@ -407,7 +403,10 @@ export function lastAssistantTextOf(events: readonly unknown[]): string {
     const ev = asEvent(value)
     if (ev.type !== 'assistant/message') continue
     const d = ev.data as { message?: { content?: { type?: string; text?: string }[] } } | undefined
-    const current = (d?.message?.content ?? []).filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
+    const current = (d?.message?.content ?? [])
+      .filter((c) => c.type === 'text' && c.text)
+      .map((c) => c.text)
+      .join('\n')
     if (current.trim()) text = current
   }
   return text

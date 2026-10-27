@@ -1,6 +1,5 @@
 /**
- * MCP 工具注册入口(35 个 = 会话中心 14 + 异步控制面 3 + 审批/问题控制面 5 + 子代理发现 1
- * + 目录/状态 8(含 echo 与权限预设) + 归档恢复 1 + 附件取回 1 + 端点直通 2)。
+ * MCP 工具注册入口(按域装配; 权威清单以各域文件的 registerXxxTools 为准, 这里不重复计数)。
  *
  * 本文件只做装配, 具体工具按域拆分:
  *   catalog.ts         echo / dsh_get_started / dsh_list_tools / dsh_status / workspace_list /

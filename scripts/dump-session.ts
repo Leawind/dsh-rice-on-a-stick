@@ -5,7 +5,10 @@ import { zstdDecompressSync } from 'node:zlib'
 const p = process.argv[2]
 const out = process.argv[3] ?? 'session-dump.txt'
 const buf = zstdDecompressSync(readFileSync(p))
-const lines = buf.toString('utf8').split(/\r?\n/).filter((l) => l.trim())
+const lines = buf
+  .toString('utf8')
+  .split(/\r?\n/)
+  .filter((l) => l.trim())
 const rendered = lines.map((line) => {
   try {
     const e = JSON.parse(line)

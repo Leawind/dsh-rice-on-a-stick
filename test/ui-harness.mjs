@@ -25,8 +25,24 @@ const startedAt = Date.now()
 const now = () => Date.now()
 // 与 statusSnapshot() 一致: 最新连接在前(按 connectedAt 倒序)
 const DEFAULT_CONNS = () => [
-  { sessionId: '0f9e8d7c6b5a4321fedcba9876543210', userAgent: 'cursor/1.99.3', connectedAt: now() - 60_000, lastActivity: now() - 45_000, requests: 7, remoteAddress: '127.0.0.1', remotePort: 54321 },
-  { sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90', userAgent: 'claude-code/2.1.0 (Windows)', connectedAt: now() - 125_000, lastActivity: now() - 4_000, requests: 42, remoteAddress: '127.0.0.1', remotePort: 54322 },
+  {
+    sessionId: '0f9e8d7c6b5a4321fedcba9876543210',
+    userAgent: 'cursor/1.99.3',
+    connectedAt: now() - 60_000,
+    lastActivity: now() - 45_000,
+    requests: 7,
+    remoteAddress: '127.0.0.1',
+    remotePort: 54321,
+  },
+  {
+    sessionId: 'b1a2c3d4e5f60718293a4b5c6d7e8f90',
+    userAgent: 'claude-code/2.1.0 (Windows)',
+    connectedAt: now() - 125_000,
+    lastActivity: now() - 4_000,
+    requests: 42,
+    remoteAddress: '127.0.0.1',
+    remotePort: 54322,
+  },
 ]
 const state = {
   name: 'dsh-rice-on-a-stick',
@@ -36,12 +52,18 @@ const state = {
   endpoint: `http://127.0.0.1:5642/mcp`,
   startedAt,
   config: {
-    host: '127.0.0.1', port: 5642,
+    host: '127.0.0.1',
+    port: 5642,
     http: true,
-    allowedModels: [], allowedModelsEnabled: false, allowedHosts: [],
-    authEnabled: false, authToken: '', selfToolsEnabled: true,
+    allowedModels: [],
+    allowedModelsEnabled: false,
+    allowedHosts: [],
+    authEnabled: false,
+    authToken: '',
+    selfToolsEnabled: true,
     endpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
-    approvalTimeoutMs: 120000, sessionTtlMs: 604800000,
+    approvalTimeoutMs: 120000,
+    sessionTtlMs: 604800000,
     modelDescriptions: { 'fake-prov/m1': '排名第一的假模型，响应快。' },
     providerDescriptions: { 'fake-prov': '用于界面冒烟的假提供商。' },
   },
@@ -365,19 +387,96 @@ const server = createServer(async (req, res) => {
         // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读行同样需勾选/悬停 tooltip)。allowed 跟随 config 白名单计算。
         const allow = new Set(state.config.endpointAllowlist)
         const endpoints = [
-          { endpoint: 'session/list', description: 'List sessions with pagination and status filters.', descriptionZh: '列出会话（分页与状态过滤）。', descriptionEn: 'List sessions with pagination and status filters.', kind: 'read' },
-          { endpoint: 'session/search', description: 'Keyword search across session titles and message transcripts.', descriptionZh: '按关键字搜索会话标题与消息记录。', descriptionEn: 'Keyword search across session titles and message transcripts.', kind: 'read' },
-          { endpoint: 'session/rename', description: 'Rename a session by id; the title shows up in the host session switcher and archives.', descriptionZh: '重命名会话，标题会出现在宿主的会话切换器与归档里。', descriptionEn: 'Rename a session by id; the title shows up in the host session switcher and archives.', kind: 'selectable' },
-          { endpoint: 'session/archive', description: 'Archive a session; archived sessions leave the active list but keep their history.', descriptionZh: '归档会话；归档后离开活动列表但保留历史。', descriptionEn: 'Archive a session; archived sessions leave the active list but keep their history.', kind: 'selectable' },
-          { endpoint: 'settings/describe', description: 'Describe a settings key: type, current value, allowed range and restart requirements.', descriptionZh: '描述某个设置键：类型、当前值、取值范围与重启要求。', descriptionEn: 'Describe a settings key: type, current value, allowed range and restart requirements.', kind: 'read' },
-          { endpoint: 'workspaceFiles/read', description: 'Read a text file inside the workspace sandbox.', descriptionZh: '读取工作区沙箱内的文本文件。', descriptionEn: 'Read a text file inside the workspace sandbox.', kind: 'read' },
-          { endpoint: 'workspaceFiles/write', description: 'Write a text file inside the workspace sandbox. Creates parent directories as needed and refuses paths outside the sandbox root; the file is left untouched when the write fails midway. This description is deliberately long to exercise truncation and the hover tooltip.', descriptionZh: '写入工作区沙箱内的文本文件。按需创建父目录，拒绝沙箱根之外的路径；写入中途失败时文件保持原样。这段描述刻意写得很长，用来验证截断与悬停提示。', descriptionEn: 'Write a text file inside the workspace sandbox. Creates parent directories as needed and refuses paths outside the sandbox root; the file is left untouched when the write fails midway. This description is deliberately long to exercise truncation and the hover tooltip.', kind: 'selectable' },
-          { endpoint: 'terminal/kill', description: 'Kill a running terminal process by id.', descriptionZh: '按 id 终止正在运行的终端进程。', descriptionEn: 'Kill a running terminal process by id.', kind: 'selectable' },
-          { endpoint: 'schedule/runNow', description: 'Trigger a scheduled task immediately, out of its normal cadence.', descriptionZh: '立即触发一次定时任务（脱离其正常节奏）。', descriptionEn: 'Trigger a scheduled task immediately, out of its normal cadence.', kind: 'selectable' },
-          { endpoint: 'terminal/stream', description: 'Stream terminal output frames as they are produced.', descriptionZh: '以流式返回终端输出帧。', descriptionEn: 'Stream terminal output frames as they are produced.', kind: 'stream' },
+          {
+            endpoint: 'session/list',
+            description: 'List sessions with pagination and status filters.',
+            descriptionZh: '列出会话（分页与状态过滤）。',
+            descriptionEn: 'List sessions with pagination and status filters.',
+            kind: 'read',
+          },
+          {
+            endpoint: 'session/search',
+            description: 'Keyword search across session titles and message transcripts.',
+            descriptionZh: '按关键字搜索会话标题与消息记录。',
+            descriptionEn: 'Keyword search across session titles and message transcripts.',
+            kind: 'read',
+          },
+          {
+            endpoint: 'session/rename',
+            description: 'Rename a session by id; the title shows up in the host session switcher and archives.',
+            descriptionZh: '重命名会话，标题会出现在宿主的会话切换器与归档里。',
+            descriptionEn: 'Rename a session by id; the title shows up in the host session switcher and archives.',
+            kind: 'selectable',
+          },
+          {
+            endpoint: 'session/archive',
+            description: 'Archive a session; archived sessions leave the active list but keep their history.',
+            descriptionZh: '归档会话；归档后离开活动列表但保留历史。',
+            descriptionEn: 'Archive a session; archived sessions leave the active list but keep their history.',
+            kind: 'selectable',
+          },
+          {
+            endpoint: 'settings/describe',
+            description: 'Describe a settings key: type, current value, allowed range and restart requirements.',
+            descriptionZh: '描述某个设置键：类型、当前值、取值范围与重启要求。',
+            descriptionEn: 'Describe a settings key: type, current value, allowed range and restart requirements.',
+            kind: 'read',
+          },
+          {
+            endpoint: 'workspaceFiles/read',
+            description: 'Read a text file inside the workspace sandbox.',
+            descriptionZh: '读取工作区沙箱内的文本文件。',
+            descriptionEn: 'Read a text file inside the workspace sandbox.',
+            kind: 'read',
+          },
+          {
+            endpoint: 'workspaceFiles/write',
+            description:
+              'Write a text file inside the workspace sandbox. Creates parent directories as needed and refuses paths outside the sandbox root; the file is left untouched when the write fails midway. This description is deliberately long to exercise truncation and the hover tooltip.',
+            descriptionZh:
+              '写入工作区沙箱内的文本文件。按需创建父目录，拒绝沙箱根之外的路径；写入中途失败时文件保持原样。这段描述刻意写得很长，用来验证截断与悬停提示。',
+            descriptionEn:
+              'Write a text file inside the workspace sandbox. Creates parent directories as needed and refuses paths outside the sandbox root; the file is left untouched when the write fails midway. This description is deliberately long to exercise truncation and the hover tooltip.',
+            kind: 'selectable',
+          },
+          {
+            endpoint: 'terminal/kill',
+            description: 'Kill a running terminal process by id.',
+            descriptionZh: '按 id 终止正在运行的终端进程。',
+            descriptionEn: 'Kill a running terminal process by id.',
+            kind: 'selectable',
+          },
+          {
+            endpoint: 'schedule/runNow',
+            description: 'Trigger a scheduled task immediately, out of its normal cadence.',
+            descriptionZh: '立即触发一次定时任务（脱离其正常节奏）。',
+            descriptionEn: 'Trigger a scheduled task immediately, out of its normal cadence.',
+            kind: 'selectable',
+          },
+          {
+            endpoint: 'terminal/stream',
+            description: 'Stream terminal output frames as they are produced.',
+            descriptionZh: '以流式返回终端输出帧。',
+            descriptionEn: 'Stream terminal output frames as they are produced.',
+            kind: 'stream',
+          },
           { endpoint: 'mcpManager/getToolFilter', kind: 'selectable' },
-          { endpoint: 'pluginManager/installBundle', description: 'Install a plugin bundle from a registry.', descriptionZh: '从注册源安装插件捆绑包（引入新代码，影响进程信任边界）。', descriptionEn: 'Install a plugin bundle from a registry (introduces new code; affects the process trust boundary).', kind: 'selectable', dangerous: true },
-          { endpoint: 'credentials/set', description: 'Store a provider credential.', descriptionZh: '写入提供商凭据。', descriptionEn: 'Store a provider credential.', kind: 'selectable', dangerous: true },
+          {
+            endpoint: 'pluginManager/installBundle',
+            description: 'Install a plugin bundle from a registry.',
+            descriptionZh: '从注册源安装插件捆绑包（引入新代码，影响进程信任边界）。',
+            descriptionEn: 'Install a plugin bundle from a registry (introduces new code; affects the process trust boundary).',
+            kind: 'selectable',
+            dangerous: true,
+          },
+          {
+            endpoint: 'credentials/set',
+            description: 'Store a provider credential.',
+            descriptionZh: '写入提供商凭据。',
+            descriptionEn: 'Store a provider credential.',
+            kind: 'selectable',
+            dangerous: true,
+          },
         ].map((e) => {
           const readOnly = e.kind === 'read' || e.readOnly === true
           return { ...e, readOnly, kind: e.kind === 'read' ? 'selectable' : e.kind, allowed: allow.has(e.endpoint) }
@@ -418,7 +517,11 @@ const server = createServer(async (req, res) => {
       if (method === 'endpoint-approval-answer') {
         // 审批应答(与 src/mcp/web.ts endpoint-approval-answer 同形): 记下 approvalId, 下一轮轮询出清
         let payload
-        try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
+        try {
+          payload = rawBody ? JSON.parse(rawBody) : {}
+        } catch {
+          return json(res, 400, { error: '请求体不是合法 JSON' })
+        }
         if (!payload.approvalId || (payload.decision !== 'allow' && payload.decision !== 'reject')) {
           return json(res, 400, { error: 'approvalId 与 decision(allow/reject) 必填' })
         }
@@ -446,7 +549,11 @@ const server = createServer(async (req, res) => {
           if (res.writableEnded) return
         }
         let payload
-        try { payload = rawBody ? JSON.parse(rawBody) : {} } catch { return json(res, 400, { error: '请求体不是合法 JSON' }) }
+        try {
+          payload = rawBody ? JSON.parse(rawBody) : {}
+        } catch {
+          return json(res, 400, { error: '请求体不是合法 JSON' })
+        }
         configCalls.push(payload)
         if (payload.values && typeof payload.values === 'object') {
           Object.assign(state.config, payload.values)
@@ -455,9 +562,9 @@ const server = createServer(async (req, res) => {
           // authToken 只写: 更新掩码; authEnabled 是独立开关字段(关闭不清令牌, 与后端同语义)
           if ('authToken' in payload.values) {
             state.config.authTokenHint = payload.values.authToken
-              ? (payload.values.authToken.length >= 12
-                  ? payload.values.authToken.slice(0, 4) + '...' + payload.values.authToken.slice(-4)
-                  : '••••••')
+              ? payload.values.authToken.length >= 12
+                ? payload.values.authToken.slice(0, 4) + '...' + payload.values.authToken.slice(-4)
+                : '••••••'
               : undefined
           }
           if ('host' in payload.values || 'port' in payload.values) {

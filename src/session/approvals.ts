@@ -77,9 +77,11 @@ export function approvalEntriesFor(sessionId: string, events: readonly unknown[]
   const used = new Set<string>()
 
   for (const item of log) {
-    const match = held.find((approval) =>
-      (item.callId !== undefined && approval.callId === item.callId)
-      || (item.callId === undefined && approval.callId === undefined && approval.toolName === item.toolName && approval.reason === item.reason))
+    const match = held.find(
+      (approval) =>
+        (item.callId !== undefined && approval.callId === item.callId) ||
+        (item.callId === undefined && approval.callId === undefined && approval.toolName === item.toolName && approval.reason === item.reason),
+    )
     if (match !== undefined) used.add(match.eventId)
     entries.push({
       approvalId: item.requestId,
@@ -113,9 +115,7 @@ export function approvalEntriesFor(sessionId: string, events: readonly unknown[]
 export async function approvalListFor(ctx: Context, sessionIds: readonly string[]): Promise<Record<string, unknown>> {
   const sessions: Record<string, unknown>[] = []
   for (const sessionId of sessionIds) {
-    const live = ctx.agents.get(asSessionId(sessionId)) as
-      | { session: unknown; status?: string }
-      | undefined
+    const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown; status?: string } | undefined
     let events: readonly unknown[] = []
     if (live !== undefined) {
       events = eventsOf(live.session)
@@ -124,28 +124,22 @@ export async function approvalListFor(ctx: Context, sessionIds: readonly string[
         events = await inspectSessionEvents(ctx, asSessionId(sessionId))
       } catch {
         const header = await findSessionHeader(ctx, asSessionId(sessionId)).catch(() => undefined)
-        sessions.push(header === undefined
-          ? { sessionId, state: 'not-found' }
-          : { sessionId, state: 'inactive', note: 'session exists but its log is not readable right now' })
+        sessions.push(
+          header === undefined
+            ? { sessionId, state: 'not-found' }
+            : { sessionId, state: 'inactive', note: 'session exists but its log is not readable right now' },
+        )
         continue
       }
     }
     const approvals = approvalEntriesFor(sessionId, events)
-    const policy = live !== undefined
-      ? effectiveApprovalPolicy(ctx, live.session)
-      : approvalPolicyOfEvents(events)
+    const policy = live !== undefined ? effectiveApprovalPolicy(ctx, live.session) : approvalPolicyOfEvents(events)
     sessions.push({
       sessionId,
-      state: approvals.length > 0
-        ? 'waiting-approval'
-        : live !== undefined
-          ? (live.status === 'running' ? 'running' : 'idle')
-          : 'inactive',
+      state: approvals.length > 0 ? 'waiting-approval' : live !== undefined ? (live.status === 'running' ? 'running' : 'idle') : 'inactive',
       ...(policy !== undefined ? { policy } : {}),
       approvals,
-      ...(approvals.length > 0
-        ? { note: 'approval_answer can only answer entries with answerable=true; others are owned by the UI or another client' }
-        : {}),
+      ...(approvals.length > 0 ? { note: 'approval_answer can only answer entries with answerable=true; others are owned by the UI or another client' } : {}),
     })
   }
   return { sessions }

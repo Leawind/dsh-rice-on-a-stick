@@ -16,16 +16,7 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** 只复制构建/测试需要的路径；node_modules 约 55 MB，直接拷贝（临时目录里不能建 junction）。 */
-const COPY = [
-  'src',
-  'test',
-  'node_modules',
-  'package.json',
-  'tsconfig.json',
-  'tsconfig.test.json',
-  'cordis.yml',
-  'icon.svg',
-]
+const COPY = ['src', 'test', 'node_modules', 'package.json', 'tsconfig.json', 'tsconfig.test.json', 'cordis.yml', 'icon.svg']
 const SKIP = new Set(['.git', 'gui-test-screenshots', 'assets'])
 
 async function main() {

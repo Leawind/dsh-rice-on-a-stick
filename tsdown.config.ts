@@ -58,8 +58,10 @@ export default defineConfig({
     // react 与 @deepseek-ai/* 由宿主运行时播种, 绝不重复打包; 其余依赖(highlight.js 之类,
     // 当前没有)整份进 bundle
     neverBundle: (specifier: string) =>
-      specifier === 'react' || specifier.startsWith('react/') ||
-      specifier === 'react-dom' || specifier.startsWith('react-dom/') ||
+      specifier === 'react' ||
+      specifier.startsWith('react/') ||
+      specifier === 'react-dom' ||
+      specifier.startsWith('react-dom/') ||
       specifier.startsWith('@deepseek-ai/'),
   },
   plugins: [svgText()],

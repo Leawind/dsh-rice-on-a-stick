@@ -21,9 +21,7 @@ function asEvent(value: unknown): RawEvent {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 
 function asOptions(value: unknown): QuestionOptionView[] | undefined {
@@ -180,9 +178,7 @@ export function questionEntriesFor(sessionId: string, events: readonly unknown[]
 export async function questionListFor(ctx: Context, sessionIds: readonly string[]): Promise<Record<string, unknown>> {
   const sessions: Record<string, unknown>[] = []
   for (const sessionId of sessionIds) {
-    const live = ctx.agents.get(asSessionId(sessionId)) as
-      | { session: unknown; status?: string }
-      | undefined
+    const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown; status?: string } | undefined
     let events: readonly unknown[] = []
     if (live !== undefined) {
       events = eventsOf(live.session)
@@ -191,24 +187,20 @@ export async function questionListFor(ctx: Context, sessionIds: readonly string[
         events = await inspectSessionEvents(ctx, asSessionId(sessionId))
       } catch {
         const header = await findSessionHeader(ctx, asSessionId(sessionId)).catch(() => undefined)
-        sessions.push(header === undefined
-          ? { sessionId, state: 'not-found' }
-          : { sessionId, state: 'inactive', note: 'session exists but its log is not readable right now' })
+        sessions.push(
+          header === undefined
+            ? { sessionId, state: 'not-found' }
+            : { sessionId, state: 'inactive', note: 'session exists but its log is not readable right now' },
+        )
         continue
       }
     }
     const questions = questionEntriesFor(sessionId, events, live !== undefined)
     sessions.push({
       sessionId,
-      state: questions.length > 0
-        ? 'waiting-question'
-        : live !== undefined
-          ? (live.status === 'running' ? 'running' : 'idle')
-          : 'inactive',
+      state: questions.length > 0 ? 'waiting-question' : live !== undefined ? (live.status === 'running' ? 'running' : 'idle') : 'inactive',
       questions,
-      ...(questions.length > 0
-        ? { note: 'question_answer can only answer entries with answerable=true; others are owned by the UI or another client' }
-        : {}),
+      ...(questions.length > 0 ? { note: 'question_answer can only answer entries with answerable=true; others are owned by the UI or another client' } : {}),
     })
   }
   return { sessions }

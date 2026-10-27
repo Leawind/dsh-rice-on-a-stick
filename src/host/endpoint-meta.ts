@@ -36,39 +36,39 @@ export interface EndpointMeta {
 
 /** 命名空间一句话描述(面板组头按界面语言显示; 缺失时组头只显示名字) */
 export const NAMESPACE_META: Readonly<Record<string, EndpointDescription>> = {
-  'account': { zh: '平台账号', en: 'Platform account' },
-  'agentPresets': { zh: 'Agent 预设', en: 'Agent presets' },
-  'commands': { zh: '斜杠命令', en: 'Slash commands' },
-  'credentials': { zh: '提供商凭据', en: 'Provider credentials' },
-  'directoryPicker': { zh: '目录选择器', en: 'Directory picker' },
-  'dynamicCordisRunner': { zh: '插件动态运行器', en: 'Dynamic plugin runner' },
-  'fileReferences': { zh: '附件引用', en: 'Attachment references' },
-  'fileUploads': { zh: '文件上传', en: 'File uploads' },
-  'goals': { zh: '会话目标', en: 'Session goals' },
-  'job': { zh: '后台任务', en: 'Background jobs' },
-  'llm': { zh: '模型提供商', en: 'Model providers' },
-  'mcpManager': { zh: 'MCP 服务器管理', en: 'MCP server management' },
-  'messageFeedback': { zh: '消息反馈', en: 'Message feedback' },
-  'officeToPdf': { zh: 'Office 转 PDF', en: 'Office-to-PDF conversion' },
-  'opsSettings': { zh: '运维操作面板', en: 'Ops actions panel' },
-  'permissionPresets': { zh: '权限预设', en: 'Permission presets' },
-  'pluginInventory': { zh: '已安装插件清单', en: 'Installed plugin inventory' },
-  'pluginManager': { zh: '插件管理', en: 'Plugin management' },
-  'pluginRegistryProbe': { zh: '插件注册源探测', en: 'Plugin registry probing' },
-  'remoteAccess': { zh: '远程访问', en: 'Remote access' },
-  'schedule': { zh: '定时任务', en: 'Scheduled tasks' },
-  'session': { zh: '会话与轮次', en: 'Sessions and turns' },
-  'sessionFeedback': { zh: '会话备注', en: 'Session remarks' },
-  'sessionReferenceResolver': { zh: '会话引用解析', en: 'Session reference resolution' },
-  'settings': { zh: '设置', en: 'Settings' },
-  'skills': { zh: '技能', en: 'Skills' },
-  'skillsViewer': { zh: '技能浏览与管理', en: 'Skill browsing and management' },
-  'speech': { zh: '语音识别与转写', en: 'Speech recognition and transcription' },
-  'subagents': { zh: '子代理', en: 'Subagents' },
-  'terminal': { zh: '终端', en: 'Terminals' },
-  'userQuestions': { zh: '用户提问', en: 'User questions' },
-  'workspace': { zh: '工作区', en: 'Workspaces' },
-  'workspaceFiles': { zh: '工作区文件', en: 'Workspace files' },
+  account: { zh: '平台账号', en: 'Platform account' },
+  agentPresets: { zh: 'Agent 预设', en: 'Agent presets' },
+  commands: { zh: '斜杠命令', en: 'Slash commands' },
+  credentials: { zh: '提供商凭据', en: 'Provider credentials' },
+  directoryPicker: { zh: '目录选择器', en: 'Directory picker' },
+  dynamicCordisRunner: { zh: '插件动态运行器', en: 'Dynamic plugin runner' },
+  fileReferences: { zh: '附件引用', en: 'Attachment references' },
+  fileUploads: { zh: '文件上传', en: 'File uploads' },
+  goals: { zh: '会话目标', en: 'Session goals' },
+  job: { zh: '后台任务', en: 'Background jobs' },
+  llm: { zh: '模型提供商', en: 'Model providers' },
+  mcpManager: { zh: 'MCP 服务器管理', en: 'MCP server management' },
+  messageFeedback: { zh: '消息反馈', en: 'Message feedback' },
+  officeToPdf: { zh: 'Office 转 PDF', en: 'Office-to-PDF conversion' },
+  opsSettings: { zh: '运维操作面板', en: 'Ops actions panel' },
+  permissionPresets: { zh: '权限预设', en: 'Permission presets' },
+  pluginInventory: { zh: '已安装插件清单', en: 'Installed plugin inventory' },
+  pluginManager: { zh: '插件管理', en: 'Plugin management' },
+  pluginRegistryProbe: { zh: '插件注册源探测', en: 'Plugin registry probing' },
+  remoteAccess: { zh: '远程访问', en: 'Remote access' },
+  schedule: { zh: '定时任务', en: 'Scheduled tasks' },
+  session: { zh: '会话与轮次', en: 'Sessions and turns' },
+  sessionFeedback: { zh: '会话备注', en: 'Session remarks' },
+  sessionReferenceResolver: { zh: '会话引用解析', en: 'Session reference resolution' },
+  settings: { zh: '设置', en: 'Settings' },
+  skills: { zh: '技能', en: 'Skills' },
+  skillsViewer: { zh: '技能浏览与管理', en: 'Skill browsing and management' },
+  speech: { zh: '语音识别与转写', en: 'Speech recognition and transcription' },
+  subagents: { zh: '子代理', en: 'Subagents' },
+  terminal: { zh: '终端', en: 'Terminals' },
+  userQuestions: { zh: '用户提问', en: 'User questions' },
+  workspace: { zh: '工作区', en: 'Workspaces' },
+  workspaceFiles: { zh: '工作区文件', en: 'Workspace files' },
 }
 
 export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
@@ -264,30 +264,51 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── mcpManager(MCP 服务器管理, 变更类多为信任与供应链操作) ──
   'mcpManager/list': {
     readOnly: true,
-    description: { zh: '读取 cordis.patch.yml 中的受管与外部 MCP 服务器行，附带加载器状态与工具数。', en: 'Read managed and external MCP server rows from cordis.patch.yml with loader state and tool counts.' },
+    description: {
+      zh: '读取 cordis.patch.yml 中的受管与外部 MCP 服务器行，附带加载器状态与工具数。',
+      en: 'Read managed and external MCP server rows from cordis.patch.yml with loader state and tool counts.',
+    },
   },
   'mcpManager/save': {
     dangerous: true,
-    description: { zh: '在受管块中新增或改写一个 MCP 服务器行，并等待加载器就位。', en: 'Add or rewrite one MCP server row in the managed block and wait for its loader entry.' },
+    description: {
+      zh: '在受管块中新增或改写一个 MCP 服务器行，并等待加载器就位。',
+      en: 'Add or rewrite one MCP server row in the managed block and wait for its loader entry.',
+    },
   },
   'mcpManager/removeServer': {
     dangerous: true,
-    description: { zh: '删除受管块中的一个 MCP 服务器行（外部行需手动改文件）。', en: 'Remove one managed MCP server row; external rows must be edited in the file by hand.' },
+    description: {
+      zh: '删除受管块中的一个 MCP 服务器行（外部行需手动改文件）。',
+      en: 'Remove one managed MCP server row; external rows must be edited in the file by hand.',
+    },
   },
   'mcpManager/setEnabled': {
     dangerous: true,
-    description: { zh: '启用或停用受管块中的一个 MCP 服务器行，并等待加载器就位。', en: 'Enable or disable one managed MCP server row and wait for its loader entry.' },
+    description: {
+      zh: '启用或停用受管块中的一个 MCP 服务器行，并等待加载器就位。',
+      en: 'Enable or disable one managed MCP server row and wait for its loader entry.',
+    },
   },
   'mcpManager/test': {
-    description: { zh: '探测一个 MCP 服务器配置（或按名称指定已有服务器）并返回连接结果。', en: 'Probe one MCP server configuration, or an existing server by name, and return the connection result.' },
+    description: {
+      zh: '探测一个 MCP 服务器配置（或按名称指定已有服务器）并返回连接结果。',
+      en: 'Probe one MCP server configuration, or an existing server by name, and return the connection result.',
+    },
   },
   'mcpManager/reload': {
     readOnly: true,
-    description: { zh: '重新读取受管块与外部 MCP 行（只重列，不重启连接）。', en: 'Re-read managed and external MCP rows (a fresh list, not a connection restart).' },
+    description: {
+      zh: '重新读取受管块与外部 MCP 行（只重列，不重启连接）。',
+      en: 'Re-read managed and external MCP rows (a fresh list, not a connection restart).',
+    },
   },
   'mcpManager/listTools': {
     readOnly: true,
-    description: { zh: '列出服务器已注册的 MCP 工具（不启动服务器；未连接时为空）。', en: 'List the tools one server has registered without starting it; empty while disconnected.' },
+    description: {
+      zh: '列出服务器已注册的 MCP 工具（不启动服务器；未连接时为空）。',
+      en: 'List the tools one server has registered without starting it; empty while disconnected.',
+    },
   },
   'mcpManager/getToolFilter': {
     readOnly: true,
@@ -297,15 +318,24 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     description: { zh: '持久化 MCP 工具禁用列表并立即重施到所有 agent。', en: 'Persist the MCP tool deny list and reapply it to every agent immediately.' },
   },
   'mcpManager/evacuateForeign': {
-    description: { zh: '把受管块内的外来顶层 MCP 行原样搬到块外（不删除）。', en: 'Move foreign top-level MCP rows out of the managed block unchanged, without deleting them.' },
+    description: {
+      zh: '把受管块内的外来顶层 MCP 行原样搬到块外（不删除）。',
+      en: 'Move foreign top-level MCP rows out of the managed block unchanged, without deleting them.',
+    },
   },
   'mcpManager/oauthStart': {
     dangerous: true,
-    description: { zh: '为一个 streamable-http 服务器发起 OAuth 登录，返回授权地址与流程 id。', en: 'Begin OAuth sign-in for one streamable-http server and return its authorization URL and flow id.' },
+    description: {
+      zh: '为一个 streamable-http 服务器发起 OAuth 登录，返回授权地址与流程 id。',
+      en: 'Begin OAuth sign-in for one streamable-http server and return its authorization URL and flow id.',
+    },
   },
   'mcpManager/oauthPoll': {
     dangerous: true,
-    description: { zh: '轮询一次 OAuth 流程；拿到授权码后换取令牌、写入请求头并落盘。', en: 'Poll one OAuth flow; once authorized, exchange the code for tokens, write the request header and store them.' },
+    description: {
+      zh: '轮询一次 OAuth 流程；拿到授权码后换取令牌、写入请求头并落盘。',
+      en: 'Poll one OAuth flow; once authorized, exchange the code for tokens, write the request header and store them.',
+    },
   },
   'mcpManager/oauthStatus': {
     readOnly: true,
@@ -313,7 +343,10 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'mcpManager/oauthDisconnect': {
     dangerous: true,
-    description: { zh: '断开 OAuth：删除请求头中的授权与本地令牌记录。', en: 'Disconnect OAuth by removing the authorization header and the stored token record.' },
+    description: {
+      zh: '断开 OAuth：删除请求头中的授权与本地令牌记录。',
+      en: 'Disconnect OAuth by removing the authorization header and the stored token record.',
+    },
   },
 
   // ── messageFeedback(消息反馈) ──
@@ -340,18 +373,30 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── opsSettings(运维操作面板; 语义已对照 dsh-ops 源码逐个核对) ──
   'opsSettings/snapshot': {
     readOnly: true,
-    description: { zh: '读取运维面板的运行时环境快照（平台、受管 Bash 清单、Git Bash 候选、PowerShell 升级计划）。', en: 'Read the ops panel runtime snapshot: platform, managed Bash inventory, Git Bash candidates and the PowerShell upgrade plan.' },
+    description: {
+      zh: '读取运维面板的运行时环境快照（平台、受管 Bash 清单、Git Bash 候选、PowerShell 升级计划）。',
+      en: 'Read the ops panel runtime snapshot: platform, managed Bash inventory, Git Bash candidates and the PowerShell upgrade plan.',
+    },
   },
   'opsSettings/plan': {
-    description: { zh: '为选定的运维操作生成一次性执行计划（install-bash / remove-bash / upgrade-pwsh），不落盘。', en: 'Draft a one-use, in-memory execution plan for one ops action (install-bash / remove-bash / upgrade-pwsh).' },
+    description: {
+      zh: '为选定的运维操作生成一次性执行计划（install-bash / remove-bash / upgrade-pwsh），不落盘。',
+      en: 'Draft a one-use, in-memory execution plan for one ops action (install-bash / remove-bash / upgrade-pwsh).',
+    },
   },
   'opsSettings/select': {
     readOnly: true,
-    description: { zh: '解析并校验指定来源（managed/git）的 Bash 运行时，返回其路径与受限模式兼容性。', en: 'Resolve and validate the Bash runtime from the given source (managed/git); returns its path and restricted-mode compatibility.' },
+    description: {
+      zh: '解析并校验指定来源（managed/git）的 Bash 运行时，返回其路径与受限模式兼容性。',
+      en: 'Resolve and validate the Bash runtime from the given source (managed/git); returns its path and restricted-mode compatibility.',
+    },
   },
   'opsSettings/execute': {
     dangerous: true,
-    description: { zh: '执行已生成的运维计划：安装/移除受管 Bash 或升级系统 PowerShell（引入或移除系统组件）。', en: 'Execute a drafted ops plan: install/remove the managed Bash or upgrade the system PowerShell (introduces or removes system components).' },
+    description: {
+      zh: '执行已生成的运维计划：安装/移除受管 Bash 或升级系统 PowerShell（引入或移除系统组件）。',
+      en: 'Execute a drafted ops plan: install/remove the managed Bash or upgrade the system PowerShell (introduces or removes system components).',
+    },
   },
 
   // ── permissionPresets(权限预设) ──
@@ -550,10 +595,16 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
 
   // ── skillsViewer(技能浏览与管理) ──
   'skillsViewer/addSkill': {
-    description: { zh: '从上传的文件或 zip 导入技能到全局或工作区技能根，逐条校验。', en: 'Import skills from uploaded files or a zip into the global or a workspace skill root, validating each item.' },
+    description: {
+      zh: '从上传的文件或 zip 导入技能到全局或工作区技能根，逐条校验。',
+      en: 'Import skills from uploaded files or a zip into the global or a workspace skill root, validating each item.',
+    },
   },
   'skillsViewer/batchMigrate': {
-    description: { zh: '批量移动或复制技能到一个或多个目标作用域，逐条回报结果。', en: 'Move or copy several skills to one or more target scopes, reporting each result.' },
+    description: {
+      zh: '批量移动或复制技能到一个或多个目标作用域，逐条回报结果。',
+      en: 'Move or copy several skills to one or more target scopes, reporting each result.',
+    },
   },
   'skillsViewer/checkUpdate': {
     readOnly: true,
@@ -567,10 +618,16 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     description: { zh: '删除一个技能分组（不影响技能文件）。', en: 'Delete one skill group without touching skill files.' },
   },
   'skillsViewer/deleteSkill': {
-    description: { zh: '永久删除一个技能（目录束连目录一起删；可限定作用域）。', en: 'Permanently delete one skill, removing its directory for a bundle, optionally within one scope.' },
+    description: {
+      zh: '永久删除一个技能（目录束连目录一起删；可限定作用域）。',
+      en: 'Permanently delete one skill, removing its directory for a bundle, optionally within one scope.',
+    },
   },
   'skillsViewer/setEnabled': {
-    description: { zh: '通过改名为 *.disabled 热启用或停用技能（可限定作用域）。', en: 'Toggle a skill by renaming its file to *.disabled or back, optionally within one scope.' },
+    description: {
+      zh: '通过改名为 *.disabled 热启用或停用技能（可限定作用域）。',
+      en: 'Toggle a skill by renaming its file to *.disabled or back, optionally within one scope.',
+    },
   },
   'skillsViewer/groups': {
     readOnly: true,
@@ -591,7 +648,10 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'skillsViewer/workspaces': {
     readOnly: true,
-    description: { zh: '列出可作技能作用域的工作区（项目根、标签、会话数）。', en: 'List workspaces usable as skill scopes (project root, label, session count).' },
+    description: {
+      zh: '列出可作技能作用域的工作区（项目根、标签、会话数）。',
+      en: 'List workspaces usable as skill scopes (project root, label, session count).',
+    },
   },
 
   // ── speech(语音识别与转写) ──

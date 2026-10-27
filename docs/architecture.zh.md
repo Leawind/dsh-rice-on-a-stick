@@ -26,9 +26,9 @@ test/               冒烟、真机 e2e、UI harness
 
 ## 源码与构建产物
 
--   `src/` 是唯一源码目录，浏览器端侧栏页在 `src/client/`：入口 `client.ts`（dsh 侧栏的"白饭钓竿"入口 + 中央面板：审批/设置/连接三个标签）+ 按域拆分的模块（`locales/` 中英文案、`styles/` 面板样式、`components/` 面板与控件、`approvalStore`/`configFields`/`rpc`/`format`/`i18n` 数据与逻辑）。
--   `lib/` 与 `client/` 都是构建产物，已列入 `.gitignore`。`client/` 与官方/社区插件同约定：源码在 `src/client/`，由 tsdown（`tsdown.config.ts`）打包为单文件 bundle——cjs + banner/intro/footer 包进宿主 `__ModuleLoader__` 工厂闭包，react/@deepseek-ai/* 外部化（宿主经模块表播种），icon.svg 经 svgText 插件在打包时内联；宿主 client-hmr 监听该产物。
--   `docs/onboarding/*.md` 是运行时读取的产品文本（随 npm 包发布），不是编译产物；改文案不需要改 TypeScript。
+- `src/` 是唯一源码目录，浏览器端侧栏页在 `src/client/`：入口 `client.ts`（dsh 侧栏的"白饭钓竿"入口 + 中央面板：审批/设置/连接三个标签）+ 按域拆分的模块（`locales/` 中英文案、`styles/` 面板样式、`components/` 面板与控件、`approvalStore`/`configFields`/`rpc`/`format`/`i18n` 数据与逻辑）。
+- `lib/` 与 `client/` 都是构建产物，已列入 `.gitignore`。`client/` 与官方/社区插件同约定：源码在 `src/client/`，由 tsdown（`tsdown.config.ts`）打包为单文件 bundle——cjs + banner/intro/footer 包进宿主 `__ModuleLoader__` 工厂闭包，react/@deepseek-ai/* 外部化（宿主经模块表播种），icon.svg 经 svgText 插件在打包时内联；宿主 client-hmr 监听该产物。
+- `docs/onboarding/*.md` 是运行时读取的产品文本（随 npm 包发布），不是编译产物；改文案不需要改 TypeScript。
 
 ## 设计约束
 
@@ -45,8 +45,8 @@ test/               冒烟、真机 e2e、UI harness
 
 ## 测试
 
--   `npm test`：build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
--   `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
--   `npm run smoke:ui`：先 build 再跑侧栏页浏览器冒烟（`test/ui-harness.mjs`）。
+- `npm test`：build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
+- `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
+- `npm run smoke:ui`：先 build 再跑侧栏页浏览器冒烟（`test/ui-harness.mjs`）。
 
 验收线：`npm run build && npm run typecheck && npm test` 全绿；行为变化同步 smoke 断言与 README（中英）。

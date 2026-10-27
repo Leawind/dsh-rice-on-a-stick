@@ -23,9 +23,7 @@ export function pruneRequests(now = Date.now()): void {
     if (now - record.submittedAt > REQUEST_TTL_MS) state.sessionRequests.delete(id)
   }
   if (state.sessionRequests.size > MAX_REQUESTS) {
-    const oldest = [...state.sessionRequests.values()]
-      .sort((a, b) => a.submittedAt - b.submittedAt)
-      .slice(0, state.sessionRequests.size - MAX_REQUESTS)
+    const oldest = [...state.sessionRequests.values()].sort((a, b) => a.submittedAt - b.submittedAt).slice(0, state.sessionRequests.size - MAX_REQUESTS)
     for (const record of oldest) state.sessionRequests.delete(record.requestId)
   }
   for (const [sessionId, requestId] of state.latestRequestBySession) {

@@ -24,28 +24,34 @@ import { NEEDS_SESSION_CONTROLLER, out, outError, resolveSessionTarget, structur
 
 const sessionListOut = z.object({
   total: z.number(),
-  sessions: z.array(z.object({
-    sessionId: z.string(),
-    createdAt: z.number(),
-    archived: z.boolean(),
-    title: z.string().optional(),
-    cwd: z.string().optional(),
-    agentPreset: z.string().optional(),
-    permission: z.string().optional(),
-    parentSession: z.string().optional(),
-    origin: z.string().optional(),
-    delegationDepth: z.number().optional(),
-    model: z.object({
-      provider: z.string().optional(),
-      model: z.string().optional(),
-      reasoningEffort: z.string().optional(),
-    }).optional(),
-  })),
-  titleSearch: z.object({
-    coldScanned: z.number(),
-    coldTruncated: z.boolean(),
-    coldLogReads: z.number(),
-  }).optional(),
+  sessions: z.array(
+    z.object({
+      sessionId: z.string(),
+      createdAt: z.number(),
+      archived: z.boolean(),
+      title: z.string().optional(),
+      cwd: z.string().optional(),
+      agentPreset: z.string().optional(),
+      permission: z.string().optional(),
+      parentSession: z.string().optional(),
+      origin: z.string().optional(),
+      delegationDepth: z.number().optional(),
+      model: z
+        .object({
+          provider: z.string().optional(),
+          model: z.string().optional(),
+          reasoningEffort: z.string().optional(),
+        })
+        .optional(),
+    }),
+  ),
+  titleSearch: z
+    .object({
+      coldScanned: z.number(),
+      coldTruncated: z.boolean(),
+      coldLogReads: z.number(),
+    })
+    .optional(),
 })
 
 export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
@@ -53,14 +59,33 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     'session_list',
     {
       title: 'List sessions',
-      description: 'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_prompt`; the guide (dsh_get_started) has the shared session semantics.',
+      description:
+        'List known session metadata (sessionId, createdAt, archived, cwd, preset, permission preset, current model), merged live first, newest first. Archived sessions are hidden by default — pass `scope: "archived"` (or `"all"`) to see them, since archiving is the soft delete. The model is known only for sessions this plugin created or saw live; `permission` is derived for live sessions only. Use it to pick a `sessionId` for `session_prompt`; the guide (dsh_get_started) has the shared session semantics.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
-        scope: z.enum(['active', 'archived', 'all']).optional().describe('Which sessions to list: active (default) = non-archived only, archived = archived only, all = both. Archiving is the soft delete, so archived sessions are hidden from lists and searches unless asked for.'),
-        includeCold: z.boolean().optional().describe('When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Titles come from the host projection cache first, so this is normally free; only sessions the cache cannot answer cost one log read, bounded by `coldScanMax`. The result reports `titleSearch` (including how many log reads were needed).'),
-        coldScanMax: z.number().int().min(1).max(COLD_TITLE_SCAN_LIMIT).optional().describe(`Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Only sessions without a cached title actually read a log; raise it to search further back, ignored without a title filter.`),
+        scope: z
+          .enum(['active', 'archived', 'all'])
+          .optional()
+          .describe(
+            'Which sessions to list: active (default) = non-archived only, archived = archived only, all = both. Archiving is the soft delete, so archived sessions are hidden from lists and searches unless asked for.',
+          ),
+        includeCold: z
+          .boolean()
+          .optional()
+          .describe(
+            'When filtering by title, also match persisted-only sessions (default false: their titles are not resolved). Titles come from the host projection cache first, so this is normally free; only sessions the cache cannot answer cost one log read, bounded by `coldScanMax`. The result reports `titleSearch` (including how many log reads were needed).',
+          ),
+        coldScanMax: z
+          .number()
+          .int()
+          .min(1)
+          .max(COLD_TITLE_SCAN_LIMIT)
+          .optional()
+          .describe(
+            `Cold sessions to examine per call when includeCold is true (default ${COLD_TITLE_SCAN_MAX}, max ${COLD_TITLE_SCAN_LIMIT}). Only sessions without a cached title actually read a log; raise it to search further back, ignored without a title filter.`,
+          ),
       },
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
@@ -68,18 +93,19 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     async ({ limit, cwd, title, scope, includeCold, coldScanMax }, extra) => {
       try {
         const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, scope, includeCold, coldScanMax }, extra?.signal)
-        return structuredOut({
-          total,
-          sessions: items.slice(0, limit ?? 20),
-          ...(titleSearch ? { titleSearch } : {}),
-        }, sessionListOut)
+        return structuredOut(
+          {
+            total,
+            sessions: items.slice(0, limit ?? 20),
+            ...(titleSearch ? { titleSearch } : {}),
+          },
+          sessionListOut,
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
     },
   )
-
-
 
   // 会话纪要(只读): 默认只给对话消息(user + assistant), 工具调用过程是 opt-in 噪音;
   // 长文本按角色截断省上下文
@@ -87,13 +113,28 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     'session_history',
     {
       title: 'Session history',
-      description: 'Read a session\'s conversation digest: newest-first user and assistant messages by default (`roles` opts in tool calls, results and turn boundaries), paged back with `beforeIndex`. Default `detail=summary` clips long text (`truncated: true` marks clipped entries); `detail=full` returns a whole message untruncated. Both live and persisted-only sessions are readable — cold ones are read without activating them.',
+      description:
+        "Read a session's conversation digest: newest-first user and assistant messages by default (`roles` opts in tool calls, results and turn boundaries), paged back with `beforeIndex`. Default `detail=summary` clips long text (`truncated: true` marks clipped entries); `detail=full` returns a whole message untruncated. Both live and persisted-only sessions are readable — cold ones are read without activating them.",
       inputSchema: {
         sessionId: z.string().describe('Session id (from a session_prompt result or session_list; both live and persisted sessions are readable).'),
         limit: z.number().int().min(1).max(50).optional().describe('Maximum number of entries to return, counted after the roles filter (default 10).'),
-        roles: z.array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end'])).min(1).optional().describe('Entry types to return (default: ["user","assistant"]). Pass tool_call / tool_result for debugging, or turn_end for turn boundaries.'),
-        beforeIndex: z.number().int().min(0).optional().describe('Read entries before this event index (paging: pass the earliest index from the previous result).'),
-        detail: z.enum(['summary', 'full']).optional().describe('summary (default): entry text clipped per role (assistant 600 / user 200 / tool args-result 200-300 chars, flagged truncated); full: unclipped text — the way to read a whole long message.'),
+        roles: z
+          .array(z.enum(['user', 'assistant', 'tool_call', 'tool_result', 'turn_end']))
+          .min(1)
+          .optional()
+          .describe('Entry types to return (default: ["user","assistant"]). Pass tool_call / tool_result for debugging, or turn_end for turn boundaries.'),
+        beforeIndex: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Read entries before this event index (paging: pass the earliest index from the previous result).'),
+        detail: z
+          .enum(['summary', 'full'])
+          .optional()
+          .describe(
+            'summary (default): entry text clipped per role (assistant 600 / user 200 / tool args-result 200-300 chars, flagged truncated); full: unclipped text — the way to read a whole long message.',
+          ),
       },
       annotations: { readOnlyHint: true },
     },
@@ -111,9 +152,15 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     'session_meta',
     {
       title: 'Session info',
-      description: 'Read one session\'s metadata and runtime state: title, cwd, preset, model + reasoning effort, permission preset (`custom` when the combination matches no preset), live state, turn/step counters, and context occupancy. Persisted-only sessions fold from their log; sessions whose log is unreadable return only the list row (`eventsReadable=false`).',
+      description:
+        "Read one session's metadata and runtime state: title, cwd, preset, model + reasoning effort, permission preset (`custom` when the combination matches no preset), live state, turn/step counters, and context occupancy. Persisted-only sessions fold from their log; sessions whose log is unreadable return only the list row (`eventsReadable=false`).",
       inputSchema: {
-        sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+          ),
       },
       annotations: { readOnlyHint: true },
     },
@@ -136,11 +183,27 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     'session_overview',
     {
       title: 'Session overview',
-      description: 'One call, a GUI-style glance at a session (default set: title, permission preset, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content — one-line quotes plus tool calls, no tool results). `fields` selects sections and replaces the default set; opt-ins: progress, preset, cwd. Persisted-only sessions fold from their log like session_meta; `recent.entries[].index` doubles as a session_history `beforeIndex` anchor.',
+      description:
+        'One call, a GUI-style glance at a session (default set: title, permission preset, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content — one-line quotes plus tool calls, no tool results). `fields` selects sections and replaces the default set; opt-ins: progress, preset, cwd. Persisted-only sessions fold from their log like session_meta; `recent.entries[].index` doubles as a session_history `beforeIndex` anchor.',
       inputSchema: {
-        sessionId: z.string().optional().describe('Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.'),
-        fields: z.array(z.enum(OVERVIEW_FIELDS)).min(1).optional().describe(`Sections to return; replaces the default set [${OVERVIEW_DEFAULTS_TEXT}]. Opt-ins: ${OVERVIEW_OPTINS_TEXT}.`),
-        recentLimit: z.number().int().min(1).max(OVERVIEW_RECENT_LIMIT_MAX).optional().describe(`Entries in the recent digest (default ${OVERVIEW_RECENT_DEFAULT_LIMIT}, max ${OVERVIEW_RECENT_LIMIT_MAX}).`),
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Session id (from session_list or a session_prompt result). Omit to target the calling session — native rice_ tools only; an MCP call must pass it.',
+          ),
+        fields: z
+          .array(z.enum(OVERVIEW_FIELDS))
+          .min(1)
+          .optional()
+          .describe(`Sections to return; replaces the default set [${OVERVIEW_DEFAULTS_TEXT}]. Opt-ins: ${OVERVIEW_OPTINS_TEXT}.`),
+        recentLimit: z
+          .number()
+          .int()
+          .min(1)
+          .max(OVERVIEW_RECENT_LIMIT_MAX)
+          .optional()
+          .describe(`Entries in the recent digest (default ${OVERVIEW_RECENT_DEFAULT_LIMIT}, max ${OVERVIEW_RECENT_LIMIT_MAX}).`),
       },
       annotations: { readOnlyHint: true },
     },
@@ -163,7 +226,10 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       description: `Search session content by literal phrase (same as the UI search box; goes through \`sessionController.search\`); returns matching sessions and snippet excerpts. Archived sessions are excluded by default (archiving is the soft delete); pass \`scope\` to include them. The host returns one bounded page, so filtering archived hits can shrink or empty a page — \`hasMore\` is the host's page flag, not a filtered count. ${NEEDS_SESSION_CONTROLLER}`,
       inputSchema: {
         query: z.string().describe('Search phrase (literal match against message content).'),
-        scope: z.enum(['active', 'archived', 'all']).optional().describe('Which sessions the hits may come from: active (default) = non-archived only, archived = archived only, all = both.'),
+        scope: z
+          .enum(['active', 'archived', 'all'])
+          .optional()
+          .describe('Which sessions the hits may come from: active (default) = non-archived only, archived = archived only, all = both.'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -180,16 +246,20 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         // 归档集合是宿主 registry 的全局字段(纯内存), 在这里裁掉归档命中
         const wanted: SessionScope = scope ?? 'active'
         const archivedIds = new Set(archivedSessionIdsOf(ctx))
-        const results = wanted === 'all'
-          ? found
-          : found.filter((item) => archivedIds.has(String(item.sessionId)) === (wanted === 'archived'))
-        return out(JSON.stringify({
-          query,
-          scope: wanted,
-          results,
-          hasMore: res?.hasMore === true,
-          ...(results.length !== found.length ? { filteredArchived: found.length - results.length } : {}),
-        }, null, 2))
+        const results = wanted === 'all' ? found : found.filter((item) => archivedIds.has(String(item.sessionId)) === (wanted === 'archived'))
+        return out(
+          JSON.stringify(
+            {
+              query,
+              scope: wanted,
+              results,
+              hasMore: res?.hasMore === true,
+              ...(results.length !== found.length ? { filteredArchived: found.length - results.length } : {}),
+            },
+            null,
+            2,
+          ),
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_search failed: ${(e as Error)?.message ?? String(e)}` }))
       }

@@ -42,7 +42,10 @@ if (!existsSync(dshExe) || !existsSync(asarPath)) {
 const home = await mkdtemp(join(tmpdir(), 'dsh-rice-e2e-'))
 const work = join(home, 'work')
 await mkdir(work, { recursive: true })
-for (const [name, target] of [['.credentials.yaml', '.credentials.yaml'], ['settings.yaml.imported', 'settings.yaml']]) {
+for (const [name, target] of [
+  ['.credentials.yaml', '.credentials.yaml'],
+  ['settings.yaml.imported', 'settings.yaml'],
+]) {
   const from = join(homedir(), '.dsh', name)
   if (existsSync(from)) await cp(from, join(home, target))
 }
@@ -67,7 +70,10 @@ function waitPort(port, timeoutMs) {
   return new Promise((resolvePromise) => {
     const attempt = () => {
       const socket = connect({ host: '127.0.0.1', port })
-      socket.once('connect', () => { socket.destroy(); resolvePromise(true) })
+      socket.once('connect', () => {
+        socket.destroy()
+        resolvePromise(true)
+      })
       socket.once('error', () => {
         socket.destroy()
         if (Date.now() > deadline) resolvePromise(false)
@@ -100,9 +106,7 @@ if (install.code !== 0) {
 }
 
 const patchPath = join(profileDir, 'cordis.patch.yml')
-const basePatch = existsSync(patchPath)
-  ? (await readFile(patchPath, 'utf8')).replace(/^\s*\[\]\s*$/gm, '')
-  : ''
+const basePatch = existsSync(patchPath) ? (await readFile(patchPath, 'utf8')).replace(/^\s*\[\]\s*$/gm, '') : ''
 const patch = `${basePatch}
 # isolated e2e overlay
 - id: dsh-rice-on-a-stick
