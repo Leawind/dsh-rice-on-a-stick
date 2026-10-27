@@ -11,11 +11,16 @@
  *
  * 原生工具在 dsh 进程内直调: 不走 5642、不经过 Bearer/Host/Origin, 也不产生 MCP 连接。
  * 想只保留自用、彻底关掉外部访问时, 把配置的 `http` 设为 false。
+ *
+ * 工具白名单(toolAllowlist)在原生面同样生效: sync 时按当前口径过滤定义——白名单外工具
+ * 不注册(ctx.tools 里不出现, 模型看不到也调不到); 配置热改由 index.ts 再次调 sync 差量重注册。
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { isToolAllowed } from '../core/config.js'
+import { state } from '../core/state.js'
 import { registerTools } from '../mcp/tools/index.js'
 import type { ToolDeps } from '../host/data.js'
 
@@ -183,10 +188,8 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
     }
   }
 
-  const registerAll = () => {
-    if (enabled) return
-    enabled = true
-    for (const tool of definitions) {
+  const registerAll = (tools: readonly CapturedTool[]) => {
+    for (const tool of tools) {
       const objectSchema = z.object(tool.config.inputSchema)
       const parameters = { ...z.toJSONSchema(objectSchema, { io: 'input' }) } as Record<string, unknown>
       delete parameters.$schema
@@ -224,12 +227,19 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
       return enabled
     },
     names: () => (enabled ? [...registeredNames] : []),
+    /**
+     * 同步开关与白名单: 目标集合 = 开关开启时按当前工具白名单过滤后的定义。
+     * 目标集合与在册集合一致时是 no-op; 不一致(开关翻转或白名单变化)才整组重注册——
+     * 注册是纯内存操作, 差量比较只为避免无谓的宿主工具面抖动。
+     */
     sync: (next) => {
-      if (next) registerAll()
-      else {
-        enabled = false
-        unregisterAll()
-      }
+      const desired = next ? definitions.filter((tool) => isToolAllowed(state.config, tool.name)) : []
+      const desiredNames = desired.map((tool) => tool.nativeName)
+      const unchanged = next === enabled && desiredNames.length === registeredNames.length && desiredNames.every((name) => registeredNames.includes(name))
+      if (unchanged) return
+      enabled = next
+      unregisterAll()
+      registerAll(desired)
     },
     dispose: () => {
       enabled = false

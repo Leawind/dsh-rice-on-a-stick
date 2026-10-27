@@ -1,7 +1,7 @@
 // ── 侧栏页(main 条目): 品牌头(含整合了 MCP 服务开关/监听地址/端点/复制的端点卡) + 页内标签 ──
 // 审批标签 = 端点审批等待上限(秒) + 停泊审批卡(数据来自 approvalStore, 与侧栏角标同源);
 // 模型标签 = 只允许特定模型开关 + 多选分层树(每行可编辑模型/提供商简介);
-// 安全标签 = 配置表单(按常用度分组: MCP 令牌 / Agent 工具面 / 审批 / 安全与传输 / dsh 端点白名单);
+// 安全标签 = 配置表单(按常用度分组: MCP 令牌 / Host 头白名单 / 工具白名单 / dsh 端点白名单);
 // 连接标签 = MCP 连接空闲上限 + 客户端连接列表(只读观测; 条目可达几十上百, 独立成标签避免安全页被拉长)。
 // 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 只有监听级字段会重建监听器。
 // 字段的读取/校验与草稿构造在 ../configFields(纯函数, 现读生效配置)。
@@ -14,6 +14,7 @@ import { approvalStore, useApprovals } from '../approvalStore';
 import { Badge, groupHead, Row, Switch } from './ui';
 import { PanelIcon } from './brand';
 import { EndpointAllowlist } from './endpointAllowlist';
+import { ToolAllowlist } from './toolAllowlist';
 import { EndpointApprovalCard } from './endpointApprovals';
 import { ModelAllowlistTree } from './modelAllowlist';
 import { NAV_ICON_SVG } from '../icons';
@@ -86,6 +87,15 @@ export function PanelPage() {
   const [cat, setCat] = React.useState(null);
   // dsh 端点目录(白名单清单的数据源): null = 加载中, false = 不可用, 否则 {endpoints, stale}
   const [eps, setEps] = React.useState(null);
+  // 工具面静态目录(工具白名单清单的数据源): null = 加载中, false = 不可用; 随插件版本固定, 只拉一次
+  const [toolCat, setToolCat] = React.useState(null);
+  React.useEffect(function () {
+    let alive = true;
+    rpc('tool-allowlist').then(function (r) {
+      if (alive) setToolCat(r && r.available === true && Array.isArray(r.tools) ? r : false);
+    }).catch(function () { if (alive) setToolCat(false); });
+    return function () { alive = false; };
+  }, []);
   React.useEffect(function () {
     let alive = true;
     const load = function () {
@@ -222,6 +232,9 @@ export function PanelPage() {
       selfToolsEnabled: next.selfToolsOn === true,
       // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
       endpointAllowlist: (next.endpointAllowlist || []).slice(),
+      // 工具白名单: 勾选清单直接给数组, 服务端做去重; 开关单独提交(toolAllowlistEnabled)
+      toolAllowlistEnabled: next.toolAllowlistOn === true,
+      toolAllowlist: (next.toolAllowlist || []).slice(),
       // 模型/提供商简介: 键值表原样提交, 服务端清理空键空值
       modelDescriptions: next.modelDescriptions || {},
       providerDescriptions: next.providerDescriptions || {},
@@ -575,7 +588,7 @@ export function PanelPage() {
     tab !== 'settings' ? null :
     // 安全标签: 改动即保存, 写入经宿主 configEditor 落盘; 全部字段就地生效, 监听级字段(MCP 服务
     // 开关与监听地址/端口, 在页头端点卡)重建监听器。按常用度分组排序, 同类相邻:
-    // MCP 令牌 → Agent 工具面 → 审批 → 安全与传输 → dsh 端点白名单(清单长, 沉底); 组内行间画发丝线(每组一个 .dcs-form 容器)
+    // MCP 令牌 → Host 头白名单 → 工具白名单 → dsh 端点白名单(清单长, 沉底); 组内行间画发丝线(每组一个 .dcs-form 容器)
     d ? React.createElement(React.Fragment, null,
       // ── MCP 令牌(常用度 5; 令牌行常驻展开, 关闭认证时也可预生成/复制令牌) ──
       groupHead(t('auth.title'), {
@@ -641,8 +654,7 @@ export function PanelPage() {
             d.authOn ? t('auth.regenWarnOn') : t('auth.regenWarnOff')) : null,
         ),
       ),
-      // ── 安全与传输(Host 头白名单, 低频的服务端防护; 连接空闲上限已移到连接标签) ──
-      groupHead(t('security.title')),
+      // ── Host 头白名单(低频的服务端防护; 连接空闲上限已移到连接标签; 不设组标题, 行自带说明) ──
       React.createElement('div', { className: 'dcs-form' },
       React.createElement(Row, {
         label: t('hosts.title'),
@@ -661,6 +673,24 @@ export function PanelPage() {
           }),
         ),
       }),
+      ),
+      // ── 工具白名单(勾选 = 工具可用, 开关关闭 = 不限制; 静态清单不长, 端点白名单沉底前先过它) ──
+      groupHead(t('tool.title'), {
+        hint: t('tool.hint'),
+        control: React.createElement(Switch, {
+          checked: d.toolAllowlistOn,
+          label: t('tool.title'),
+          onChange: function (v) { change({ toolAllowlistOn: v }); },
+        }),
+      }),
+      React.createElement('div', { className: 'dcs-form' },
+      React.createElement('div', { className: 'dcs-listwrap' },
+        React.createElement(ToolAllowlist, {
+          data: toolCat,
+          allowed: d.toolAllowlist || [],
+          onChange: function (nextArray) { change({ toolAllowlist: nextArray }); },
+        }),
+      ),
       ),
       // ── dsh 端点白名单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列; 两个清单完整展示不设滚动容器) ──
       groupHead(t('endpoint.title'), { hint: t('endpoint.hint') }),

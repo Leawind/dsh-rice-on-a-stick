@@ -96,6 +96,14 @@ export interface Config {
    */
   endpointAllowlist?: string[]
   /**
+   * 工具白名单(工具名数组; 开关 toolAllowlistEnabled 启用且清单非空时才限制)。
+   * 启用时白名单外的工具: MCP 面 tools/list 不再出现、tools/call 明确拒绝;
+   * 原生自用面(同工具面注册的 rice_ 工具)也不再注册。关闭 = 暂时不限制, 清单原样保留。
+   */
+  toolAllowlist?: string[]
+  /** 工具白名单开关(缺省按"清单非空即启用"推导), 语义同 allowedModelsEnabled */
+  toolAllowlistEnabled?: boolean
+  /**
    * 模型简介("provider/model" → 一段话简介; 侧栏页编辑)。
    * 随 model_list / dsh://models 透出给调用方, 让 AI 在选模型时能看到部署方写的介绍。
    * 只对目录里存在的模型有意义; 目录外的条目保留但不展示。
@@ -126,6 +134,8 @@ export interface ParsedConfig {
   sessionTtlMs: Volatile<number>
   approvalTimeoutMs: Volatile<number>
   endpointAllowlist: Volatile<string[]>
+  toolAllowlist: Volatile<string[]>
+  toolAllowlistEnabled: Volatile<boolean | undefined>
   modelDescriptions: Volatile<Record<string, string>>
   providerDescriptions: Volatile<Record<string, string>>
 }
@@ -146,6 +156,8 @@ export const DEFAULTS = {
   approvalTimeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
   allowedHosts: [] as string[],
   endpointAllowlist: [] as string[],
+  toolAllowlist: [] as string[],
+  toolAllowlistEnabled: false as boolean,
   modelDescriptions: {} as Record<string, string>,
   providerDescriptions: {} as Record<string, string>,
 }
@@ -188,6 +200,12 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       .get()
       .map((s) => String(s).trim())
       .filter(Boolean)
+  // 与 endpointAllowlist 同口径: 去空白、丢空串(界面写入口已 trim/去重, 这里兜住手改配置)
+  const readToolAllowlist = () =>
+    parsed.toolAllowlist
+      .get()
+      .map((s) => String(s).trim())
+      .filter(Boolean)
   // 简介表: 键与值都去空白, 丢空值与空键(界面写入口已清理, 这里兜住手改配置)
   const readDescriptionTable = (raw: Record<string, string>): Record<string, string> => {
     const out: Record<string, string> = {}
@@ -211,6 +229,8 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
     endpointAllowlist: [],
+    toolAllowlist: [],
+    toolAllowlistEnabled: false,
     modelDescriptions: {},
     providerDescriptions: {},
   }
@@ -249,6 +269,12 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     },
     allowedHosts: { enumerable: true, configurable: true, get: readHosts },
     endpointAllowlist: { enumerable: true, configurable: true, get: readEndpointAllowlist },
+    toolAllowlist: { enumerable: true, configurable: true, get: readToolAllowlist },
+    toolAllowlistEnabled: {
+      enumerable: true,
+      configurable: true,
+      get: () => parsed.toolAllowlistEnabled.get() ?? readToolAllowlist().length > 0,
+    },
     modelDescriptions: {
       enumerable: true,
       configurable: true,
@@ -267,6 +293,15 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
 export function clampApprovalTimeout(value: number): number {
   if (value === 0) return 0
   return Math.max(1000, value)
+}
+
+/**
+ * 工具门控的统一判定(MCP 面与原生自用面同口径):
+ * 开关关闭或清单为空 = 全部放行; 启用且清单非空时只放行清单内工具。
+ */
+export function isToolAllowed(cfg: { toolAllowlist: readonly string[]; toolAllowlistEnabled: boolean }, name: string): boolean {
+  if (cfg.toolAllowlistEnabled !== true || cfg.toolAllowlist.length === 0) return true
+  return cfg.toolAllowlist.includes(name)
 }
 
 /**
@@ -336,6 +371,17 @@ export const Config = Schema.object({
     .volatile()
     .description(
       'dsh endpoint allowlist in "namespace/method" form (default empty = every non-stream endpoint parks for per-call panel approval). Allowlisted endpoints — read-only ones included — execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.',
+    ),
+  toolAllowlist: Schema.array(Schema.string())
+    .default(DEFAULTS.toolAllowlist)
+    .volatile()
+    .description(
+      'Tool allowlist by tool name. When enabled (toolAllowlistEnabled) and non-empty, tools outside the list are hidden from tools/list, rejected on tools/call, and not registered as native rice_ tools.',
+    ),
+  toolAllowlistEnabled: Schema.boolean()
+    .volatile()
+    .description(
+      'Tool allowlist switch. Off = temporarily unrestricted, the list is kept (turning it back on restores the constraint); defaults to "enabled when the list is non-empty".',
     ),
   modelDescriptions: Schema.dict(Schema.string())
     .default(DEFAULTS.modelDescriptions)

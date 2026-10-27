@@ -18,7 +18,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serverInstructions } from './onboarding.js'
 import { registerResources } from './resources.js'
-import { registerTools } from './tools/index.js'
+import { registerTools, applyToolGate } from './tools/index.js'
 import type { NotifyHub } from './notify.js'
 
 /** 一条 MCP 客户端连接(transport 会话)的观测记录: 面板与 status RPC 的数据源 */
@@ -50,6 +50,8 @@ export interface McpHttpServer {
   listen(): Promise<void>
   /** 配置热改: 传输会话 TTL 变化后按当前值重排回收定时器(0 = 停止回收) */
   syncSessionTtl(): void
+  /** 配置热改: 工具白名单变化后对全部在途会话重套 enable/disable(SDK 自动广播 tools/list changed) */
+  syncToolGate(): void
   /** 卸载: 清定时器并关闭 server/传输会话(幂等) */
   dispose(): void
 }
@@ -366,6 +368,8 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
           },
         )
         registerTools(mcp, ctx, { statusSnapshot })
+        // 工具白名单: 注册完立即套用(后续热改走 syncToolGate)
+        applyToolGate(mcp, state.config)
         registerResources(mcp, ctx, { statusSnapshot, hub })
         const initUserAgent = String(req.headers['user-agent'] ?? '')
         const transport = new StreamableHTTPServerTransport({
@@ -474,6 +478,9 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
       })
     },
     syncSessionTtl: scheduleSweep,
+    syncToolGate: () => {
+      for (const mcp of servers.values()) applyToolGate(mcp, state.config)
+    },
     dispose,
   }
 }

@@ -11,6 +11,7 @@ import net from 'node:net'
 import os from 'node:os'
 import { PLUGIN_NAME, clampApprovalTimeout } from '../core/config.js'
 import { state } from '../core/state.js'
+import { captureToolCatalog } from './tools/index.js'
 import { serviceOf } from '../host/bridge.js'
 import { answerParkedCall, classifyInvocation, listParkedCalls, listInvocations } from '../host/endpoint-passthrough.js'
 import { NAMESPACE_META, endpointMetaOf } from '../host/endpoint-meta.js'
@@ -166,7 +167,7 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是监听级字段) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
 /** 布尔字段(白名单/认证/自用工具/外部 MCP; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http'])
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'toolAllowlistEnabled', 'http'])
 /** 数字字段 → 下限(运行时 getter 还有同向钳制, 这里前置拦截避免写入后才被钳; approvalTimeoutMs 有专用分支: 0 = 不限时) */
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 /** 数字字段 → 上限(与 config.ts 的钳制保持一致) */
@@ -242,6 +243,12 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
       if (bad !== undefined) throw httpError(400, `endpointAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
+    } else if (key === 'toolAllowlist') {
+      // 工具白名单: 只校验字符串形态, 不校验工具名是否在目录里(跨版本重命名不拒收, 未匹配条目无副作用)
+      if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+        throw httpError(400, 'toolAllowlist 必须是字符串数组')
+      }
+      out[key] = [...new Set((value as string[]).map((s) => s.trim()).filter(Boolean))]
     } else if (key === 'modelDescriptions' || key === 'providerDescriptions') {
       // 模型/提供商简介("provider/model" 或 provider id → 一段话): 空键空值直接丢弃
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -267,6 +274,8 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
  * http:false 时仍注册: 面板显示“监听关闭”，配置读写照常。
  */
 export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
+  // 工具面静态目录(面板"工具白名单"清单的数据源): 注册期捕获一次, 随插件版本固定
+  const toolCatalog = captureToolCatalog(ctx)
   /** GUI 配置写入: 经宿主 configEditor 把值写为 profile patch 本插件条目的 config 行。
    * 全部字段在 Config schema 上标了 volatile: Loader 就地提交引用, 插件不重载;
    * 监听级字段(http/host/port)由插件自己重建监听器, 面板按 `reloading` 等待重连;
@@ -379,6 +388,16 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
+    // 工具白名单清单(面板安全标签的数据源): 本插件工具面的静态目录(开关状态随 status 走)
+    'tool-allowlist': () => ({
+      available: toolCatalog.length > 0,
+      tools: toolCatalog.map((tool) => ({
+        name: tool.name,
+        ...(tool.title !== undefined ? { title: tool.title } : {}),
+        description: tool.description,
+        readOnly: tool.annotations?.readOnlyHint === true,
+      })),
+    }),
     // 端点调用停泊审批(设置面板审批卡的数据源): 在途调用全量 + 等待是否不限时
     'endpoint-approvals': () => ({
       approvals: listParkedCalls(),

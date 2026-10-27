@@ -147,6 +147,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         sessionTtlMs: state.config.sessionTtlMs,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
         endpointAllowlist: state.config.endpointAllowlist,
+        toolAllowlist: state.config.toolAllowlist,
+        toolAllowlistEnabled: state.config.toolAllowlistEnabled,
         modelDescriptions: state.config.modelDescriptions,
         providerDescriptions: state.config.providerDescriptions,
       },
@@ -224,7 +226,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   ctx.effect(() => {
     const off = ctx.on('loader/volatile-update', (paths) => {
       const keys = paths.map((path) => String(path[0] ?? ''))
-      if (keys.includes('selfToolsEnabled')) selfToolsController?.sync(state.config.selfToolsEnabled)
+      const toolGateTouched = keys.includes('toolAllowlist') || keys.includes('toolAllowlistEnabled')
+      // 自用工具的开关与白名单共用一个 sync: 差量比较, 无变化时是 no-op
+      if (keys.includes('selfToolsEnabled') || toolGateTouched) selfToolsController?.sync(state.config.selfToolsEnabled)
+      if (toolGateTouched) httpServer?.syncToolGate()
       if (keys.some((key) => key === 'http' || key === 'host' || key === 'port')) void requestListenerSync()
       if (keys.includes('sessionTtlMs')) httpServer?.syncSessionTtl()
     })
@@ -239,7 +244,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     models: () => collectModelCatalog(ctx),
     // 配置写入落盘后立即同步(事件监听也覆盖手改配置的路径; 显式再调一次让面板点击没有轮询延迟)
     onConfigCommitted: (values) => {
-      if (typeof values.selfToolsEnabled === 'boolean') selfToolsController?.sync(values.selfToolsEnabled)
+      // 自用工具的开关与白名单共用一个 sync: 差量比较, 无变化时是 no-op
+      if (typeof values.selfToolsEnabled === 'boolean' || 'toolAllowlist' in values || 'toolAllowlistEnabled' in values) {
+        selfToolsController?.sync(state.config.selfToolsEnabled)
+      }
+      if ('toolAllowlist' in values || 'toolAllowlistEnabled' in values) httpServer?.syncToolGate()
       if ('http' in values || 'host' in values || 'port' in values) void requestListenerSync()
     },
   })

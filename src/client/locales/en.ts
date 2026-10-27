@@ -102,7 +102,12 @@ export const en: Record<MessageKey, string> = {
   'tab.models': 'Models',
   'tab.settings': 'Security',
   'tab.conns': 'Connections',
-  'security.title': 'Security & transport',
+  'tool.title': 'Tool allowlist',
+  'tool.hint': 'Checked = the tool is available; switch off = unrestricted (the list is kept). Tools outside the list are unavailable to both MCP clients and native rice_ calls in this dsh.',
+  'tool.filter': 'Filter tools or descriptions',
+  'tool.loading': 'Loading tool list…',
+  'tool.unavailable': 'Tool list unavailable.',
+  'tool.none': 'No matching tools.',
   'approvals.empty': 'No calls awaiting approval',
   'backToChat': 'Back to chat',
 };

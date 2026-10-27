@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+-   工具白名单：安全标签新增"工具白名单"清单——逐工具勾选（只读/可写徽标、全选/只读/可写快捷框、关键字过滤、悬停完整描述），开关开启时清单外工具对 MCP 客户端（`tools/list` 隐藏 + `tools/call` 拒绝）与原生 `rice_` 自用工具（不注册）同时不可用；新配置字段 `toolAllowlist` / `toolAllowlistEnabled`（开关语义同模型白名单：缺省按"清单非空即启用"推导），配置热改即时生效，已连接的 MCP 客户端会收到 tools/list changed 通知；安全标签移除"安全与传输"分组标题（Host 头白名单行保留原位，新增工具白名单置于 dsh 端点白名单上方）
+-   配置：dsh 端点审批等待时长（`approvalTimeoutMs`）移除 600s 上限——原来超过 600 的值会被运行时钳制静默改回 600；保留"0 = 不限时"与"不低于 1s"的下限，审批停泊定时器对超大值按 setTimeout 上限（2^31-1ms）兜底
 -   构建：客户端半由裸 tsc 换为 tsdown 打包（官方 client 插件同款工具链），`src/client/` 按域拆分为 locales / styles / components 与数据逻辑模块——CSS 与中英文案不再是 UI 逻辑文件里的内嵌数据，中英键一致性由类型检查保证；icon.svg 改在打包时经插件内联，`scripts/inline-icon.mjs` 移除；产物仍为 `client/client.js` 单文件（cjs + banner/footer 包进宿主 `__ModuleLoader__` 工厂，react/@deepseek-ai/* 外部化），exports 路径与宿主 client-hmr 监听不变
 
 ## 0.2.0-rc.1 (2026-10-23)

@@ -36,6 +36,9 @@ export function draftFromStatus(st) {
     hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
     // dsh 端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
     endpointAllowlist: Array.isArray(c.endpointAllowlist) ? c.endpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
+    // 工具白名单(工具名数组; 勾选清单 GUI 维护)与其开关
+    toolAllowlistOn: c.toolAllowlistEnabled === true,
+    toolAllowlist: Array.isArray(c.toolAllowlist) ? c.toolAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
     // 模型/提供商简介(键值表; 面板编辑, 随 model_list / dsh://models 透出)
     modelDescriptions: descTableOf(c.modelDescriptions),
     providerDescriptions: descTableOf(c.providerDescriptions),

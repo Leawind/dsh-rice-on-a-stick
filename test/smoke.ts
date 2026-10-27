@@ -2495,6 +2495,22 @@ try {
     const cfgVolatile = await guiPut({ selfToolsEnabled: true })
     checks['GUI 路由: volatile 字段不标记重载'] =
       cfgVolatile.status === 200 && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].selfToolsEnabled === true
+    // 工具白名单: 数组清理去重后写入 + 开关写入 + 非数组 400
+    const cfgTools = await guiPut({ toolAllowlist: [' dsh_guide ', 'session_list', 'dsh_guide', ''] })
+    checks['GUI 路由: toolAllowlist 清理去重后写入'] =
+      cfgTools.status === 200 && JSON.stringify(edits[edits.length - 1].toolAllowlist) === JSON.stringify(['dsh_guide', 'session_list'])
+    const cfgToolsBad = await guiPut({ toolAllowlist: 'dsh_guide' })
+    checks['GUI 路由: toolAllowlist 非数组 400'] = cfgToolsBad.status === 400
+    const cfgToolsOn = await guiPut({ toolAllowlistEnabled: true })
+    checks['GUI 路由: toolAllowlistEnabled 写入'] = cfgToolsOn.status === 200 && edits[edits.length - 1].toolAllowlistEnabled === true
+    // 工具白名单清单数据源: 静态目录全量 + 只读标注
+    const toolCat = await phase.gui('tool-allowlist', { httpMethod: 'GET' })
+    const toolCatPayload = JSON.parse(toolCat.body) as { available?: boolean; tools?: { name: string; readOnly?: boolean }[] }
+    checks['GUI 路由: tool-allowlist 返回静态工具目录(带只读标注)'] =
+      toolCat.status === 200 &&
+      toolCatPayload.available === true &&
+      (toolCatPayload.tools ?? []).length > 10 &&
+      toolCatPayload.tools?.some((t) => t.readOnly === true)
     // 白名单完备性: Config schema 的每个字段都必须能被 GUI 写入(不得遗漏)
     const cfgSamples: Record<string, unknown> = {
       http: true,
@@ -2509,6 +2525,8 @@ try {
       sessionTtlMs: 0,
       approvalTimeoutMs: 120000,
       endpointAllowlist: ['schedule/update'],
+      toolAllowlist: ['dsh_guide'],
+      toolAllowlistEnabled: false,
       modelDescriptions: { 'p1/m1': 'Provider One 的快速模型' },
       providerDescriptions: { p1: '面向测试的假提供商' },
     }
@@ -2529,6 +2547,29 @@ try {
       JSON.stringify(edits[edits.length - 1].modelDescriptions) === JSON.stringify({ 'p1/m1': '有效的简介' }) &&
       JSON.stringify(edits[edits.length - 1].providerDescriptions) === JSON.stringify({ p2: '提供商简介' })
     await phase.dispose()
+  }
+
+  // ── Phase F2c: 工具白名单按 toolAllowlist 门控工具面(tools/list 隐藏 + tools/call 拒绝) ──
+  {
+    const gatePhase = await startPhase(8141, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      toolAllowlist: ['dsh_guide', 'session_list'],
+      toolAllowlistEnabled: true,
+    })
+    const gatedNames = await gatePhase.toolNames()
+    checks['工具白名单: 启用时 tools/list 只剩清单内工具'] = gatedNames.length === 2 && gatedNames.includes('dsh_guide') && gatedNames.includes('session_list')
+    const blocked = await gatePhase.call('session_create', {})
+    // SDK 把 disabled 错误包成 isError 工具结果(innerOf 解出错误文本), 而非 JSON-RPC error 对象
+    checks['工具白名单: 清单外工具 tools/call 被拒(disabled)'] =
+      blocked.status === 200 && String(innerOf(blocked).error ?? '').includes('session_create disabled')
+    await gatePhase.dispose()
+    // 开关关闭 = 不限制: 清单原样保留但工具面齐全
+    const offPhase = await startPhase(8142, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      toolAllowlist: ['dsh_guide'],
+      toolAllowlistEnabled: false,
+    })
+    const offNames = await offPhase.toolNames()
+    checks['工具白名单: 开关关闭时不限制(工具面齐全)'] = offNames.length > 10 && offNames.includes('dsh_guide') && offNames.includes('session_create')
+    await offPhase.dispose()
   }
 
   // ── Phase F2b: 模型/提供商简介随目录透出(model_list / GUI models 同源) ──
