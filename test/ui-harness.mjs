@@ -38,7 +38,7 @@ const state = {
   config: {
     host: '127.0.0.1', port: 5642,
     http: true,
-    allowedModels: [], allowedModelsEnabled: false, allowedHosts: [], defaultDetail: 'summary',
+    allowedModels: [], allowedModelsEnabled: false, allowedHosts: [],
     authEnabled: false, authToken: '', selfToolsEnabled: true,
     endpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
     approvalTimeoutMs: 120000, sessionTtlMs: 604800000,

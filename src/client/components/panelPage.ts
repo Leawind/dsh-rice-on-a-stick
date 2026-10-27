@@ -218,7 +218,6 @@ export function PanelPage() {
     const values: Record<string, unknown> = {
       allowedModelsEnabled: next.whitelistOn === true,
       allowedModels: (next.allowedModels || []).slice(),
-      defaultDetail: next.defaultDetail,
       authEnabled: next.authOn === true,
       selfToolsEnabled: next.selfToolsOn === true,
       // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
@@ -641,21 +640,6 @@ export function PanelPage() {
           regenArm ? React.createElement('div', { className: 'dcs-tokenwarn' },
             d.authOn ? t('auth.regenWarnOn') : t('auth.regenWarnOff')) : null,
         ),
-      ),
-      // ── Agent 工具面(自用工具开关在页头端点卡, 这里只剩结果详略程度) ──
-      groupHead(t('group.agent')),
-      React.createElement('div', { className: 'dcs-form' },
-      React.createElement(Row, {
-        label: t('detail.title'),
-        control: React.createElement('select', {
-          className: 'dcs-input',
-          value: d.defaultDetail,
-          onChange: function (e) { change({ defaultDetail: e.target.value }); },
-        },
-          React.createElement('option', { value: 'summary' }, t('detail.summary')),
-          React.createElement('option', { value: 'normal' }, t('detail.normal')),
-          React.createElement('option', { value: 'full' }, t('detail.full'))),
-      }),
       ),
       // ── 安全与传输(Host 头白名单 + 传输会话空闲上限, 低频的服务端防护) ──
       groupHead(t('security.title')),

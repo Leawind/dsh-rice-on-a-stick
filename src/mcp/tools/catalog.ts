@@ -66,7 +66,7 @@ export function registerCatalogTools(
     'dsh_status',
     {
       title: 'Plugin status',
-      description: 'Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist / result detail), subscription stats, and connected MCP clients. Same data as the Web settings panel.',
+      description: 'Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist, descriptions), subscription stats, and connected MCP clients. Same data as the Web settings panel.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },

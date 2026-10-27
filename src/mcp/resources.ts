@@ -188,7 +188,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     mimeType: 'application/json', annotations: ann.data,
   }, (uri) => readStatus(uri, {}))
   mcp.registerResource('status-config', resUri.statusConfig, {
-    title: 'Plugin config', description: 'Deployment config summary (model allowlist / result detail; low churn, safe to cache)',
+    title: 'Plugin config', description: 'Deployment config summary (model allowlist, descriptions; low churn, safe to cache)',
     mimeType: 'application/json', annotations: ann.doc,
   }, (uri) => readStatusField('config')(uri, {}))
   mcp.registerResource('status-stats', resUri.statusStats, {

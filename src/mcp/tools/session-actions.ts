@@ -126,7 +126,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     async ({ sessionId, task, attachments, mode, waitFor, requestId, detail }, extra) => {
       try {
         const result = await promptSession({ ctx, sessionId, task, mode, waitFor, attachments, requestId, signal: extra.signal })
-        const effDetail = detail ?? state.config.defaultDetail
+        const effDetail = detail ?? 'summary'
         const pendingNote = result.waiting !== undefined
           ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
           : result.pending === true
@@ -220,7 +220,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
     async ({ sessionId, requestId, detail }) => {
       try {
-        const payload = await sessionResult(ctx, sessionId, requestId, { detail: detail ?? state.config.defaultDetail })
+        const payload = await sessionResult(ctx, sessionId, requestId, { detail })
         return out(JSON.stringify(payload, null, 2))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))

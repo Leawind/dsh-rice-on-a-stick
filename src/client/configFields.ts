@@ -22,7 +22,6 @@ export function draftFromStatus(st) {
   return {
     whitelistOn: c.allowedModelsEnabled === true,
     allowedModels: allowed,
-    defaultDetail: c.defaultDetail === 'normal' || c.defaultDetail === 'full' ? c.defaultDetail : 'summary',
     authOn: c.authEnabled === true,
     authToken: '',        // 在途令牌(只写): 重新生成的乐观值, rebase 后清空
     selfToolsOn: c.selfToolsEnabled !== false,

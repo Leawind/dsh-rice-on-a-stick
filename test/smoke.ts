@@ -1646,12 +1646,11 @@ try {
     const stBody = st.status === 200 ? JSON.parse(st.body) : {}
     checks['GUI 路由: status 快照(版本/监听/配置摘要)'] = st.status === 200 && typeof stBody.version === 'string'
       && typeof stBody.listening === 'boolean' && Array.isArray(stBody.config?.allowedModels)
-      && typeof stBody.config?.defaultDetail === 'string'
       && typeof stBody.stats?.connections === 'number' && Array.isArray(stBody.connections)
     checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === 8087
     // 面板与 Config 完全对应: status 必须回显每个配置项(令牌只回掩码 hint, 不在此列)
     checks['GUI 路由: status 配置项覆盖面板全部字段'] = [
-      'http', 'host', 'port', 'allowedModels', 'allowedModelsEnabled', 'allowedHosts', 'defaultDetail',
+      'http', 'host', 'port', 'allowedModels', 'allowedModelsEnabled', 'allowedHosts',
       'authEnabled', 'selfToolsEnabled', 'sessionTtlMs', 'approvalTimeoutMs',
     ].every((k) => k in (stBody.config ?? {}))
     // 连接列表: 最新连接排最前(面板与 status/connections 资源同序)
@@ -1703,7 +1702,7 @@ try {
     checks['GUI 路由: rebinding 形态的 status(令牌回显面)拒'] = stRebind.status === 403
     const cfgLocalBrowser = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087', origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'same-origin' }, body: badBody })
     checks['GUI 路由: 同源+回环 Host 的浏览器写操作放行'] = cfgLocalBrowser.status === 400
-    const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { defaultDetail: 'summary' } }) })
+    const cfgNoEditor = await phase.gui('config-update', { headers: { 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ values: { selfToolsEnabled: true } }) })
     checks['GUI 路由: config-update 无 configEditor 时 409 带文件指引'] = cfgNoEditor.status === 409
       && String(JSON.parse(cfgNoEditor.body).error).includes('cordis.patch.yml')
     // 软启停已移除: 对外 MCP 服务只有配置开关 http(持久化, 写入只重建监听器), 不再有运行时启停
@@ -1767,9 +1766,9 @@ try {
     checks['GUI 路由: http 开关写入并标记监听器重建'] = cfgHttp.status === 200
       && JSON.parse(cfgHttp.body).reloading === true && edits[edits.length - 1].http === false
     // volatile 字段只就地提交, 不重载(面板据此不做重载等待)
-    const cfgVolatile = await guiPut({ defaultDetail: 'full', selfToolsEnabled: true })
+    const cfgVolatile = await guiPut({ selfToolsEnabled: true })
     checks['GUI 路由: volatile 字段不标记重载'] = cfgVolatile.status === 200
-      && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].defaultDetail === 'full'
+      && JSON.parse(cfgVolatile.body).reloading !== true && edits[edits.length - 1].selfToolsEnabled === true
     // 白名单完备性: Config schema 的每个字段都必须能被 GUI 写入(不得遗漏)
     const cfgSamples: Record<string, unknown> = {
       http: true,
@@ -1777,7 +1776,6 @@ try {
       host: '127.0.0.1',
       allowedModels: ['p1/m1'],
       allowedModelsEnabled: true,
-      defaultDetail: 'normal',
       authToken: '',
       authEnabled: false,
       selfToolsEnabled: true,
@@ -1863,7 +1861,7 @@ try {
   checks['isWithin: 目录是根的父级 → 不在内'] = !isWithin('/a/b', '/a')
   checks['Config schema: null → 全字段填默认'] = (() => {
     const c = ConfigSchema(null) as any
-    return c.allowedModels.get().length === 0 && c.defaultDetail.get() === 'summary'
+    return c.allowedModels.get().length === 0
       && c.allowedModelsEnabled.get() === undefined && c.authEnabled.get() === undefined && c.authToken.get() === ''
       && c.selfToolsEnabled.get() === true && c.host.get() === '127.0.0.1' && c.port.get() === 5642
       && c.http.get() === true && c.allowedHosts.get().length === 0
@@ -1928,12 +1926,9 @@ try {
       && DEFAULTS.sessionTtlMs === DEFAULT_SESSION_TTL_MS
       && fallbackSrc.includes('core/config-defaults')
   })()
-  checks['Config schema: defaultDetail 非法枚举被拒'] = (() => {
-    try { ConfigSchema({ defaultDetail: 'verbose' } as any); return false } catch { return true }
-  })()
   checks['Config schema: ~standard.validate 合法配置通过并填默认'] = (() => {
     const r = ConfigSchema['~standard'].validate({ allowedModels: ['a/b'] }) as { value: any }
-    return r.value.allowedModels.get().length === 1 && r.value.defaultDetail.get() === 'summary'
+    return r.value.allowedModels.get().length === 1
   })()
   checks['serviceOf: 未注入服务的属性访问抛错时返回 undefined'] = (() => {
     const ctx = new Proxy({}, {

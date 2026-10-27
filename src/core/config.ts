@@ -68,8 +68,6 @@ export interface Config {
    * 重新开启即恢复约束, 不必逐个重加模型。
    */
   allowedModelsEnabled?: boolean
-  /** 结果默认详略级别(默认 summary; 单次调用可用 detail 参数覆盖) */
-  defaultDetail?: 'summary' | 'normal' | 'full'
   /** Bearer token(启用认证时所有请求必须带 Authorization: Bearer <token>, 常数时间比较) */
   authToken?: string
   /**
@@ -131,7 +129,6 @@ export interface ParsedConfig {
   port: Volatile<number>
   allowedModels: Volatile<string[]>
   allowedModelsEnabled: Volatile<boolean | undefined>
-  defaultDetail: Volatile<NonNullable<Config['defaultDetail']>>
   authToken: Volatile<string>
   authEnabled: Volatile<boolean | undefined>
   selfToolsEnabled: Volatile<boolean>
@@ -152,7 +149,6 @@ export const DEFAULTS = {
   http: true,
   allowedModels: [] as string[],
   allowedModelsEnabled: false as boolean,
-  defaultDetail: 'summary' as 'summary' | 'normal' | 'full',
   sessionTtlMs: DEFAULT_SESSION_TTL_MS,
   authToken: '',
   authEnabled: false as boolean,
@@ -206,7 +202,6 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     http: DEFAULTS.http,
     allowedModels: [],
     allowedModelsEnabled: false,
-    defaultDetail: DEFAULTS.defaultDetail,
     sessionTtlMs: DEFAULTS.sessionTtlMs,
     authToken: '',
     authEnabled: false,
@@ -231,7 +226,6 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       configurable: true,
       get: () => parsed.allowedModelsEnabled.get() ?? readModels().length > 0,
     },
-    defaultDetail: { enumerable: true, configurable: true, get: () => parsed.defaultDetail.get() },
     authToken: { enumerable: true, configurable: true, get: () => parsed.authToken.get() },
     authEnabled: {
       enumerable: true,
@@ -286,7 +280,6 @@ export const Config = Schema.object({
   host: Schema.string().default('127.0.0.1').volatile().description('MCP listen address (safe default: loopback only; add auth + reverse proxy + TLS before exposing to LAN/WAN). Changing it restarts only the listener.'),
   allowedModels: Schema.array(Schema.string()).default(DEFAULTS.allowedModels).volatile().description('Model allowlist in "provider/model" form. When enabled (allowedModelsEnabled) and non-empty, session_create/session_select_model reject models outside the list.'),
   allowedModelsEnabled: Schema.boolean().volatile().description('Model allowlist switch. Off = temporarily unrestricted, the list is kept (turning it back on restores the constraint); defaults to "enabled when the list is non-empty".'),
-  defaultDetail: Schema.union(['summary', 'normal', 'full'] as const).default(DEFAULTS.defaultDetail).volatile().description('Default result detail level (per-call detail overrides it).'),
   authToken: Schema.string().default(DEFAULTS.authToken).role('secret').volatile().description('Bearer token (when auth is enabled, every request must send Authorization: Bearer <token>).'),
   authEnabled: Schema.boolean().volatile().description('Auth switch. Off = do not verify, the token is kept (turning it back on restores verification); defaults to "enabled when a token is configured".'),
   selfToolsEnabled: Schema.boolean().default(DEFAULTS.selfToolsEnabled).volatile().description('Self-use tools for this instance: register the same tool surface as native host tools, so sessions in this dsh can call them without an MCP client; off = keep only the external MCP server (native tools bypass HTTP/auth).'),

@@ -809,7 +809,6 @@ export function basicStatusSnapshot(): Record<string, unknown> {
       allowedModelsEnabled: state.config.allowedModelsEnabled,
       modelDescriptions: state.config.modelDescriptions,
       providerDescriptions: state.config.providerDescriptions,
-      defaultDetail: state.config.defaultDetail,
       authEnabled: state.config.authEnabled,
       selfToolsEnabled: state.config.selfToolsEnabled,
       ...(state.config.authToken !== '' ? { authTokenHint: authTokenHint(state.config.authToken) } : {}),

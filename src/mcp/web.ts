@@ -184,8 +184,6 @@ const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToo
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 /** 数字字段 → 上限(与 config.ts 的钳制保持一致) */
 const GUI_NUMBER_MAX: Record<string, number> = { port: 65535 }
-/** defaultDetail 合法枚举(与 config.ts schema 一致) */
-const GUI_DETAIL_VALUES = new Set(['summary', 'normal', 'full'])
 /** 字符串数组字段(Host 头白名单) */
 const GUI_STRING_ARRAY_FIELDS = new Set(['allowedHosts'])
 /**
@@ -233,11 +231,6 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       if (max !== undefined && n > max) throw httpError(400, `${key} 必须是不大于 ${max} 的数字`)
       if (key === 'port' && !Number.isInteger(n)) throw httpError(400, 'port 必须是 1-65535 的整数')
       out[key] = n
-    } else if (key === 'defaultDetail') {
-      if (typeof value !== 'string' || !GUI_DETAIL_VALUES.has(value)) {
-        throw httpError(400, 'defaultDetail 必须是 summary/normal/full 之一')
-      }
-      out[key] = value
     } else if (GUI_STRING_ARRAY_FIELDS.has(key)) {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
         throw httpError(400, `${key} 必须是字符串数组`)

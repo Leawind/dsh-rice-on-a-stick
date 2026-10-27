@@ -142,7 +142,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         allowedModels: state.config.allowedModels,
         allowedModelsEnabled: state.config.allowedModelsEnabled,
         allowedHosts: state.config.allowedHosts,
-        defaultDetail: state.config.defaultDetail,
         authEnabled: state.config.authEnabled,
         authTokenHint: state.config.authToken !== '' ? authTokenHint(state.config.authToken) : undefined,
         selfToolsEnabled: state.config.selfToolsEnabled,
