@@ -13,24 +13,6 @@
 
 </div>
 
-```mermaid
-flowchart LR
-    mcpClient["MCP 客户端<br>（其他 Agent）"]
-
-    subgraph dsh["DeepSeek Harness (dsh)"]
-        subgraph plugins["dsh 插件"]
-          plugin["白饭钓竿<br>dsh-rice-on-a-stick"]
-        end
-        subgraph dshServices["dsh 服务"]
-            sessions["会话"]
-        end
-    end
-
-    mcpClient <-->|"MCP"| plugin
-    plugin -->|"调用"| dshServices
-    sessions -->|"调用原生工具"| plugin
-```
-
 ## 特性
 
 - **操作会话**：新建、发送、排队、分叉、归档与恢复、切换模型等。侧栏页的“模型”标签页可以只允许特定模型，使客户端只能使用勾选的模型；也可以在那里为模型和模型提供商各写一段简介，简介随 `model_list` / `dsh://models` 提供给调用方
@@ -43,7 +25,6 @@ flowchart LR
 >
 > - 未启用认证时，任何能访问对应端口的本机进程都可以驱动 dsh
 > - 这个插件会对调用者暴露本机代码执行能力，默认只监听 `127.0.0.1`
-> - dsh 内部的自用工具启用后，本 dsh 实例的任何会话都能调用，因为它们不经 HTTP、也与令牌无关
 
 ## 环境要求
 
@@ -58,7 +39,7 @@ flowchart LR
 dsh plugin --profile web add dsh-rice-on-a-stick
 ```
 
-通过源码安装并实现实时更新：
+通过源码安装：
 
 ```sh
 git clone https://github.com/Leawind/dsh-rice-on-a-stick
@@ -79,15 +60,13 @@ dsh plugin --profile web remove dsh-rice-on-a-stick
 
 ### 接入 MCP 客户端
 
-MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable HTTP；在设置中开启认证后，需要配置 Bearer 凭证。
+MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable HTTP；可在设置中启用认证。
 
 ## 配置
 
-所有配置都可在 dsh 侧栏的"白饭钓竿"页（安全标签）里改；MCP 连接空闲上限在连接标签。profile 目录下的 `cordis.patch.yml`全部字段、默认值与说明见 [src/core/config.ts](src/core/config.ts)：
+所有配置都可在 dsh 侧栏的"白饭钓竿"页里改；配置的完整格式见 [src/core/config.ts](src/core/config.ts)：
 
-## 工具一览
-
-下表按域列出本插件注册的全部 MCP 工具。
+## 工具
 
 ### 目录与状态
 

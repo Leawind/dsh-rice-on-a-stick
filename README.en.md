@@ -13,37 +13,18 @@ A dsh plugin that exposes control over [DeepSeek Harness](https://github.com/dee
 
 </div>
 
-```mermaid
-flowchart LR
-    mcpClient["MCP Client<br>(Other Agents)"]
-
-    subgraph dsh["DeepSeek Harness (dsh)"]
-        subgraph plugins["dsh Plugins"]
-          plugin["Rice on a Stick<br>dsh-rice-on-a-stick"]
-        end
-        subgraph dshServices["dsh Services"]
-            sessions["Sessions"]
-        end
-    end
-
-    mcpClient <-->|"MCP"| plugin
-    plugin -->|"Invoke"| dshServices
-    sessions -->|"Invoke native tools"| plugin
-```
-
 ## Features
 
-- **Operate sessions** — create, send, queue, fork, archive and restore, switch models, and more. The "Models" tab of the sidebar page can be limited to specific models, so clients can only use the ones ticked; blurbs for models and their providers can be written there and are surfaced through `model_list` / `dsh://models` for callers.
-- **Answer like a normal Web user** — the plugin joins as a Web answer client for approvals and `ask_user_question`: the native cards stay visible and whoever answers first wins. Polling surfaces what is pending, and `approval_answer` / `question_answer` submit the decision.
-- **dsh endpoint passthrough** — low-curation coverage for the long tail of dsh capabilities. Dangerous endpoints (credential writes, plugin installs, connection trust) have no hard gate: they take the same allowlist/parking paths as ordinary endpoints but are listed separately with a warning on the panel; see `CONTRIBUTING.md` and `docs/endpoint-passthrough.zh.md`.
-- **dsh can use it too** — these capabilities are also registered as internal dsh tools, callable directly from dsh sessions; they can be disabled in settings if not needed.
-- **Secure by default** — listens only on localhost by default, with an optional access token.
+- **Operate sessions**: create, send, queue, fork, archive and restore, switch models, etc. The "Models" tab on the sidebar page can restrict to specific models only, so that clients can only use the checked models; you can also write a short description for each model and each model provider there, and the descriptions are provided to callers along with `model_list` / `dsh://models`
+- **Answer like a regular web user**: the plugin acts as a Web answer client to receive approvals and `ask_user_question`; native cards display as usual, and whoever answers first—human or agent—wins. Polling can discover pending items, and `approval_answer` / `question_answer` submit directly
+- **dsh endpoint passthrough**: low-curation coverage of dsh's long-tail capabilities. Dangerous endpoints such as credential writing / plugin installation / connection trust have no hard gate; they go through the same two paths as regular endpoints—whitelist / parked approval—but are listed separately in the panel as an independent dangerous list with annotations; for the mechanism, see `CONTRIBUTING.md` and `docs/endpoint-passthrough.zh.md`
+- **dsh can use it too**: these capabilities are also registered as dsh's internal tools, and dsh sessions can call them directly. They can be disabled in settings when not needed.
+- **Secure by default**: listens only on localhost by default, with a configurable access token.
 
 > [!WARNING]
 >
-> - When authentication is not enabled, any local process that can reach the corresponding port can drive dsh.
-> - This plugin exposes local code execution capability to callers, and listens only on `127.0.0.1` by default.
-> - Once the internal self-use tools are enabled, any session of this dsh instance can call them, because they do not go through HTTP and are unrelated to the token.
+> - When authentication is disabled, any local process that can access the corresponding port can drive dsh
+> - This plugin exposes local code execution capability to callers and listens only on `127.0.0.1` by default
 
 ## Requirements
 
@@ -58,7 +39,7 @@ Install via npm:
 dsh plugin --profile web add dsh-rice-on-a-stick
 ```
 
-Install from source with live updates:
+Install from source:
 
 ```sh
 git clone https://github.com/Leawind/dsh-rice-on-a-stick
@@ -67,7 +48,7 @@ npm install
 npm run build
 dsh plugin --profile web add link:.
 
-# Watch source changes and rebuild live
+# Watch source changes and build in real time
 npm run dev
 ```
 
@@ -77,17 +58,17 @@ Uninstall:
 dsh plugin --profile web remove dsh-rice-on-a-stick
 ```
 
-### Connecting an MCP Client
+### Connecting to MCP clients
 
-The MCP server listens on `http://127.0.0.1:5642/mcp` by default, using Streamable HTTP transport; after enabling authentication in settings, Bearer credentials must be configured.
+The MCP server listens on `http://127.0.0.1:5642/mcp` by default, with Streamable HTTP as the transport; authentication can be enabled in settings.
 
 ## Configuration
 
-All configuration can be changed in the "Rice on a Stick" page (Security tab) of the dsh sidebar; the MCP connection idle limit lives on the Connections tab. For all fields, defaults, and descriptions of `cordis.patch.yml` in the profile directory, see [src/core/config.ts](src/core/config.ts):
+All configuration can be changed on the "Rice on a Stick" page in the dsh sidebar; for the full configuration format, see [src/core/config.ts](src/core/config.ts):
 
 ## Tools
 
-The table below lists every MCP tool the plugin registers, grouped by domain.
+### Catalog and status
 
 ### Catalog and status
 
@@ -161,14 +142,14 @@ These two tools cover the long tail of dsh Remote endpoints; the endpoints thems
 | `endpoint_describe` | Discover dsh Remote endpoints, search first: `query` keyword search (optionally scoped by `namespace`), no arguments for the namespace index, `namespace` for one domain's methods, `endpoint` for the exact contract; entries are flagged `readOnly` / `allowed` / `writable` / `approvalRequired` |
 | `endpoint_call`     | Invoke an endpoint from `endpoint_describe` with its named wire `args`; allowlisted endpoints execute directly, every other non-stream endpoint parks for a human decision, and decline, timeout or caller disconnect fails closed with nothing executed                                            |
 
-## Delivery: queue vs. steer
+## Send behavior: queue / steer
 
-`session_prompt` and `session_submit` choose the delivery mode per call, independent of any UI preference. While the target session is running a turn, `mode` is required:
+The delivery mode of `session_prompt` and `session_submit` is chosen per call and is independent of UI preferences. When the target session is running a turn, `mode` must be specified explicitly:
 
-- `mode: "queue"` — queued: delivered as a new turn after the current turn ends
-- `mode: "steer"` — steered: injected at the next step boundary inside the current turn, extending it; a running step is never interrupted
-- Omitting `mode` works only while the session is idle, where queue and steer are identical and the engine assumes queue; on a running session the call fails with `MODE_REQUIRED` — the plugin never guesses on the caller's behalf
-- If messages are already queued, promote one to a steer with `session_queue`'s `action: "steer"`
+- `mode: "queue"`: delivered as a new round after the current turn ends
+- `mode: "steer"`: injected at the next step boundary of the current turn and extends this turn, without interrupting the step currently being executed
+- Omitting `mode` is only valid when the session is idle; in that case queue and steer are equivalent, and the engine handles it as queue; omitting it while the session is running fails directly (`MODE_REQUIRED`), and the plugin will not guess on the caller's behalf
+- If there are already queued messages, `session_queue`'s `action: "steer"` can promote them to a steer
 
 ## Acknowledgements
 
