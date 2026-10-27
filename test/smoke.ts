@@ -105,6 +105,15 @@ import {
 
 const ctx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle })
 
+/**
+ * 工具面体积预算(Phase A 的 tools/list / initialize 断言用)。
+ * 依据: 这部分是每个会话常驻的系统提示成本, 宿主按 4 字符/token 估算;
+ * 当前实测 ~30.8 KB / 描述合计 ~7.8 KB / instructions 1.2 KB。要加工具就同步上调, 让增长被显式评审。
+ */
+const SURFACE_BUDGET = 33_000
+const DESCRIPTION_BUDGET = 400
+const INSTRUCTIONS_BUDGET = 1_600
+
 try {
   // ── Phase A(主流程): 无认证、无白名单, 端口 8099 ──
   await apply(ctx, { port: PORT, host: '127.0.0.1' })
@@ -181,6 +190,8 @@ try {
   checks['initialize 拿到 sessionId'] = Boolean(init.sid)
   const initResult = init.status === 200 ? parsePayload(init.text).result : undefined
   checks['initialize 携带 instructions(含 dsh_guide 指路)'] = typeof initResult?.instructions === 'string' && initResult.instructions.includes('dsh_guide')
+  // server instructions 只在 initialize 下发一次, 但也进了客户端的系统提示: 它只放跨工具约定, 细节归 guide 各节
+  checks['initialize: instructions 体积在预算内(只放跨工具约定)'] = (initResult?.instructions?.length ?? 0) <= INSTRUCTIONS_BUDGET
   await rpc(init.sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
   const toolsList = await rpc(init.sid, { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} })
@@ -235,6 +246,17 @@ try {
   checks['tools/list: 面向客户端的说明统一为英文'] = toolsArr.every(
     (t) => !CJK.test([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n')),
   )
+
+  // 工具面体积预算: tools/list 是每个会话常驻的系统提示成本(宿主 dsh-token-meter 按 4 字符/token 估算)。
+  // 预算按需上调——加工具时连同这两个常量一起改, 让体积增长成为一次显式评审, 而不是悄悄漂移。
+  const surfaceBytes = JSON.stringify(toolsArr).length
+  const oversized = toolsArr.filter((t) => typeof t.description === 'string' && t.description.length > DESCRIPTION_BUDGET).map((t) => t.name)
+  console.log(
+    `  tools/list: ${toolsArr.length} 个工具 / ${surfaceBytes} bytes / 描述 ${toolsArr.reduce((a, t) => a + (t.description?.length ?? 0), 0)} 字符 / instructions ${initResult?.instructions?.length ?? 0} 字符`,
+  )
+  checks['tools/list: 工具面体积在预算内'] = surfaceBytes <= SURFACE_BUDGET
+  checks[`tools/list: 单条工具描述不超过 ${DESCRIPTION_BUDGET} 字符`] = oversized.length === 0
+  if (oversized.length > 0) console.log('    超限工具: ' + oversized.join(', '))
 
   // 原生子代理发现: 只读目录(不激活 child)
   const subList = await rpc(init.sid, {
