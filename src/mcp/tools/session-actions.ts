@@ -34,7 +34,7 @@ const ATTACHMENTS_ARG = z
   .max(8)
   .optional()
   .describe(
-    'Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the send receipt (wait="none") or session_history (images fields) and can be fetched with attachment_read.',
+    'Images to attach to the message. Reference-only by design: pass a host-readable path or URL — the bytes are read host-side and admitted via the host attachment service, so image data never enters tool arguments or the model context as base64. png/jpeg/webp/gif, up to 8; attachment ids come back in the send receipt (wait="none") or session_history (images fields) and can be fetched with session_attachment.',
   )
 
 /**
@@ -654,10 +654,10 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
-  // 图片附件取回(只读——内容访问与 subagent_list 同属控制面):
+  // 图片附件取回(只读——内容访问与 session_subagents 同属控制面):
   // 默认引用模式(元数据 + 宿主本地路径, 零图片 token); inline=true 额外回 MCP image 内容块(多模态视觉输入)。
   mcp.registerTool(
-    'attachment_read',
+    'session_attachment',
     {
       title: 'Read image attachment',
       description:
@@ -716,7 +716,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           ],
         }
       } catch (e) {
-        return outError(JSON.stringify({ error: `attachment_read failed: ${(e as Error)?.message ?? String(e)}` }))
+        return outError(JSON.stringify({ error: `session_attachment failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

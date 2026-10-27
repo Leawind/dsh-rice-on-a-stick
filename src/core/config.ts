@@ -30,7 +30,7 @@ export const PLUGIN_NAME = 'dsh-rice-on-a-stick'
 export const TOOL_IDENTITY_PREFIX = '白饭钓竿: '
 
 /**
- * authToken 的展示掩码(面板与 dsh_status 只透露这些): 长度足够时取首尾各 4 字符,
+ * authToken 的展示掩码(面板与 plugin_status 只透露这些): 长度足够时取首尾各 4 字符,
  * 太短的令牌没有辨识价值一律 '••••••'。完整值只在生成/输入当下可见, 永不回显。
  */
 export function authTokenHint(token: string): string {

@@ -792,7 +792,7 @@ export async function workspaceDetailPayload(ctx: Context, id: string): Promise<
   return found
 }
 
-/** 宿主全局工具注册表(dsh://tools / dsh_list_tools 工具同数据) */
+/** 宿主全局工具注册表(dsh://tools 资源同数据(工具面只在 plugin_status 报计数)) */
 export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   const tools = ctx.tools as unknown as { schemas?: () => { name: string; description?: string }[]; keys?: () => Iterable<string> } | null
   let list: { name: string; description?: string }[]
@@ -810,7 +810,7 @@ export function hostToolsPayload(ctx: Context): Record<string, unknown> {
   }
 }
 
-// ── 状态快照(dsh_status / dsh://status[/…]) ──
+// ── 状态快照(plugin_status / dsh://status[/…]) ──
 
 /** apply 级依赖注入(完整状态快照等 apply 闭包才有的能力经它传给两个面; 缺省退回 state 级基础快照) */
 export interface ToolDeps {

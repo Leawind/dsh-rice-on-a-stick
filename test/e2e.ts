@@ -1,9 +1,9 @@
 // E2E verification against a REAL dsh host (not shipped; dev-only).
 //
 // Zero-token phase: MCP handshake + instructions, the current tool surface, read-only tools
-// (echo / dsh_guide / dsh_list_tools / dsh_status / workspace_list / model_list /
+// (dsh_guide / plugin_status / workspace_list / model_list /
 // session_list), the attachment read-only face and the dsh endpoint passthrough face (endpoint_describe / endpoint_call
-// session/modelCatalog / attachment_read unknown-id), session_history on a persisted-only
+// session/modelCatalog / session_attachment unknown-id), session_history on a persisted-only
 // session (host sessionController.inspect), and the resource face (list / read / presets).
 //
 // Agent phase (E2E_WITH_AGENT=1): create a session with an explicit provider/model/preset and
@@ -129,10 +129,8 @@ try {
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
   const expected = [
-    'echo',
     'dsh_guide',
-    'dsh_list_tools',
-    'dsh_status',
+    'plugin_status',
     'workspace_list',
     'model_list',
     'session_create',
@@ -159,8 +157,8 @@ try {
     'approval_policy_set',
     'question_list',
     'question_answer',
-    'subagent_list',
-    'attachment_read',
+    'session_subagents',
+    'session_attachment',
     'endpoint_describe',
     'endpoint_call',
   ]
@@ -170,43 +168,53 @@ try {
     names.join(','),
   )
 
-  const echo = await callTool(sid, 3, 'echo', { text: 'e2e-ping' })
-  report('echo 往返', echo.resp.status === 200 && echo.resp.text.includes('e2e-ping'))
-
-  const guide = await callTool(sid, 4, 'dsh_guide', { section: 'errors' })
+  const guide = await callTool(sid, 3, 'dsh_guide', { section: 'errors' })
   const guideText = guide.inner.text ?? ''
   report('dsh_guide(section=errors) 返回错误对照表', guideText.includes('Error → alternative path'), `${guideText.length} chars`)
 
-  const guideIndex = await callTool(sid, 41, 'dsh_guide', {})
+  const guideIndex = await callTool(sid, 4, 'dsh_guide', {})
   report(
     'dsh_guide 无参默认返回节索引(非全文)',
     typeof guideIndex.inner.text === 'string' && guideIndex.inner.text.includes('Sections') && !guideIndex.inner.text.includes('## Concepts'),
     `${String(guideIndex.inner.text ?? '').length} chars`,
   )
 
-  const listTools = await callTool(sid, 5, 'dsh_list_tools')
+  // 全局注册表只保留资源面(dsh://tools); 工具面只在 plugin_status 报计数
+  const toolsResource = await rpc(sid, { jsonrpc: '2.0', id: 5, method: 'resources/read', params: { uri: 'dsh://tools' } })
+  const toolsPayload =
+    toolsResource.status === 200
+      ? (() => {
+          try {
+            return JSON.parse(parsePayload(toolsResource.text).result?.contents?.[0]?.text ?? '{}')
+          } catch {
+            return {}
+          }
+        })()
+      : {}
   report(
-    'dsh_list_tools 返回全局注册表',
-    listTools.inner?.source === 'global-registry' && Array.isArray(listTools.inner?.tools),
-    `${Array.isArray(listTools.inner?.tools) ? listTools.inner.tools.length : '?'} 个全局工具`,
+    'dsh://tools 资源返回全局注册表',
+    toolsPayload?.source === 'global-registry' && Array.isArray(toolsPayload?.tools),
+    `${Array.isArray(toolsPayload?.tools) ? toolsPayload.tools.length : '?'} 个全局工具`,
   )
-  const nativeNames = (listTools.inner?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
+  const nativeNames = (toolsPayload?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
   report(
     '将工具注册到本dsh实例(每个 MCP 工具都有 rice_ 原生孪生)',
-    names.every((n) => nativeNames.includes(`rice_${n}`)) && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_dsh_status'),
+    names.every((n) => nativeNames.includes(`rice_${n}`)) && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_plugin_status'),
     `native=${nativeNames.length} mcp=${names.length}`,
   )
 
-  const status = await callTool(sid, 6, 'dsh_status')
+  const status = await callTool(sid, 6, 'plugin_status')
   report(
-    'dsh_status 返回部署状态',
+    'plugin_status 返回部署状态',
     status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`,
   )
   report(
-    'dsh_status 回报自用工具开关与数量',
-    status.inner?.config?.selfToolsEnabled === true && status.inner?.stats?.selfTools === nativeNames.length,
-    `selfTools=${status.inner?.stats?.selfTools ?? '?'}`,
+    'plugin_status 回报自用工具开关与数量、全局注册表计数',
+    status.inner?.config?.selfToolsEnabled === true &&
+      status.inner?.stats?.selfTools === nativeNames.length &&
+      status.inner?.hostGlobalTools?.total === nativeNames.length,
+    `selfTools=${status.inner?.stats?.selfTools ?? '?'} hostGlobalTools=${status.inner?.hostGlobalTools?.total ?? '?'}`,
   )
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
@@ -330,10 +338,14 @@ try {
     String(catalog.inner?.error ?? `providers=${((catalog.inner as any)?.routableProviders ?? []).length}`).slice(0, 140),
   )
   if (knownSession) {
-    const attMissing = await callTool(sid, 26, 'attachment_read', { sessionId: knownSession, attachmentId: 'e2e-nope' })
-    report('attachment_read 未知附件明确报错', String(attMissing.inner.error ?? '').includes('not found'), String(attMissing.inner.error ?? '').slice(0, 140))
+    const attMissing = await callTool(sid, 26, 'session_attachment', { sessionId: knownSession, attachmentId: 'e2e-nope' })
+    report(
+      'session_attachment 未知附件明确报错',
+      String(attMissing.inner.error ?? '').includes('not found'),
+      String(attMissing.inner.error ?? '').slice(0, 140),
+    )
   } else {
-    console.log('  SKIP  attachment_read 未知附件 — 当前没有可读会话')
+    console.log('  SKIP  session_attachment 未知附件 — 当前没有可读会话')
   }
 
   if (!WITH_AGENT) {
@@ -444,9 +456,9 @@ try {
         questionList.inner?.sessions?.[0]?.state !== 'not-found' && (questionList.inner?.sessions?.[0]?.questions?.length ?? -1) === 0,
         `state=${questionList.inner?.sessions?.[0]?.state ?? '?'}`,
       )
-      const subagents = await callTool(sid, 38, 'subagent_list', { parentSessionId: sessionId })
+      const subagents = await callTool(sid, 38, 'session_subagents', { parentSessionId: sessionId })
       report(
-        'subagent_list 读到空的原生子代理目录',
+        'session_subagents 读到空的原生子代理目录',
         Array.isArray(subagents.inner?.subagents) && subagents.inner?.total === 0,
         subagents.inner?.error ? String(subagents.inner.error).slice(0, 180) : `total=${subagents.inner?.total ?? '?'}`,
       )

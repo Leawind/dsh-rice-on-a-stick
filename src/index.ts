@@ -53,7 +53,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const parsed = parseConfig(config)
   state.config = bindRuntimeConfig(parsed)
 
-  // 本实例自用工具控制器: 在 statusSnapshot 定义后安装(工具里的 dsh_status 要读同一份快照)
+  // 本实例自用工具控制器: 在 statusSnapshot 定义后安装(工具里的 plugin_status 要读同一份快照)
   let selfToolsController: SelfToolsController | undefined
 
   let httpServer: McpHttpServer | undefined

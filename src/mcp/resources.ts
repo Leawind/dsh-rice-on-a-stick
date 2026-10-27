@@ -204,7 +204,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     resUri.status,
     {
       title: 'Plugin status',
-      description: 'Plugin deployment status overview (same data as dsh_status; see status/config|stats|connections for slices)',
+      description: 'Plugin deployment status overview (same data as plugin_status; see status/config|stats|connections for slices)',
       mimeType: 'application/json',
       annotations: ann.data,
     },
@@ -280,7 +280,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     resUri.tools,
     {
       title: 'Host tool registry',
-      description: 'Host global tool registry (same data as dsh_list_tools; usually empty on 0.1.5+, with a note explaining why)',
+      description: 'Host global tool registry (names via resources/read; usually empty on 0.1.5+, with a note explaining why)',
       mimeType: 'application/json',
       annotations: ann.data,
     },

@@ -11,20 +11,6 @@ import { guideSectionDoc, type GuideSection } from '../onboarding.js'
 import { out, outError } from './shared.js'
 
 export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDeps | undefined): void {
-  // echo(连通性探针)
-  mcp.registerTool(
-    'echo',
-    {
-      title: 'Echo',
-      description: 'Echo the input back to verify MCP server connectivity.',
-      inputSchema: { text: z.string() },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ text }) => {
-      return out(`echo: ${text} @ ${Date.now()}`)
-    },
-  )
-
   mcp.registerTool(
     'dsh_guide',
     {
@@ -44,29 +30,22 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     async ({ section }) => out(guideSectionDoc(section as GuideSection | undefined)),
   )
 
+  // 插件状态(只读): headless/脚本场景不开 Web 面板也能看部署状态。
+  // 吸收了原 dsh_list_tools: 全局注册表只报计数与指路(完整清单走 dsh://tools 资源)。
   mcp.registerTool(
-    'dsh_list_tools',
-    {
-      title: 'List dsh tools',
-      description:
-        "List the host's global tool registry (name + description). Note: model tools live in preset/agent scopes, so this global table is usually empty (see the returned note); the tools a session can actually use are the toolCalls in a session_send result.",
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
-    },
-    async () => out(JSON.stringify(hostToolsPayload(ctx))),
-  )
-
-  // 插件状态(只读): headless/脚本场景不开 Web 面板也能看部署状态
-  mcp.registerTool(
-    'dsh_status',
+    'plugin_status',
     {
       title: 'Plugin status',
       description:
-        'Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist, descriptions), subscription stats, and connected MCP clients. Same data as the Web settings panel.',
+        "Show plugin deployment status (read-only): version, listener state, uptime, config summary (model allowlist, descriptions), subscription stats, connected MCP clients, and the host global-tool-registry count (names via the dsh://tools resource; model tools live in preset scopes, so a session's real toolset is the toolCalls in a session_send result). Same data as the Web settings panel.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
-    async () => out(JSON.stringify(deps?.statusSnapshot?.() ?? basicStatusSnapshot(), null, 2)),
+    async () => {
+      const snap = deps?.statusSnapshot?.() ?? basicStatusSnapshot()
+      const global = hostToolsPayload(ctx) as { tools?: unknown[] }
+      return out(JSON.stringify({ ...snap, hostGlobalTools: { total: global.tools?.length ?? 0, resource: 'dsh://tools' } }, null, 2))
+    },
   )
 
   // 工作区清单(只读): workspaceRegistry 的花名册(id/路径/会话归属)
@@ -111,7 +90,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
   )
 
   // 权限预设目录: session_create.permission / session_set_permission 的取值来源。
-  // 与 subagent_list 一样属于控制面发现能力(创建会话仍需它)。
+  // 与 session_subagents 一样属于控制面发现能力(创建会话仍需它)。
   mcp.registerTool(
     'permission_list',
     {
@@ -139,13 +118,13 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     },
   )
 
-  // 原生子代理发现: 只读目录, 不加载也不恢复 child(控制面能力)
+  // 原生子代理发现(只读): 目录, 不加载也不恢复 child(控制面能力)
   mcp.registerTool(
-    'subagent_list',
+    'session_subagents',
     {
       title: 'List native subagents',
       description:
-        "Read a session's native subagent catalog (host subagents.listChildren/listDescendants): returns child `sessionId`, creation time, `mode` (one-shot/continuable/external/unknown), and `label`; with `recursive=true`, returns descendants with `parentId`/`depth`. Read-only: it neither loads nor resumes the child agent. Drive a child with `session_send` / `session_poll` / `session_result` / `session_cancel`; spawning children remains the host/model-side subagent tool's job — this tool only exposes the catalog over MCP.",
+        "Read a session's native subagent catalog (host subagents.listChildren/listDescendants): returns child `sessionId`, creation time, `mode` (one-shot/continuable/external/unknown), and `label`; with `recursive=true`, returns descendants with `parentId`/`depth`. Read-only: it neither loads nor resumes the child agent. Drive a child with `session_send` / `session_poll` / `session_result` / `session_cancel`; spawning children remains the host/model-side subagent tool's job — this tool only exposes the catalog.",
       inputSchema: {
         parentSessionId: z.string().describe('Parent session id (the root of its subagent catalog).'),
         recursive: z.boolean().optional().describe('true = recursively list all reachable descendants (listDescendants); default = direct children only.'),
@@ -155,7 +134,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     async ({ parentSessionId, recursive }, extra) => {
       const svc = subagentsOf(ctx)
       if (svc === undefined) {
-        return outError(JSON.stringify({ error: 'the host subagent service is unavailable (subagent_list needs the web profile subagent service)' }))
+        return outError(JSON.stringify({ error: 'the host subagent service is unavailable (session_subagents needs the web profile subagent service)' }))
       }
       try {
         const root = asSessionId(parentSessionId)
@@ -187,7 +166,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
           ),
         )
       } catch (e) {
-        return outError(JSON.stringify({ error: `subagent_list failed: ${(e as Error)?.message ?? String(e)}` }))
+        return outError(JSON.stringify({ error: `session_subagents failed: ${(e as Error)?.message ?? String(e)}` }))
       }
     },
   )

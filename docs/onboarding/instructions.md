@@ -41,7 +41,7 @@ Quick start:
   named permission level (a sandbox + approval bundle, e.g. full access) use permission_list,
   session_create.permission, or session_set_permission — the same presets the UI's
   permission switcher shows (knob-only changes can read as `custom`).
-- Native subagents: subagent_list reads a session's child catalog (recursive=true adds
+- Native subagents: session_subagents reads a session's child catalog (recursive=true adds
   descendants). Once you have a child sessionId, drive it with the same session tools;
   spawning stays with the host/model-side subagent tools.
 - session_select_model switches a session's model in place (history preserved);

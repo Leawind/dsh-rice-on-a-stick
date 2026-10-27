@@ -51,7 +51,7 @@ you already know.
   the default `active` view and from `session_search`); `session_unarchive` restores one,
   and the next prompt then cold-resumes it with its history intact.
 - **Native subagent** — the host can delegate work into child sessions (one-shot,
-  continuable, or external). `subagent_list` reads that catalog without activating
+  continuable, or external). `session_subagents` reads that catalog without activating
   anything; each child is a normal session id for `session_send` / `session_poll` /
   `session_result`. Starting a child stays with the host/model-side subagent tools.
 - **Approval policy** — the host may ask for confirmation before a sensitive operation
@@ -88,7 +88,7 @@ you already know.
   process and admits them through the host attachment service, so image data never
   enters tool arguments or your context as base64. Attachment ids come back in the
   receipt (wait=none responses carry `attachments`) or in `session_history` entries
-  (`images` fields); `attachment_read` returns metadata plus the host file path (zero image
+  (`images` fields); `session_attachment` returns metadata plus the host file path (zero image
   tokens), and `inline: true` adds an MCP image content block for multimodal clients
   (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were
   inlined as base64 text).
@@ -170,14 +170,14 @@ you already know.
    result. To avoid approval gates up front, create the session with a full-access
    `permission` preset (see `permission_list`) or switch it with
    `session_set_permission`.
-9. **Native subagents** — `subagent_list({ parentSessionId })` returns direct children
+9. **Native subagents** — `session_subagents({ parentSessionId })` returns direct children
    (recursive=true adds descendants). Then treat each child id like any other session:
    `session_poll`, `session_result`, `session_send`. The catalog read is passive;
    it does not load or resume the child.
 10. **Send an image** — `session_send({ sessionId, task, attachments: [{ path: "/abs/shot.png" }] })`.
     Keep the reference short (path or URL); never inline image bytes into `task`. Find
     the attachment id in the wait=none receipt or `session_history`'s `images`;
-    hand it to `attachment_read` (add `inline: true` only for multimodal read-back).
+    hand it to `session_attachment` (add `inline: true` only for multimodal read-back).
 11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }`
     to search endpoints by keyword (no args for the namespace index, `{ namespace }`
     for one domain's methods), `endpoint_describe { endpoint }` for the contract,
@@ -254,7 +254,7 @@ it degrades to the `session_list` row and says so with `eventsReadable: false`.
 
 <!-- section: limits -->
 
-## Deployment-imposed limits (visible via `dsh_status` / `model_list`)
+## Deployment-imposed limits (visible via `plugin_status` / `model_list`)
 
 - `allowedModels`: the allowlist of models sessions may be created with
   (absent/empty = any model).
@@ -282,7 +282,7 @@ it degrades to the `session_list` row and says so with `eventsReadable: false`.
 - `ask_user_question` is answered in the child turn (same tool result) while it is
   `open`; a timed deployment may turn it into `continued` after the foreground wait, in
   which case the host late-answer path is used and the reply arrives as a user message.
-- `subagent_list` is discovery only: it reads the host's child catalog and treats each
+- `session_subagents` is discovery only: it reads the host's child catalog and treats each
   child as a normal session. Starting native children remains a host/model-side tool.
 - `session_command_list` / `session_command_run` need a live agent (`ctx.commands` is per
   agent): a persisted-only
@@ -293,7 +293,7 @@ it degrades to the `session_list` row and says so with `eventsReadable: false`.
   the window comes from the newest `request/context` or the model route. Omit `sessionId`
   only from native `rice_` tools — an MCP call has no "current session".
 - Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap
-  (the host attachment service enforces its own image limits on top); `attachment_read`
+  (the host attachment service enforces its own image limits on top); `session_attachment`
   inlines at most 8MB per image — use the host path for larger ones.
 - The endpoint passthrough exposes what the deployment opened: `allowed` endpoints from
   `endpointAllowlist` execute directly; every other non-stream endpoint (read-only ones

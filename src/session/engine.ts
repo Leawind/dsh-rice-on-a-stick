@@ -544,7 +544,7 @@ export interface SubmitSessionResult {
   mode: SendMode
   model: ModelSelection
   preset: string
-  /** 随消息投递的图片附件 id(attachment_read 的取回键; 无附件时省略) */
+  /** 随消息投递的图片附件 id(session_attachment 的取回键; 无附件时省略) */
   attachments?: readonly string[]
 }
 

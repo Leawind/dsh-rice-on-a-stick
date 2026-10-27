@@ -115,15 +115,16 @@ try {
   checks['原生自用工具: 默认注册(rice_ 前缀)'] =
     nativeSchemas.length > 0 &&
     [
-      'rice_echo',
       'rice_session_create',
       'rice_session_send',
-      'rice_dsh_status',
+      'rice_plugin_status',
       'rice_session_archive',
       'rice_session_unarchive',
       'rice_permission_list',
       'rice_session_set_permission',
       'rice_session_inspect',
+      'rice_session_attachment',
+      'rice_session_subagents',
     ].every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_send')?.description ?? ''
@@ -133,10 +134,10 @@ try {
   const nativeListValue = await nativeListDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeListText = nativeListDef.output.render({}, nativeListValue)[0]?.text ?? ''
   checks['原生自用工具: 直调 session_list 走同一实现'] = nativeListText.includes('sess-live')
-  const nativeStatusDef = ctx.tools.get('rice_dsh_status')
+  const nativeStatusDef = ctx.tools.get('rice_plugin_status')
   const nativeStatusValue = await nativeStatusDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeStatusJson = JSON.parse(nativeStatusDef.output.render({}, nativeStatusValue)[0]?.text ?? '{}')
-  checks['原生自用工具: dsh_status 报告开关与已注册数'] =
+  checks['原生自用工具: plugin_status 报告开关与已注册数'] =
     nativeStatusJson.config?.selfToolsEnabled === true && nativeStatusJson.stats?.selfTools === nativeSchemas.length
   const nativeGuideDef = ctx.tools.get('rice_dsh_guide')
   const nativeGuideValue = await nativeGuideDef.execute({ section: 'concepts' }, { signal: new AbortController().signal } as any)
@@ -182,9 +183,6 @@ try {
   checks['initialize 携带 instructions(含 dsh_guide 指路)'] = typeof initResult?.instructions === 'string' && initResult.instructions.includes('dsh_guide')
   await rpc(init.sid, { jsonrpc: '2.0', method: 'notifications/initialized' })
 
-  const echo = await rpc(init.sid, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'echo', arguments: { text: 'ping-8099' } } })
-  checks['echo 通'] = echo.status === 200 && echo.text.includes('ping-8099')
-
   const toolsList = await rpc(init.sid, { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} })
   const toolsArr: any[] = parsePayload(toolsList.text).result?.tools ?? []
   const toolNames = toolsArr.map((t) => t.name)
@@ -204,7 +202,7 @@ try {
     'session_list',
     'session_inspect',
     'session_history',
-    'attachment_read',
+    'session_attachment',
     'endpoint_describe',
     'endpoint_call',
     'session_search',
@@ -217,7 +215,7 @@ try {
     'approval_policy_set',
     'question_list',
     'question_answer',
-    'subagent_list',
+    'session_subagents',
     'permission_list',
   ]
   checks['tools/list: 会话中心与各控制面工具齐(无 agent_/task_ 前缀漂移)'] =
@@ -229,8 +227,8 @@ try {
   // 图片入站的入参防线: max(8) 必须真的发布在 schema 里(漂移即测试失败)
   const attachmentsSchema: any = (toolsArr.find((t) => t.name === 'session_send')?.inputSchema as any)?.properties?.attachments
   checks['图片入站: attachments 入参 schema 声明 maxItems=8'] = attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === 8
-  const echoTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'echo')
-  checks['工具带 title + annotations(2025-06-18 协议字段)'] = echoTool?.title === 'Echo' && echoTool?.annotations?.readOnlyHint === true
+  const guideTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'dsh_guide')
+  checks['工具带 title + annotations(2025-06-18 协议字段)'] = guideTool?.title === 'dsh usage guide' && guideTool?.annotations?.readOnlyHint === true
   // 身份注入: 每条描述统一前置 TOOL_IDENTITY_PREFIX("白饭钓竿"的唯一 DSH 原生可见通道)
   checks['tools/list: 每条描述带身份前缀'] = toolsArr.length > 0 && toolsArr.every((t) => t.description?.startsWith(TOOL_IDENTITY_PREFIX) === true)
   // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文。
@@ -246,10 +244,10 @@ try {
     jsonrpc: '2.0',
     id: 95,
     method: 'tools/call',
-    params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live' } },
+    params: { name: 'session_subagents', arguments: { parentSessionId: 'sess-live' } },
   })
   const subInner = subList.status === 200 ? innerOf(subList) : { error: 'bad' }
-  checks['subagent_list: 直接子级目录'] =
+  checks['session_subagents: 直接子级目录'] =
     subInner.total === 1 &&
     subInner.subagents?.[0]?.sessionId === 'sess-child' &&
     subInner.subagents?.[0]?.mode === 'continuable' &&
@@ -258,10 +256,10 @@ try {
     jsonrpc: '2.0',
     id: 96,
     method: 'tools/call',
-    params: { name: 'subagent_list', arguments: { parentSessionId: 'sess-live', recursive: true } },
+    params: { name: 'session_subagents', arguments: { parentSessionId: 'sess-live', recursive: true } },
   })
   const subTreeInner = subTree.status === 200 ? innerOf(subTree) : { error: 'bad' }
-  checks['subagent_list: 递归后代带 parentId/depth'] =
+  checks['session_subagents: 递归后代带 parentId/depth'] =
     subTreeInner.total === 2 &&
     subTreeInner.subagents?.[1]?.sessionId === 'sess-grandchild' &&
     subTreeInner.subagents?.[1]?.parentId === 'sess-child' &&
@@ -1447,7 +1445,7 @@ try {
     })
     const mkOff = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
     checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
-    const stOff = await phase.call('dsh_status', {})
+    const stOff = await phase.call('plugin_status', {})
     checks['allowedModels: 关闭态 status 透出 enabled=false'] = innerOf(stOff).config?.allowedModelsEnabled === false
     await phase.dispose()
   }
@@ -1485,7 +1483,7 @@ try {
     await phase.dispose()
   }
 
-  // ── Phase I2: 图片附件管线 —— 引用式入站(宿主侧读字节)/引用投影/attachment_read ──
+  // ── Phase I2: 图片附件管线 —— 引用式入站(宿主侧读字节)/引用投影/session_attachment ──
   {
     const phase = await startPhase(8095, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
     const tmpDir = mkdtempSync(join(tmpdir(), 'rice-smoke-img-'))
@@ -1549,9 +1547,9 @@ try {
       userWithImages.some((t: any) => t.images.some((i: any) => i.attachmentId === imgId)) &&
       !JSON.stringify(userWithImages).includes('base64')
 
-    const readRef = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: imgId })
+    const readRef = await phase.call('session_attachment', { sessionId: 'sess-live', attachmentId: imgId })
     const readRefMeta = innerOf(readRef) as any
-    checks['attachment_read: 引用模式 = 元数据 + hostPath, 零图片字节'] =
+    checks['session_attachment: 引用模式 = 元数据 + hostPath, 零图片字节'] =
       readRef.status === 200 &&
       readRefMeta.error === undefined &&
       parsePayload(readRef.text).result?.content?.length === 1 &&
@@ -1559,16 +1557,16 @@ try {
       readRefMeta.attachmentId === imgId &&
       String(readRefMeta.hostPath ?? '').includes(imgId)
 
-    const readInline = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: imgId, inline: true })
+    const readInline = await phase.call('session_attachment', { sessionId: 'sess-live', attachmentId: imgId, inline: true })
     const readInlineBlocks = parsePayload(readInline.text).result?.content ?? []
-    checks['attachment_read: inline 模式回 MCP image 内容块'] =
+    checks['session_attachment: inline 模式回 MCP image 内容块'] =
       readInline.status === 200 &&
       readInlineBlocks[0]?.type === 'image' &&
       readInlineBlocks[0]?.mimeType === 'image/png' &&
       readInlineBlocks[0]?.data === Buffer.from(FAKE_PNG).toString('base64')
 
-    const readMissing = await phase.call('attachment_read', { sessionId: 'sess-live', attachmentId: 'img-nope' })
-    checks['attachment_read: 未知 id 明确报错'] = String(innerOf(readMissing).error ?? '').includes('not found')
+    const readMissing = await phase.call('session_attachment', { sessionId: 'sess-live', attachmentId: 'img-nope' })
+    checks['session_attachment: 未知 id 明确报错'] = String(innerOf(readMissing).error ?? '').includes('not found')
     await phase.dispose()
   }
 
@@ -2075,9 +2073,9 @@ try {
   // ── Phase E: 传输层安全(独立端口独立 ctx)——Bearer 401 / Host 403 / 传输 TTL GC ──
   {
     const phase = await startPhase(8088, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', sessionTtlMs: 400 })
-    const noAuth = await phase.call('echo', { text: 'x' }, { noToken: true })
+    const noAuth = await phase.call('plugin_status', {}, { noToken: true })
     checks['安全: 无 Bearer 401(带挑战头)'] = noAuth.status === 401
-    const badAuth = await phase.call('echo', { text: 'x' }, { token: 'wrong' })
+    const badAuth = await phase.call('plugin_status', {}, { token: 'wrong' })
     checks['安全: 错 Bearer 401'] = badAuth.status === 401
     const badHost = await rawRequest(8088, {
       headers: { Host: 'evil.example.com', Authorization: 'Bearer secret-token' },
@@ -2089,19 +2087,19 @@ try {
       }),
     })
     checks['安全: 伪造 Host 403(DNS rebinding 防线)'] = badHost.status === 403
-    const okAuth = await phase.call('echo', { text: 'with-token' })
-    checks['安全: 正确 Bearer 放行'] = okAuth.status === 200 && okAuth.text.includes('with-token')
-    // 令牌掩码与回显边界: GUI status(同源面板)可回显完整值供复制; MCP dsh_status 只透掩码
+    const okAuth = await phase.call('plugin_status', {})
+    checks['安全: 正确 Bearer 放行'] = okAuth.status === 200 && okAuth.text.includes('dsh-rice-on-a-stick')
+    // 令牌掩码与回显边界: GUI status(同源面板)可回显完整值供复制; MCP plugin_status 只透掩码
     const stAuth = await phase.gui('status')
     const stAuthBody = stAuth.status === 200 ? JSON.parse(stAuth.body) : {}
     checks['安全: GUI status 回显令牌+掩码'] =
       stAuthBody.config?.authEnabled === true && stAuthBody.config?.authToken === 'secret-token' && stAuthBody.config?.authTokenHint === 'secr...oken'
-    const dshSt = await phase.call('dsh_status', {})
+    const dshSt = await phase.call('plugin_status', {})
     const dshStText = dshSt.status === 200 ? (innerOf(dshSt).config ?? {}) : {}
-    checks['安全: MCP dsh_status 只透掩码不回显令牌'] =
+    checks['安全: MCP plugin_status 只透掩码不回显令牌'] =
       dshStText.authEnabled === true && dshStText.authTokenHint === 'secr...oken' && !String(dshSt.text).includes('secret-token')
     // TTL GC: 初始化后闲置, 400ms TTL(sweeper 间隔 200ms)到期被关; 重新 initialize 恢复
-    const stale = await phase.callAfter(1200, 'echo', { text: 'after-ttl' })
+    const stale = await phase.callAfter(1200, 'plugin_status', {})
     checks['传输 TTL: 空闲超时会话被关(旧 sid 404)'] = stale.status === 404
     const reInit = await phase.initialize()
     checks['传输 TTL: 客户端可重新 initialize'] = Boolean(reInit.sid)
@@ -2111,11 +2109,11 @@ try {
     await new Promise((r) => setTimeout(r, 1000))
     const sseStillAlive = await rpc(
       reInit.sid,
-      { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'echo', arguments: { text: 'sse-keepalive' } } },
+      { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'plugin_status', arguments: {} } },
       { Authorization: 'Bearer secret-token' },
       'http://127.0.0.1:8088/mcp',
     )
-    checks['传输 TTL: 打开着的 SSE 流算活跃(会话不被回收)'] = sseStillAlive.status === 200 && sseStillAlive.text.includes('sse-keepalive')
+    checks['传输 TTL: 打开着的 SSE 流算活跃(会话不被回收)'] = sseStillAlive.status === 200
     sseAlive.close()
     await phase.dispose()
   }
@@ -2136,9 +2134,9 @@ try {
       }),
     })
     checks['安全: 认证开关关闭时无 Authorization 头可握手'] = noHeader.status === 200
-    const open = await phase.call('echo', { text: 'open' }, { noToken: true })
-    checks['安全: 认证开关关闭时错令牌也放行'] = open.status === 200 && open.text.includes('open')
-    const stOff = await phase.call('dsh_status', {})
+    const open = await phase.call('plugin_status', {}, { noToken: true })
+    checks['安全: 认证开关关闭时错令牌也放行'] = open.status === 200 && open.text.includes('dsh-rice-on-a-stick')
+    const stOff = await phase.call('plugin_status', {})
     const cfgOff = stOff.status === 200 ? (innerOf(stOff).config ?? {}) : {}
     checks['安全: 关闭态 status 报 authEnabled=false 且令牌仍保留'] = cfgOff.authEnabled === false && cfgOff.authTokenHint === 'secr...oken'
     await phase.dispose()
@@ -2156,7 +2154,7 @@ try {
     }
     const junk = await rawRequest(8085, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: { text: 'x' } } }),
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'plugin_status', arguments: {} } }),
     })
     ;(McpServer.prototype as any).registerTool = origRegister
     checks['入站: 无会话头的非 initialize POST 400'] = junk.status === 400
@@ -2210,8 +2208,8 @@ try {
     await new Promise((r) => setTimeout(r, 100))
     checks['入站: 传输层抛错回 500 兜底'] = crash.status === 500
     checks['入站: 抛错不产生 unhandled rejection'] = rejections === 0
-    const alive = await phase.call('echo', { text: 'still-alive' })
-    checks['入站: 兜底后服务仍可用'] = alive.status === 200 && alive.text.includes('still-alive')
+    const alive = await phase.call('plugin_status', {})
+    checks['入站: 兜底后服务仍可用'] = alive.status === 200
     await phase.dispose()
   }
 
@@ -2285,7 +2283,7 @@ try {
     const ttlPhase = await startPhase(ttlPort, ttlCtx, {})
     pushVolatile(ttlPhase, ttlCtx, { sessionTtlMs: 200 })
     await new Promise((r) => setTimeout(r, 900))
-    const afterTtl = await ttlPhase.call('echo', { text: 'after-ttl' })
+    const afterTtl = await ttlPhase.call('plugin_status', {})
     checks['热改 sessionTtlMs: 缩短后空闲传输会话被回收(下次请求 404)'] = afterTtl.status === 404
     await ttlPhase.dispose()
   }

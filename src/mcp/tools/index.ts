@@ -2,11 +2,11 @@
  * MCP 工具注册入口(按域装配; 权威清单以各域文件的 registerXxxTools 为准, 这里不重复计数)。
  *
  * 本文件只做装配, 具体工具按域拆分:
- *   catalog.ts         dsh_guide / dsh_list_tools / dsh_status / workspace_list /
- *                      model_list / permission_list / subagent_list
+ *   catalog.ts         dsh_guide / plugin_status / workspace_list /
+ *                      model_list / permission_list / session_subagents
  *   session-actions.ts session_create / prompt / submit / poll / result / cancel / queue /
  *                      command / select_model / rename / fork / archive / unarchive /
- *                      set_permission / attachment_read
+ *                      set_permission / session_attachment
  *   session-read.ts    session_list / session_meta / session_overview /
  *                      session_history / session_search
  *   approval.ts        approval_list / approval_answer / approval_policy

@@ -224,7 +224,7 @@ export interface ImageRefProjection {
 }
 
 /**
- * 递归收集事件数据里的 image 内容块引用(attachment_read 的取回键)。
+ * 递归收集事件数据里的 image 内容块引用(session_attachment 的取回键)。
  * 与 extractTexts 同思路: 只投影元数据; 每次调用最多 max 条(缺省 4), 防止刷图事件撑爆纪要。
  */
 export function imageRefsOf(value: unknown, max = 4, acc: ImageRefProjection[] = [], seen = new WeakSet<object>()): ImageRefProjection[] {

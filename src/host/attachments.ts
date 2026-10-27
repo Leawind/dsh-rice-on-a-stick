@@ -3,7 +3,7 @@
  * 调用方(MCP 客户端/原生会话)只给短引用(本地路径或 URL), 字节由插件在宿主进程内读取,
  * 经宿主 attachments 服务准入(saveImages: 限额校验 + 尺寸计算)后以 image 内容块进消息;
  * 图片字节永远不进模型上下文、不进工具参数(1MB 图片的 base64 ≈ 35 万 token, 禁止路径)。
- * 读回按引用: readImage 取字节(attachment_read 的 inline 模式, MCP image 内容块走视觉
+ * 读回按引用: readImage 取字节(session_attachment 的 inline 模式, MCP image 内容块走视觉
  * token 计费), imageHostPath 给宿主机本地路径(默认模式, 同机调用方零 token 取图)。
  */
 import { readFile } from 'node:fs/promises'
@@ -114,7 +114,7 @@ export async function admitImages(ctx: Context, inputs: readonly ImageRefInput[]
   return refs.map((ref) => ({ type: 'image' as const, attachment: ref }))
 }
 
-/** 递归扫描事件载荷, 找 attachmentId 精确匹配的 image 引用(attachment_read 定位引用用) */
+/** 递归扫描事件载荷, 找 attachmentId 精确匹配的 image 引用(session_attachment 定位引用用) */
 export function findImageRefInEvents(events: readonly unknown[], attachmentId: string): ImageRefView | undefined {
   const seen = new WeakSet<object>()
   const walk = (value: unknown): ImageRefView | undefined => {
