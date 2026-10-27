@@ -60,7 +60,7 @@ export function ToolAllowlist(props) {
     const desc = x.description || '';
     return React.createElement('div', {
       key: x.name,
-      className: 'dcs-epr dcs-epr-live',
+      className: 'dcs-epr dcs-epr-live dcs-epr-nogroup',
       onClick: function () { toggleTool(x, !checked); },
       onMouseEnter: function (ev) {
         // tooltip = 徽标 + 完整描述(行内描述是截断的), 靠右弹出, 不盖住左侧名称列

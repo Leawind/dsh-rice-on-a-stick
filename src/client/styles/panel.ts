@@ -146,6 +146,8 @@ export const PANEL_CSS = [
   '.dcs-epcount{flex:none;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
   // 端点行左缩进 46px = 组头里 namespace 文本的起点(16 箭头 + 8 间距 + 14 组复选 + 8 间距), 端点复选框与 namespace 对齐成树状
   '.dcs-epr{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
+  // 无分组的清单(工具白名单)取消树状缩进: 行首没有组箭头/组复选, 复选框直接顶格
+  '.dcs-epr-nogroup{padding-left:0;}',
   // 整行可点(流式行除外, 不加指针): 点行任意处 = 切换该行勾选
   '.dcs-epr-live{cursor:pointer;}',
   '.dcs-epr-live:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.04));}',
