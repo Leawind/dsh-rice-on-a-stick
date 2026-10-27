@@ -658,11 +658,6 @@ export function PanelPage() {
           React.createElement('option', { value: 'full' }, t('detail.full'))),
       }),
       ),
-      // ── 端点写调用审批: 等待上限(秒)在审批标签编辑; 这里只剩脚注说明生效语义 ──
-      groupHead(t('tab.approvals')),
-      React.createElement('div', { className: 'dcs-form' },
-      React.createElement('div', { className: 'dcs-footnote' }, t('footnote.approval')),
-      ),
       // ── 安全与传输(Host 头白名单 + 传输会话空闲上限, 低频的服务端防护) ──
       groupHead(t('security.title')),
       React.createElement('div', { className: 'dcs-form' },

@@ -51,7 +51,6 @@ export const zh = {
   'endpointApproval.allow': '允许',
   'endpointApproval.reject': '拒绝',
   'endpointApproval.fail': '应答失败：{e}',
-  'footnote.approval': '端点审批等待时长立即生效；会话审批由 dsh 的 answer client 链回答，不受此项影响。',
   'listen.host': '监听地址',
   'listen.port': '端口',
   'listen.hostRequired': '监听地址不能为空。',

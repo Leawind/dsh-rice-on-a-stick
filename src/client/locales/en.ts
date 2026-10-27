@@ -53,7 +53,6 @@ export const en: Record<MessageKey, string> = {
   'endpointApproval.allow': 'Allow',
   'endpointApproval.reject': 'Reject',
   'endpointApproval.fail': 'Answer failed: {e}',
-  'footnote.approval': 'The dsh endpoint approval wait applies immediately; session approvals go through the answer-client chain inside dsh and are unaffected.',
   'listen.host': 'Listen address',
   'listen.port': 'Port',
   'listen.hostRequired': 'Listen address must not be empty.',

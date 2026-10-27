@@ -97,8 +97,6 @@ export const PANEL_CSS = [
   // 输入框右侧的单位后缀(如审批等待时长的"秒")
   '.dcs-unit{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);}',
   '.dcs-err-right{position:absolute;top:100%;right:0;margin-top:4px;max-width:320px;text-align:right;pointer-events:none;}',
-  // 表单脚注: "改动会重启插件"只说一次, 不再挂在每条说明里挤占行宽
-  '.dcs-footnote{padding:10px 2px 2px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);}',
   // 输入(官方 Input: 32px 高/0.5px border-l4/radius-md/焦点边框变品牌蓝)
   '.dcs-input{box-sizing:border-box;width:300px;max-width:100%;height:32px;padding:0 8px;font-family:inherit;font-size:14px;color:var(--dsw-alias-label-primary,#0f1115);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);outline:none;transition:border-color .1s ease;}',
   '.dcs-input:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);}',
