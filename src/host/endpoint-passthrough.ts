@@ -303,6 +303,7 @@ export function describeEndpoint(ctx: Context, endpoint: string): Record<string,
     stream: inv.stream,
     readOnly: cls.readOnly,
     writable: cls.writable,
+    ...(cls.dangerous === true ? { dangerous: true } : {}),
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
     ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
     parameters: inv.parameters.map((p) => ({

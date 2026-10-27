@@ -1062,6 +1062,7 @@ try {
     const contractPayload = innerOf(contract) as any
     checks['端点契约: 单端点给参数表与 result schema'] = contractPayload.endpoint === 'session/modelCatalog'
       && contractPayload.readOnly === true
+      && contractPayload.dangerous === undefined
       && Array.isArray(contractPayload.parameters) && contractPayload.parameters.length === 0
       && contractPayload.result?.jsonSchema?.type === 'object'
 
@@ -1069,6 +1070,10 @@ try {
     const contractWritePayload = innerOf(contractWrite) as any
     checks['端点契约: 停泊端点带 approvalRequired'] = contractWritePayload.endpoint === 'session/prompt'
       && contractWritePayload.writable === false && contractWritePayload.approvalRequired === true
+    const contractDangerous = await phase.call('endpoint_describe', { endpoint: 'credentials/set' })
+    const contractDangerousPayload = innerOf(contractDangerous) as any
+    checks['端点契约: 危险端点带 dangerous(与清单一致)'] = contractDangerousPayload.dangerous === true
+      && contractDangerousPayload.approvalRequired === true
 
     const unknown = await phase.call('endpoint_describe', { endpoint: 'nope/missing' })
     checks['端点契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
