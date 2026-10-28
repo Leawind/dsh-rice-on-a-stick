@@ -15,10 +15,13 @@ A dsh plugin that exposes control over [DeepSeek Harness](https://github.com/dee
 
 ## Features
 
-- **Operate sessions**: create, send, queue, fork, archive and restore, switch models, etc. The "Models" tab on the sidebar page can restrict to specific models only, so that clients can only use the checked models; you can also write a short description for each model and each model provider there, and the descriptions are provided to callers along with `model_list` / `dsh://models`
-- **Answer like a regular web user**: the plugin acts as a Web answer client to receive approvals and `ask_user_question`; native cards display as usual, and whoever answers first—human or agent—wins. Polling can discover pending items, and `approval_answer` / `question_answer` submit directly
-- **dsh endpoint passthrough**: low-curation coverage of dsh's long-tail capabilities. Dangerous endpoints such as credential writing / plugin installation / connection trust have no hard gate; they go through the same two paths as regular endpoints—whitelist / parked approval—but are listed separately in the panel as an independent dangerous list with annotations; for the mechanism, see `CONTRIBUTING.md` and `docs/endpoint-passthrough.zh.md`
-- **dsh can use it too**: these capabilities are also registered as dsh's internal tools, and dsh sessions can call them directly. The plugin's identity ("白饭钓竿" / Rice on a Stick) rides both the tool descriptions (which every MCP client receives) and a dsh system-prompt section, so a fresh session knows what it is without a tool call. They can be disabled in settings when not needed.
+- **Operate sessions**:
+  - Create, send, queue, fork, archive and restore, switch models, etc.
+  - Optionally restrict callers to specific models
+  - Optionally write descriptions for model providers and models; the descriptions are provided to callers
+- **Interact with sessions like a web user**: callers can handle approvals and questions through this plugin just like a web user
+- **dsh endpoint passthrough**: call dsh Remote endpoints via `endpoint_call`; the endpoint allowlist is configurable
+- **dsh can use it too**: these capabilities are also registered as dsh's built-in tools, so this dsh instance needs no extra MCP setup
 - **Secure by default**: listens only on localhost by default, with a configurable access token.
 
 > [!WARNING]
