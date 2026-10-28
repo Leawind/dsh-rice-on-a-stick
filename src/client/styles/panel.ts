@@ -162,6 +162,10 @@ export const PANEL_CSS = [
   '.dcs-epbadge-write{color:var(--dsw-alias-state-business-primary,#4176e6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 12%,transparent);}',
   '.dcs-epbadge-stream{color:var(--dsw-alias-label-tertiary,#81858c);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
   '.dcs-epbadge-danger{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
+  // 拒绝徽标/计数与拒绝档勾选框: 与危险同用错误色, ✕ 标记直观区分"勾选 = 允许"的第三档
+  '.dcs-epbadge-deny{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
+  '.dcs-epcount-deny{color:var(--dsw-alias-state-error-primary,#ec1313);}',
+  '.dcs-epchk-deny{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 55%,transparent);border-radius:3px;color:var(--dsw-alias-state-error-primary,#ec1313);font-size:10px;line-height:1;cursor:pointer;user-select:none;}',
   '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
   // 危险端点独立清单的段头: 错误色标题 + 危险徽标 + 一句话提醒
   '.dcs-epdangerhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:2px 2px 0;}',
@@ -199,6 +203,7 @@ export const PANEL_CSS = [
   '.dcs-apprbar{position:absolute;top:0;left:0;height:2px;max-width:100%;background:var(--dsw-alias-state-warn-primary,#f59e0b);transition:width 1s linear,background .2s ease;}',
   '.dcs-apprbar-urgent{background:var(--dsw-alias-state-error-primary,#ec1313);}',
   '.dcs-apprhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+  '.dcs-apprdesc{margin:-4px 0 0;font-size:12px;color:var(--dsw-alias-text-secondary,#5c6b7a);}',
   '.dcs-apprendpoint{font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:13px;font-weight:600;word-break:break-all;}',
   '.dcs-apprwait{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
   '.dcs-apprwait-urgent{color:var(--dsw-alias-state-error-primary,#ec1313);font-weight:500;}',

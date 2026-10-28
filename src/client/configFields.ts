@@ -36,6 +36,8 @@ export function draftFromStatus(st) {
     hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
     // dsh 端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
     endpointAllowlist: Array.isArray(c.endpointAllowlist) ? c.endpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
+    // dsh 端点拒绝清单("namespace/method" 数组; 三档策略的"直接拒绝"档)
+    endpointDenylist: Array.isArray(c.endpointDenylist) ? c.endpointDenylist.filter(function (v) { return typeof v === 'string' && v; }) : [],
     // 工具白名单(工具名数组; 勾选清单 GUI 维护)与其开关
     toolAllowlistOn: c.toolAllowlistEnabled === true,
     toolAllowlist: Array.isArray(c.toolAllowlist) ? c.toolAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],

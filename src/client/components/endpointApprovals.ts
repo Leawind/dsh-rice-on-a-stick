@@ -1,11 +1,21 @@
 // ── 端点调用审批列表 ──
 // 停泊在插件台账里的端点调用逐一列出: 头部(标题 + 停泊计数 + 全部拒绝) + 每条一张独立小卡
-// (端点 + 等待/剩余时长 + 参数摘要 + 允许/拒绝), 卡顶细条按剩余占比收缩、不足 1 分钟转紧急红。
-// 应答经同源 POST endpoint-approval-answer; 失败(已被超时/他处应答)在列表下方提示并刷新。
+// (端点 + 语义徽标 + 描述 + 等待/剩余时长 + 参数摘要 + 允许/拒绝), 卡顶细条按剩余占比收缩、
+// 不足 1 分钟转紧急红。徽标与描述和端点白名单清单同源(readOnly/描述随停泊台账透出), 让审批人
+// 不切页也能判断这条调用是什么。应答经同源 POST endpoint-approval-answer; 失败(已被超时/
+// 他处应答)在列表下方提示并刷新。
 import React from 'react';
-import { t } from '../i18n';
+import { t, LOCALE } from '../i18n';
 import { fmtDur } from '../format';
 import { rpc } from '../rpc';
+
+/** 卡片描述按界面语言取: 元数据中/英文优先, 回退 descriptor 自带描述 */
+function descOf(a) {
+  const snapOf = LOCALE as unknown as { getSnapshot?: () => { active?: unknown } } | null;
+  const lang = snapOf && typeof snapOf.getSnapshot === 'function' ? snapOf.getSnapshot().active : 'zh';
+  if (lang === 'en') return (a.descriptionEn ?? a.description ?? a.descriptionZh) || '';
+  return (a.descriptionZh ?? a.description ?? a.descriptionEn) || '';
+}
 
 export function EndpointApprovalCard(props) {
   const [busy, setBusy] = React.useState('');
@@ -84,10 +94,15 @@ export function EndpointApprovalCard(props) {
         }) : null,
         React.createElement('div', { className: 'dcs-apprhead' },
           React.createElement('span', { className: 'dcs-apprendpoint' }, a.endpoint),
+          a.readOnly === true
+            ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-read' }, t('endpoint.readonly'))
+            : React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-write' }, t('endpoint.write')),
           a.dangerous === true ? React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')) : null,
           React.createElement('span', { className: 'dcs-apprwait' + (urgent ? ' dcs-apprwait-urgent' : '') },
             t('endpointApproval.waited', { d: fmtDur(Math.max(0, now - a.requestedAt)) }) + ' · ' + left),
         ),
+        // 描述与白名单清单同源(中英文按界面语言回退); 缺失时不占行
+        descOf(a) ? React.createElement('div', { className: 'dcs-apprdesc' }, descOf(a)) : null,
         React.createElement('pre', { className: 'dcs-apprargs' }, a.argsPreview || '{}'),
         React.createElement('div', { className: 'dcs-apprbtns' },
           React.createElement('button', {

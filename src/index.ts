@@ -148,6 +148,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         sessionTtlMs: state.config.sessionTtlMs,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
         endpointAllowlist: state.config.endpointAllowlist,
+        endpointDenylist: state.config.endpointDenylist,
         toolAllowlist: state.config.toolAllowlist,
         toolAllowlistEnabled: state.config.toolAllowlistEnabled,
         modelDescriptions: state.config.modelDescriptions,

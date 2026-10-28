@@ -62,6 +62,7 @@ const state = {
     authToken: '',
     selfToolsEnabled: true,
     endpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
+    endpointDenylist: ['terminal/kill'],
     approvalTimeoutMs: 120000,
     sessionTtlMs: 604800000,
     modelDescriptions: { 'fake-prov/m1': '排名第一的假模型，响应快。' },
@@ -386,6 +387,7 @@ const server = createServer(async (req, res) => {
         // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
         // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读行同样需勾选/悬停 tooltip)。allowed 跟随 config 白名单计算。
         const allow = new Set(state.config.endpointAllowlist)
+        const deny = new Set(state.config.endpointDenylist)
         const endpoints = [
           {
             endpoint: 'session/list',
@@ -479,7 +481,7 @@ const server = createServer(async (req, res) => {
           },
         ].map((e) => {
           const readOnly = e.kind === 'read' || e.readOnly === true
-          return { ...e, readOnly, kind: e.kind === 'read' ? 'selectable' : e.kind, allowed: allow.has(e.endpoint) }
+          return { ...e, readOnly, kind: e.kind === 'read' ? 'selectable' : e.kind, allowed: allow.has(e.endpoint), denied: deny.has(e.endpoint) }
         })
         const live = new Set(endpoints.map((e) => e.endpoint))
         return json(res, 200, {
@@ -497,6 +499,7 @@ const server = createServer(async (req, res) => {
             credentials: { zh: '提供商凭据', en: 'Provider credentials' },
           },
           stale: [...allow].filter((x) => !live.has(x)).sort(),
+          staleDenied: [...deny].filter((x) => !live.has(x)).sort(),
         })
       }
       if (method === 'endpoint-approvals') {
@@ -511,6 +514,12 @@ const server = createServer(async (req, res) => {
           argsPreview: JSON.stringify({ sessionId: 'mock-session-' + (i + 1) }),
           requestedAt: now() - 15_000,
           expiresAt: now() + 100_000 - i * 55_000,
+          readOnly: i % 2 === 0,
+          descriptionZh: i % 2 === 0 ? '立即触发一次定时任务（脱离其正常节奏）。' : '归档会话；归档后离开活动列表但保留历史。',
+          descriptionEn:
+            i % 2 === 0
+              ? 'Trigger a scheduled task immediately, out of its normal cadence.'
+              : 'Archive a session; archived sessions leave the active list but keep their history.',
         })).filter((a) => !answeredApprovals.has(a.approvalId))
         return json(res, 200, { approvals: items, unlimitedWait: false })
       }

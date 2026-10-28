@@ -22,7 +22,7 @@ A dsh plugin that exposes control over [DeepSeek Harness](https://github.com/dee
   - Optionally restrict callers to specific models
   - Optionally write descriptions for model providers and models; the descriptions are provided to callers
 - **Interact with sessions like a web user**: callers can handle approvals and questions through this plugin just like a web user
-- **dsh endpoint passthrough**: call dsh Remote endpoints via `endpoint_call`; the endpoint allowlist is configurable
+- **dsh endpoint passthrough**: call dsh Remote endpoints via `endpoint_call`; per-endpoint policy has three modes: allowlist executes directly (`endpointAllowlist`), denylist rejects outright (`endpointDenylist`), everything else parks each call for manual approval
 - **dsh can use it too**: these capabilities are also registered as dsh's built-in tools, so this dsh instance needs no extra MCP setup
 - **Secure by default**: listens only on localhost by default, with a configurable access token.
 

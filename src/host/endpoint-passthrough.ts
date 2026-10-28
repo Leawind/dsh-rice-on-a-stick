@@ -8,10 +8,11 @@
  *   身份       connection.createPeer({principal: {kind:'owner'}, interactions:'none'}) ——
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
- * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的 endpointAllowlist:
- * 非流式端点只有两条通路——白名单内直行(部署方预审批), 白名单外停泊审批(调用挂起等人在设置
- * 面板应答, 拒绝/超时/断连一律失败关闭)。只读标注只是语义徽标, 不再是免审批通道。
- * 危险端点(信任与供应链类, 见元数据表的 dangerous 标注)不设永久拒绝, 走同样的两条通路,
+ * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的 endpointAllowlist/endpointDenylist:
+ * 非流式端点有三条通路——白名单内直行(部署方预审批), 拒绝清单内直接拒绝(不停泊),
+ * 两份清单都不在则停泊审批(调用挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。
+ * 只读标注只是语义徽标, 不再是免审批通道。
+ * 危险端点(信任与供应链类, 见元数据表的 dangerous 标注)走同样的三条通路,
  * 界面单列并标注。读写性 dsh 侧不标注——元数据是本插件自己的策展, 逐条人工确认过语义。
  * 流式方法(@Remote mode:'stream')不进直通面: MCP 工具一次请求一次响应。
  */
@@ -137,22 +138,26 @@ export function listInvocations(ctx: Context): InvocationView[] {
 export interface EndpointClassification {
   endpoint: string
   readOnly: boolean
-  /** 已入 endpointAllowlist: 非流式端点免审批直行 */
+  /** 已入 endpointAllowlist 且未入拒绝清单: 非流式端点免审批直行 */
   allowed: boolean
   /** 变更类端点且已入白名单(只读端点看 readOnly, 两者语义正交) */
   writable: boolean
   /** 元数据标注的危险端点(信任与供应链类): 不影响可调用性, 供目录与面板标注 */
   dangerous?: boolean
+  /** 已入 endpointDenylist: 直接拒绝, 不停泊审批 */
+  denied?: boolean
   /** 未入白名单的非流式端点: 可调用, 但每次调用先停泊等人工在面板审批 */
   approvalRequired?: boolean
   /** 不予直行的原因(目录展示与调用报错共用同一措辞) */
-  reason?: 'stream' | 'requires approval'
+  reason?: 'stream' | 'requires approval' | 'denied'
 }
 
 /**
- * 闸门顺序: 流式 → 端点白名单 → 停泊审批。
+ * 闸门顺序: 流式 → 端点拒绝清单 → 端点白名单 → 停泊审批。
+ * 拒绝清单内的端点直接拒绝, 不停泊(与白名单外的"每次停泊"相对的第三档策略);
+ * 同端点同时在两份清单时按拒绝处理(拒绝优先)。
  * 只读标注不改变闸门: 无论只读还是变更端点, 只有入白名单才免审批; 未入白名单一律停泊。
- * 没有永久拒绝: 元数据标了危险的端点同样可经白名单直行或停泊审批到达, dangerous 只负责
+ * 元数据标了危险的端点同样可经白名单直行或停泊审批到达, dangerous 只负责
  * 让界面把它单列出来。lookup 参数(source==='lookup')不再拒绝: 网关自己按 wire 标识解析
  * dsh 侧对象(如 agent 参数传会话 id), 这里只透传; 解析失败由网关报清晰错误。
  */
@@ -162,6 +167,9 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   const readOnly = meta?.readOnly === true
   const dangerous = meta?.dangerous === true ? { dangerous: true } : {}
   if (inv.stream) return { endpoint, readOnly: false, allowed: false, writable: false, ...dangerous, reason: 'stream' }
+  if (state.config.endpointDenylist.includes(endpoint)) {
+    return { endpoint, readOnly, allowed: false, writable: false, ...dangerous, denied: true, reason: 'denied' }
+  }
   if (state.config.endpointAllowlist.includes(endpoint)) {
     return { endpoint, readOnly, allowed: true, writable: !readOnly, ...dangerous }
   }
@@ -203,6 +211,7 @@ function endpointSummary(inv: InvocationView): EndpointSummary {
     ...(cls.allowed ? { allowed: true } : {}),
     writable: cls.writable,
     ...(cls.dangerous === true ? { dangerous: true } : {}),
+    ...(cls.denied === true ? { denied: true } : {}),
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
     ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
     ...(inv.stream ? { stream: true } : {}),
@@ -320,6 +329,7 @@ export function describeEndpoint(ctx: Context, endpoint: string): Record<string,
     allowed: cls.allowed,
     writable: cls.writable,
     ...(cls.dangerous === true ? { dangerous: true } : {}),
+    ...(cls.denied === true ? { denied: true } : {}),
     ...(cls.approvalRequired === true ? { approvalRequired: true } : {}),
     ...(cls.reason !== undefined ? { blockedBy: cls.reason } : {}),
     parameters: inv.parameters.map((p) => ({
@@ -415,6 +425,9 @@ export async function invokeEndpoint(
   if (cls.reason === 'stream') {
     return { ok: false, error: `"${endpoint}" is not callable through endpoint_call (blocked by: stream)` }
   }
+  if (cls.denied === true) {
+    return { ok: false, error: `"${endpoint}" is denied by configuration (endpointDenylist); nothing was executed` }
+  }
   const gw = gatewayOf(ctx)
   if (gw === undefined || typeof gw.invoke !== 'function') {
     return { ok: false, error: 'dsh exposes no typert gateway here (endpoint passthrough needs the web profile typert services)' }
@@ -423,7 +436,7 @@ export async function invokeEndpoint(
   if ('error' in peer) return { ok: false, error: peer.error }
   // 白名单外的调用: 停泊等面板审批, 允许才落到网关(可达性检查已过, 停泊不会白等)
   if (cls.approvalRequired === true) {
-    const verdict = await parkCall(endpoint, args, signal)
+    const verdict = await parkCall(endpoint, args, signal, { description: inv.description, readOnly: cls.readOnly })
     if (verdict !== 'allowed') return { ok: false, error: callDeclineError(verdict, endpoint) }
   }
   try {
@@ -452,6 +465,14 @@ export interface ParkedCallInfo {
   expiresAt?: number
   /** 元数据标注的危险端点(信任与供应链类): 审批卡上要醒目标注 */
   dangerous?: boolean
+  /** 语义徽标(只读): 审批卡展示用, 与白名单清单的徽标同一口径 */
+  readOnly?: boolean
+  /** 描述(descriptor 自带, 多为英文): 审批卡展示用 */
+  description?: string
+  /** 中文描述(开发期元数据): 审批卡按界面语言回退 */
+  descriptionZh?: string
+  /** 英文描述(开发期元数据): 审批卡按界面语语言回退 */
+  descriptionEn?: string
 }
 
 interface ParkedCall extends ParkedCallInfo {
@@ -479,8 +500,14 @@ function argsPreviewOf(args: Record<string, unknown>): string {
 }
 
 /** 停泊一次端点调用并等待应答; 有限时时到点判超时, 调用方 signal 中止判取消 */
-function parkCall(endpoint: string, args: Record<string, unknown>, signal: AbortSignal | undefined): Promise<CallVerdict> {
+function parkCall(
+  endpoint: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+  display: { description?: string; readOnly?: boolean } = {},
+): Promise<CallVerdict> {
   if (signal?.aborted === true) return Promise.resolve('cancelled')
+  const meta = endpointMetaOf(endpoint)
   const timeoutMs = state.config.approvalTimeoutMs
   const requestedAt = Date.now()
   const entry: ParkedCall = {
@@ -489,7 +516,11 @@ function parkCall(endpoint: string, args: Record<string, unknown>, signal: Abort
     argsPreview: argsPreviewOf(args),
     requestedAt,
     ...(timeoutMs > 0 ? { expiresAt: requestedAt + timeoutMs } : {}),
-    ...(endpointMetaOf(endpoint)?.dangerous === true ? { dangerous: true } : {}),
+    ...(meta?.dangerous === true ? { dangerous: true } : {}),
+    ...(meta?.description !== undefined ? { descriptionZh: meta.description.zh } : {}),
+    ...(meta?.description?.en !== undefined ? { descriptionEn: meta.description.en } : {}),
+    ...(display.description !== undefined ? { description: display.description } : {}),
+    ...(display.readOnly === true ? { readOnly: true } : {}),
     args,
     settled: false,
     // 先占位再赋值(闭包里引用 entry, 不能写在对象字面量里)
@@ -531,6 +562,10 @@ export function listParkedCalls(): ParkedCallInfo[] {
     requestedAt: p.requestedAt,
     ...(p.expiresAt !== undefined ? { expiresAt: p.expiresAt } : {}),
     ...(p.dangerous === true ? { dangerous: true } : {}),
+    ...(p.readOnly === true ? { readOnly: true } : {}),
+    ...(p.description !== undefined ? { description: p.description } : {}),
+    ...(p.descriptionZh !== undefined ? { descriptionZh: p.descriptionZh } : {}),
+    ...(p.descriptionEn !== undefined ? { descriptionEn: p.descriptionEn } : {}),
   }))
 }
 

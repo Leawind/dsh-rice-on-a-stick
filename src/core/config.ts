@@ -96,6 +96,12 @@ export interface Config {
    */
   endpointAllowlist?: string[]
   /**
+   * dsh 端点拒绝清单("namespace/method" 形式; 默认空)。
+   * 清单内的非流式端点直接拒绝, 不停泊审批——与白名单外的"每次停泊"相对的第三档策略。
+   * 优先级高于白名单: 同端点同时出现在两份清单时按拒绝处理。
+   */
+  endpointDenylist?: string[]
+  /**
    * 工具白名单(工具名数组; 开关 toolAllowlistEnabled 启用且清单非空时才限制)。
    * 启用时白名单外的工具: MCP 面 tools/list 不再出现、tools/call 明确拒绝;
    * 原生自用面(同工具面注册的 rice_ 工具)也不再注册。关闭 = 暂时不限制, 清单原样保留。
@@ -134,6 +140,7 @@ export interface ParsedConfig {
   sessionTtlMs: Volatile<number>
   approvalTimeoutMs: Volatile<number>
   endpointAllowlist: Volatile<string[]>
+  endpointDenylist: Volatile<string[]>
   toolAllowlist: Volatile<string[]>
   toolAllowlistEnabled: Volatile<boolean | undefined>
   modelDescriptions: Volatile<Record<string, string>>
@@ -156,6 +163,7 @@ export const DEFAULTS = {
   approvalTimeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
   allowedHosts: [] as string[],
   endpointAllowlist: [] as string[],
+  endpointDenylist: [] as string[],
   toolAllowlist: [] as string[],
   toolAllowlistEnabled: false as boolean,
   modelDescriptions: {} as Record<string, string>,
@@ -200,6 +208,12 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       .get()
       .map((s) => String(s).trim())
       .filter(Boolean)
+  // 与 endpointAllowlist 同口径: 去空白、丢空串
+  const readEndpointDenylist = () =>
+    parsed.endpointDenylist
+      .get()
+      .map((s) => String(s).trim())
+      .filter(Boolean)
   // 与 endpointAllowlist 同口径: 去空白、丢空串(界面写入口已 trim/去重, 这里兜住手改配置)
   const readToolAllowlist = () =>
     parsed.toolAllowlist
@@ -229,6 +243,7 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
     endpointAllowlist: [],
+    endpointDenylist: [],
     toolAllowlist: [],
     toolAllowlistEnabled: false,
     modelDescriptions: {},
@@ -269,6 +284,7 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     },
     allowedHosts: { enumerable: true, configurable: true, get: readHosts },
     endpointAllowlist: { enumerable: true, configurable: true, get: readEndpointAllowlist },
+    endpointDenylist: { enumerable: true, configurable: true, get: readEndpointDenylist },
     toolAllowlist: { enumerable: true, configurable: true, get: readToolAllowlist },
     toolAllowlistEnabled: {
       enumerable: true,
@@ -371,6 +387,12 @@ export const Config = Schema.object({
     .volatile()
     .description(
       'dsh endpoint allowlist in "namespace/method" form (default empty = every non-stream endpoint parks for per-call panel approval). Allowlisted endpoints — read-only ones included — execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.',
+    ),
+  endpointDenylist: Schema.array(Schema.string())
+    .default(DEFAULTS.endpointDenylist)
+    .volatile()
+    .description(
+      'dsh endpoint denylist in "namespace/method" form (default empty). Denied non-stream endpoints are rejected outright — no parking, no panel approval — the explicit third policy beside allow (direct execution) and approval (each call parks). Takes precedence over the allowlist when an endpoint appears in both.',
     ),
   toolAllowlist: Schema.array(Schema.string())
     .default(DEFAULTS.toolAllowlist)

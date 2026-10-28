@@ -235,13 +235,13 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !s.includes('/'))
       if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
-    } else if (key === 'endpointAllowlist') {
+    } else if (key === 'endpointAllowlist' || key === 'endpointDenylist') {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-        throw httpError(400, 'endpointAllowlist 必须是字符串数组')
+        throw httpError(400, `${key} 必须是字符串数组`)
       }
       const entries = (value as string[]).map((s) => s.trim()).filter(Boolean)
       const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
-      if (bad !== undefined) throw httpError(400, `endpointAllowlist 条目必须是 "namespace/method" 形式: ${bad}`)
+      if (bad !== undefined) throw httpError(400, `${key} 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
     } else if (key === 'toolAllowlist') {
       // 工具白名单: 只校验字符串形态, 不校验工具名是否在目录里(跨版本重命名不拒收, 未匹配条目无副作用)
@@ -358,6 +358,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     'endpoint-allowlist': () => {
       const invocations = listInvocations(ctx)
       const allow = new Set(state.config.endpointAllowlist)
+      const deny = new Set(state.config.endpointDenylist)
       const live = new Set<string>()
       const endpoints = invocations.map((inv) => {
         const endpoint = `${inv.namespace}/${inv.method}`
@@ -378,6 +379,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
           readOnly: cls.readOnly,
           ...(cls.dangerous === true ? { dangerous: true } : {}),
           allowed: allow.has(endpoint),
+          denied: deny.has(endpoint),
         }
       })
       return {
@@ -386,6 +388,7 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
         endpoints,
         namespaces: Object.fromEntries(Object.entries(NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }])),
         stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
+        staleDenied: [...deny].filter((endpoint) => !live.has(endpoint)).sort(),
       }
     },
     // 工具白名单清单(面板安全标签的数据源): 本插件工具面的静态目录(开关状态随 status 走)

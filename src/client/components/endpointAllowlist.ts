@@ -1,24 +1,28 @@
-// ── dsh 端点白名单清单 ──
+// ── dsh 端点白名单清单(三档策略) ──
 // 端点全量列出, 按是否危险拆成两个独立清单(危险 = 开发期端点元数据的 dangerous 标注,
 // 信任与供应链类): 普通清单在上; 危险清单带错误色段头单列在下, 没有已知危险端点时整段不出现。
 // 顶层按 namespace 分组, 组与组内端点均按名称字母序排列(与工具白名单一致); 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
 // namespace 整组隐藏——组头也不出现。两份清单各自维护展开态: dangerous 是端点级属性, 同一
 // namespace 可同时出现在普通清单与危险清单, 两份清单里同名的组展开互不影响。
-// 组头 = 箭头 + 组复选 + namespace + 命名空间描述 + 已选计数;
+// 组头 = 箭头 + 组三档控点 + namespace + 命名空间描述 + 已选计数;
 // 命名空间描述取 props.data.namespaces 的中英文(开发期元数据), 缺失时只显示名字。
 // 端点行显示 method 部分(namespace 在组头), 悬停行经自绘 tooltip 给出徽标 + 描述(靠右弹出,
 // 不含端点名, 不盖住左侧名称列)。描述按界面语言取端点元数据的中/英文, 缺失时回退 descriptor
 // 自带描述。每行按端点性质给徽标: 只读/写/流式之一, 危险行另加危险徽标, 徽标恒靠右。
-// 整行可点(流式行除外): 勾选 = 入白名单(endpoint_call 免审批直行), 不勾 = 每次调用停泊审批
-// (危险端点同样如此, 无永久拒绝; 只读端点也走同一闸门, 不再默认放行)。流式行锁定不可勾。
-// 组复选与组计数覆盖组内全部非流式行。
-// 顶栏快捷框: 全选 = 普通非流式端点显式快照(危险端点不进全选, 取消全选也不动它们, 失效条目
-// 同样原样保留); 只读/可写框分别批量勾选/取消全部只读端点与普通变更端点。
+// 三档策略(点行或组头循环切换): 未勾 = 每次调用停泊审批; 勾 = 入白名单(endpoint_call 免审批
+// 直行); ✕ = 入拒绝清单, 直接拒绝且不停泊(优先级高于白名单)。流式行锁定不可切。
+// 顶栏快捷框: 全选/只读/可写 = 允许档的批量(不动已拒绝的行), 拒绝框 = 拒绝档的批量。
 // 无通配符: 每个条目都是精确端点。
-// props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, namespaces, stale}。
+// props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, namespaces, stale, staleDenied}。
+// props.onChange({allow, deny}): 两份清单一次性回传, 由上层分别落配置。
 import React from 'react';
 import { t, LOCALE } from '../i18n';
 import { showTip, hideTip } from './ui';
+import { CollapseBody } from './collapse';
+
+/** 单个端点的三档状态: 'approval' = 停泊审批(默认), 'allow' = 白名单直行, 'deny' = 直接拒绝 */
+type EndpointMode = 'approval' | 'allow' | 'deny';
+const MODE_CYCLE: Record<EndpointMode, EndpointMode> = { approval: 'allow', allow: 'deny', deny: 'approval' };
 
 export function EndpointAllowlist(props) {
   const [filter, setFilter] = React.useState('');
@@ -32,8 +36,11 @@ export function EndpointAllowlist(props) {
   const data = props.data;
   const endpoints = data && data.endpoints ? data.endpoints : [];
   const stale = data && Array.isArray(data.stale) ? data.stale : [];
+  const staleDenied = data && Array.isArray(data.staleDenied) ? data.staleDenied : [];
   const allowed = props.allowed || [];
+  const denied = props.denied || [];
   const allowedSet = new Set(allowed);
+  const deniedSet = new Set(denied);
   const q = filter.trim().toLowerCase();
   // 描述按界面语言选用: 端点/命名空间元数据的中/英文优先, 回退 descriptor 自带描述。
   // locale 服务的快照类型只声明了 subscribe, active 经防御性读取(宿主/桩都带它)
@@ -70,64 +77,83 @@ export function EndpointAllowlist(props) {
   const dangerEndpoints = endpoints.filter(function (e) { return e.dangerous === true; }).sort(byEndpoint);
   const groups = groupBy(normalEndpoints);
   const dangerGroups = groupBy(dangerEndpoints);
-  // readOnly 是语义徽标(旧 mock 用 kind:'read' 表达), 不决定是否可勾; 只有流式行锁定。
+  // readOnly 是语义徽标(旧 mock 用 kind:'read' 表达), 不决定策略; 只有流式行锁定。
   const isReadOnly = function (e) { return e.readOnly === true || e.kind === 'read'; };
-  // 组复选/计数的作用域: 组内全部非流式行
+  // 组控点/计数的作用域: 组内全部非流式行
   const togglableOf = function (items) { return items.filter(function (e) { return e.kind !== 'stream'; }); };
   const mutatingOf = function (items) { return togglableOf(items).filter(function (e) { return !isReadOnly(e); }); };
-  // 顶栏快捷框的作用域: 危险端点不进任何快捷框(含全选与只读/可写批量), 只能在危险清单里按组/逐条勾选。
+  // 顶栏快捷框的作用域: 危险端点不进任何快捷框(含全选/只读/可写与拒绝批量), 只能在危险清单里按组/逐条切。
   const allTogglable = togglableOf(endpoints);
   const readEps = togglableOf(normalEndpoints).filter(isReadOnly);
   const normalTogglable = togglableOf(normalEndpoints);
   const normalMutating = mutatingOf(normalEndpoints);
-  const readOn = readEps.length > 0 && readEps.every(function (e) { return allowedSet.has(e.endpoint); });
-  const readSome = !readOn && readEps.some(function (e) { return allowedSet.has(e.endpoint); });
-  const writeOn = normalMutating.length > 0 && normalMutating.every(function (e) { return allowedSet.has(e.endpoint); });
-  const writeSome = !writeOn && normalMutating.some(function (e) { return allowedSet.has(e.endpoint); });
-  // 全选 = 普通(非危险)非流式端点全部入白名单
-  const allSelected = normalTogglable.length > 0 && normalTogglable.every(function (e) { return allowedSet.has(e.endpoint); });
-  const someSelected = !allSelected && normalTogglable.some(function (e) { return allowedSet.has(e.endpoint); });
+  function modeOf(e): EndpointMode {
+    if (deniedSet.has(e.endpoint)) return 'deny';
+    if (allowedSet.has(e.endpoint)) return 'allow';
+    return 'approval';
+  }
+  const readOn = readEps.length > 0 && readEps.every(function (e) { return modeOf(e) === 'allow'; });
+  const readSome = !readOn && readEps.some(function (e) { return modeOf(e) === 'allow'; });
+  const writeOn = normalMutating.length > 0 && normalMutating.every(function (e) { return modeOf(e) === 'allow'; });
+  const writeSome = !writeOn && normalMutating.some(function (e) { return modeOf(e) === 'allow'; });
+  const denyAllOn = allTogglable.length > 0 && allTogglable.every(function (e) { return modeOf(e) === 'deny'; });
+  const denyAllSome = !denyAllOn && allTogglable.some(function (e) { return modeOf(e) === 'deny'; });
+  // 全选 = 普通(非危险)非流式端点全部入白名单(已拒绝的行不动, 得先逐行/拒绝框退掉拒绝档)
+  const allSelected = normalTogglable.length > 0 && normalTogglable.every(function (e) { return modeOf(e) === 'allow'; });
+  const someSelected = !allSelected && normalTogglable.some(function (e) { return modeOf(e) === 'allow'; });
   const matches = function (e) {
     return !q || e.endpoint.toLowerCase().includes(q) || String(descOf(e) || '').toLowerCase().includes(q);
   };
   // 搜索时空组隐藏: 无命中端点的 namespace 连组头一起不出现; 全部空时落到"没有匹配的端点"
   const visibleGroups = q ? groups.filter(function (g) { return g.items.some(matches); }) : groups;
   const visibleDanger = q ? dangerGroups.filter(function (g) { return g.items.some(matches); }) : dangerGroups;
-  function emit(nextArray) { props.onChange(nextArray); }
-  // 行的当前勾选态就是白名单成员(只读行与变更行同一套)
-  function checkedOf(e) {
-    return allowedSet.has(e.endpoint);
+  function emit(nextAllow: string[], nextDeny: string[]) {
+    props.onChange({ allow: nextAllow, deny: nextDeny });
   }
-  function toggleEndpoint(e, checked) {
-    // 所有非流式行切白名单成员(危险端点行也在其中); 流式行不可勾
+  function without(names: string[], list: string[]) {
+    return list.filter(function (x) { return names.indexOf(x) === -1; });
+  }
+  // 把一批端点切到目标档: 从两份清单里都摘掉再按目标档加回(拒绝档优先, 不允许两处共存)
+  function setModes(names: string[], mode: EndpointMode) {
+    emit(
+      mode === 'allow' ? without(names, allowed).concat(names) : without(names, allowed),
+      mode === 'deny' ? without(names, denied).concat(names) : without(names, denied),
+    );
+  }
+  function cycleEndpoint(e: { endpoint: string; kind: string }) {
     if (e.kind === 'stream') return;
-    emit(checked ? allowed.concat([e.endpoint]) : allowed.filter(function (x) { return x !== e.endpoint; }));
+    setModes([e.endpoint], MODE_CYCLE[modeOf(e)]);
   }
-  function toggleGroup(g, checked) {
-    // 组复选覆盖组内全部非流式行
+  function cycleGroup(g, checked: EndpointMode | 'next') {
     const names = togglableOf(g.items).map(function (e) { return e.endpoint; });
-    const rest = allowed.filter(function (x) { return names.indexOf(x) === -1; });
-    emit(checked ? rest.concat(names) : rest);
+    if (names.length === 0) return;
+    // 组控点: 显式目标(快捷路径)或按组内现状循环(全允许→全拒绝→全审批; 其余一律先到全允许)
+    let mode: EndpointMode;
+    if (checked !== 'next') mode = checked;
+    else if (names.every(function (x) { return allowedSet.has(x); })) mode = 'deny';
+    else if (names.every(function (x) { return deniedSet.has(x); })) mode = 'approval';
+    else mode = 'allow';
+    setModes(names, mode);
   }
   function toggleAll() {
     // 全选 = 显式快照(一次写入普通非流式端点的完整清单);
-    // 危险端点不进全选, 取消全选也只摘普通端点(危险与失效条目原样保留)
-    const names = normalTogglable.map(function (e) { return e.endpoint; });
+    // 危险端点不进全选, 取消全选也只摘普通端点(危险与失效条目原样保留);
+    // 已拒绝的普通行不批量改成允许, 避免一键误放危险配置
+    const names = normalTogglable.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
     emit(allSelected
-      ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
-      : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
+      ? without(names, allowed)
+      : without(names, allowed).concat(names), denied);
   }
   function toggleRead() {
-    const names = readEps.map(function (e) { return e.endpoint; });
-    emit(readOn
-      ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
-      : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
+    const names = readEps.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
+    emit(readOn ? without(names, allowed) : without(names, allowed).concat(names), denied);
   }
   function toggleWritable() {
-    const names = normalMutating.map(function (e) { return e.endpoint; });
-    emit(writeOn
-      ? allowed.filter(function (x) { return names.indexOf(x) === -1; })
-      : allowed.filter(function (x) { return names.indexOf(x) === -1; }).concat(names));
+    const names = normalMutating.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
+    emit(writeOn ? without(names, allowed) : without(names, allowed).concat(names), denied);
+  }
+  function toggleDenyAll() {
+    setModes(allTogglable.map(function (e) { return e.endpoint; }), denyAllOn ? 'approval' : 'deny');
   }
   // 两份清单的全部键(首次点击接管时作底集: 过滤时全部展开)
   function allGroupKeys() {
@@ -159,6 +185,7 @@ export function EndpointAllowlist(props) {
     if (e.kind !== 'stream' && !isReadOnly(e)) out.push({ cls: 'dcs-epbadge-write', label: t('endpoint.write') });
     if (e.kind === 'stream') out.push({ cls: 'dcs-epbadge-stream', label: t('endpoint.stream') });
     if (e.dangerous === true) out.push({ cls: 'dcs-epbadge-danger', label: t('endpoint.dangerous') });
+    if (modeOf(e) === 'deny') out.push({ cls: 'dcs-epbadge-deny', label: t('endpoint.denied') });
     return out;
   }
   function badgePill(b) {
@@ -167,14 +194,28 @@ export function EndpointAllowlist(props) {
     s.textContent = b.label;
     return s;
   }
+  // 行尾的三档控点: 允许 = 勾选框, 审批 = 空勾选框, 拒绝 = 红叉标记(与顶栏快捷框同一套视觉)
+  function modeControl(mode: EndpointMode, onCycle: () => void, disabled?: boolean) {
+    if (mode === 'deny') {
+      return React.createElement('span', {
+        className: 'dcs-epchk dcs-epchk-deny', role: 'checkbox', 'aria-checked': 'false',
+        title: t('endpoint.modeDeny'), onClick: function (ev) { ev.stopPropagation(); if (!disabled) onCycle(); },
+      }, '✕');
+    }
+    return React.createElement('input', {
+      className: 'dcs-epchk', type: 'checkbox', disabled: disabled === true, checked: mode === 'allow',
+      onClick: function (ev) { ev.stopPropagation(); },
+      onChange: function () { if (!disabled) onCycle(); },
+    });
+  }
   function row(e) {
     const stream = e.kind === 'stream';
-    const checked = checkedOf(e);
+    const mode = modeOf(e);
     const desc = descOf(e);
     return React.createElement('div', {
       key: e.endpoint,
       className: stream ? 'dcs-epr' : 'dcs-epr dcs-epr-live',
-      onClick: stream ? undefined : function () { toggleEndpoint(e, !checked); },
+      onClick: stream ? undefined : function () { cycleEndpoint(e); },
       onMouseEnter: function (ev) {
         // tooltip = 胶囊徽标 + 描述(不含端点名), 靠右弹出, 不盖住左侧名称列
         const frag = document.createDocumentFragment();
@@ -184,11 +225,9 @@ export function EndpointAllowlist(props) {
       },
       onMouseLeave: hideTip,
     },
-      React.createElement('input', {
-        className: 'dcs-epchk', type: 'checkbox', disabled: stream, checked: checked,
-        onClick: function (ev) { ev.stopPropagation(); },
-        onChange: function (ev) { toggleEndpoint(e, ev.target.checked); },
-      }),
+      stream
+        ? React.createElement('input', { className: 'dcs-epchk', type: 'checkbox', disabled: true, checked: false })
+        : modeControl(mode, function () { cycleEndpoint(e); }),
       React.createElement('span', { className: 'dcs-eprname' }, e.endpoint.slice(e.endpoint.indexOf('/') + 1)),
       desc ? React.createElement('span', { className: 'dcs-eprdesc' }, desc) : null,
       // 弹性占位: 描述缺失时也把徽标推到行右端
@@ -203,11 +242,13 @@ export function EndpointAllowlist(props) {
   function tree(vGroups, list) {
     return vGroups.map(function (g) {
       const isOpen = groupOpen(g, list);
-      // 组复选与计数覆盖组内全部非流式行
+      // 组控点与计数覆盖组内全部非流式行
       const tog = togglableOf(g.items);
-      const picked = tog.filter(checkedOf).length;
+      const picked = tog.filter(function (e) { return modeOf(e) === 'allow'; }).length;
+      const deniedN = tog.filter(function (e) { return modeOf(e) === 'deny'; }).length;
       const gAll = tog.length > 0 && picked === tog.length;
-      const gSome = !gAll && picked > 0;
+      const gDeny = tog.length > 0 && deniedN === tog.length;
+      const gSome = !gAll && !gDeny && (picked > 0 || deniedN > 0);
       const nsDesc = nsDescOf(g.ns);
       const visible = g.items.filter(matches);
       return React.createElement('div', { key: g.ns },
@@ -218,24 +259,24 @@ export function EndpointAllowlist(props) {
           onMouseLeave: nsDesc ? hideTip : undefined,
         },
           React.createElement('span', { className: 'dcs-epchev' }, isOpen ? '▾' : '▸'),
-          React.createElement('input', {
-            className: 'dcs-epchk', type: 'checkbox', disabled: tog.length === 0,
-            checked: gAll, ref: checkRef(gSome),
-            onClick: function (ev) { ev.stopPropagation(); },
-            onChange: function (ev) { toggleGroup(g, ev.target.checked); },
-          }),
+          tog.length === 0
+            ? React.createElement('input', { className: 'dcs-epchk', type: 'checkbox', disabled: true, checked: false })
+            : gDeny
+              ? modeControl('deny', function () { cycleGroup(g, 'approval'); })
+              : React.createElement('input', {
+                  className: 'dcs-epchk', type: 'checkbox',
+                  checked: gAll, ref: checkRef(gSome),
+                  onClick: function (ev) { ev.stopPropagation(); },
+                  onChange: function () { cycleGroup(g, 'next'); },
+                }),
           React.createElement('span', { className: 'dcs-epns' }, g.ns),
           nsDesc ? React.createElement('span', { className: 'dcs-epnsdesc' }, nsDesc) : null,
-          React.createElement('span', { className: 'dcs-epcount' }, tog.length > 0 ? picked + '/' + tog.length : ''),
+          React.createElement('span', { className: 'dcs-epcount' },
+            tog.length > 0 ? picked + '/' + tog.length + (deniedN > 0 ? ' · ' + t('endpoint.deniedCount', { n: deniedN }) : '') : ''),
         ),
-        // 折叠/展开容器: grid-rows 0fr→1fr 过渡 200ms; 收起时 inert 防止焦点进入不可见行
-        React.createElement('div', {
-          className: 'dcs-epbody' + (isOpen ? ' dcs-epbody-open' : ''),
-          inert: isOpen ? undefined : '',
-        },
-          React.createElement('div', { className: 'dcs-epbodyin' },
-            visible.map(row),
-          ),
+        // 折叠/展开容器(共用组件): grid-rows 0fr→1fr 过渡 200ms; 收起时 inert 防止焦点进入不可见行
+        React.createElement(CollapseBody, { open: isOpen },
+          visible.map(row),
         ),
       );
     });
@@ -247,7 +288,7 @@ export function EndpointAllowlist(props) {
   } else if (data === false) {
     body = React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.unavailable'));
   } else {
-    const staleBlock = stale.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
+    const staleBlock = stale.length === 0 && staleDenied.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
       React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.staleTitle')),
       stale.map(function (s) {
         return React.createElement(React.Fragment, { key: s },
@@ -255,7 +296,18 @@ export function EndpointAllowlist(props) {
           React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('endpoint.staleBadge')),
           React.createElement('button', {
             type: 'button', className: 'dcs-x', title: t('endpoint.staleRemove', { e: s }),
-            onClick: function () { emit(allowed.filter(function (x) { return x !== s; })); },
+            onClick: function () { emit(allowed.filter(function (x) { return x !== s; }), denied); },
+          }, '✕'),
+        );
+      }),
+      staleDenied.map(function (s) {
+        return React.createElement(React.Fragment, { key: s },
+          React.createElement('span', { className: 'dcs-eprname' }, s),
+          React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('endpoint.staleBadge')),
+          React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-deny' }, t('endpoint.denied')),
+          React.createElement('button', {
+            type: 'button', className: 'dcs-x', title: t('endpoint.staleRemove', { e: s }),
+            onClick: function () { emit(allowed, denied.filter(function (x) { return x !== s; })); },
           }, '✕'),
         );
       }),
@@ -287,6 +339,7 @@ export function EndpointAllowlist(props) {
     );
   }
 
+  const deniedCount = allTogglable.filter(function (e) { return modeOf(e) === 'deny'; }).length;
   return React.createElement('div', { className: 'dcs-eps' },
     React.createElement('div', { className: 'dcs-epbar' },
       React.createElement('input', {
@@ -318,10 +371,24 @@ export function EndpointAllowlist(props) {
         }),
         t('endpoint.writable'),
       ),
+      React.createElement('label', { className: 'dcs-epall' },
+        denyAllOn
+          ? React.createElement('span', {
+              className: 'dcs-epchk dcs-epchk-deny', role: 'checkbox', 'aria-checked': 'true',
+              title: t('endpoint.modeDeny'), onClick: toggleDenyAll,
+            }, '✕')
+          : React.createElement('input', {
+              className: 'dcs-epchk', type: 'checkbox',
+              checked: false, ref: checkRef(denyAllSome),
+              onChange: toggleDenyAll,
+            }),
+        t('endpoint.denyAll'),
+      ),
       React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.selected', {
-        n: allTogglable.filter(function (e) { return allowedSet.has(e.endpoint); }).length,
+        n: allTogglable.filter(function (e) { return modeOf(e) === 'allow'; }).length,
         m: allTogglable.length,
       })),
+      deniedCount > 0 ? React.createElement('span', { className: 'dcs-epcount dcs-epcount-deny' }, t('endpoint.deniedCount', { n: deniedCount })) : null,
     ),
     body,
   );

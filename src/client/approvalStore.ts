@@ -14,10 +14,32 @@ export var approvalStore = (function () {
   var unlimited = false;
   var listeners = new Set<() => void>();
   var timer: number | undefined;
+  var pruneTimer: number | undefined;
   var running = false;
   var debugSeq = 0;
   function rebuild() { snapshot = items.concat(debugItems); }
   function notify() { listeners.forEach(function (fn) { try { fn(); } catch (e) { /* 订阅方异常不拖垮轮询 */ } }); }
+  // 虚拟项的自动回收: 到期 +3s 自清, 不依赖审批页的秒针(秒针只在审批标签页走,
+  // 人停在别的标签时角标/计数也得跟着掉)。
+  function pruneDebugNow() {
+    const cutoff = Date.now() - 3000;
+    const next = debugItems.filter(function (x) { return !((x.expiresAt as number) < cutoff); });
+    if (next.length !== debugItems.length) {
+      debugItems = next;
+      rebuild();
+      notify();
+    }
+    schedulePrune();
+  }
+  function schedulePrune() {
+    if (pruneTimer !== undefined) { window.clearTimeout(pruneTimer); pruneTimer = undefined; }
+    const expiries = debugItems.map(function (x) { return x.expiresAt as number; }).filter(function (v) { return typeof v === 'number'; });
+    if (expiries.length === 0) return;
+    pruneTimer = window.setTimeout(function () {
+      pruneTimer = undefined;
+      pruneDebugNow();
+    }, Math.max(0, Math.min(...expiries) + 3000 - Date.now()));
+  }
   function schedule(ms: number) {
     if (timer !== undefined) window.clearTimeout(timer);
     timer = window.setTimeout(function () { timer = undefined; void load(); }, ms);
@@ -59,10 +81,14 @@ export var approvalStore = (function () {
           argsPreview: '{"debug":true,"note":"虚拟审批项(仅界面调试, 不会真实执行)"}',
           requestedAt: Date.now() - 15000,
           expiresAt: Date.now() + (debugSeq % 2 === 1 ? 100000 : 45000),
+          readOnly: true,
+          descriptionZh: '虚拟审批项(仅界面调试, 不会真实执行)',
+          descriptionEn: 'Debug-only fake approval (never executed)',
         });
       }
       rebuild();
       notify();
+      schedulePrune();
     },
     /** 虚拟项的"答复": 本地移除, 不发请求 */
     removeDebug: function (id: string) {
@@ -73,16 +99,8 @@ export var approvalStore = (function () {
         notify();
       }
     },
-    /** 清掉已过期 3 秒以上的虚拟项(真实项由服务端超时回收, 虚拟项只能自清) */
-    pruneDebug: function () {
-      const cutoff = Date.now() - 3000;
-      const next = debugItems.filter(function (x) { return !((x.expiresAt as number) < cutoff); });
-      if (next.length !== debugItems.length) {
-        debugItems = next;
-        rebuild();
-        notify();
-      }
-    },
+    /** 清掉已过期 3 秒以上的虚拟项(真实项由服务端超时回收, 虚拟项只能自清; 面板秒针与 store 自带的定时器都会调) */
+    pruneDebug: function () { pruneDebugNow(); },
   };
 })();
 

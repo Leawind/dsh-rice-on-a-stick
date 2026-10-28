@@ -9,6 +9,7 @@
 // props.descriptions: { models, providers } 两张简介表(草稿); onDescription(kind, key, text) 提交。
 import React from 'react';
 import { t } from '../i18n';
+import { CollapseBody } from './collapse';
 
 export function ModelAllowlistTree(props) {
   const [filter, setFilter] = React.useState('');
@@ -175,7 +176,10 @@ export function ModelAllowlistTree(props) {
               ),
               // 提供商简介编辑器紧贴组头之下(先于全部模型行)
               editorRow('provider', g.id, true),
-              isOpen ? visible.map(function (m) { return modelRow(g, m); }) : null,
+              // 折叠/展开容器(与端点白名单共用): grid-rows 0fr→1fr 过渡 200ms; 收起时 inert
+              React.createElement(CollapseBody, { open: isOpen },
+                visible.map(function (m) { return modelRow(g, m); }),
+              ),
             );
           }),
       staleBlock,

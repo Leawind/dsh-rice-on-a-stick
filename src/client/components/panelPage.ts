@@ -230,8 +230,10 @@ export function PanelPage() {
       allowedModels: (next.allowedModels || []).slice(),
       authEnabled: next.authOn === true,
       selfToolsEnabled: next.selfToolsOn === true,
-      // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重
+      // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重;
+      // 拒绝清单同口径(三档策略的"直接拒绝"档)
       endpointAllowlist: (next.endpointAllowlist || []).slice(),
+      endpointDenylist: (next.endpointDenylist || []).slice(),
       // 工具白名单: 勾选清单直接给数组, 服务端做去重; 开关单独提交(toolAllowlistEnabled)
       toolAllowlistEnabled: next.toolAllowlistOn === true,
       toolAllowlist: (next.toolAllowlist || []).slice(),
@@ -557,7 +559,9 @@ export function PanelPage() {
             : React.createElement(EndpointApprovalCard, {
                 items: bApprovals,
                 unlimited: bUnlimited,
-                now: nowTick,
+                // nowTick 在离开审批页期间会停走: 取与当前时刻的较大者, 重进页面时进度条/倒计时
+                // 直接落在真实位置, 不先画旧位置再过渡过去
+                now: Math.max(nowTick, Date.now()),
                 onRefresh: function () { approvalStore.refresh(); refresh(); },
                 onDebugAnswer: function (id: string) { approvalStore.removeDebug(id); },
               }),
@@ -700,7 +704,10 @@ export function PanelPage() {
         React.createElement(EndpointAllowlist, {
           data: eps,
           allowed: d.endpointAllowlist || [],
-          onChange: function (nextArray) { change({ endpointAllowlist: nextArray }); },
+          denied: d.endpointDenylist || [],
+          onChange: function (next) {
+            change({ endpointAllowlist: next.allow, endpointDenylist: next.deny });
+          },
         }),
       ),
       ),

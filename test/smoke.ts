@@ -1995,6 +1995,34 @@ try {
     await phaseR.dispose()
   }
 
+  // ── Phase B5: 端点拒绝清单 —— 直接拒绝不停泊(与白名单/停泊构成三档策略; 拒绝优先于白名单) ──
+  {
+    endpointInvokes.length = 0
+    const phaseD = await startPhase(8077, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      // session/prompt 同时出现在两份清单: 拒绝优先
+      endpointAllowlist: ['session/prompt'],
+      endpointDenylist: ['session/prompt', 'schedule/update'],
+    })
+    const deniedContract = innerOf(await phaseD.call('endpoint_describe', { endpoint: 'session/prompt' })) as any
+    checks['拒绝清单: 同时在两份清单时按拒绝处理'] =
+      deniedContract.allowed === false &&
+      deniedContract.denied === true &&
+      deniedContract.blockedBy === 'denied' &&
+      deniedContract.approvalRequired === undefined
+    const deniedCall = await phaseD.call('endpoint_call', { endpoint: 'session/prompt', args: { request: { q: 'x' } } })
+    checks['拒绝清单: 调用直接失败, 不停泊不执行'] =
+      String(innerOf(deniedCall).error ?? '').includes('denied by configuration') && listParkedCalls().length === 0 && endpointInvokes.length === 0
+    const deniedCall2 = await phaseD.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'd1' } } })
+    checks['拒绝清单: 未入白名单的拒绝端点同样直接拒绝'] =
+      String(innerOf(deniedCall2).error ?? '').includes('denied by configuration') && listParkedCalls().length === 0 && endpointInvokes.length === 0
+    const epsDeny = await phaseD.gui('endpoint-allowlist', { httpMethod: 'GET' })
+    const epsDenyBody = epsDeny.status === 200 ? JSON.parse(epsDeny.body) : {}
+    const epsDenyMap = Object.fromEntries((epsDenyBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
+    checks['GUI endpoint-allowlist: 拒绝标记 denied, 失效拒绝条目标 staleDenied'] =
+      epsDenyMap['session/prompt']?.denied === true && epsDenyMap['schedule/update']?.denied === true && epsDenyMap['session/list']?.denied === false
+    await phaseD.dispose()
+  }
+
   // ── Phase G2: 远程回答面(审批/问题都是 forwarded answer client; 原生 UI 保留) ──
   {
     const approvalCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
@@ -2562,6 +2590,7 @@ try {
       sessionTtlMs: 0,
       approvalTimeoutMs: 120000,
       endpointAllowlist: ['schedule/update'],
+      endpointDenylist: ['ghost/gone'],
       toolAllowlist: ['dsh_guide'],
       toolAllowlistEnabled: false,
       modelDescriptions: { 'p1/m1': 'Provider One 的快速模型' },
