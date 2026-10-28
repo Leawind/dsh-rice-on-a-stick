@@ -4,8 +4,11 @@
 // 行 = 勾选框 + 工具名 + 描述(截断) + 只读/可写徽标(恒靠右); 整行可点切换勾选。
 // 勾选语义见配置 toolAllowlist: 开关(toolAllowlistEnabled)开启时, 清单外工具对 MCP 客户端
 // (tools/list 隐藏 + tools/call 拒绝)与原生自用面(不注册 rice_ 工具)同时不可用;
-// 开关关闭 = 不限制, 清单成员仍可编辑(重新开启即恢复约束)。
+// 开关关闭 = 不限制: 清单显示为全部勾选并锁定(开关、快捷框与行都不可改), 白名单数组原样保留,
+// 重新开启即恢复原先的约束。
+// 清单按工具名升序排列(与端点白名单的字母序一致), 过滤不改变顺序。
 // props.data: null = 加载中, false = 目录不可用, 否则 [{name, title?, description, readOnly}]。
+// props.enabled: 开关状态(false = 不限制, 清单全选并锁定)。
 import React from 'react';
 import { t } from '../i18n';
 import { showTip, hideTip } from './ui';
@@ -13,7 +16,11 @@ import { showTip, hideTip } from './ui';
 export function ToolAllowlist(props) {
   const [filter, setFilter] = React.useState('');
   const data = props.data;
-  const tools = data && Array.isArray((data as { tools?: unknown }).tools) ? (data as { tools: { name: string; title?: string; description?: string; readOnly?: boolean }[] }).tools : [];
+  const rawTools = data && Array.isArray((data as { tools?: unknown }).tools) ? (data as { tools: { name: string; title?: string; description?: string; readOnly?: boolean }[] }).tools : [];
+  // 清单固定按工具名升序(过滤只筛不改序)
+  const tools = rawTools.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+  // 开关关闭 = 全部工具可用: 清单显示为全选并锁定, 不改写白名单数组
+  const enabled = props.enabled !== false;
   const allowed = props.allowed || [];
   const allowedSet = new Set(allowed);
   const q = filter.trim().toLowerCase();
@@ -21,31 +28,36 @@ export function ToolAllowlist(props) {
     return !q || x.name.toLowerCase().includes(q) || String(x.description || '').toLowerCase().includes(q);
   };
   const visible = tools.filter(matches);
+  const checkedOf = function (x) { return !enabled || allowedSet.has(x.name); };
   const readTools = tools.filter(function (x) { return x.readOnly === true; });
   const writeTools = tools.filter(function (x) { return x.readOnly !== true; });
-  const readOn = readTools.length > 0 && readTools.every(function (x) { return allowedSet.has(x.name); });
-  const readSome = !readOn && readTools.some(function (x) { return allowedSet.has(x.name); });
-  const writeOn = writeTools.length > 0 && writeTools.every(function (x) { return allowedSet.has(x.name); });
-  const writeSome = !writeOn && writeTools.some(function (x) { return allowedSet.has(x.name); });
-  const allSelected = tools.length > 0 && tools.every(function (x) { return allowedSet.has(x.name); });
-  const someSelected = !allSelected && tools.some(function (x) { return allowedSet.has(x.name); });
+  const readOn = readTools.length > 0 && readTools.every(checkedOf);
+  const readSome = enabled && !readOn && readTools.some(checkedOf);
+  const writeOn = writeTools.length > 0 && writeTools.every(checkedOf);
+  const writeSome = enabled && !writeOn && writeTools.some(checkedOf);
+  const allSelected = tools.length > 0 && tools.every(checkedOf);
+  const someSelected = enabled && !allSelected && tools.some(checkedOf);
   function emit(nextArray) { props.onChange(nextArray); }
   function toggleTool(x, checked) {
+    if (!enabled) return;
     emit(checked ? allowed.concat([x.name]) : allowed.filter(function (v) { return v !== x.name; }));
   }
   function toggleAll() {
+    if (!enabled) return;
     // 全选 = 显式快照(一次写入全部工具名)
     emit(allSelected
       ? []
       : tools.map(function (x) { return x.name; }));
   }
   function toggleRead() {
+    if (!enabled) return;
     const names = readTools.map(function (x) { return x.name; });
     emit(readOn
       ? allowed.filter(function (v) { return names.indexOf(v) === -1; })
       : allowed.filter(function (v) { return names.indexOf(v) === -1; }).concat(names));
   }
   function toggleWritable() {
+    if (!enabled) return;
     const names = writeTools.map(function (x) { return x.name; });
     emit(writeOn
       ? allowed.filter(function (v) { return names.indexOf(v) === -1; })
@@ -63,12 +75,12 @@ export function ToolAllowlist(props) {
   }
   React.useEffect(function () { return hideTip; }, []);
   function row(x) {
-    const checked = allowedSet.has(x.name);
+    const checked = checkedOf(x);
     const desc = x.description || '';
     return React.createElement('div', {
       key: x.name,
-      className: 'dcs-epr dcs-epr-live dcs-epr-nogroup',
-      onClick: function () { toggleTool(x, !checked); },
+      className: 'dcs-epr dcs-epr-nogroup' + (enabled ? ' dcs-epr-live' : ''),
+      onClick: enabled ? function () { toggleTool(x, !checked); } : undefined,
       onMouseEnter: function (ev) {
         // tooltip = 徽标胶囊 + 完整描述(行内描述是截断的), 靠右弹出, 不盖住左侧名称列
         const frag = document.createDocumentFragment();
@@ -80,7 +92,7 @@ export function ToolAllowlist(props) {
       onMouseLeave: hideTip,
     },
       React.createElement('input', {
-        className: 'dcs-epchk', type: 'checkbox', checked: checked,
+        className: 'dcs-epchk', type: 'checkbox', checked: checked, disabled: !enabled,
         onClick: function (ev) { ev.stopPropagation(); },
         onChange: function (ev) { toggleTool(x, ev.target.checked); },
       }),
@@ -116,7 +128,7 @@ export function ToolAllowlist(props) {
       React.createElement('label', { className: 'dcs-epall' },
         React.createElement('input', {
           className: 'dcs-epchk', type: 'checkbox',
-          checked: allSelected, ref: checkRef(someSelected),
+          checked: allSelected, ref: checkRef(someSelected), disabled: !enabled,
           onChange: toggleAll,
         }),
         t('endpoint.selectAll'),
@@ -124,7 +136,7 @@ export function ToolAllowlist(props) {
       React.createElement('label', { className: 'dcs-epall' },
         React.createElement('input', {
           className: 'dcs-epchk', type: 'checkbox',
-          checked: readOn, ref: checkRef(readSome),
+          checked: readOn, ref: checkRef(readSome), disabled: !enabled,
           onChange: toggleRead,
         }),
         t('endpoint.readonly'),
@@ -132,13 +144,13 @@ export function ToolAllowlist(props) {
       React.createElement('label', { className: 'dcs-epall' },
         React.createElement('input', {
           className: 'dcs-epchk', type: 'checkbox',
-          checked: writeOn, ref: checkRef(writeSome),
+          checked: writeOn, ref: checkRef(writeSome), disabled: !enabled,
           onChange: toggleWritable,
         }),
         t('endpoint.writable'),
       ),
       React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.selected', {
-        n: tools.filter(function (x) { return allowedSet.has(x.name); }).length,
+        n: enabled ? tools.filter(function (x) { return allowedSet.has(x.name); }).length : tools.length,
         m: tools.length,
       })),
     ),

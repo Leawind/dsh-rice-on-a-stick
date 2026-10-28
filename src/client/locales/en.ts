@@ -103,7 +103,7 @@ export const en: Record<MessageKey, string> = {
   'tab.settings': 'Security',
   'tab.conns': 'Connections',
   'tool.title': 'Tool allowlist',
-  'tool.hint': 'Checked = the tool is available; switch off = unrestricted (the list is kept). Tools outside the list are unavailable to both MCP clients and native rice_ calls in this dsh.',
+  'tool.hint': 'MCP tools provided by this plugin',
   'tool.filter': 'Filter tools or descriptions',
   'tool.loading': 'Loading tool list…',
   'tool.unavailable': 'Tool list unavailable.',

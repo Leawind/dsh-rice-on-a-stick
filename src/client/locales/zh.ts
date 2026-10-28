@@ -101,7 +101,7 @@ export const zh = {
   'tab.settings': '安全',
   'tab.conns': '连接',
   'tool.title': '工具白名单',
-  'tool.hint': '勾选 = 工具可用; 开关关闭 = 不限制(清单原样保留)。清单外的工具对 MCP 客户端与本 dsh 会话(原生 rice_ 工具)同时不可用。',
+  'tool.hint': '本插件提供的MCP工具',
   'tool.filter': '输入关键字过滤工具或说明',
   'tool.loading': '工具清单加载中…',
   'tool.unavailable': '工具清单不可用。',

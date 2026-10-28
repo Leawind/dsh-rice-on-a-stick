@@ -1,7 +1,7 @@
 // ── dsh 端点白名单清单 ──
 // 端点全量列出, 按是否危险拆成两个独立清单(危险 = 开发期端点元数据的 dangerous 标注,
 // 信任与供应链类): 普通清单在上; 危险清单带错误色段头单列在下, 没有已知危险端点时整段不出现。
-// 每份清单内: 按 namespace 分组, 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
+// 顶层按 namespace 分组, 组与组内端点均按名称字母序排列(与工具白名单一致); 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
 // namespace 整组隐藏——组头也不出现。两份清单各自维护展开态: dangerous 是端点级属性, 同一
 // namespace 可同时出现在普通清单与危险清单, 两份清单里同名的组展开互不影响。
 // 组头 = 箭头 + 组复选 + namespace + 命名空间描述 + 已选计数;
@@ -53,7 +53,7 @@ export function EndpointAllowlist(props) {
     return langOf() === 'en' ? (m.en || m.zh || '') : (m.zh || m.en || '');
   }
 
-  // 分组(保持服务端顺序); dangerous 是端点级属性, 同一 namespace 可能同时出现在两份清单
+  // 分组(先按 endpoint 全名升序, 分组保持该顺序: namespace 与组内 method 因此都是字母序)
   function groupBy(list) {
     const gs: { ns: string; items: unknown[] }[] = [];
     const byNs = new Map();
@@ -65,8 +65,9 @@ export function EndpointAllowlist(props) {
     });
     return gs;
   }
-  const normalEndpoints = endpoints.filter(function (e) { return e.dangerous !== true; });
-  const dangerEndpoints = endpoints.filter(function (e) { return e.dangerous === true; });
+  function byEndpoint(a, b) { return (a as { endpoint: string }).endpoint.localeCompare((b as { endpoint: string }).endpoint); }
+  const normalEndpoints = endpoints.filter(function (e) { return e.dangerous !== true; }).sort(byEndpoint);
+  const dangerEndpoints = endpoints.filter(function (e) { return e.dangerous === true; }).sort(byEndpoint);
   const groups = groupBy(normalEndpoints);
   const dangerGroups = groupBy(dangerEndpoints);
   // readOnly 是语义徽标(旧 mock 用 kind:'read' 表达), 不决定是否可勾; 只有流式行锁定。

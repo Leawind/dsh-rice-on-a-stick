@@ -674,7 +674,7 @@ export function PanelPage() {
         ),
       }),
       ),
-      // ── 工具白名单(勾选 = 工具可用, 开关关闭 = 不限制; 静态清单不长, 端点白名单沉底前先过它) ──
+      // ── 工具白名单(勾选 = 工具可用, 开关关闭 = 全部可用且清单锁定; 静态清单不长, 端点白名单沉底前先过它) ──
       groupHead(t('tool.title'), {
         hint: t('tool.hint'),
         control: React.createElement(Switch, {
@@ -687,6 +687,7 @@ export function PanelPage() {
       React.createElement('div', { className: 'dcs-listwrap' },
         React.createElement(ToolAllowlist, {
           data: toolCat,
+          enabled: d.toolAllowlistOn,
           allowed: d.toolAllowlist || [],
           onChange: function (nextArray) { change({ toolAllowlist: nextArray }); },
         }),
