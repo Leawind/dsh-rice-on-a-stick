@@ -1,6 +1,6 @@
 {
   "name": "dsh-rice-on-a-stick",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.1-rc.1",
   "description": "Operate DeepSeek Harness (dsh) over MCP or from its own sessions.",
   "icon": "./icon.svg",
   "type": "module",
