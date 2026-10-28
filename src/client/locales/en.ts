@@ -26,7 +26,7 @@ export const en: Record<MessageKey, string> = {
   'hosts.hint': 'Extra hostnames, comma or space separated.',
   'hosts.invalid': 'Invalid hostname: {h}',
   'endpoint.title': 'dsh endpoint allowlist',
-  'endpoint.hint': 'Unchecked endpoints require manual approval before they can execute.',
+  'endpoint.hint': 'The endpoint_call tool calls dsh endpoints; unchecked endpoints below require manual approval before they run.',
   'endpoint.filter': 'Type to filter endpoints or descriptions',
   'endpoint.selectAll': 'Select all',
   'endpoint.selected': '{n}/{m} selected',

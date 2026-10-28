@@ -24,7 +24,7 @@ export const zh = {
   'hosts.hint': '额外放行的主机名，逗号或空格分隔',
   'hosts.invalid': '主机名不合法：{h}',
   'endpoint.title': 'dsh 端点白名单',
-  'endpoint.hint': '未勾选的端点需人工审批方可执行。',
+  'endpoint.hint': 'endpoint_call 工具用于调用 dsh 端点；下方未勾选的端点需人工审批方可执行。',
   'endpoint.filter': '输入关键字过滤端点或说明',
   'endpoint.selectAll': '全选',
   'endpoint.selected': '已选 {n}/{m}',
