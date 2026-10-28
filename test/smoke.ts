@@ -249,13 +249,18 @@ try {
   const attachmentsSchema: any = (toolsArr.find((t) => t.name === 'session_send')?.inputSchema as any)?.properties?.attachments
   checks['图片入站: attachments 入参 schema 声明 maxItems=8'] = attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === 8
   const guideTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'dsh_guide')
-  checks['工具带 title + annotations(2025-06-18 协议字段)'] = guideTool?.title === 'dsh usage guide' && guideTool?.annotations?.readOnlyHint === true
-  // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文
-  // (身份不再逐条注入, 中文插件名只出现在 initialize instructions 与 guide)
+  checks['工具带 title + annotations(2025-06-18 协议字段)'] = guideTool?.title === 'Rice on a Stick: dsh guide' && guideTool?.annotations?.readOnlyHint === true
+  // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文。
+  // 唯一例外是插件自己的中文专名"白饭钓竿": 身份必须挂在 tools/list 这条所有客户端都收的通道上
+  // (initialize instructions 是 MAY, 个别客户端会丢弃), 所以 guide 描述里保留一次专名。
   const CJK = /[\u4e00-\u9fff]/
-  checks['tools/list: 面向客户端的说明统一为英文'] = toolsArr.every(
-    (t) => !CJK.test([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n')),
+  const PROPER_NOUN = /白饭钓竿/g
+  checks['tools/list: 面向客户端的说明统一为英文(专名除外)'] = toolsArr.every(
+    (t) => !CJK.test([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n').replace(PROPER_NOUN, '')),
   )
+  // tools/list 是所有 MCP 客户端必收的通道: 插件身份必须在这里出现一次, 不能只靠 instructions
+  checks['tools/list: dsh_guide 描述携带插件身份(中英文名)'] =
+    typeof guideTool?.description === 'string' && guideTool.description.includes('Rice on a Stick') && guideTool.description.includes('白饭钓竿')
 
   // 工具面体积预算: tools/list 是每个会话常驻的系统提示成本(宿主 dsh-token-meter 按 4 字符/token 估算)。
   // 预算按需上调——加工具时连同这两个常量一起改, 让体积增长成为一次显式评审, 而不是悄悄漂移。

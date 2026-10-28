@@ -14,9 +14,8 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
   mcp.registerTool(
     'dsh_guide',
     {
-      title: 'dsh usage guide',
-      description:
-        'Usage guide for dsh and this plugin. Call it with no arguments first: that returns a compact section index. Then fetch one section: concepts (glossary), workflows (recipes), errors (error → alternative path), results (reading results cheaply), limits (deployment limits); "all" returns the full document.',
+      title: 'Rice on a Stick: dsh guide',
+      description: `Rice on a Stick (白饭钓竿) is the bridge behind these tools — the session, approval, question, endpoint and catalog tools plus this guide — and operates a running dsh (DeepSeek Harness): sessions, approvals and questions, models, permissions, raw endpoints. Call with no arguments for a section index (concepts, workflows, errors, results, limits); fetch one section before a non-trivial workflow.`,
       inputSchema: {
         section: z
           .enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits'])
