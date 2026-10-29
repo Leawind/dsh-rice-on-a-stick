@@ -103,7 +103,7 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 | `session_fork`           | Fork a session from a prefix of its events, inheriting its directory, preset and current model (echoed as workspacePath)                                                                                                              |
 | `session_command_list`   | List a session's slash commands (read-only)                                                                                                                                                                                           |
 | `session_command_run`    | Run one slash command without sending it to the model or creating a turn                                                                                                                                                              |
-| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`                                                                                                                                 |
+| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`, and a never-used one requires `force=true`                                                                                     |
 | `session_unarchive`      | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false`                                                                                                                             |
 
 ### Session reads

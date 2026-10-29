@@ -101,7 +101,7 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 | `session_fork`           | 分叉会话：从源会话事件的前缀派生新会话，继承 workspacePath、预设与当前模型并回显                                                                                                 |
 | `session_command_list`   | 列出会话可用的斜杠命令（只读）                                                                                                                                                   |
 | `session_command_run`    | 执行一条斜杠命令，不发给模型也不产生 turn                                                                                                                                        |
-| `session_archive`        | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`                                                                                                             |
+| `session_archive`        | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`，从未用过的会话需 `force=true`                                                                              |
 | `session_unarchive`      | 恢复已归档会话，幂等；未归档的会话如实回报 `wasArchived: false`                                                                                                                  |
 
 ### 会话读取
