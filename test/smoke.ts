@@ -880,6 +880,60 @@ try {
   checks['session_archive stopActivity 归档成功'] =
     archived.some((a) => a.sessionId === 'sess-live' && a.stopActivity === true) && innerOf(archiveOk).archived === true
 
+  // 回执回显目标: 归错会话不再"看起来跟正确操作一样成功"
+  checks['session_archive 回执回显目标(标题/轮数)与剩余归档数'] =
+    innerOf(archiveOk).title === 'Live One' &&
+    typeof innerOf(archiveOk).turns === 'number' &&
+    innerOf(archiveOk).turns >= 1 &&
+    typeof innerOf(archiveOk).archivedRemaining === 'number'
+
+  // 空白会话护栏: 刚建完、还没派活的会话不能被一次静默归档掉(本次事故的 7 次误伤全是这种)
+  const blankCreate = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 451,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+  })
+  const blankId = innerOf(blankCreate).sessionId
+  const blankBlocked = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 452,
+    method: 'tools/call',
+    params: { name: 'session_archive', arguments: { sessionId: blankId } },
+  })
+  checks['session_archive: 空白会话被拒(isError + UNUSED_SESSION, 未写归档集合)'] =
+    String(innerOf(blankBlocked).error ?? '').includes('UNUSED_SESSION') &&
+    String(innerOf(blankBlocked).error ?? '').includes('force=true') &&
+    !archivedSessionIds.includes(blankId) &&
+    !archived.some((a: any) => a.sessionId === blankId)
+  const blankForced = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 453,
+    method: 'tools/call',
+    params: { name: 'session_archive', arguments: { sessionId: blankId, force: true } },
+  })
+  checks['session_archive: force=true 放行空白会话并回显 forced/turns:0'] =
+    innerOf(blankForced).archived === true && innerOf(blankForced).forced === true && innerOf(blankForced).turns === 0
+  // 还原归档集合: 后续清单/恢复用例按"sess-live 与 sess-legacy"计数, 不受本用例污染
+  await rpc(init.sid, { jsonrpc: '2.0', id: 454, method: 'tools/call', params: { name: 'session_unarchive', arguments: { sessionId: blankId } } })
+
+  // 冷会话走非激活读取同样判定; 已归档会话是宿主幂等 no-op, 不再被护栏重复拦
+  const coldBlank = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 455,
+    method: 'tools/call',
+    params: { name: 'session_archive', arguments: { sessionId: 'sess-persisted2' } },
+  })
+  checks['session_archive: 冷空白会话同样拒绝(非激活读取判定)'] = String(innerOf(coldBlank).error ?? '').includes('UNUSED_SESSION')
+  const alreadyArchived = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 456,
+    method: 'tools/call',
+    params: { name: 'session_archive', arguments: { sessionId: 'sess-legacy' } },
+  })
+  checks['session_archive: 已归档会话幂等回执(alreadyArchived, 护栏不重复拦)'] =
+    innerOf(alreadyArchived).ok === true && innerOf(alreadyArchived).archived === true && innerOf(alreadyArchived).alreadyArchived === true
+
   // ── session_list / session_history ──
   const sl = await rpc(init.sid, { jsonrpc: '2.0', id: 50, method: 'tools/call', params: { name: 'session_list', arguments: {} } })
   const slInner = sl.status === 200 ? innerOf(sl) : { sessions: [] }
@@ -2427,6 +2481,16 @@ try {
     checks['热改 port: 只重建监听器(新端点生效, 旧端口释放)'] =
       moved.config.port === nextPort && String(moved.endpoint).includes(`:${nextPort}/mcp`) && oldPortFree && onNewPort.status === 200
     await svcPhase.dispose()
+  }
+
+  // ── Phase F0: 归档护栏在没有非激活读取通道的部署里 fail-open(读不到 ≠ 没用过) ──
+  {
+    const phase = await startPhase(await firstBindablePort([8081, 8082]), makeCtx({ llm: fakeLlm }), {})
+    const cold = await phase.call('session_archive', { sessionId: 'sess-persisted2' })
+    checks['session_archive: 事件不可读时护栏 fail-open(照常归档, 不报 UNUSED_SESSION)'] =
+      cold.status === 200 && innerOf(cold).archived === true && innerOf(cold).turns === undefined
+    await phase.call('session_unarchive', { sessionId: 'sess-persisted2' })
+    await phase.dispose()
   }
 
   // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──

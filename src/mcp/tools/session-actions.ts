@@ -23,7 +23,8 @@ import { DETAIL_HINT, projectModel, renderResult, renderUriResult } from '../../
 import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, setPermissionPreset } from '../../session/permissions.js'
 import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSessionEvents, serviceOf } from '../../host/bridge.js'
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
-import { resUri, type SessionControllerView } from '../../host/data.js'
+import { resUri, sessionRowOf, type SessionControllerView } from '../../host/data.js'
+import { latestTitleOf, turnStepStatsOf } from '../../session/insight.js'
 import { errorJson, OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
 
 /** workspaceController 视图(归档/恢复; 可选依赖) */
@@ -55,6 +56,47 @@ const MODE_ARG = z
   .describe(
     'queue = after the current turn (a new turn); steer = next step boundary of the running turn (never interrupts one). Omit only when the session is idle.',
   )
+
+/** 会话的用度: 轮数与"是否用过"(有轮或用户消息即算用过) */
+function usageOfEvents(events: readonly unknown[]): { turns: number; unused: boolean } {
+  const turns = turnStepStatsOf(events).turn.started
+  const hasUserMessage = events.some((ev) => (ev as { type?: unknown } | undefined)?.type === 'user/message')
+  return { turns, unused: turns === 0 && !hasUserMessage }
+}
+
+/**
+ * 归档前的目标画像(标题 + 用度): 既给"空白会话护栏"判定, 也给回执回显目标。
+ * 读法刻意压到最低: 标题走清单行投影(live 折内存日志, 冷会话读投影检查点), 零日志 I/O;
+ * live 会话的事件本来就在内存里; 有标题的冷会话直接视为用过, 不为护栏读整份日志;
+ * 只有"冷且无标题"才经 sessionController 非激活读取(空白会话的日志很小)。
+ * 读不到(没有 sessionController/读取失败)时 turns/unused 留空 —— 护栏 fail-open:
+ * 读不到不等于没用过, 不能把"读不到"变成"无法归档"。
+ */
+async function archiveTargetOf(ctx: Context, sessionId: string, signal?: AbortSignal): Promise<{ title?: string; turns?: number; unused?: boolean }> {
+  let rowTitle: string | undefined
+  try {
+    const row = await sessionRowOf(ctx, sessionId)
+    if (typeof row.title === 'string' && row.title !== '') rowTitle = row.title
+  } catch {
+    // 行读不到(会话不存在/宿主拒绝): 让归档调用本身报错, 不在这里改写错误
+  }
+  const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
+  let liveSession: unknown
+  try {
+    liveSession = sessions?.get?.(sessionId) ?? (ctx.agents.get(asSessionId(sessionId)) as { session?: unknown } | undefined)?.session
+  } catch {
+    liveSession = undefined
+  }
+  if (liveSession === undefined && rowTitle !== undefined) return { title: rowTitle }
+  let events: readonly unknown[]
+  try {
+    events = liveSession !== undefined ? eventsOf(liveSession) : await inspectSessionEvents(ctx, asSessionId(sessionId), signal)
+  } catch {
+    return rowTitle !== undefined ? { title: rowTitle } : {}
+  }
+  const title = rowTitle ?? latestTitleOf(events)
+  return { ...(title !== undefined ? { title } : {}), ...usageOfEvents(events) }
+}
 
 export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
@@ -560,27 +602,65 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
-  // 会话归档(界面唯一的"删除": 活动会话需先停止, stopActivity 即界面确认弹窗的"停止并归档")
+  // 会话归档(界面唯一的"删除": 活动会话需先停止, stopActivity 即界面确认弹窗的"停止并归档";
+  // 从未用过的会话需 force: 空白会话通常是刚建来派活的, 归档它多是工具选错)
   mcp.registerTool(
     'session_archive',
     {
       title: 'Archive session',
-      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE}. An active session needs \`stopActivity=true\` (stops the current turn and background tasks first).`,
+      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE}. An active session needs \`stopActivity=true\` (stops the current turn and background tasks first); a session with no turns and no messages is refused unless \`force=true\`.`,
       inputSchema: {
         sessionId: z.string().describe('Session id to archive.'),
         stopActivity: z.boolean().optional().describe("Set true for an active session = stop its current turn first (the UI's Stop and Archive)."),
+        force: z
+          .boolean()
+          .optional()
+          .describe(
+            'Archive a session that was never used (no turns, no messages). Blank sessions are normally created to receive work — set this only to delete one deliberately.',
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ sessionId, stopActivity }) => {
+    async ({ sessionId, stopActivity, force }, extra) => {
       const wc = serviceOf<WorkspaceControllerView>(ctx, 'workspaceController')
       if (typeof wc?.archiveSession !== 'function') {
         return outError(JSON.stringify({ error: 'workspaceController service unavailable (session_archive needs the host workspace controller)' }))
       }
       try {
-        await wc.archiveSession({ sessionId, ...(stopActivity === true ? { stopActivity: true } : {}) })
+        // 护栏先于归档: 已归档的会话不在范围内(宿主归档是幂等 no-op, 重复调用只回 alreadyArchived)
+        const alreadyArchived = archivedSessionIdsOf(ctx).includes(sessionId)
+        const target = await archiveTargetOf(ctx, sessionId, extra?.signal)
+        if (!alreadyArchived && target.unused === true && force !== true) {
+          return outError(
+            JSON.stringify({
+              error: 'refusing to archive a session that has no turns and no messages',
+              code: 'UNUSED_SESSION',
+              sessionId,
+              hint: 'pass force=true to delete an unused session deliberately; to give it work instead, use session_send',
+            }),
+          )
+        }
+        const res = await wc.archiveSession({ sessionId, ...(stopActivity === true ? { stopActivity: true } : {}) })
         state.hooks.notifyListChanged()
-        return out(JSON.stringify({ ok: true, sessionId, archived: true, ...(stopActivity === true ? { stoppedActivity: true } : {}) }))
+        // 宿主回传归档后的完整集合: 回执带上剩余条数(与 session_unarchive 的 archivedRemaining 对称)
+        const remaining = Array.isArray((res as { archivedSessionIds?: unknown } | null)?.archivedSessionIds)
+          ? (res as { archivedSessionIds: readonly unknown[] }).archivedSessionIds
+          : undefined
+        const forced = !alreadyArchived && target.unused === true && force === true
+        return out(
+          JSON.stringify({
+            ok: true,
+            sessionId,
+            archived: true,
+            ...(target.title !== undefined ? { title: target.title } : {}),
+            ...(target.turns !== undefined ? { turns: target.turns } : {}),
+            ...(alreadyArchived ? { alreadyArchived: true } : {}),
+            ...(forced ? { forced: true } : {}),
+            ...(remaining !== undefined ? { archivedRemaining: remaining.length } : {}),
+            ...(stopActivity === true && !alreadyArchived ? { stoppedActivity: true } : {}),
+            note: alreadyArchived ? 'already archived; nothing changed' : 'hidden from lists and search; session_unarchive restores it',
+          }),
+        )
       } catch (e) {
         const msg = (e as Error)?.message ?? String(e)
         const hint = msg.includes('session-active')
