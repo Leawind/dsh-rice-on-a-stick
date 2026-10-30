@@ -51,7 +51,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List workspaces',
       description:
-        'List registered workspaces (id, path, owning sessions) — a workspace is the session-grouping directory in the dsh sidebar. Headless deployments have no workspace registry; the result says so.',
+        'List registered workspaces (id, path, owning sessions) — a workspace is the session-grouping directory in the dsh sidebar. Use it to resolve a user-named workspace to the `path` that `session_create.cwd` takes. Headless deployments have no workspace registry; the result says so.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },

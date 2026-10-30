@@ -81,7 +81,7 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dsh_guide`         | dsh usage guide: no arguments returns a compact section index; `section` fetches one part (concepts/workflows/errors/results/limits), `all` the full text                  |
 | `plugin_status`     | Read-only deployment status: version, listener, config summary, subscription stats, connected clients and the host global-tool count — the same data as the settings panel |
-| `workspace_list`    | List registered workspaces (id, path, owning sessions)                                                                                                                     |
+| `workspace_list`    | List registered workspaces (id, path, owning sessions); resolve a user-named workspace to the `path` that `session_create.cwd` takes                                       |
 | `model_list`        | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection                                                          |
 | `permission_list`   | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission`                               |
 | `session_subagents` | Read a session's native subagent catalog; `recursive=true` lists descendants                                                                                               |
@@ -90,7 +90,7 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 | Tool                     | Purpose                                                                                                                                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session_create`         | Create a blank session with `cwd`, provider/model and preset all explicit; returns `sessionId`                                                                                                  |
+| `session_create`         | Create a blank session with `cwd` (the workspace directory — resolve a user-named workspace with `workspace_list` first), provider/model and preset all explicit; returns `sessionId`           |
 | `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations                                                                       |
 | `session_send`           | Send a message into a session; `wait` picks the blocking semantics: input (default) returns early on approvals/questions, turn blocks until the turn ends, none returns the receipt immediately |
 | `session_poll`           | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message                                                                 |

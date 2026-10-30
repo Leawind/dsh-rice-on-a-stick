@@ -18,6 +18,13 @@ you already know.
 - **session / agent** — one conversation and its runtime. The web UI calls it a session;
   the runtime object that executes turns is its agent. They are 1:1: creating a session
   creates the agent, and the agent's context IS the session history.
+- **workspace** — the dsh web UI groups sessions in the sidebar by workspace:
+  one directory per workspace, listed by `workspace_list` (id, path, owning sessions).
+  `session_create.cwd` selects that directory; a path matching no registered workspace
+  gets a new workspace, so any other directory (your own cwd, a worktree, a
+  subdirectory) silently creates a second one. When the user names a workspace, take its
+  `path` from `workspace_list` and pass it as `cwd` — never substitute your own cwd or
+  worktree.
 - **Model & preset selection** — chosen per session at creation (`session_create`
   requires an explicit `provider`+`model` pair and a `preset`, all from
   `model_list` / `dsh://presets`; nothing is backfilled). The model is switchable
@@ -115,9 +122,11 @@ you already know.
 ## Workflow recipes
 
 1. **One-off task** — `session_create` (cwd + provider/model pair + preset, plus an
-   optional `permission` preset), then `session_send` with the task. The result
-   carries the `sessionId`; pass it back later to continue that conversation (send only
-   the delta).
+   optional `permission` preset), then `session_send` with the task. `cwd` is the
+   workspace directory: when the user names a workspace, resolve its `path`
+   with `workspace_list` first — another directory silently creates a separate
+   workspace. The result carries the `sessionId`; pass it back later to continue that
+   conversation (send only the delta).
 2. **Keep working in a session** — repeat `session_send` with the same `sessionId`.
    The agent remembers previous turns; for a fresh start create a new session.
 3. **Session is busy** — `session_send` with mode=`queue` lines up behind the current

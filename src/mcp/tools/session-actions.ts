@@ -52,9 +52,13 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Create session',
       description:
-        'Create a blank session bound to the `cwd` workspace, with an explicit model and preset (values from `model_list`; nothing is backfilled). Returns `sessionId`; send work with `session_send`.',
+        'Create a blank session bound to the `cwd` directory — its dsh workspace (the sidebar group for it). Resolve a user-named workspace with `workspace_list` and pass its `path` as `cwd`; never substitute your own cwd or worktree. Requires an explicit model and preset (from `model_list`; nothing is backfilled). Returns `sessionId`; send work with `session_send`.',
       inputSchema: {
-        cwd: z.string().describe('Working directory bound to the session workspace.'),
+        cwd: z
+          .string()
+          .describe(
+            'Session working directory, i.e. the dsh workspace the session is grouped under. When the user names a workspace, pass the `path` from `workspace_list`; a path matching no registered workspace gets a new one, so another directory (a worktree, a subdirectory) silently lands the session elsewhere.',
+          ),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
         model: z.string().describe('Model id (see model_list / dsh://models; must be paired with provider).'),
         reasoningEffort: z.string().optional().describe('Reasoning effort id (see model_list reasoningEfforts; default = adapter default).'),

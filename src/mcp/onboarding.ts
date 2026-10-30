@@ -77,7 +77,7 @@ export const GET_STARTED_DOC = GUIDE_HEADER + SECTION_IDS.map((id) => GET_STARTE
 /** 各节的一句话索引(默认返回的"目录"; 全文按需显式取, 避免首次交互就付 6k token) */
 const SECTION_BLURBS: Record<NamedSection, string> = {
   concepts:
-    'glossary — sessions/agents, model & preset selection, send modes, async requests, turn vs step, lifecycle, subagents, approvals, questions, permissions, attachments, endpoint passthrough',
+    'glossary — sessions/agents, workspaces (the sidebar groups), model & preset selection, send modes, async requests, turn vs step, lifecycle, subagents, approvals, questions, permissions, attachments, endpoint passthrough',
   workflows:
     'recipes — one-off task, busy sessions (queue/steer), fan-out workers, human-input gate, finding & inspecting sessions, resources & push updates, images, endpoint escape hatch',
   errors: 'error → alternative-path table (what to do instead when a call fails)',
