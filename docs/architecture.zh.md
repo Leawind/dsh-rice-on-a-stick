@@ -18,6 +18,7 @@ src/
   session/          执行引擎、异步控制面、远程回答客户端(answers)、审批/问题、投影、请求索引、会话洞察(insight)、原生工具注册
   mcp/              Streamable HTTP、GUI 路由、工具/资源面、订阅枢纽、agent 认知面
   client/           侧栏页源码, 按域拆分(tsdown 打包为单文件 client/client.js)
+locale/             展示元信息(dsh 插件页读的 meta.title / meta.description; 客户端字典据此派生插件名)
 docs/onboarding/    initialize 引导与 dsh_guide 正文(Markdown，运行时读取)
 test/               冒烟、真机 e2e、UI harness
 ```
@@ -29,6 +30,17 @@ test/               冒烟、真机 e2e、UI harness
 - `src/` 是唯一源码目录，浏览器端侧栏页在 `src/client/`：入口 `client.ts`（dsh 侧栏的"白饭钓竿"入口 + 中央面板：审批/设置/连接三个标签）+ 按域拆分的模块（`locales/` 中英文案、`styles/` 面板样式、`components/` 面板与控件、`approvalStore`/`configFields`/`rpc`/`format`/`i18n` 数据与逻辑）。
 - `lib/` 与 `client/` 都是构建产物，已列入 `.gitignore`。`client/` 与官方/社区插件同约定：源码在 `src/client/`，由 tsdown（`tsdown.config.ts`）打包为单文件 bundle——cjs + banner/intro/footer 包进宿主 `__ModuleLoader__` 工厂闭包，react/@deepseek-ai/* 外部化（宿主经模块表播种），icon.svg 经 svgText 插件在打包时内联；宿主 client-hmr 监听该产物。
 - `docs/onboarding/*.md` 是运行时读取的产品文本（随 npm 包发布），不是编译产物；改文案不需要改 TypeScript。
+
+## 展示元信息（`locale/`）
+
+dsh 的插件页与详情页只从两处读展示文本（`dsh-app-boot` 的 `readPluginMeta`）：导出的 `locale/<语言>.json` 的 `meta.title` / `meta.description`，以及字段缺失时的兜底——经 Node `exports` 解析到的 `package.json` 的 `name` / `description` / `icon`。这条链路全程静默：解析不到、或被 `exports` 挡在包外时，dsh 当作"没有元信息"，不产生任何诊断，界面只剩裸包名、没有描述（本插件此前正是如此）。
+
+- `package.json` 必须导出 `./package.json` 与 `./locale/*.json`，且 `files` 必须包含 `locale`，否则发布包里没有这些资源。空串字段同样致命：宿主的 `textOf` 会抛错，整份元信息退化成一条诊断。
+- 名字单源在 `locale/*.json`：`src/client/locales/*.ts` 的 `nav` / `plugin.name` 取同一份 `meta.title`（打包期内联，与 `icon.svg` 单源同理），侧栏、面板标题与插件页不会各写一份。
+- 英文描述故意只写在 `package.json`（npm 列表与插件页共用同一句），`locale/en.json` 只给标题；中文描述在 `locale/zh.json`。同一句话因此只存在一处。
+- 图标只声明 `package.json.icon` 一处，不再导出 `./icon`：dsh 优先读 manifest 字段，两条路径指向同一份图形只会分叉。
+
+`test/package-meta.ts`（`npm run test:meta`）按宿主的解析与兜底规则把这条链路钉住。
 
 ## 设计约束
 
@@ -45,7 +57,7 @@ test/               冒烟、真机 e2e、UI harness
 
 ## 测试
 
-- `npm test`：build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
+- `npm test`：`test:meta`（`test/package-meta.ts` 展示元信息契约）+ build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
 - `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
 - `npm run smoke:ui`：先 build 再跑侧栏页浏览器冒烟（`test/ui-harness.mjs`）。
 
