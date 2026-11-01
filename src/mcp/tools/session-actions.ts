@@ -1,5 +1,6 @@
 /**
- * 会话动作类工具: 新建、发送(wait 选阻塞语义)、观察、取结果、停止、排队、换模型、改名、分叉、归档、恢复。
+ * 会话动作类工具: 新建(必带首条消息)、发送(wait 选阻塞语义, 默认 none)、观察、取结果、停止、排队、换模型、改名、分叉、归档、恢复。
+ * session_create 与 session_send 共用同一组投递参数与同一个投递助手(deliverMessage), 格式不漂移。
  * 读语义在 session-read.ts; 审批与子代理发现分别在 approvals.ts / catalog.ts。
  */
 import { z } from 'zod'
@@ -18,6 +19,7 @@ import {
   sessionCwdOf,
   submitSession,
 } from '../../session/engine.js'
+import { requestOf } from '../../session/requests.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_HINT, projectModel, renderResult, renderUriResult } from '../../session/projection.js'
 import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, setPermissionPreset } from '../../session/permissions.js'
@@ -47,7 +49,7 @@ const ATTACHMENTS_ARG = z
   .describe('Images to attach: a host-readable path or URL (bytes are read host-side, never base64 in arguments); png/jpeg/webp/gif, max 8.')
 
 /**
- * 投递模式参数(session_send 共用): 可省略只在"会话空闲"时有意义——
+ * 投递模式参数(session_send / session_create 首条消息共用): 可省略只在"会话空闲"时有意义——
  * 那时两者等价、引擎补 queue; 会话在跑 turn 时语义不同, 省略即失败(MODE_REQUIRED)。
  */
 const MODE_ARG = z
@@ -98,13 +100,96 @@ async function archiveTargetOf(ctx: Context, sessionId: string, signal?: AbortSi
   return { ...(title !== undefined ? { title } : {}), ...usageOfEvents(events) }
 }
 
+/** 幂等键参数(session_send / session_create 首条消息共用): 重复同一个 id 返回首次回执, 不再投递 */
+const REQUEST_ID_ARG = z
+  .string()
+  .min(1)
+  .max(200)
+  .optional()
+  .describe('Idempotency key (generated if omitted): repeating it returns the first receipt instead of re-delivering.')
+
+/**
+ * 等待语义参数(session_send / session_create 首条消息共用): 默认 none —— 只做 admission 立即回执,
+ * 异步控制面是主入口; 要等(审批/提问提前回、等 turn 收敛)必须显式声明。
+ */
+const WAIT_ARG = z
+  .enum(['input', 'turn', 'none'])
+  .optional()
+  .describe(
+    'none (default): return the admission receipt immediately — observe with session_poll, fetch the result with session_result; input: return early when the session waits for an approval/question; turn: block until the turn ends.',
+  )
+
+/** 结果详略参数(session_send / session_create 首条消息共用; 只对 wait=input/turn 有意义) */
+const DETAIL_ARG = z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail (wait=input/turn only): ${DETAIL_HINT}`)
+
+/** 投递执行的统一返回: payload 是回执对象, failed 决定 isError 包装(session_create 还要并入创建字段) */
+interface DeliveryOutcome {
+  failed: boolean
+  payload: Record<string, unknown>
+}
+
+/**
+ * 投递并按 wait 语义渲染回执(session_send / session_create 首条消息共用):
+ *   none(默认) = submitSession 只做 admission, 立即回 requestId 回执(异步控制面主入口);
+ *   input/turn = promptSession 等收敛, 按 detail 投影; turn 失败且已收敛时 failed=true。
+ * 抛错(参数/解析/附件准入失败)由调用方 catch —— session_create 的会话可能已建成, 报错要带上 sessionId。
+ */
+async function deliverMessage(
+  ctx: Context,
+  sessionId: string,
+  args: {
+    task: string
+    attachments?: readonly { path?: string; url?: string; name?: string }[]
+    mode?: 'queue' | 'steer'
+    wait?: 'input' | 'turn' | 'none'
+    requestId?: string
+    detail?: 'uri' | 'summary' | 'normal' | 'full'
+  },
+  extra: { signal?: AbortSignal },
+): Promise<DeliveryOutcome> {
+  const wait = args.wait ?? 'none'
+  if (wait === 'none') {
+    const r = await submitSession({ ctx, sessionId, task: args.task, mode: args.mode, attachments: args.attachments, requestId: args.requestId })
+    // 后续动作的指路语义在 session_poll/session_result 的描述里, 回执不重发
+    return { failed: false, payload: { ...r, resource: resUri.sessionHistory(sessionId) } }
+  }
+  const result = await promptSession({
+    ctx,
+    sessionId,
+    task: args.task,
+    mode: args.mode,
+    waitFor: wait,
+    attachments: args.attachments,
+    requestId: args.requestId,
+    signal: extra.signal,
+  })
+  const effDetail = args.detail ?? 'summary'
+  const pendingNote =
+    result.waiting !== undefined
+      ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
+      : result.pending === true
+        ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
+        : undefined
+  if (effDetail === 'uri') {
+    const uri = renderUriResult(result, resUri.sessionHistory(sessionId))
+    const rendered = pendingNote !== undefined ? { ...uri, note: `${String(uri.note ?? '')} ${pendingNote}`.trim() } : uri
+    return { failed: Boolean(result.error) && result.pending !== true, payload: rendered }
+  }
+  const rendered = {
+    ...renderResult(result, effDetail),
+    resource: resUri.sessionHistory(sessionId),
+    ...(pendingNote !== undefined ? { note: pendingNote } : {}),
+  }
+  return { failed: Boolean(result.error) && result.pending !== true, payload: rendered }
+}
+
 export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
     'session_create',
     {
       title: 'Create session',
       description:
-        'Create a blank session in `workspacePath` — the directory it runs in and its dsh workspace (sidebar group). Resolve a user-named workspace with `workspace_list` and pass its `path`; another directory (your own, a worktree) silently lands the session elsewhere. Model + preset from `model_list`. Returns `sessionId` plus the resolved `workspace` (id/path); send work with `session_send`.',
+        'Create a session in `workspacePath` (its run directory and dsh workspace; resolve a user-named workspace with `workspace_list` — another directory silently lands it elsewhere) and deliver the first message in the same call: message params mirror `session_send`, `task` required (no blank sessions). Model + preset from `model_list`. Returns `sessionId`, the `workspace` and the delivery receipt.',
       inputSchema: {
         workspacePath: z
           .string()
@@ -120,15 +205,38 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           .string()
           .optional()
           .describe('Sandbox + approval bundle for the new session (values from permission_list). Omit = the host default preset.'),
+        task: z
+          .string()
+          .describe('First message to deliver — a session is never created without its task. Sent verbatim: the plugin wraps nothing and appends nothing.'),
+        attachments: ATTACHMENTS_ARG,
+        mode: MODE_ARG,
+        wait: WAIT_ARG,
+        requestId: REQUEST_ID_ARG,
+        detail: DETAIL_ARG,
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ workspacePath, provider, model, reasoningEffort, preset, title, permission }) => {
+    async ({ workspacePath, provider, model, reasoningEffort, preset, title, permission, task, attachments, mode, wait, requestId, detail }, extra) => {
       try {
+        // requestId 预检: 已被其他会话占用就在创建之前拒绝 —— 否则建完才失败, 会留下一个无任务的空白会话
+        if (requestId !== undefined) {
+          const existing = requestOf(requestId)
+          if (existing !== undefined) {
+            return outError(
+              JSON.stringify({
+                error:
+                  `requestId "${requestId}" was already used by session "${existing.sessionId}"; session_create refused to run, so no session was made. ` +
+                  `Fetch that request with session_result({ sessionId: "${existing.sessionId}", requestId }), or deliver more work with session_send — ` +
+                  'retrying session_create with a fresh requestId would create a twin session',
+              }),
+            )
+          }
+        }
         const selection = selectionOf({ provider, model, reasoningEffort })
         const r = await createSession({ ctx, cwd: workspacePath, selection, preset, title, permission })
-        return out(
-          JSON.stringify({
+        try {
+          const delivery = await deliverMessage(ctx, r.sessionId, { task, attachments, mode, wait, requestId, detail }, extra)
+          const payload = {
             sessionId: r.sessionId,
             workspacePath: r.cwd,
             ...(r.workspace !== undefined ? { workspace: r.workspace } : {}),
@@ -136,10 +244,25 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
             preset: r.preset,
             ...(r.permission !== undefined ? { permission: r.permission } : {}),
             ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
-          }),
-        )
+            ...delivery.payload,
+          }
+          const text = JSON.stringify(payload)
+          return delivery.failed ? outError(text) : out(text)
+        } catch (e) {
+          // 会话已建成但首条消息没投出去: 不静默 —— 明确报错并指路补发(会话可见可续, 不留死角)
+          return outError(
+            JSON.stringify({
+              error:
+                `session "${r.sessionId}" was created, but delivering the first message failed: ${(e as Error)?.message ?? String(e)}; ` +
+                `deliver it with session_send({ sessionId: "${r.sessionId}", task })`,
+              ...(typeof (e as { code?: unknown }).code === 'string' ? { code: (e as { code: string }).code } : {}),
+              sessionId: r.sessionId,
+              workspacePath: r.cwd,
+            }),
+          )
+        }
       } catch (e) {
-        return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
+        return outError(errorJson(e))
       }
     },
   )
@@ -181,62 +304,30 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
-  // 统一发送入口: wait 选阻塞语义——input(默认)等审批/提问即回; turn 等本轮收敛; none 只做
-  // admission 立即回执(异步控制面入口)。发送与等待解耦: MCP 取消只停等待, 绝不 cancel turn。
+  // 统一发送入口: wait 选阻塞语义——none(默认)只做 admission 立即回执(异步控制面主入口);
+  // input 等审批/提问即回, turn 等本轮收敛。发送与等待解耦: MCP 取消只停等待, 绝不 cancel turn。
   mcp.registerTool(
     'session_send',
     {
       title: 'Send session message',
       description:
-        "Send a message into a session (the UI's Send). `wait` picks the blocking semantics; wait=none returns a receipt immediately — observe with `session_poll`, fetch with `session_result`. A returned wait does not stop the dsh turn. Repeating a `requestId` returns the first receipt.",
+        "Send a message into a session (the UI's Send). Default `wait=none`: the admission receipt comes back immediately — observe with `session_poll`, fetch the result with `session_result`; `wait=input|turn` blocks instead. Returning never stops the dsh turn. Repeating a `requestId` returns the first receipt.",
       inputSchema: {
         sessionId: z.string().describe('Target session id (continue an existing id to keep its conversation and model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
-        wait: z
-          .enum(['input', 'turn', 'none'])
-          .optional()
-          .describe(
-            'input (default): return early when the session waits for an approval/question; turn: block until the turn ends; none: return the requestId receipt immediately.',
-          ),
-        requestId: z
-          .string()
-          .min(1)
-          .max(200)
-          .optional()
-          .describe('Idempotency key (generated if omitted): repeating it returns the first receipt instead of re-delivering.'),
-        detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail (wait=input/turn only): ${DETAIL_HINT}`),
+        wait: WAIT_ARG,
+        requestId: REQUEST_ID_ARG,
+        detail: DETAIL_ARG,
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ sessionId, task, attachments, mode, wait, requestId, detail }, extra) => {
       try {
-        if (wait === 'none') {
-          const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
-          // 后续动作的指路语义在 session_poll/session_result 的描述里, 回执不重发
-          return out(JSON.stringify({ ...r, resource: resUri.sessionHistory(sessionId) }))
-        }
-        const result = await promptSession({ ctx, sessionId, task, mode, waitFor: wait, attachments, requestId, signal: extra.signal })
-        const effDetail = detail ?? 'summary'
-        const pendingNote =
-          result.waiting !== undefined
-            ? 'the session is waiting for input; the turn keeps running in dsh — answer with approval_answer/question_answer, then fetch the final result via session_result'
-            : result.pending === true
-              ? 'client stopped waiting (or the turn is still open); the turn keeps running in dsh — use session_poll/session_result with requestId, or session_cancel to stop it'
-              : undefined
-        if (effDetail === 'uri') {
-          const uri = renderUriResult(result, resUri.sessionHistory(sessionId))
-          const rendered = pendingNote !== undefined ? { ...uri, note: `${String(uri.note ?? '')} ${pendingNote}`.trim() } : uri
-          const text = JSON.stringify(rendered)
-          return result.error && result.pending !== true ? outError(text) : out(text)
-        }
-        const rendered = JSON.stringify({
-          ...renderResult(result, effDetail),
-          resource: resUri.sessionHistory(sessionId),
-          ...(pendingNote !== undefined ? { note: pendingNote } : {}),
-        })
-        return result.error && result.pending !== true ? outError(rendered) : out(rendered)
+        const delivery = await deliverMessage(ctx, sessionId, { task, attachments, mode, wait, requestId, detail }, extra)
+        const text = JSON.stringify(delivery.payload)
+        return delivery.failed ? outError(text) : out(text)
       } catch (e) {
         return outError(errorJson(e))
       }

@@ -273,6 +273,8 @@ const errAgent = (() => {
 
 /** 池新建会话的注册表(模拟真实宿主: create 的会话即进入 sessions 服务) */
 const liveCreatedSessions = new Map()
+/** 池新建 agent 的注册表(真实宿主契约: agents.create 后 agents.get 即可取回活体) */
+const liveCreatedAgents = new Map()
 
 const STATIC_TOOLS = [
   { name: 'bash', description: 'run a shell command' },
@@ -827,13 +829,16 @@ export function makeCtx(
                       ? busyAgent
                       : id === 'sess-mode-idle'
                         ? modeIdleAgent
-                        : undefined) ?? extraAgents.get(id),
+                        : undefined) ??
+        liveCreatedAgents.get(id) ??
+        extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {
         const id = String(sessionId)
         created.push({ id, cwd: meta?.cwd, agentOptions, preset: meta?.agentPreset })
         // cwd 含 slow-cwd: 建慢 agent(whenIdle 挂起, 仅 cancel 收敛), 供取消链路测试
         const agent = String(meta?.cwd ?? '').includes('slow-cwd') ? makeSlowAgent(id, meta?.cwd, agentOptions) : makeAgent(id, meta?.cwd, agentOptions)
         liveCreatedSessions.set(id, agent.session)
+        liveCreatedAgents.set(id, agent)
         if (setup) await setup({}, agent)
         return {
           agent,

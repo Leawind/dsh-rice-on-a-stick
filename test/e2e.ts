@@ -374,14 +374,15 @@ try {
           provider,
           model,
           preset,
+          task: 'ping — reply with exactly: pong',
           ...(PERMISSION_PRESET ? { permission: PERMISSION_PRESET } : {}),
         },
         60_000,
       )
       sessionId = String(created.inner?.sessionId ?? '')
       report(
-        'session_create 新建会话',
-        sessionId !== '' && created.inner?.preset === preset,
+        'session_create 新建会话并投递首条消息',
+        sessionId !== '' && created.inner?.preset === preset && created.inner?.accepted === true && typeof created.inner?.requestId === 'string',
         `session=${sessionId.slice(0, 8)} model=${JSON.stringify(created.inner?.model)} preset=${created.inner?.preset} permission=${created.inner?.permission ?? '(宿主默认)'}`,
       )
       if (PERMISSION_PRESET) {
@@ -409,6 +410,7 @@ try {
         {
           sessionId,
           task: '用 pwsh 运行 `node -e "console.log(2+2)"`(只要这一条命令), 然后在最后一行输出总结 JSON: {"changes":"...","verification":"...","leftovers":"..."}',
+          mode: 'queue',
           detail: 'normal',
           wait: 'turn',
         },

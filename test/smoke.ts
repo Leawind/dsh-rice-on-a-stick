@@ -109,15 +109,21 @@ const ctx = makeCtx({
   sessionController: fakeSessionController,
   llm: fakeLlm,
   sessionTitle: fakeSessionTitle,
-  extraSessions: [{ id: 'sess-forked', cwd: FAKE_CWD }],
+  // sess-blank: 无任何事件的 live 会话夹具 —— session_create 必带 task 后, 空白会话只能来自
+  // 旧版本残留或界面手建, 归档护栏的空白夹具因此从假宿主直接注入, 不经工具面
+  extraSessions: [
+    { id: 'sess-forked', cwd: FAKE_CWD },
+    { id: 'sess-blank', cwd: FAKE_CWD },
+  ],
 })
 
 /**
  * 工具面体积预算(Phase A 的 tools/list / initialize 断言用)。
  * 依据: 这部分是每个会话常驻的系统提示成本, 宿主按 4 字符/token 估算;
- * 当前实测 ~30.8 KB / 描述合计 ~7.8 KB / instructions 1.2 KB。要加工具就同步上调, 让增长被显式评审。
+ * 当前实测 ~33.3 KB / 描述合计 ~8.7 KB / instructions 1.2 KB(session_create 复用 session_send 的
+ * 6 个投递参数, 同一组 schema 在 tools/list 里出现两次, 是本次上调的来源)。要加工具就同步上调, 让增长被显式评审。
  */
-const SURFACE_BUDGET = 33_000
+const SURFACE_BUDGET = 34_000
 const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 
@@ -326,12 +332,26 @@ try {
     method: 'tools/call',
     params: {
       name: 'session_create',
-      arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', permission: 'danger-full-access' },
+      arguments: {
+        workspacePath: FAKE_CWD,
+        provider: 'p1',
+        model: 'm1',
+        preset: 'standard',
+        task: 'smoke 首条任务',
+        title: 'smoke 会话',
+        permission: 'danger-full-access',
+      },
     },
   })
   const mkInner = mk.status === 200 ? innerOf(mk) : { error: 'bad' }
   checks['session_create 返回 sessionId/模型/preset'] =
     typeof mkInner.sessionId === 'string' && mkInner.model?.provider === 'p1' && mkInner.model?.model === 'm1' && mkInner.preset === 'standard'
+  // 首条消息同调用投递: 默认 wait=none, 回执带 accepted/requestId, 消息原文送达(不另发 session_send)
+  checks['session_create 同调用投递首条消息(accepted/requestId 回执)'] =
+    mkInner.accepted === true && typeof mkInner.requestId === 'string' && typeof mkInner.messageId === 'string' && mkInner.mode === 'queue'
+  checks['session_create 首条消息原样送达'] = followups.some(
+    (f) => f.id === mkInner.sessionId && String(f.message?.content?.[0]?.text ?? '') === 'smoke 首条任务',
+  )
   // 权限预设: 走宿主 permissionPresets.set(与界面 /permission 同源), 结果回显生效值
   checks['session_create 应用权限预设(permissionPresets.set)'] =
     mkInner.permission === 'danger-full-access' &&
@@ -351,7 +371,7 @@ try {
     jsonrpc: '2.0',
     id: 115,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'default perm probe' } },
   })
   const mkDefaultPermInner = mkDefaultPerm.status === 200 ? innerOf(mkDefaultPerm) : { error: 'bad' }
   checks['session_create 省略 permission 继承宿主默认并回显'] =
@@ -359,13 +379,39 @@ try {
     mkDefaultPermInner.permissionRequested === undefined &&
     !permissionPresetCalls.some((c) => c.id === mkDefaultPermInner.sessionId)
 
+  // requestId 预检: 已被占用的键在创建之前拒绝 —— 不留无任务的空白会话, 并指回原请求
+  const createdBeforeDupReq = created.length
+  const mkDupReq = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 1161,
+    method: 'tools/call',
+    params: {
+      name: 'session_create',
+      arguments: {
+        workspacePath: FAKE_CWD,
+        provider: 'p1',
+        model: 'm1',
+        preset: 'standard',
+        task: 'dup probe',
+        requestId: mkDefaultPermInner.requestId,
+      },
+    },
+  })
+  checks['session_create requestId 已占用时创建前拒绝(不建会话)'] =
+    String(innerOf(mkDupReq).error ?? '').includes('already used by session') &&
+    String(innerOf(mkDupReq).error ?? '').includes(mkDefaultPermInner.sessionId) &&
+    created.length === createdBeforeDupReq
+
   // 未知预设被拒, 且不留下半残会话
   const createdBeforeBadPerm = created.length
   const mkBadPerm = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 116,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'nope' } },
+    params: {
+      name: 'session_create',
+      arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'bad perm probe', permission: 'nope' },
+    },
   })
   checks['session_create 未知权限预设被拒且不建会话'] =
     String(innerOf(mkBadPerm).error ?? '').includes('unknown permission preset') && created.length === createdBeforeBadPerm
@@ -386,6 +432,21 @@ try {
   checks['session_create 缺 model 被明确拒绝'] =
     String(innerOf(mkNoModel).error ?? '').includes('session_create') && String(innerOf(mkNoModel).error ?? '').includes('model')
 
+  // 参数校验: task 必填 —— 参数校验层拒绝(协议级 -32602), 不产生任何会话
+  const createdBeforeNoTask = created.length
+  const mkNoTask = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 111,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+  })
+  // SDK 的参数校验失败以 isError 结果表达(-32602 文本点名缺失参数), 不是协议级 error
+  checks['session_create 缺 task 被参数校验拒绝(不建会话)'] =
+    parsePayload(mkNoTask.text).result?.isError === true &&
+    String(innerOf(mkNoTask).error ?? '').includes('-32602') &&
+    String(innerOf(mkNoTask).error ?? '').includes('task') &&
+    created.length === createdBeforeNoTask
+
   // 参数校验: preset 同契约必填(不做默认回填)
   const mkNoPreset = await rpc(init.sid, {
     jsonrpc: '2.0',
@@ -402,7 +463,7 @@ try {
     jsonrpc: '2.0',
     id: 12,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope', task: 'bad preset probe' } },
   })
   checks['session_create 未知 preset 被拒'] = String(mkBadPreset.status === 200 ? (innerOf(mkBadPreset).error ?? '') : '').includes('unknown preset')
 
@@ -415,7 +476,7 @@ try {
     jsonrpc: '2.0',
     id: 20,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'say ok' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'say ok', wait: 'turn' } },
   })
   const runLiveInner = runLive.status === 200 ? innerOf(runLive) : { error: 'bad' }
   checks['session_send 接管 live 会话(结果自报其原模型)'] =
@@ -436,13 +497,16 @@ try {
   })
   checks['session_send mode=steer 送达 agent.steer'] =
     runSteer.status === 200 && steered.some((s) => s.id === 'sess-live' && String(s.message?.content?.[0]?.text ?? '').includes('STEER-MARKER-1'))
+  // 默认 wait=none: 省略 wait 即回 admission 回执(异步主入口), steer 亦然
+  checks['session_send 默认 wait=none(省略即回执)'] =
+    innerOf(runSteer).accepted === true && typeof innerOf(runSteer).requestId === 'string' && innerOf(runSteer).mode === 'steer'
 
   // turn 失败透出(sess-err: turn/end reason=error)
   const runErr = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 22,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-err', task: 'boom' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-err', task: 'boom', wait: 'turn' } },
   })
   checks['session_send turn 失败透出(isError)'] =
     parsePayload(runErr.text).result?.isError === true &&
@@ -454,7 +518,7 @@ try {
     jsonrpc: '2.0',
     id: 23,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-persisted', task: 'continue' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-persisted', task: 'continue', wait: 'turn' } },
   })
   const runResumedInner = runResumed.status === 200 ? innerOf(runResumed) : { error: 'bad' }
   checks['session_send 冷恢复走官方 resolveAgent'] = resolvedAgents.includes('sess-persisted')
@@ -536,7 +600,7 @@ try {
     jsonrpc: '2.0',
     id: 272,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'prompt id probe', requestId: 'smoke-prompt-req' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'prompt id probe', requestId: 'smoke-prompt-req', wait: 'turn' } },
   })
   checks['session_send 支持调用方 requestId'] = innerOf(promptWithId).requestId === 'smoke-prompt-req' && innerOf(promptWithId).status === 'completed'
 
@@ -687,7 +751,7 @@ try {
     jsonrpc: '2.0',
     id: 30,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-slow', task: 'long job', mode: 'queue' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-slow', task: 'long job', mode: 'queue', wait: 'turn' } },
   })
   await waitFor(() => followups.some((f) => f.id === 'sess-slow'), 5000)
   // 有界 long-poll: 先挂起一个 poll, 再从另一个请求 cancel, poll 应观察到状态变化
@@ -885,14 +949,10 @@ try {
     innerOf(archiveOk).turns >= 1 &&
     typeof innerOf(archiveOk).archivedRemaining === 'number'
 
-  // 空白会话护栏: 刚建完、还没派活的会话不能被一次静默归档掉(本次事故的 7 次误伤全是这种)
-  const blankCreate = await rpc(init.sid, {
-    jsonrpc: '2.0',
-    id: 451,
-    method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
-  })
-  const blankId = innerOf(blankCreate).sessionId
+  // 空白会话护栏: 没派过活的会话不能被一次静默归档掉(本次事故的 7 次误伤全是这种)。
+  // session_create 必带 task 后工具面造不出空白会话 —— 夹具改从假宿主注入(sess-blank, 无任何事件),
+  // 覆盖的正是"旧版本/界面残留的空白会话"这一真实来源。
+  const blankId = 'sess-blank'
   const blankBlocked = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 452,
@@ -1500,7 +1560,7 @@ try {
     jsonrpc: '2.0',
     id: 67,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'push probe' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'push probe', wait: 'turn' } },
   })
   await waitFor(() => {
     const seen = sse.events.slice(before).map((e: any) => e.params?.uri ?? '')
@@ -1522,7 +1582,7 @@ try {
     jsonrpc: '2.0',
     id: 71,
     method: 'tools/call',
-    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'family push probe' } },
+    params: { name: 'session_send', arguments: { sessionId: 'sess-live', task: 'family push probe', wait: 'turn' } },
   })
   await waitFor(() => {
     const seen = sse.events.slice(before2).map((e: any) => e.params?.uri ?? '')
@@ -1541,9 +1601,9 @@ try {
   // ── Phase B: allowedModels 允许清单(独立端口独立 ctx; 缺省开关按"清单非空即启用"推导) ──
   {
     const phase = await startPhase(8098, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
-    const mkOut = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
+    const mkOut = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard', task: 'allowlist probe' })
     checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? (innerOf(mkOut).error ?? '') : '').includes('not in allowedModels')
-    const mkIn = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
+    const mkIn = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'allowlist ok probe' })
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
     checks['allowedModels: select_model 清单外被拒'] = String(innerOf(selOut).error ?? '').includes('not in allowedModels')
@@ -1551,7 +1611,7 @@ try {
     const live = ConfigSchema({ allowedModels: ['p1/m1', 'p1/m2'], allowedModelsEnabled: true }) as any
     updateVolatile(phase.config.allowedModels, live.allowedModels)
     updateVolatile(phase.config.allowedModelsEnabled, live.allowedModelsEnabled)
-    const mkLive = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm2', preset: 'standard' })
+    const mkLive = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm2', preset: 'standard', task: 'live update probe' })
     checks['volatile: 白名单就地更新后立即生效(不重载)'] = typeof innerOf(mkLive).sessionId === 'string'
     await phase.dispose()
   }
@@ -1562,7 +1622,7 @@ try {
       allowedModels: ['p1/m1'],
       allowedModelsEnabled: false,
     })
-    const mkOff = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
+    const mkOff = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard', task: 'off probe' })
     checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
     const stOff = await phase.call('plugin_status', {})
     checks['allowedModels: 关闭态 status 透出 enabled=false'] = innerOf(stOff).config?.allowedModelsEnabled === false
@@ -1594,11 +1654,12 @@ try {
       provider: 'p1',
       model: 'm1',
       preset: 'standard',
+      task: 'no perm svc probe',
       permission: 'danger-full-access',
     })
     checks['权限预设缺席: 指定 permission 被拒且不建会话'] =
       String(innerOf(mkNoPermSvc).error ?? '').includes('permission-presets service is unavailable') && created.length === before
-    const mkPlain = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
+    const mkPlain = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'plain probe' })
     const mkPlainInner = innerOf(mkPlain)
     checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string' && mkPlainInner.permission === undefined
     const meta = await phase.call('session_inspect', { sessionId: 'sess-live' })
