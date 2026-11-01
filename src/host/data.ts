@@ -272,7 +272,7 @@ function projectRow(ctx: Context, header: SessionHeader, sources: RowSources, ar
     createdAt: header.createdAt,
     archived: archivedIds.has(header.id),
     ...(title !== undefined ? { title } : {}),
-    ...(header.cwd ? { cwd: header.cwd } : {}),
+    ...(header.cwd ? { workspacePath: header.cwd } : {}),
     ...(header.agentPreset ? { agentPreset: header.agentPreset } : {}),
     ...(permission !== undefined ? { permission } : {}),
     // 原生子代理/分叉的持久谱系字段(SessionHeader 自带; 之前没投影, 外部调用方看不到树)
@@ -412,7 +412,8 @@ async function resolveColdTitles(
 
 /**
  * session_list / dsh://sessions 的共享实现: live + 持久化合并(live 优先), 白名单裁剪, cwd/归档过滤
- * (total 为过滤后计数)。cwd 参数越界时抛错(与 session_create 的 cwd 拒绝同风格)。
+ * (total 为过滤后计数)。workspacePath 参数越界时抛错(与 session_create 的目录拒绝同风格)。
+ * 注: SessionQuery.cwd 是内部管道命名, 调用面入参已改名 workspacePath。
  * 标题过滤: live 会话的标题走内存(会话对象字段优先, 缺失时折内存日志), 零 I/O;
  * 冷会话默认不参与匹配, 显式 includeCold 才解析标题——解析链是"插件缓存 → 宿主持久投影检查点
  * (零 I/O) → 读日志(批量折叠优先)", 只有最后一层付日志读, 且由 coldScanMax 限定条数。
@@ -553,10 +554,10 @@ export async function sessionRowOf(ctx: Context, sessionId: string): Promise<Rec
 // ── 单会话检查(session_inspect 工具 / dsh://sessions/{id} 与 {id}/overview 资源同实现) ──
 
 /** 检查面的可选字段; 显式传 fields 时整体替换默认档(未知字段名直接报错) */
-export const INSPECT_FIELDS = ['title', 'permission', 'model', 'state', 'context', 'recent', 'progress', 'preset', 'cwd'] as const
+export const INSPECT_FIELDS = ['title', 'permission', 'model', 'state', 'context', 'recent', 'progress', 'preset', 'workspacePath'] as const
 export type InspectField = (typeof INSPECT_FIELDS)[number]
 /** 默认档: 界面同款"一眼看全"——标题/目录(工作区归属)/权限/模型+推理档/进行态/上下文占用/最近内容 */
-export const INSPECT_DEFAULT_FIELDS: readonly InspectField[] = ['title', 'cwd', 'permission', 'model', 'state', 'context', 'recent']
+export const INSPECT_DEFAULT_FIELDS: readonly InspectField[] = ['title', 'workspacePath', 'permission', 'model', 'state', 'context', 'recent']
 /** recent 摘要的条数: 默认与上限(条目是一行摘要, 上限防长日志灌穿) */
 export const INSPECT_RECENT_DEFAULT_LIMIT = 5
 export const INSPECT_RECENT_LIMIT_MAX = 20
@@ -603,7 +604,7 @@ export async function sessionInspectPayload(
   if (want('permission') && insight.permission !== undefined) result.permission = insight.permission
   if (want('model') && insight.model !== undefined) result.model = insight.model
   if (want('preset') && insight.preset !== undefined) result.preset = insight.preset
-  if (want('cwd') && insight.cwd !== undefined) result.cwd = insight.cwd
+  if (want('workspacePath') && insight.workspacePath !== undefined) result.workspacePath = insight.workspacePath
   if (want('context') && insight.context !== undefined) result.context = insight.context
   if (want('progress')) {
     result.turn = insight.turn

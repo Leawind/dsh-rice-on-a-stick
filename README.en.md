@@ -81,40 +81,40 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dsh_guide`         | dsh usage guide: no arguments returns a compact section index; `section` fetches one part (concepts/workflows/errors/results/limits), `all` the full text                  |
 | `plugin_status`     | Read-only deployment status: version, listener, config summary, subscription stats, connected clients and the host global-tool count — the same data as the settings panel |
-| `workspace_list`    | List registered workspaces (id, path, owning sessions); resolve a user-named workspace to the `path` that `session_create.cwd` takes                                       |
+| `workspace_list`    | List registered workspaces (id, path, owning sessions); resolve a user-named workspace to the `path` that `session_create.workspacePath` takes                             |
 | `model_list`        | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection                                                          |
 | `permission_list`   | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission`                               |
 | `session_subagents` | Read a session's native subagent catalog; `recursive=true` lists descendants                                                                                               |
 
 ### Session actions
 
-| Tool                     | Purpose                                                                                                                                                                                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session_create`         | Create a blank session with `cwd` (the workspace directory — resolve a user-named workspace with `workspace_list` first), provider/model and preset all explicit; returns `sessionId` plus the resolved workspace (id/path) |
-| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations                                                                                                   |
-| `session_send`           | Send a message into a session; `wait` picks the blocking semantics: input (default) returns early on approvals/questions, turn blocks until the turn ends, none returns the receipt immediately                             |
-| `session_poll`           | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message                                                                                             |
-| `session_result`         | Fetch the structured result by `requestId` (omitting it returns the session's latest request)                                                                                                                               |
-| `session_cancel`         | Stop the session's current turn, keeping queued messages that have not started                                                                                                                                              |
-| `session_queue`          | List a session's queued messages (read-only)                                                                                                                                                                                |
-| `session_queue_manage`   | Mutate a session's queued messages — edit, remove, or promote one to a steer with `action="steer"`                                                                                                                          |
-| `session_select_model`   | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list)                                                                 |
-| `session_rename`         | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title)                                                                                                                      |
-| `session_fork`           | Fork a session from a prefix of its events, inheriting cwd, preset and current model (echoed in the result)                                                                                                                 |
-| `session_command_list`   | List a session's slash commands (read-only)                                                                                                                                                                                 |
-| `session_command_run`    | Run one slash command without sending it to the model or creating a turn                                                                                                                                                    |
-| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`                                                                                                                       |
-| `session_unarchive`      | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false`                                                                                                                   |
+| Tool                     | Purpose                                                                                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_create`         | Create a blank session with `workspacePath` (the workspace directory — resolve a user-named workspace with `workspace_list` first), provider/model and preset all explicit; returns `sessionId` plus the resolved workspace (id/path) |
+| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations                                                                                                             |
+| `session_send`           | Send a message into a session; `wait` picks the blocking semantics: input (default) returns early on approvals/questions, turn blocks until the turn ends, none returns the receipt immediately                                       |
+| `session_poll`           | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message                                                                                                       |
+| `session_result`         | Fetch the structured result by `requestId` (omitting it returns the session's latest request)                                                                                                                                         |
+| `session_cancel`         | Stop the session's current turn, keeping queued messages that have not started                                                                                                                                                        |
+| `session_queue`          | List a session's queued messages (read-only)                                                                                                                                                                                          |
+| `session_queue_manage`   | Mutate a session's queued messages — edit, remove, or promote one to a steer with `action="steer"`                                                                                                                                    |
+| `session_select_model`   | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list)                                                                           |
+| `session_rename`         | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title)                                                                                                                                |
+| `session_fork`           | Fork a session from a prefix of its events, inheriting its directory, preset and current model (echoed as workspacePath)                                                                                                              |
+| `session_command_list`   | List a session's slash commands (read-only)                                                                                                                                                                                           |
+| `session_command_run`    | Run one slash command without sending it to the model or creating a turn                                                                                                                                                              |
+| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`                                                                                                                                 |
+| `session_unarchive`      | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false`                                                                                                                             |
 
 ### Session reads
 
-| Tool              | Purpose                                                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `session_list`    | List session metadata (title, cwd, preset, permission preset, current model), hiding archived ones by default                                                      |
-| `session_history` | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex`                                         |
-| `session_events`  | Read a live session's raw event stream (JSONL), paged with the `after` cursor, 500-line cap                                                                        |
-| `session_inspect` | One-call GUI-style glance: title, cwd, permission, model, in-progress state, context occupancy and a recent digest; `fields` opts into turn/step counters and more |
-| `session_search`  | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default                                                       |
+| Tool              | Purpose                                                                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_list`    | List session metadata (title, workspacePath, preset, permission preset, current model), hiding archived ones by default                                                      |
+| `session_history` | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex`                                                   |
+| `session_events`  | Read a live session's raw event stream (JSONL), paged with the `after` cursor, 500-line cap                                                                                  |
+| `session_inspect` | One-call GUI-style glance: title, workspacePath, permission, model, in-progress state, context occupancy and a recent digest; `fields` opts into turn/step counters and more |
+| `session_search`  | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default                                                                 |
 
 ### Approvals
 

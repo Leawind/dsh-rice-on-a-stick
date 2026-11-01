@@ -369,7 +369,7 @@ try {
         30,
         'session_create',
         {
-          cwd: CWD,
+          workspacePath: CWD,
           provider,
           model,
           preset,

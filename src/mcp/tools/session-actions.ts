@@ -36,7 +36,7 @@ interface WorkspaceControllerView {
 const ATTACHMENTS_ARG = z
   .array(
     z.object({
-      path: z.string().optional().describe('Image file path readable by the dsh host process (absolute, or relative to the session cwd).'),
+      path: z.string().optional().describe('Image file path readable by the dsh host process (absolute, or relative to the session workspacePath).'),
       url: z.string().optional().describe('HTTP(S) URL of the image; the dsh host fetches the bytes (64MB source cap).'),
       name: z.string().optional().describe('Display name (default: file name or URL tail).'),
     }),
@@ -62,12 +62,12 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Create session',
       description:
-        'Create a blank session in the `cwd` directory — its dsh workspace (the sidebar group). Resolve a user-named workspace with `workspace_list` and pass its `path`; another directory (your cwd, a worktree) silently lands the session elsewhere. Model + preset explicit (from `model_list`). Returns `sessionId` plus the resolved `workspace` (id/path); send work with `session_send`.',
+        'Create a blank session in `workspacePath` — the directory it runs in and its dsh workspace (sidebar group). Resolve a user-named workspace with `workspace_list` and pass its `path`; another directory (your own, a worktree) silently lands the session elsewhere. Model + preset from `model_list`. Returns `sessionId` plus the resolved `workspace` (id/path); send work with `session_send`.',
       inputSchema: {
-        cwd: z
+        workspacePath: z
           .string()
           .describe(
-            'Session working directory, i.e. the dsh workspace the session is grouped under. When the user names a workspace, pass the `path` from `workspace_list`; a path matching no registered workspace gets a new one, so another directory (a worktree, a subdirectory) silently lands the session elsewhere.',
+            'Directory the session runs in and the dsh workspace it is grouped under (one directory = one workspace). When the user names a workspace, pass the `path` from `workspace_list`; a path matching no registered workspace creates a new one, so another directory (a worktree, a subdirectory) silently lands the session elsewhere.',
           ),
         provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
         model: z.string().describe('Model id (see model_list / dsh://models; must be paired with provider).'),
@@ -81,14 +81,14 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ cwd, provider, model, reasoningEffort, preset, title, permission }) => {
+    async ({ workspacePath, provider, model, reasoningEffort, preset, title, permission }) => {
       try {
         const selection = selectionOf({ provider, model, reasoningEffort })
-        const r = await createSession({ ctx, cwd, selection, preset, title, permission })
+        const r = await createSession({ ctx, cwd: workspacePath, selection, preset, title, permission })
         return out(
           JSON.stringify({
             sessionId: r.sessionId,
-            cwd: r.cwd,
+            workspacePath: r.cwd,
             ...(r.workspace !== undefined ? { workspace: r.workspace } : {}),
             model: projectModel(r.selection),
             preset: r.preset,
@@ -404,12 +404,12 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     },
   )
 
-  // 会话分叉(界面"分叉": 继承 cwd/预设/当前模型, 新 sessionId, 可选截断点)
+  // 会话分叉(界面"分叉": 继承工作区目录/预设/当前模型, 新 sessionId, 可选截断点)
   mcp.registerTool(
     'session_fork',
     {
       title: 'Fork session',
-      description: `Fork a session from a prefix of its events (default: the most recently completed turn), inheriting cwd, preset and model. Returns the new sessionId with the inherited cwd and model echoed back.`,
+      description: `Fork a session from a prefix of its events (default: the most recently completed turn), inheriting its directory, preset and model. Returns the new sessionId with the inherited workspacePath and model echoed back.`,
       inputSchema: {
         sessionId: z.string().describe('Source session id to fork.'),
         atSeq: z.number().optional().describe('Fork cut-off (event sequence number; default = the most recently completed turn).'),
@@ -434,7 +434,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
             ok: true,
             sourceSessionId: sessionId,
             sessionId: newId,
-            ...(forkedCwd !== undefined ? { cwd: forkedCwd } : {}),
+            ...(forkedCwd !== undefined ? { workspacePath: forkedCwd } : {}),
             ...(forkedSelection !== undefined ? { model: projectModel(forkedSelection) } : {}),
           }),
         )

@@ -22,11 +22,11 @@ you already know.
   creates the agent, and the agent's context IS the session history.
 - **workspace** — the dsh web UI groups sessions in the sidebar by workspace:
   one directory per workspace, listed by `workspace_list` (id, path, owning sessions).
-  `session_create.cwd` selects that directory; a path matching no registered workspace
-  gets a new workspace, so any other directory (your own cwd, a worktree, a
-  subdirectory) silently creates a second one. When the user names a workspace, take its
-  `path` from `workspace_list` and pass it as `cwd` — never substitute your own cwd or
-  worktree.
+  `session_create.workspacePath` selects that directory; a path matching no registered
+  workspace gets a new workspace, so any other directory (your own directory, a worktree,
+  a subdirectory) silently creates a second one. When the user names a workspace, take its
+  `path` from `workspace_list` and pass it as `workspacePath` — never substitute your own
+  directory or worktree.
 - **Model & preset selection** — chosen per session at creation (`session_create`
   requires an explicit `provider`+`model` pair and a `preset`, all from
   `model_list` / `dsh://presets`; nothing is backfilled). A provider is a routable model
@@ -125,9 +125,9 @@ you already know.
 
 ## Workflow recipes
 
-1. **One-off task** — `session_create` (cwd + provider/model pair + preset, plus an
-   optional `permission` preset), then `session_send` with the task. `cwd` is the
-   workspace directory: when the user names a workspace, resolve its `path`
+1. **One-off task** — `session_create` (workspacePath + provider/model pair + preset, plus
+   an optional `permission` preset), then `session_send` with the task. `workspacePath` is
+   the workspace directory: when the user names a workspace, resolve its `path`
    with `workspace_list` first — another directory silently creates a separate
    workspace. The result carries the `sessionId` and the resolved workspace (id/path)
    the session landed in; pass the sessionId back later to continue that
@@ -147,14 +147,14 @@ you already know.
    to the model (for example `name: "compact"` runs `/compact`; it is idle-only and
    reports busy otherwise). The command list comes from the host registry, so plugin
    commands appear automatically.
-5. **Find and inspect sessions** — `session_list` (filtered by cwd or by title, and by
+5. **Find and inspect sessions** — `session_list` (filtered by `workspacePath` or by title, and by
    `scope`: `active` by default, `archived`, or `all` — archived sessions are the soft
    delete and stay out of lists and searches unless asked for; `includeCold: true` also
    matches persisted-only sessions' titles, which come from the host's durable projection
    cache without reading logs, and only sessions the cache cannot answer cost a log read,
    capped per call by `coldScanMax` — default 50, cap 500),
    `session_inspect` for a one-call, GUI-style glance (title,
-   cwd, permission, model + reasoning effort, in-progress state, context occupancy, recent
+   workspacePath, permission, model + reasoning effort, in-progress state, context occupancy, recent
    content digest; bookkeeping like historyReadable is always included; `fields` opts
    into turn/step counters and preset), `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you
@@ -170,7 +170,7 @@ you already know.
    `dsh://sessions/{id}/overview` pushes the one-call glance on the same boundaries.
 7. **Fan-out / parallel workers** — create N sessions with `session_create`, then
    `session_send` with wait=none one task per session (optionally with your own idempotent
-   `requestId`). Pass every session of one project the same `cwd`: identical paths share
+   `requestId`). Pass every session of one project the same `workspacePath`: identical paths share
    one workspace in the sidebar, each distinct path spawns a separate one — resolve the
    intended directory with `workspace_list` once and reuse it. Loop `session_poll` with
    `sessionIds: [...]` and `waitMs: 20000`:

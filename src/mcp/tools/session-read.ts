@@ -30,7 +30,7 @@ const sessionListOut = z.object({
       createdAt: z.number(),
       archived: z.boolean(),
       title: z.string().optional(),
-      cwd: z.string().optional(),
+      workspacePath: z.string().optional(),
       agentPreset: z.string().optional(),
       permission: z.string().optional(),
       parentSession: z.string().optional(),
@@ -60,10 +60,10 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List sessions',
       description:
-        'List session metadata (sessionId, createdAt, archived, title, cwd, preset, permission, model), live first, newest first. Archived sessions are hidden unless `scope` asks for them — archiving is the soft delete.',
+        'List session metadata (sessionId, createdAt, archived, title, workspacePath, preset, permission, model), live first, newest first. Archived sessions are hidden unless `scope` asks for them — archiving is the soft delete.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
-        cwd: z
+        workspacePath: z
           .string()
           .optional()
           .describe('Only list sessions in this directory or below it (containment match — workspace grouping itself is exact-path, see workspace_list).'),
@@ -89,9 +89,13 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       annotations: { readOnlyHint: true },
       outputSchema: sessionListOut,
     },
-    async ({ limit, cwd, title, scope, includeCold, coldScanMax }, extra) => {
+    async ({ limit, workspacePath, title, scope, includeCold, coldScanMax }, extra) => {
       try {
-        const { total, sessions: items, titleSearch } = await collectSessions(ctx, { cwd, title, scope, includeCold, coldScanMax }, extra?.signal)
+        const {
+          total,
+          sessions: items,
+          titleSearch,
+        } = await collectSessions(ctx, { cwd: workspacePath, title, scope, includeCold, coldScanMax }, extra?.signal)
         return structuredOut(
           {
             total,
@@ -157,7 +161,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Inspect session',
       description:
-        'One-call glance at a session: title, cwd (its workspace), permission, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content (one-line quotes and tool calls). Bookkeeping is always included: archived, live, eventsReadable, historyReadable.',
+        'One-call glance at a session: title, workspacePath (its workspace), permission, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content (one-line quotes and tool calls). Bookkeeping is always included: archived, live, eventsReadable, historyReadable.',
       inputSchema: {
         sessionId: z.string().optional().describe(`Session id (from session_list or a session_send result). ${OPTIONAL_SESSION_ID}`),
         fields: z

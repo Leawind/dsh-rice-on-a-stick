@@ -104,7 +104,7 @@ import {
   unarchived,
 } from './smoke-harness.ts'
 
-// sess-forked 注册为 live 会话: session_fork 的继承回显(cwd/模型)从 live header/options 读取
+// sess-forked 注册为 live 会话: session_fork 的继承回显(workspacePath/模型)从 live header/options 读取
 const ctx = makeCtx({
   sessionController: fakeSessionController,
   llm: fakeLlm,
@@ -328,7 +328,7 @@ try {
     method: 'tools/call',
     params: {
       name: 'session_create',
-      arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', permission: 'danger-full-access' },
+      arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', title: 'smoke 会话', permission: 'danger-full-access' },
     },
   })
   const mkInner = mk.status === 200 ? innerOf(mk) : { error: 'bad' }
@@ -353,7 +353,7 @@ try {
     jsonrpc: '2.0',
     id: 115,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
   })
   const mkDefaultPermInner = mkDefaultPerm.status === 200 ? innerOf(mkDefaultPerm) : { error: 'bad' }
   checks['session_create 省略 permission 继承宿主默认并回显'] =
@@ -367,7 +367,7 @@ try {
     jsonrpc: '2.0',
     id: 116,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'nope' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'nope' } },
   })
   checks['session_create 未知权限预设被拒且不建会话'] =
     String(innerOf(mkBadPerm).error ?? '').includes('unknown permission preset') && created.length === createdBeforeBadPerm
@@ -383,7 +383,7 @@ try {
     jsonrpc: '2.0',
     id: 11,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1' } },
   })
   checks['session_create 缺 model 被明确拒绝'] =
     String(innerOf(mkNoModel).error ?? '').includes('session_create') && String(innerOf(mkNoModel).error ?? '').includes('model')
@@ -393,7 +393,7 @@ try {
     jsonrpc: '2.0',
     id: 113,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1' } },
   })
   checks['session_create 缺 preset 被明确拒绝'] = String(innerOf(mkNoPreset).error ?? '')
     .toLowerCase()
@@ -404,7 +404,7 @@ try {
     jsonrpc: '2.0',
     id: 12,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope' } },
   })
   checks['session_create 未知 preset 被拒'] = String(mkBadPreset.status === 200 ? (innerOf(mkBadPreset).error ?? '') : '').includes('unknown preset')
 
@@ -859,8 +859,8 @@ try {
     params: { name: 'session_fork', arguments: { sessionId: 'sess-live', atSeq: 7 } },
   })
   checks['session_fork 走宿主 fork 返回新会话'] = innerOf(fork).sessionId === 'sess-forked' && forked.some((f) => f.sessionId === 'sess-live' && f.atSeq === 7)
-  checks['session_fork 回显继承的 cwd/模型'] =
-    innerOf(fork).cwd === FAKE_CWD && innerOf(fork).model?.provider === 'extra-p' && innerOf(fork).model?.model === 'extra-m'
+  checks['session_fork 回显继承的 workspacePath/模型'] =
+    innerOf(fork).workspacePath === FAKE_CWD && innerOf(fork).model?.provider === 'extra-p' && innerOf(fork).model?.model === 'extra-m'
 
   const archiveActive = await rpc(init.sid, {
     jsonrpc: '2.0',
@@ -1489,9 +1489,9 @@ try {
   // ── Phase B: allowedModels 允许清单(独立端口独立 ctx; 缺省开关按"清单非空即启用"推导) ──
   {
     const phase = await startPhase(8098, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
-    const mkOut = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
+    const mkOut = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
     checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? (innerOf(mkOut).error ?? '') : '').includes('not in allowedModels')
-    const mkIn = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
+    const mkIn = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
     checks['allowedModels: select_model 清单外被拒'] = String(innerOf(selOut).error ?? '').includes('not in allowedModels')
@@ -1499,7 +1499,7 @@ try {
     const live = ConfigSchema({ allowedModels: ['p1/m1', 'p1/m2'], allowedModelsEnabled: true }) as any
     updateVolatile(phase.config.allowedModels, live.allowedModels)
     updateVolatile(phase.config.allowedModelsEnabled, live.allowedModelsEnabled)
-    const mkLive = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm2', preset: 'standard' })
+    const mkLive = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm2', preset: 'standard' })
     checks['volatile: 白名单就地更新后立即生效(不重载)'] = typeof innerOf(mkLive).sessionId === 'string'
     await phase.dispose()
   }
@@ -1510,7 +1510,7 @@ try {
       allowedModels: ['p1/m1'],
       allowedModelsEnabled: false,
     })
-    const mkOff = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
+    const mkOff = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard' })
     checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
     const stOff = await phase.call('plugin_status', {})
     checks['allowedModels: 关闭态 status 透出 enabled=false'] = innerOf(stOff).config?.allowedModelsEnabled === false
@@ -1537,10 +1537,16 @@ try {
     const plOut = await phase.call('permission_list', {})
     checks['权限预设缺席: permission_list 明确报不可用'] = String(innerOf(plOut).error ?? '').includes('permission-presets service is unavailable')
     const before = created.length
-    const mkNoPermSvc = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', permission: 'danger-full-access' })
+    const mkNoPermSvc = await phase.call('session_create', {
+      workspacePath: FAKE_CWD,
+      provider: 'p1',
+      model: 'm1',
+      preset: 'standard',
+      permission: 'danger-full-access',
+    })
     checks['权限预设缺席: 指定 permission 被拒且不建会话'] =
       String(innerOf(mkNoPermSvc).error ?? '').includes('permission-presets service is unavailable') && created.length === before
-    const mkPlain = await phase.call('session_create', { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
+    const mkPlain = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' })
     const mkPlainInner = innerOf(mkPlain)
     checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string' && mkPlainInner.permission === undefined
     const meta = await phase.call('session_inspect', { sessionId: 'sess-live' })

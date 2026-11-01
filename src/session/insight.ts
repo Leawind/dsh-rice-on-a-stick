@@ -253,7 +253,7 @@ export async function sessionEventSourceOf(ctx: Context, sessionId: string, sign
 }
 
 /**
- * 会话元信息: 清单行(标题/cwd/模型/preset/谱系) + 运行态(live/state) +
+ * 会话元信息: 清单行(标题/workspacePath/模型/preset/谱系) + 运行态(live/state) +
  * 轮与步计数 + 上下文占用。live 读内存, 冷会话经 inspect 只读; 都读不到时至少给出清单行。
  * source: 调用方已取的事件源(概览等聚合面)则复用, 冷会话不付第二次 inspect 读。
  */
@@ -305,7 +305,7 @@ export async function sessionInsightPayload(
     ...(title !== undefined ? { title } : {}),
     live,
     state,
-    ...(session?.header?.cwd !== undefined ? { cwd: session.header.cwd } : {}),
+    ...(session?.header?.cwd !== undefined ? { workspacePath: session.header.cwd } : {}),
     ...(preset !== '' ? { preset } : {}),
     ...(permission !== undefined ? { permission } : {}),
     ...(model !== undefined ? { model } : {}),
