@@ -12,13 +12,15 @@
       "default": "./lib/index.js"
     },
     "./client": "./client/client.js",
-    "./icon": "./icon.svg"
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "src",
     "client",
     "docs",
+    "locale",
     "icon.svg",
     "cordis.yml",
     "README.en.md",
