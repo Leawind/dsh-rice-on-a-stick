@@ -223,13 +223,18 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           .max(POLL_MAX_WAIT_MS)
           .optional()
           .describe(`Maximum wait in milliseconds (0-${POLL_MAX_WAIT_MS}; default 0 = return immediately).`),
-        detail: z.enum(['summary', 'normal', 'full']).optional().describe('Truncation level for lastMessage (default summary).'),
+        lastMessageDetail: z
+          .enum(['summary', 'normal', 'full'])
+          .optional()
+          .describe(
+            "Truncation level for each watched session's lastMessage (default summary). Not the session_send/session_result `detail` ladder — it only clips this poll's message preview.",
+          ),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionIds, waitMs, detail }, extra) => {
+    async ({ sessionIds, waitMs, lastMessageDetail }, extra) => {
       try {
-        const payload = await pollSessions(ctx, sessionIds, { waitMs, detail, signal: extra.signal })
+        const payload = await pollSessions(ctx, sessionIds, { waitMs, detail: lastMessageDetail, signal: extra.signal })
         return out(JSON.stringify(payload))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))

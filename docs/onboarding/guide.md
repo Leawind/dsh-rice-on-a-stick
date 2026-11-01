@@ -154,7 +154,7 @@ you already know.
    content digest; bookkeeping like historyReadable is always included; `fields` opts
    into turn/step counters and preset), `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you
-   are debugging; `detail: "full"` returns entry text untruncated), `session_events` for the
+   are debugging; `entryDetail: "full"` returns entry text untruncated), `session_events` for the
    raw event stream of a live session (JSONL, `after` cursor paging), `session_search` to
    find sessions by content.
 6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
@@ -248,7 +248,9 @@ block until the turn ends).
 
 `session_history` follows the same budget idea: its default view clips each entry's text
 (assistant messages at 600 characters, less for tool entries; clipped entries carry
-`truncated: true`). `detail: "full"` returns entries untruncated — that is the way to
+`truncated: true`). Its knob is `entryDetail` (deliberately not `detail` — that name is
+the session_send/session_result ladder; `session_poll` clips its preview with
+`lastMessageDetail`). `entryDetail: "full"` returns entries untruncated — that is the way to
 read a whole long message (it works for persisted-only sessions too); page back with
 `limit` / `beforeIndex` instead of pulling an entire history at full detail.
 

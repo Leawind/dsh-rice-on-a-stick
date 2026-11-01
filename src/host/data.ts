@@ -625,7 +625,8 @@ export const HISTORY_DEFAULT_ROLES: readonly HistoryRole[] = ['user', 'assistant
  * session_history / dsh://sessions/{id}/history 的共享实现(工具与资源同数据同边界)。
  * 默认视角只给对话消息(user + assistant)——工具调用过程是 opt-in 噪音(roles 显式传),
  * 默认调用因此不为工具条目付 token。
- * 文本档位: summary(默认, 按角色截断并标记 truncated) / full(不截断, 冷会话同样可读)。
+ * 文本档位(entryDetail): summary(默认, 按角色截断并标记 truncated) / full(不截断, 冷会话同样可读)。
+ * 字段名刻意不叫 detail——与 session_send/session_result 的结果投影梯子不是一回事, 同名会误导调用方归纳。
  * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
  * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
  */
@@ -635,7 +636,7 @@ export async function sessionHistoryPayload(
   limit: number,
   beforeIndex?: number,
   roles?: HistoryRole[],
-  detail?: HistoryDetail,
+  entryDetail?: HistoryDetail,
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
@@ -659,8 +660,8 @@ export async function sessionHistoryPayload(
     sessionId,
     source: live ? 'live' : 'persisted',
     totalEvents: events.length,
-    detail: detail ?? 'summary',
-    turns: historyTurnsOf(events, limit, beforeIndex, roles ?? HISTORY_DEFAULT_ROLES, detail),
+    entryDetail: entryDetail ?? 'summary',
+    turns: historyTurnsOf(events, limit, beforeIndex, roles ?? HISTORY_DEFAULT_ROLES, entryDetail),
   }
 }
 

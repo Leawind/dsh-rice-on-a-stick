@@ -125,16 +125,18 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           .min(0)
           .optional()
           .describe('Read entries before this event index (paging: pass the earliest index from the previous result).'),
-        detail: z
+        entryDetail: z
           .enum(['summary', 'full'])
           .optional()
-          .describe('summary (default) clips long entries (flagged `truncated`); full returns a whole message untruncated.'),
+          .describe(
+            'summary (default) clips long entries (flagged `truncated`); full returns a whole message untruncated. Per-entry clipping — not the session_send/session_result `detail` ladder.',
+          ),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionId, limit, roles, beforeIndex, detail }, extra) => {
+    async ({ sessionId, limit, roles, beforeIndex, entryDetail }, extra) => {
       try {
-        return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles, detail, extra?.signal)))
+        return out(JSON.stringify(await sessionHistoryPayload(ctx, sessionId, limit ?? 10, beforeIndex, roles, entryDetail, extra?.signal)))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }
