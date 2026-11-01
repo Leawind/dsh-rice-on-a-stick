@@ -1,11 +1,13 @@
 /**
  * 英文文案: 与 zh 键一一对应, Record<MessageKey, string> 保证缺键/多键都在编译期报错。
+ * 插件名不在文案里写第二份: nav 与面板标题都取自 locale/en.json 的 meta.title。
  */
 import type { MessageKey } from './zh';
+import locale from '../../../locale/en.json';
 
 export const en: Record<MessageKey, string> = {
-  'nav': 'Rice on a Stick',
-  'plugin.name': 'Rice on a Stick',
+  'nav': locale.meta.title,
+  'plugin.name': locale.meta.title,
   'plugin.tagline': 'Let AI agents control DeepSeek Harness',
   'uptime': 'Up {d}',
   'state.running': 'Running',

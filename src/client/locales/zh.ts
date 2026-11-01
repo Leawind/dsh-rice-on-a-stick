@@ -1,9 +1,13 @@
 /**
  * 中文文案(键集来源): 新增键先加这里, en 与之键一一对应(en 缺键/多键在 typecheck 即报)。
+ * 插件名不在文案里写第二份: nav 与面板标题都取自随包发布的 locale/zh.json 的 meta.title
+ * (dsh 插件页读的同一份文本), 打包时内联, 与 icon.svg 单源同理。
  */
+import locale from '../../../locale/zh.json'
+
 export const zh = {
-  'nav': '白饭钓竿',
-  'plugin.name': '白饭钓竿',
+  'nav': locale.meta.title,
+  'plugin.name': locale.meta.title,
   'plugin.tagline': '让 AI Agent 们能控制 DeepSeek Harness',
   'uptime': '已运行 {d}',
   'state.running': '运行中',
