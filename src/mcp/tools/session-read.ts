@@ -63,7 +63,10 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
         'List session metadata (sessionId, createdAt, archived, title, cwd, preset, permission, model), live first, newest first. Archived sessions are hidden unless `scope` asks for them — archiving is the soft delete.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
-        cwd: z.string().optional().describe('Only list sessions in this directory (including subdirectories).'),
+        cwd: z
+          .string()
+          .optional()
+          .describe('Only list sessions in this directory or below it (containment match — workspace grouping itself is exact-path, see workspace_list).'),
         title: z.string().optional().describe('Only list sessions whose title contains this text (case-insensitive). Sessions without a title never match.'),
         scope: z
           .enum(['active', 'archived', 'all'])

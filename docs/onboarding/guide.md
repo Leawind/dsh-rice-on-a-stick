@@ -15,6 +15,8 @@ you already know.
 
 - **dsh / Harness** — the host process this plugin runs inside. Sessions, agents, model
   routing and presets all live there; the plugin only projects them over MCP.
+  A "deployment" below means this dsh process together with the plugin as configured on
+  it — limits flagged per-deployment come from that configuration, not from dsh itself.
 - **session / agent** — one conversation and its runtime. The web UI calls it a session;
   the runtime object that executes turns is its agent. They are 1:1: creating a session
   creates the agent, and the agent's context IS the session history.
@@ -27,7 +29,9 @@ you already know.
   worktree.
 - **Model & preset selection** — chosen per session at creation (`session_create`
   requires an explicit `provider`+`model` pair and a `preset`, all from
-  `model_list` / `dsh://presets`; nothing is backfilled). The model is switchable
+  `model_list` / `dsh://presets`; nothing is backfilled). A provider is a routable model
+  source — the UI's model-provider entry (模型提供商); the `provider`+`model` pair is
+  what the descriptions call a "route". The model is switchable
   later with `session_select_model` (takes effect on the next step, history
   preserved); the preset stays with the session.
 - **preset** — the persona mounted at session creation (an id from `model_list`'s
@@ -166,7 +170,10 @@ you already know.
    `dsh://sessions/{id}/overview` pushes the one-call glance on the same boundaries.
 7. **Fan-out / parallel workers** — create N sessions with `session_create`, then
    `session_send` with wait=none one task per session (optionally with your own idempotent
-   `requestId`). Loop `session_poll` with `sessionIds: [...]` and `waitMs: 20000`:
+   `requestId`). Pass every session of one project the same `cwd`: identical paths share
+   one workspace in the sidebar, each distinct path spawns a separate one — resolve the
+   intended directory with `workspace_list` once and reuse it. Loop `session_poll` with
+   `sessionIds: [...]` and `waitMs: 20000`:
    it returns when any watched session changes or the wait times out, so do not poll
    faster than that. Once a session reports `lastTurn.reason`, call `session_result`
    with its `requestId`; `status` tells you completed/blocked/errored/cancelled.
@@ -192,7 +199,10 @@ you already know.
 11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }`
     to search endpoints by keyword (no args for the namespace index, `{ namespace }`
     for one domain's methods), `endpoint_describe { endpoint }` for the contract,
-    `endpoint_call { endpoint, args }` to execute. Whitelisted (`allowed`) endpoints run
+    `endpoint_call { endpoint, args }` to execute. The descriptions are bilingual, so a
+    UI feature name the user mentions is an effective search keyword as-is — 会话目标
+    (session goals), 定时任务 (scheduled tasks), 终端 (terminals), 备注 (session
+    remarks), 文件上传 (file uploads) all resolve this way. Whitelisted (`allowed`) endpoints run
     at once; every other non-stream endpoint — including read-only ones — parks the call
     until a human allows it on the deployment's settings panel (the tool call blocks in
     the meantime) — if the human declines, or the wait times out, or you disconnect,
@@ -217,7 +227,7 @@ you already know.
 | "unknown requestId"                             | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history`                                                   |
 | `status: "pending"` / `pending: true`           | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it                                                                                                                                 |
 | `status: "cancelled"`                           | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit                                                                                                                   |
-| "not a recognized image"                        | the attachment file is not png/jpeg/webp/gif — other file kinds are not supported yet                                                                                                                                                    |
+| "not a recognized image"                        | the attachment file is not png/jpeg/webp/gif — the curated tools carry images only; for other file kinds search the endpoint passthrough (`endpoint_describe` query: "upload" or 文件上传) and park the call for approval as usual       |
 | "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe`                                                                 |
 | "declined by the human reviewer"                | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint                                                                                          |
 | "approval timed out ... failed closed"          | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry                                                                                                |
