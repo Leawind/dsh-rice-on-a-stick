@@ -104,7 +104,13 @@ import {
   unarchived,
 } from './smoke-harness.ts'
 
-const ctx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle })
+// sess-forked 注册为 live 会话: session_fork 的继承回显(cwd/模型)从 live header/options 读取
+const ctx = makeCtx({
+  sessionController: fakeSessionController,
+  llm: fakeLlm,
+  sessionTitle: fakeSessionTitle,
+  extraSessions: [{ id: 'sess-forked', cwd: FAKE_CWD }],
+})
 
 /**
  * 工具面体积预算(Phase A 的 tools/list / initialize 断言用)。
@@ -338,6 +344,8 @@ try {
   )
   checks['session_create 挂载 preset'] = mounted.includes('standard')
   checks['session_create 归组到工作区'] = attachedIds.includes(mkInner.sessionId)
+  // 创建结果回显解析出的工作区(侧边栏分组事实), 让调用方无需二次查询即可核对归属
+  checks['session_create 回显解析出的工作区'] = mkInner.workspace?.id === 'ws-fake' && mkInner.workspace?.path === FAKE_CWD
   checks['session_create title 经 sessionTitle.rename'] = fakeSessionTitle.renamed.some((r) => r.title === 'smoke 会话')
 
   // 省略 permission = 继承宿主默认预设(宿主在创建时固定), 且不额外调用 set
@@ -851,6 +859,8 @@ try {
     params: { name: 'session_fork', arguments: { sessionId: 'sess-live', atSeq: 7 } },
   })
   checks['session_fork 走宿主 fork 返回新会话'] = innerOf(fork).sessionId === 'sess-forked' && forked.some((f) => f.sessionId === 'sess-live' && f.atSeq === 7)
+  checks['session_fork 回显继承的 cwd/模型'] =
+    innerOf(fork).cwd === FAKE_CWD && innerOf(fork).model?.provider === 'extra-p' && innerOf(fork).model?.model === 'extra-m'
 
   const archiveActive = await rpc(init.sid, {
     jsonrpc: '2.0',

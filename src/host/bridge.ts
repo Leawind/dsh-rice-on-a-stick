@@ -317,14 +317,17 @@ export function archivedSessionIdsOf(ctx: Context): readonly string[] {
 }
 
 /** 把会话挂名到其 cwd 对应的工作区。attachSession 内部强校验 realpath(header.cwd) 精确等于 workspace.path,
- *  所以 canonical 必须是 header.cwd 的 realpath 规范化值。失败告警不阻断任务(分组是锦上添花)。 */
-export async function attachToWorkspace(ctx: Context, canonical: string, sessionId: SessionId): Promise<void> {
+ *  所以 canonical 必须是 header.cwd 的 realpath 规范化值。失败告警不阻断任务(分组是锦上添花)。
+ *  返回解析/新建的工作区视图(解析失败为 undefined), 供创建结果回显归属。 */
+export async function attachToWorkspace(ctx: Context, canonical: string, sessionId: SessionId): Promise<WorkspaceView | undefined> {
+  let ws: WorkspaceView | undefined
   try {
-    const ws = await ensureWorkspace(ctx, canonical)
+    ws = await ensureWorkspace(ctx, canonical)
     if (ws?.attachSession) await ws.attachSession(sessionId)
   } catch (e) {
     console.warn('[dsh-rice-on-a-stick] workspace attach failed:', (e as Error)?.message ?? e)
   }
+  return ws
 }
 
 /** 按会话 header 的 cwd(realpath 规范化后)补挂工作区; header 无 cwd 时静默跳过 */

@@ -7,7 +7,17 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { state } from '../../core/state.js'
 import type { ModelSelection } from '../../core/types.js'
-import { cancelSession, createSession, promptSession, queueManage, resolveSessionForPrompt, selectionOf, submitSession } from '../../session/engine.js'
+import {
+  cancelSession,
+  createSession,
+  knownSelectionOf,
+  promptSession,
+  queueManage,
+  resolveSessionForPrompt,
+  selectionOf,
+  sessionCwdOf,
+  submitSession,
+} from '../../session/engine.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_HINT, projectModel, renderResult, renderUriResult } from '../../session/projection.js'
 import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, setPermissionPreset } from '../../session/permissions.js'
@@ -52,7 +62,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Create session',
       description:
-        'Create a blank session bound to the `cwd` directory — its dsh workspace (the sidebar group for it). Resolve a user-named workspace with `workspace_list` and pass its `path` as `cwd`; never substitute your own cwd or worktree. Requires an explicit model and preset (from `model_list`; nothing is backfilled). Returns `sessionId`; send work with `session_send`.',
+        'Create a blank session in the `cwd` directory — its dsh workspace (the sidebar group). Resolve a user-named workspace with `workspace_list` and pass its `path`; another directory (your cwd, a worktree) silently lands the session elsewhere. Model + preset explicit (from `model_list`). Returns `sessionId` plus the resolved `workspace` (id/path); send work with `session_send`.',
       inputSchema: {
         cwd: z
           .string()
@@ -79,6 +89,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           JSON.stringify({
             sessionId: r.sessionId,
             cwd: r.cwd,
+            ...(r.workspace !== undefined ? { workspace: r.workspace } : {}),
             model: projectModel(r.selection),
             preset: r.preset,
             ...(r.permission !== undefined ? { permission: r.permission } : {}),
@@ -393,7 +404,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_fork',
     {
       title: 'Fork session',
-      description: `Fork a session from a prefix of its events (default: the most recently completed turn), inheriting cwd, preset and model. Returns the new sessionId.`,
+      description: `Fork a session from a prefix of its events (default: the most recently completed turn), inheriting cwd, preset and model. Returns the new sessionId with the inherited cwd and model echoed back.`,
       inputSchema: {
         sessionId: z.string().describe('Source session id to fork.'),
         atSeq: z.number().optional().describe('Fork cut-off (event sequence number; default = the most recently completed turn).'),
@@ -410,7 +421,18 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         const newId = res?.sessionId !== undefined ? String(res.sessionId) : undefined
         if (!newId) return outError(JSON.stringify({ error: 'fork returned no sessionId' }))
         state.hooks.notifyListChanged()
-        return out(JSON.stringify({ ok: true, sourceSessionId: sessionId, sessionId: newId }))
+        // 回显继承事实(新会话立即 live, 从 live header 读; 读不到就省略, 不猜)
+        const forkedCwd = await sessionCwdOf(ctx, newId)
+        const forkedSelection = knownSelectionOf(ctx, newId)
+        return out(
+          JSON.stringify({
+            ok: true,
+            sourceSessionId: sessionId,
+            sessionId: newId,
+            ...(forkedCwd !== undefined ? { cwd: forkedCwd } : {}),
+            ...(forkedSelection !== undefined ? { model: projectModel(forkedSelection) } : {}),
+          }),
+        )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_fork failed: ${(e as Error)?.message ?? String(e)}` }))
       }

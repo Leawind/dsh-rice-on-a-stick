@@ -125,7 +125,8 @@ you already know.
    optional `permission` preset), then `session_send` with the task. `cwd` is the
    workspace directory: when the user names a workspace, resolve its `path`
    with `workspace_list` first — another directory silently creates a separate
-   workspace. The result carries the `sessionId`; pass it back later to continue that
+   workspace. The result carries the `sessionId` and the resolved workspace (id/path)
+   the session landed in; pass the sessionId back later to continue that
    conversation (send only the delta).
 2. **Keep working in a session** — repeat `session_send` with the same `sessionId`.
    The agent remembers previous turns; for a fresh start create a new session.
@@ -149,9 +150,9 @@ you already know.
    cache without reading logs, and only sessions the cache cannot answer cost a log read,
    capped per call by `coldScanMax` — default 50, cap 500),
    `session_inspect` for a one-call, GUI-style glance (title,
-   permission, model + reasoning effort, in-progress state, context occupancy, recent
+   cwd, permission, model + reasoning effort, in-progress state, context occupancy, recent
    content digest; bookkeeping like historyReadable is always included; `fields` opts
-   into turn/step counters, preset, cwd), `session_history` for recent turns
+   into turn/step counters and preset), `session_history` for recent turns
    (a conversation view by default — `roles` adds tool calls or turn boundaries when you
    are debugging; `detail: "full"` returns entry text untruncated), `session_events` for the
    raw event stream of a live session (JSONL, `after` cursor paging), `session_search` to

@@ -555,8 +555,8 @@ export async function sessionRowOf(ctx: Context, sessionId: string): Promise<Rec
 /** 检查面的可选字段; 显式传 fields 时整体替换默认档(未知字段名直接报错) */
 export const INSPECT_FIELDS = ['title', 'permission', 'model', 'state', 'context', 'recent', 'progress', 'preset', 'cwd'] as const
 export type InspectField = (typeof INSPECT_FIELDS)[number]
-/** 默认档: 界面同款"一眼看全"——标题/权限/模型+推理档/进行态/上下文占用/最近内容 */
-export const INSPECT_DEFAULT_FIELDS: readonly InspectField[] = ['title', 'permission', 'model', 'state', 'context', 'recent']
+/** 默认档: 界面同款"一眼看全"——标题/目录(工作区归属)/权限/模型+推理档/进行态/上下文占用/最近内容 */
+export const INSPECT_DEFAULT_FIELDS: readonly InspectField[] = ['title', 'cwd', 'permission', 'model', 'state', 'context', 'recent']
 /** recent 摘要的条数: 默认与上限(条目是一行摘要, 上限防长日志灌穿) */
 export const INSPECT_RECENT_DEFAULT_LIMIT = 5
 export const INSPECT_RECENT_LIMIT_MAX = 20

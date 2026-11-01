@@ -517,7 +517,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     {
       title: 'Session overview',
       description:
-        'One-call, GUI-style glance at a session (default sections: title, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; same data as session_inspect)',
+        'One-call, GUI-style glance at a session (default sections: title, cwd, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; same data as session_inspect)',
       mimeType: 'application/json',
       annotations: ann.hot,
     },

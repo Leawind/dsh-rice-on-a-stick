@@ -202,6 +202,8 @@ export interface CreateSessionOptions {
 export async function createSession(opts: CreateSessionOptions): Promise<{
   sessionId: string
   cwd: string
+  /** cwd 解析/新建出的工作区(侧边栏分组); 无 workspaceRegistry 的部署无此字段 */
+  workspace?: { id: string; path: string }
   selection: ModelSelection
   preset: string
   /** 生效的权限预设(宿主省略该能力时无) */
@@ -238,8 +240,9 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
       )
     }
   }
-  // 分组: 把会话归属到 cwd 对应的工作区(resolveByPath ?? create + attachSession; 可选依赖; headless 环境自动跳过)
-  void attachToWorkspace(ctx, canonical, newSessionId)
+  // 分组: 把会话归属到 cwd 对应的工作区(resolveByPath ?? create + attachSession; 可选依赖; headless 环境自动跳过)。
+  // 等待解析结果以回显归属; 解析失败仍只告警不阻断(见 attachToWorkspace)。
+  const ws = await attachToWorkspace(ctx, canonical, newSessionId)
   // title 命名(可选): 创建会话后立即命名; 不传则由宿主 title 服务在首轮后自动生成
   if (title) renameSessionTitle(ctx, handle.agent.session, title)
   // 会话清单(资源面 dsh://sessions)成员变化 → 合并广播
@@ -248,6 +251,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
   return {
     sessionId: String(newSessionId),
     cwd: canonical,
+    ...(ws !== undefined ? { workspace: { id: ws.id, path: ws.path } } : {}),
     selection,
     preset: presetName,
     ...(effectivePermission !== undefined ? { permission: effectivePermission } : {}),

@@ -152,7 +152,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Inspect session',
       description:
-        'One-call glance at a session: title, permission, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content (one-line quotes and tool calls). Bookkeeping is always included: archived, live, eventsReadable, historyReadable.',
+        'One-call glance at a session: title, cwd (its workspace), permission, model + reasoning effort, in-progress state, context occupancy, and a bounded digest of recent content (one-line quotes and tool calls). Bookkeeping is always included: archived, live, eventsReadable, historyReadable.',
       inputSchema: {
         sessionId: z.string().optional().describe(`Session id (from session_list or a session_send result). ${OPTIONAL_SESSION_ID}`),
         fields: z

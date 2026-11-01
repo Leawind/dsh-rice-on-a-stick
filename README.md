@@ -86,33 +86,33 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ### 会话操作
 
-| 工具                     | 用途                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `session_create`         | 新建空白会话，`cwd` 取工作区目录（用户点名工作区时先用 `workspace_list` 取 `path`），provider/model、preset 全部显式给出，返回 `sessionId` |
-| `session_set_permission` | 切换会话的权限预设（界面 `/permission` 的服务端语义），可修正旋钮级改动造成的 `custom` 组合                                                |
-| `session_send`           | 向会话发消息，`wait` 选阻塞语义：input（默认）等审批/提问即回、turn 等本轮收敛、none 立即回执                                              |
-| `session_poll`           | 批量观察会话状态，`waitMs` 最多等 30 秒，返回状态、排队数、待回答项与最后一条消息                                                          |
-| `session_result`         | 按 `requestId` 取回结构化结果，省略则取该会话最近一次请求                                                                                  |
-| `session_cancel`         | 停止会话当前 turn，保留尚未开始的排队消息                                                                                                  |
-| `session_queue`          | 列出会话的排队消息（只读）                                                                                                                 |
-| `session_queue_manage`   | 修改会话的排队消息：改写、删除，或用 `action="steer"` 提升为插话                                                                           |
-| `session_select_model`   | 会话内切换模型，下一个步生效且历史保留（开启“只允许特定模型”时目标须在清单内）                                                             |
-| `session_rename`         | 重命名会话，走宿主 `sessionTitle` 服务（用户改名会钉住自动标题）                                                                           |
-| `session_fork`           | 分叉会话：从源会话事件的前缀派生新会话，继承 cwd、预设与当前模型                                                                           |
-| `session_command_list`   | 列出会话可用的斜杠命令（只读）                                                                                                             |
-| `session_command_run`    | 执行一条斜杠命令，不发给模型也不产生 turn                                                                                                  |
-| `session_archive`        | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`                                                                       |
-| `session_unarchive`      | 恢复已归档会话，幂等；未归档的会话如实回报 `wasArchived: false`                                                                            |
+| 工具                     | 用途                                                                                                                                                                   |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_create`         | 新建空白会话，`cwd` 取工作区目录（用户点名工作区时先用 `workspace_list` 取 `path`），provider/model、preset 全部显式给出，返回 `sessionId` 与解析出的工作区（id/path） |
+| `session_set_permission` | 切换会话的权限预设（界面 `/permission` 的服务端语义），可修正旋钮级改动造成的 `custom` 组合                                                                            |
+| `session_send`           | 向会话发消息，`wait` 选阻塞语义：input（默认）等审批/提问即回、turn 等本轮收敛、none 立即回执                                                                          |
+| `session_poll`           | 批量观察会话状态，`waitMs` 最多等 30 秒，返回状态、排队数、待回答项与最后一条消息                                                                                      |
+| `session_result`         | 按 `requestId` 取回结构化结果，省略则取该会话最近一次请求                                                                                                              |
+| `session_cancel`         | 停止会话当前 turn，保留尚未开始的排队消息                                                                                                                              |
+| `session_queue`          | 列出会话的排队消息（只读）                                                                                                                                             |
+| `session_queue_manage`   | 修改会话的排队消息：改写、删除，或用 `action="steer"` 提升为插话                                                                                                       |
+| `session_select_model`   | 会话内切换模型，下一个步生效且历史保留（开启“只允许特定模型”时目标须在清单内）                                                                                         |
+| `session_rename`         | 重命名会话，走宿主 `sessionTitle` 服务（用户改名会钉住自动标题）                                                                                                       |
+| `session_fork`           | 分叉会话：从源会话事件的前缀派生新会话，继承 cwd、预设与当前模型并回显                                                                                                 |
+| `session_command_list`   | 列出会话可用的斜杠命令（只读）                                                                                                                                         |
+| `session_command_run`    | 执行一条斜杠命令，不发给模型也不产生 turn                                                                                                                              |
+| `session_archive`        | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`                                                                                                   |
+| `session_unarchive`      | 恢复已归档会话，幂等；未归档的会话如实回报 `wasArchived: false`                                                                                                        |
 
 ### 会话读取
 
-| 工具              | 用途                                                                                                 |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `session_list`    | 列出会话元信息（标题、cwd、预设、权限预设、当前模型），默认隐藏已归档                                |
-| `session_history` | 读取会话对话纪要，默认 user + assistant，可分页并用 `roles` 展开工具调用                             |
-| `session_events`  | 读取 live 会话的原始事件流（JSONL），`after` 游标翻页，500 行上限                                    |
-| `session_inspect` | 一次调用给出界面级概览：标题、权限、模型、进行中状态、上下文占用与近期摘要；`fields` 可选轮/步计数等 |
-| `session_search`  | 按字面短语搜索会话内容（同界面搜索框），默认排除已归档                                               |
+| 工具              | 用途                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `session_list`    | 列出会话元信息（标题、cwd、预设、权限预设、当前模型），默认隐藏已归档                                     |
+| `session_history` | 读取会话对话纪要，默认 user + assistant，可分页并用 `roles` 展开工具调用                                  |
+| `session_events`  | 读取 live 会话的原始事件流（JSONL），`after` 游标翻页，500 行上限                                         |
+| `session_inspect` | 一次调用给出界面级概览：标题、cwd、权限、模型、进行中状态、上下文占用与近期摘要；`fields` 可选轮/步计数等 |
+| `session_search`  | 按字面短语搜索会话内容（同界面搜索框），默认排除已归档                                                    |
 
 ### 审批
 
