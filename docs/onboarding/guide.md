@@ -43,14 +43,16 @@ you already know.
   (it extends that turn; a running step is never interrupted). When the session is idle
   the two are identical, so `mode` may be omitted and `queue` is assumed; while it is
   running, omitting `mode` fails with `MODE_REQUIRED` — the choice is yours to make.
-- **wait semantics** — `session_send` has a `wait` argument: `input` (default) returns
-  early when the session awaits an approval/question; `turn` blocks until the turn ends;
-  `none` admits the task and returns the `requestId` receipt immediately.
-- **async request** — `session_send` with wait=none admits a task and returns `requestId`
-  immediately; `session_poll` observes one or many sessions (bounded `waitMs`, returns
-  `changed`/`timedOut`); `session_result` fetches the structured result by `requestId`.
-  The id is persisted on the user message, so it survives a plugin restart. Cancelling a
-  waiting `session_send` call never cancels the dsh turn.
+- **wait semantics** — `session_send` and `session_create` share a `wait` argument:
+  `none` (default) admits the task and returns the `requestId` receipt immediately;
+  `input` returns early when the session awaits an approval/question; `turn` blocks
+  until the turn ends. Waiting is opt-in — a script should take the receipt and poll.
+- **async request** — `session_send` (and the first message of `session_create`) admits
+  a task and returns `requestId` immediately by default; `session_poll` observes one or
+  many sessions (bounded `waitMs`, returns `changed`/`timedOut`); `session_result`
+  fetches the structured result by `requestId`. The id is persisted on the user message,
+  so it survives a plugin restart. Cancelling a waiting `session_send` call never
+  cancels the dsh turn.
 - **turn vs step** — a _turn_ is one full run ending in a structured result. _Steps_ are
   the model rounds inside it. `steer` is consumed at the next step boundary;
   `session_select_model` takes effect on the next step.
@@ -126,12 +128,13 @@ you already know.
 ## Workflow recipes
 
 1. **One-off task** — `session_create` (workspacePath + provider/model pair + preset, plus
-   an optional `permission` preset), then `session_send` with the task. `workspacePath` is
+   the first message as `task` — same message parameters as `session_send`: `attachments`,
+   `mode`, `wait`, `requestId`, `detail`; there are no blank sessions). `workspacePath` is
    the workspace directory: when the user names a workspace, resolve its `path`
    with `workspace_list` first — another directory silently creates a separate
-   workspace. The result carries the `sessionId` and the resolved workspace (id/path)
-   the session landed in; pass the sessionId back later to continue that
-   conversation (send only the delta).
+   workspace. The result carries the `sessionId`, the resolved workspace (id/path)
+   the session landed in, and the delivery receipt (`requestId`); pass the sessionId
+   back later to continue that conversation (send only the delta).
 2. **Keep working in a session** — repeat `session_send` with the same `sessionId`.
    The agent remembers previous turns; for a fresh start create a new session.
 3. **Session is busy** — `session_send` with mode=`queue` lines up behind the current
@@ -168,26 +171,30 @@ you already know.
    Subscribe with `resources/subscribe`: `dsh://sessions/{id}/activity` streams what a
    running session is doing right now, history updates push on turn completion, and
    `dsh://sessions/{id}/overview` pushes the one-call glance on the same boundaries.
-7. **Fan-out / parallel workers** — create N sessions with `session_create`, then
-   `session_send` with wait=none one task per session (optionally with your own idempotent
-   `requestId`). Pass every session of one project the same `workspacePath`: identical paths share
-   one workspace in the sidebar, each distinct path spawns a separate one — resolve the
-   intended directory with `workspace_list` once and reuse it. Loop `session_poll` with
+7. **Fan-out / parallel workers** — create N sessions with `session_create`, one task per
+   session in the same call (optionally with your own idempotent `requestId`; the default
+   wait=none receipt comes back immediately). Pass every session of one project the same `workspacePath`:
+   identical paths share one workspace in the sidebar, each distinct path spawns a separate
+   one — resolve the intended directory with `workspace_list` once and reuse it. Loop `session_poll` with
    `sessionIds: [...]` and `waitMs: 20000`:
    it returns when any watched session changes or the wait times out, so do not poll
    faster than that. Once a session reports `lastTurn.reason`, call `session_result`
    with its `requestId`; `status` tells you completed/blocked/errored/cancelled.
-   `session_cancel` stops one worker; `session_archive` retires it.
+   Retrying a lost create receipt: repeat the same `requestId` and `session_create`
+   refuses cleanly (the first session already has it — fetch with `session_result`);
+   a fresh `requestId` would create a twin session. `session_cancel` stops one worker;
+   `session_archive` retires it.
 8. **Human-input gate** — when `session_poll` reports `waiting-approval` or
    `waiting-question`, call `approval_list` / `question_list` with the session id. If the
    entry is `answerable`, answer it with `approval_answer` (allow/reject) or
    `question_answer` (the whole batch), then keep polling. Otherwise the UI or another
-   client holds it; the native card is still the human's path. `session_send` defaults
-   to `wait: "input"`: it returns early with `pending=true` and `waiting` when the
+   client holds it; the native card is still the human's path. `session_send` with
+   `wait: "input"` returns early with `pending=true` and `waiting` when the
    session starts waiting, so you can answer and then call `session_result` for the final
-   result. To avoid approval gates up front, create the session with a full-access
-   `permission` preset (see `permission_list`) or switch it with
-   `session_set_permission`.
+   result (the default `wait=none` returns the receipt immediately — opt into `input`
+   when you want that hand-off in one call). To avoid approval gates up front, create the
+   session with a full-access `permission` preset (see `permission_list`) or switch it
+   with `session_set_permission`.
 9. **Native subagents** — `session_subagents({ parentSessionId })` returns direct children
    (recursive=true adds descendants). Then treat each child id like any other session:
    `session_poll`, `session_result`, `session_send`. The catalog read is passive;
@@ -226,6 +233,7 @@ you already know.
 | turn ends `blocked`                                | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_send` |
 | `pending: true` with `waiting`                     | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling)                                   |
 | "unknown requestId"                                | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history`                                                   |
+| "requestId ... was already used by session ..."    | `session_create` refuses a used id before creating anything — fetch that request with `session_result`, deliver more with `session_send`; do not retry `session_create` with a fresh id (that twins the session)                         |
 | `status: "pending"` / `pending: true`              | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it                                                                                                                                 |
 | `status: "cancelled"`                              | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit                                                                                                                   |
 | "not a recognized image"                           | the attachment file is not png/jpeg/webp/gif — the curated tools carry images only; for other file kinds search the endpoint passthrough (`endpoint_describe` query: "upload" or 文件上传) and park the call for approval as usual       |
@@ -257,10 +265,10 @@ Every result also names the session and the model/preset that actually answered.
 Async results carry `requestId`, `status` (completed / blocked / errored / cancelled;
 running/pending while not settled), `turn`, and `pending`. A `session_result` call that
 succeeds with `status: "errored"` is still a successful tool call — inspect the payload,
-not only `isError`. `session_send` defaults to `wait: "input"`: a session that starts
-waiting for an approval/question returns `pending: true` plus
-`waiting: { approvals, questions }` while the turn keeps running; answer it and call
-`session_result` for the final result. A client-cancelled wait also returns
+not only `isError`. `session_send` with `wait: "input"` (opt-in; the default is
+`none`) returns `pending: true` plus `waiting: { approvals, questions }` when the
+session starts waiting for an approval/question while the turn keeps running; answer it
+and call `session_result` for the final result. A client-cancelled wait also returns
 `pending: true` with the `requestId` to fetch later (use `wait: "turn"` to always
 block until the turn ends).
 
@@ -282,6 +290,38 @@ when you want the real text.
 (no corpus listing) and reads persisted-only sessions by folding their log through the
 same non-activating host read as `session_history`; when a session's log is unreadable
 it degrades to the `session_list` row and says so with `eventsReadable: false`.
+
+<!-- section: reliability -->
+
+## Reliable calling patterns
+
+What "failed" means, in three layers — check them in order:
+
+1. **Argument validation** — an `isError` result whose text starts with `MCP error
+-32602` and names the expected parameter (nothing ran; fix the arguments).
+2. **Refusal** — `isError: true` with a `{ error, code? }` payload: the tool declined
+   before doing anything (`MODE_REQUIRED` says so explicitly: "nothing was sent, so
+   retrying with the same requestId is safe"). Nothing happened; follow the payload.
+3. **Turn failure** — the call succeeded but the turn did not: either an `isError`
+   receipt that still names `sessionId` (e.g. a `session_create` whose first message was
+   refused after creation — deliver it with `session_send`), or a successful result with
+   `status: "errored"` / `status: "blocked"` (a `session_result` payload — read `error`).
+
+Delivery receipts are one JSON text block: `accepted: true` with `sessionId` / `requestId` /
+`messageId` (text is the only payload — there is no `structuredContent` mirror). Success and
+refusal are distinguishable by `isError` alone — never by shape-guessing.
+
+**Safe retries with `requestId`.** Repeating a `session_send` with the same `requestId`
+returns the first receipt instead of re-delivering — that is the reconnect story: if a
+response is lost (timeout, disconnect), either repeat the call verbatim or fetch with
+`session_result({ sessionId, requestId })`. `session_create` is not idempotent (a retry
+makes a new session), so it guards the key instead: a used `requestId` refuses before
+creating anything and names the session that owns it.
+
+**Polling.** `session_poll({ sessionIds, waitMs })` is a bounded long-poll: it returns as
+soon as any watched session changes or `waitMs` (≤30s) elapses — loop it instead of
+sleeping, and fetch each settled request with `session_result`. MCP cancellation of a
+waiting call never stops the turn in dsh; stopping work is always `session_cancel`.
 
 <!-- section: limits -->
 

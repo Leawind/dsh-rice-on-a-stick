@@ -260,6 +260,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     workflows: 'Workflow recipes (one-off/queue/steer/history)',
     errors: 'Error → alternative-path table',
     results: 'Detail levels and reading results',
+    reliability: 'Reliable calling patterns (failure layers, retries, polling)',
     limits: 'Deployment-imposed limits',
   }
   for (const section of Object.keys(GET_STARTED_SECTIONS) as Exclude<GuideSection, 'all'>[]) {

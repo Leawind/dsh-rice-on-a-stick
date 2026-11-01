@@ -5,10 +5,11 @@ sessionId and send only what is new.
 
 Conventions that hold across tools:
 
-- session_send's `wait` picks the blocking semantics: input (default) stops at an
-  approval or question — the turn keeps running, so answer it and fetch the result;
-  turn blocks until the turn ends; none only admits the task. A returned or cancelled
-  wait never stops the turn; session_cancel does that.
+- session_send's `wait` picks the blocking semantics: none (default) only admits the
+  task and returns the requestId receipt — observe with session_poll, fetch with
+  session_result; input stops at an approval or question — the turn keeps running, so
+  answer it and fetch the result; turn blocks until the turn ends. A returned or
+  cancelled wait never stops the turn; session_cancel does that.
 - Results are projected by `detail` (default summary): follow the truncation markers
   instead of asking for full text up front.
 - This plugin is an ordinary Web answer client: pending approvals and questions show up

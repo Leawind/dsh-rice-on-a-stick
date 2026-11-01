@@ -15,10 +15,10 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     'dsh_guide',
     {
       title: 'Rice on a Stick: dsh guide',
-      description: `Rice on a Stick (白饭钓竿) is the bridge behind these tools — the session, approval, question, endpoint and catalog tools plus this guide — and operates a running dsh (DeepSeek Harness): sessions, approvals and questions, models, permissions, raw endpoints. Call with no arguments for a section index (concepts, workflows, errors, results, limits); fetch one section before a non-trivial workflow.`,
+      description: `Rice on a Stick (白饭钓竿) is the bridge behind these tools — the session, approval, question, endpoint and catalog tools plus this guide — and operates a running dsh (DeepSeek Harness): sessions, approvals, questions, models, permissions, raw endpoints. Call with no arguments for a section index (concepts, workflows, errors, results, reliability, limits); fetch one before a non-trivial workflow.`,
       inputSchema: {
         section: z
-          .enum(['all', 'concepts', 'workflows', 'errors', 'results', 'limits'])
+          .enum(['all', 'concepts', 'workflows', 'errors', 'results', 'reliability', 'limits'])
           .optional()
           .describe('Omit = section index (cheap; start here); all = the full guide; or one section.'),
       },

@@ -4,7 +4,7 @@
  * 文本是产品文档而非代码, 因此放在 docs/onboarding/*.md, 本模块只负责读取与按节切分:
  *   instructions.md → 随 initialize result 下发的 server instructions
  *   guide.md        → dsh_guide 的正文; `<!-- section: id -->`
- *                     标记把整份文档切成概念/工作流/错误/结果/限制各节
+ *                     标记把整份文档切成概念/工作流/错误/结果/可靠性/限制各节
  * 文件路径相对本模块解析: src/mcp 与构建产物 lib/mcp 都向上两级到仓库/包根, 因此源码直跑与
  * 安装后运行一致。文本缺失时在导入期抛错(插件启动即失败, 不静默下发空指南)。
  * 改内容时同步 README 与 smoke 断言。
@@ -12,11 +12,11 @@
 import { readFileSync } from 'node:fs'
 
 /** dsh_get_started 的节 id: all=整份文档, 其余各取一节(section 参数可选项须与此对齐) */
-export type GuideSection = 'all' | 'concepts' | 'workflows' | 'errors' | 'results' | 'limits'
+export type GuideSection = 'all' | 'concepts' | 'workflows' | 'errors' | 'results' | 'reliability' | 'limits'
 type NamedSection = Exclude<GuideSection, 'all'>
 
 /** 节顺序 = 整份文档的拼接顺序(guide.md 中的标记顺序应与此一致) */
-const SECTION_IDS: readonly NamedSection[] = ['concepts', 'workflows', 'errors', 'results', 'limits']
+const SECTION_IDS: readonly NamedSection[] = ['concepts', 'workflows', 'errors', 'results', 'reliability', 'limits']
 
 /** 读一份 agent-facing 文档(路径相对本模块; 失败信息带实际路径, 便于诊断打包缺文件) */
 function readDoc(name: string): string {
@@ -82,6 +82,7 @@ const SECTION_BLURBS: Record<NamedSection, string> = {
     'recipes — one-off task, busy sessions (queue/steer), fan-out workers, human-input gate, finding & inspecting sessions, resources & push updates, images, endpoint escape hatch',
   errors: 'error → alternative-path table (what to do instead when a call fails)',
   results: 'reading results cheaply — the detail ladder (uri/summary/normal/full), truncation markers, TOON tabular list outputs, history/overview budgets',
+  reliability: 'reliable calling patterns — the three failure layers, requestId retries after disconnects, long-poll loop',
   limits: 'deployment-imposed limits (model allowlist, async request index, answer-client seam, attachment caps, endpoint gating)',
 }
 
