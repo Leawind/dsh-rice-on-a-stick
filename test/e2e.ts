@@ -87,7 +87,12 @@ function innerOf(resp) {
   try {
     return JSON.parse(text)
   } catch {
-    return toonDecode(text)
+    // 列表/目录类是 TOON; 散文类(dsh_guide 的 markdown)两者都不是, 原样透出
+    try {
+      return toonDecode(text)
+    } catch {
+      return { text: String(text ?? '') }
+    }
   }
 }
 
