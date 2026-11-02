@@ -7,12 +7,14 @@ npm install
 npm run build        # 编译 lib/ 与 client/
 npm test             # 构建 + 冒烟测试(smoke.ts + smoke-port.ts)
 npm run smoke:ui     # 构建后把侧栏页渲染进浏览器桩(test/ui-harness.mjs), 配合浏览器驱动目检
+npm run e2e:isolated # 一次性真机宿主上跑 e2e(需本机 DSH 发行版; 用法与环境变量见 TESTING.md)
 npm run format       # prettier 写入格式(只校验用 npm run format:check, CI 会跑)
 ```
 
 - 代码与文档格式由 prettier 统一：配置在 `.prettierrc.json`（无分号、单引号、`printWidth` 160）；`.prettierignore` 只排除生成物与不手改的内容（`lib/`、`client/`、`package-lock.json`、无解析器的 `*.svg`）、`CHANGELOG.md` 与工具私有目录。
 - 提交信息用 conventional commits（`feat` / `fix` / `docs` / `refactor` / `test` / `chore`），标题英文一句话，正文中文列要点。
-- 行为改动跑 `npm test`，纯类型改动跑 `npm run typecheck`，文档改动可免。
+- 行为改动跑 `npm test`，纯类型改动跑 `npm run typecheck`，文档改动可免；动了真机语义（投递/审批/资源面/宿主服务消费点）再跑 `npm run e2e:isolated`。
+- 测试分层、真机 e2e 的用法与假宿主桩的边界见 [TESTING.md](TESTING.md)。
 
 ## 端点元数据
 
