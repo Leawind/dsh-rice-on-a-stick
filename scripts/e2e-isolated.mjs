@@ -116,14 +116,18 @@ const patch = `${basePatch}
     port: ${mcpPort}
     host: 127.0.0.1
     authEnabled: false
-    approvalControl: off
+    # e2e 的端点直通探针调只读的 session/modelCatalog; 全新 profile 白名单为空, 非白名单调用会停泊等人工审批把探针挂到超时
+    endpointAllowlist:
+      - session/modelCatalog
 `
 await writeFile(patchPath, patch, 'utf8')
 
 console.log(`[e2e] start host (mcp :${mcpPort})`)
 const hostLogPath = join(home, 'host.log')
 const hostFd = openSync(hostLogPath, 'a')
-const host = spawn(dshExe, [cliJs, '--profile', profile, '--no-open'], {
+// --port 0: Web UI 端口交给 OS 挑——web profile 默认抢 3080, 桌面版/另一个 web 实例在跑时宿主会因 EADDRINUSE 启动失败;
+// e2e 只走插件自己的 MCP 端口, 不需要可预测的 Web UI 端口
+const host = spawn(dshExe, [cliJs, '--profile', profile, '--no-open', '--port', '0'], {
   env,
   windowsHide: true,
   stdio: ['ignore', hostFd, hostFd],
@@ -147,7 +151,6 @@ const e2eEnv = {
   E2E_PROVIDER: option('--provider', process.env.E2E_PROVIDER ?? 'deepseek-account'),
   E2E_MODEL: option('--model', process.env.E2E_MODEL ?? 'deepseek-flash'),
   E2E_PRESET: option('--preset', process.env.E2E_PRESET ?? 'standard'),
-  E2E_APPROVAL_POLICY: option('--approval-policy', process.env.E2E_APPROVAL_POLICY ?? 'never'),
 }
 const e2e = spawnSync(process.execPath, [join(repoRoot, 'test', 'e2e.ts')], {
   cwd: repoRoot,

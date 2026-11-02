@@ -56,6 +56,10 @@ async function rpc(sessionId, body, timeoutMs = 30_000) {
     const sid = res.headers.get('mcp-session-id') ?? sessionId
     const text = await res.text()
     return { sid, status: res.status, text }
+  } catch (e) {
+    // 单次调用超时降级为该项 FAIL(status 0 + 原因), 不让一次挂住的调用(如停泊等审批的端点)打断整个 run
+    if (controller.signal.aborted) return { sid: sessionId, status: 0, text: `timeout after ${timeoutMs}ms` }
+    throw e
   } finally {
     clearTimeout(timer)
   }
@@ -89,7 +93,7 @@ function innerOf(resp) {
 
 async function readResource(sid, id, uri) {
   const r = await rpc(sid, { jsonrpc: '2.0', id, method: 'resources/read', params: { uri } })
-  if (r.status !== 200) return { error: `HTTP ${r.status}` }
+  if (r.status !== 200) return { error: r.status === 0 ? r.text : `HTTP ${r.status}` }
   const p = parsePayload(r.text)
   if (p.error) return { error: String(p.error.message ?? '') }
   const c = p.result?.contents?.[0]
@@ -98,7 +102,7 @@ async function readResource(sid, id, uri) {
 
 async function callTool(sid, id, name, args = {}, timeoutMs = 60_000) {
   const r = await rpc(sid, { jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }, timeoutMs)
-  return { resp: r, inner: r.status === 200 ? innerOf(r) : { error: `HTTP ${r.status}` } }
+  return { resp: r, inner: r.status === 200 ? innerOf(r) : { error: r.status === 0 ? r.text : `HTTP ${r.status}` } }
 }
 
 try {
@@ -211,12 +215,14 @@ try {
     status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`,
   )
+  // 全局注册表计数对的是 dsh://tools 的同一份注册表(宿主/其它插件也可能注册全局工具), 不是本插件的原生工具数
+  const hostGlobalTotal = (toolsPayload?.tools ?? []).length
   report(
     'plugin_status 回报自用工具开关与数量、全局注册表计数',
     status.inner?.config?.selfToolsEnabled === true &&
       status.inner?.stats?.selfTools === nativeNames.length &&
-      status.inner?.hostGlobalTools?.total === nativeNames.length,
-    `selfTools=${status.inner?.stats?.selfTools ?? '?'} hostGlobalTools=${status.inner?.hostGlobalTools?.total ?? '?'}`,
+      status.inner?.hostGlobalTools?.total === hostGlobalTotal,
+    `selfTools=${status.inner?.stats?.selfTools ?? '?'} hostGlobalTools=${status.inner?.hostGlobalTools?.total ?? '?'} (dsh://tools=${hostGlobalTotal})`,
   )
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
@@ -263,10 +269,13 @@ try {
     eventId: 'e2e-nonexistent-event',
     decision: 'allow',
   })
+  // 两种明确拒绝都算过: 回答客户端在位时是"no held approval"; 宿主没有远程回答接缝(如全新 web profile)时
+  // 插件按 answers.ts 的降级路径明确说明自己不是 Web 回答客户端——都不会静默成功或挂住
+  const approvalAnswerError = String(approvalAnswerMissing.inner.error ?? '')
   report(
     'approval_answer 未知审批明确报错',
-    String(approvalAnswerMissing.inner.error ?? '').includes('no held approval'),
-    String(approvalAnswerMissing.inner.error ?? '').slice(0, 160),
+    approvalAnswerError.includes('no held approval') || approvalAnswerError.includes('not acting as a Web answer client'),
+    approvalAnswerError.slice(0, 160),
   )
 
   // ── 冷会话历史: 经宿主 sessionController.inspect 非激活读取 ──

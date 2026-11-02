@@ -38,6 +38,7 @@
     "test": "npm run test:meta && npm run smoke",
     "test:meta": "node test/package-meta.ts",
     "e2e": "node test/e2e.ts",
+    "e2e:isolated": "npm run build && node scripts/e2e-isolated.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
