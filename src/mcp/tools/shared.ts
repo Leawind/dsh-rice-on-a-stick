@@ -1,8 +1,10 @@
 /**
  * 工具面共享的返回形状与投影助手。
- * 每个工具都返回 MCP text content; 带 outputSchema 的工具额外镜像 structuredContent。
+ * 每个工具都返回 MCP text content: 列表/目录类用 TOON 编码(toonOut), 其余紧凑 JSON, 错误统一 `{ error }` JSON。
+ * 永不双写: 规范为兼容旧客户端建议 structuredContent 之外再镜像一份 text, 但本插件的两个工具面
+ * (MCP 客户端与原生 rice_ 面)都只读 text, 双写只给 wire 翻倍——因此不声明 outputSchema, 不回 structuredContent。
  */
-import { z } from 'zod'
+import { encode as toonEncode } from '@toon-format/toon'
 
 /** 工具回调统一返回 MCP text content */
 export function out(content: string) {
@@ -26,13 +28,25 @@ export function errorJson(e: unknown): string {
 }
 
 /**
- * 带 outputSchema 的工具统一走这里: text 镜像 + structuredContent 同源同值。
- * 先 schema.parse 再回——SDK 会对成功结果按 outputSchema 校验 structuredContent(isError 结果跳过校验),
- * parse 不过说明实现与 schema 漂移, 宁可当场炸出来也不静默降级。
+ * 列表/目录类工具的 TOON 输出(Token-Oriented Object Notation): 同构对象数组编码成
+ * `rows[N]{col,col,...}:` 表头 + 每行一条逗号分隔记录, 标量走 `key: value`; 比紧凑 JSON 省 ~40%。
  */
-export function structuredOut<T>(value: unknown, schema: z.ZodType<T>): { content: { type: 'text'; text: string }[]; structuredContent: T } {
-  const parsed = schema.parse(value)
-  return { content: [{ type: 'text' as const, text: JSON.stringify(parsed) }], structuredContent: parsed }
+export function toonOut(value: unknown) {
+  return out(toonEncode(value))
+}
+
+/**
+ * TOON 表格式的前提是"全行同键"(异构数组会被编码器退化成逐键列表, 省幅尽失)。
+ * 列集取所有行的键并集, 缺席单元格以空串占位(解码后即空串, 调用方当作"字段缺席"读)。
+ */
+export function tabularRows(rows: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  const keys: string[] = []
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (!keys.includes(key)) keys.push(key)
+    }
+  }
+  return rows.map((row) => Object.fromEntries(keys.map((key) => [key, row[key] ?? ''])))
 }
 
 // ── 跨工具共享的描述片段(单一出处防漂移; 完整语义在 guide.md Concepts) ──

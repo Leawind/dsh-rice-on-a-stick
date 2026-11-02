@@ -81,7 +81,7 @@ const SECTION_BLURBS: Record<NamedSection, string> = {
   workflows:
     'recipes — one-off task, busy sessions (queue/steer), fan-out workers, human-input gate, finding & inspecting sessions, resources & push updates, images, endpoint escape hatch',
   errors: 'error → alternative-path table (what to do instead when a call fails)',
-  results: 'reading results cheaply — the detail ladder (uri/summary/normal/full), truncation markers, history/overview budgets',
+  results: 'reading results cheaply — the detail ladder (uri/summary/normal/full), truncation markers, TOON tabular list outputs, history/overview budgets',
   limits: 'deployment-imposed limits (model allowlist, async request index, answer-client seam, attachment caps, endpoint gating)',
 }
 

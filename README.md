@@ -79,7 +79,7 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `dsh_guide`         | dsh 入门指南：无参返回节索引，`section` 取一节（概念/工作流/错误/结果/限制），`all` 才给全文                |
 | `plugin_status`     | 只读部署状态：版本、监听、配置摘要、订阅统计、已连接客户端与宿主全局工具计数，与设置面板同源                |
-| `workspace_list`    | 列出已注册工作区（id、路径、归属会话）；把用户说的“工作区”解析成 `session_create.workspacePath` 的路径      |
+| `workspace_list`    | 列出已注册工作区（id、路径、会话数）；把用户说的“工作区”解析成 `session_create.workspacePath` 的路径        |
 | `model_list`        | 列出可路由的提供商、模型 id、推理档、预设花名册与宿主当前缺省选择                                           |
 | `permission_list`   | 列出宿主的权限预设（沙箱 + 审批组合），是 `session_create.permission` / `session_set_permission` 的取值来源 |
 | `session_subagents` | 只读读取会话的原生子代理目录，`recursive=true` 递归列出后代                                                 |

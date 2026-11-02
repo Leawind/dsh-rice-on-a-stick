@@ -3,6 +3,7 @@
 // 断言集与桩行为是对齐 src/ 的契约: 改桩先看对应 src 模块的注释。
 import { realpathSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import { decode as toonDecode } from '@toon-format/toon'
 
 // ── 可观测记录数组(跨 Phase 累积, 断言按需读取) ──
 export const attachedIds = []
@@ -1018,14 +1019,18 @@ export function parsePayload(text) {
   return JSON.parse(text)
 }
 
-// 解出 MCP envelope 里的内层 JSON(带 outputSchema 的工具优先取 SDK 校验过的 structuredContent; 其余回退 text JSON); isError 结果取错误文本
+// 解出 MCP envelope 里的内层载荷: 文本先按 JSON 试, 不行按 TOON 解(目录/清单类工具的输出); isError 结果取错误文本
 export function innerOf(resp) {
   const payload = parsePayload(resp.text)
   if (payload.error) return { error: payload.error.message }
   const r = payload.result
   if (r.isError) return { error: r.content?.[0]?.text ?? 'isError' }
-  if (r.structuredContent !== undefined) return r.structuredContent
-  return JSON.parse(r.content[0].text)
+  const text = r.content[0].text
+  try {
+    return JSON.parse(text)
+  } catch {
+    return toonDecode(text)
+  }
 }
 
 // 断言登记处(键 = 断言名, 值 = 是否通过); 各 Phase 写入, smoke.ts 末尾统一汇报

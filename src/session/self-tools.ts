@@ -198,8 +198,8 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
         description: tool.description,
         parameters,
         output: {
-          // 原生工具拿到的是 MCP 结果信封(content/structuredContent), 统一按对象透出;
-          // 真正的结构化契约仍由 MCP 侧的 outputSchema + structuredOut 校验。
+          // 原生工具拿到的是 MCP 结果信封(content), 统一按对象透出;
+          // 插件永不双写——MCP 面只发 text(错误 JSON / 目录清单 TOON / 其余 JSON), 原生面透传同一份文本。
           schema: { type: 'object', additionalProperties: true },
           render: (_args, value) => renderResult(value as unknown as McpToolResult),
         },

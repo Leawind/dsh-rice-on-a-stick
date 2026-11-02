@@ -16,6 +16,8 @@
 //   E2E_WITH_AGENT=1 E2E_PROVIDER=deepseek-account E2E_MODEL=deepseek-flash E2E_PRESET=standard \
 //     E2E_CWD=... node test/e2e.ts
 //   E2E_WITH_AGENT=1 E2E_SESSION_ID=<id from the previous run> node test/e2e.ts   # cold resume
+import { decode as toonDecode } from '@toon-format/toon'
+
 const BASE = process.env.E2E_MCP_URL ?? 'http://127.0.0.1:8095/mcp'
 const TOKEN = process.env.E2E_TOKEN ?? ''
 const WITH_AGENT = process.env.E2E_WITH_AGENT === '1'
@@ -77,12 +79,11 @@ function innerOf(resp) {
   if (payload.error) return { error: payload.error.message, raw: payload }
   const r = payload.result
   if (r.isError) return { error: r.content?.[0]?.text ?? 'isError', raw: payload }
-  if (r.structuredContent !== undefined) return r.structuredContent
   const text = r.content?.[0]?.text
   try {
     return JSON.parse(text)
   } catch {
-    return { text: String(text ?? '') }
+    return toonDecode(text)
   }
 }
 
@@ -222,10 +223,10 @@ try {
   report('workspace_list 返回工作区', Array.isArray(workspaces.inner?.workspaces), `total=${workspaces.inner?.total ?? '?'}`)
 
   const modelList = await callTool(sid, 8, 'model_list', {}, 60_000)
-  const modelCount = (modelList.inner?.providers ?? []).reduce((n, p) => n + (p.models?.length ?? 0), 0)
+  const modelCount = (modelList.inner?.models ?? []).length
   report(
     'model_list 返回目录与 preset 花名册',
-    Array.isArray(modelList.inner?.providers) && Array.isArray(modelList.inner?.presets),
+    Array.isArray(modelList.inner?.providers) && Array.isArray(modelList.inner?.models) && Array.isArray(modelList.inner?.presets),
     `source=${modelList.inner?.source} providers=${modelList.inner?.providers?.length ?? 0} models=${modelCount} presets=${(modelList.inner?.presets ?? []).join(',')}`,
   )
 

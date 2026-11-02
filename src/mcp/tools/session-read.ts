@@ -20,39 +20,21 @@ import {
   type SessionControllerView,
   type SessionScope,
 } from '../../host/data.js'
-import { OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, structuredOut } from './shared.js'
+import { OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, tabularRows, toonOut } from './shared.js'
 
-const sessionListOut = z.object({
-  total: z.number(),
-  sessions: z.array(
-    z.object({
-      sessionId: z.string(),
-      createdAt: z.number(),
-      archived: z.boolean(),
-      title: z.string().optional(),
-      workspacePath: z.string().optional(),
-      agentPreset: z.string().optional(),
-      permission: z.string().optional(),
-      parentSession: z.string().optional(),
-      origin: z.string().optional(),
-      delegationDepth: z.number().optional(),
-      model: z
-        .object({
-          provider: z.string().optional(),
-          model: z.string().optional(),
-          reasoningEffort: z.string().optional(),
-        })
-        .optional(),
+/**
+ * 清单行投影成 TOON 表格式: 嵌套 model 拍平为 provider/model/reasoningEffort 三列,
+ * 其余可选字段由 tabularRows 以空串占位——保证全行同键(异构行会退化成逐键列表, 省幅尽失)。
+ */
+function sessionRowsOf(items: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  return tabularRows(
+    items.map((item) => {
+      const model = (item.model ?? {}) as { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+      const { model: _model, ...rest } = item
+      return { ...rest, provider: model.provider, model: model.model, reasoningEffort: model.reasoningEffort }
     }),
-  ),
-  titleSearch: z
-    .object({
-      coldScanned: z.number(),
-      coldTruncated: z.boolean(),
-      coldLogReads: z.number(),
-    })
-    .optional(),
-})
+  )
+}
 
 export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
@@ -60,7 +42,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List sessions',
       description:
-        'List session metadata (sessionId, createdAt, archived, title, workspacePath, preset, permission, model), live first, newest first. Archived sessions are hidden unless `scope` asks for them — archiving is the soft delete.',
+        'List session metadata (sessionId, createdAt, archived, title, workspacePath, preset, permission, model), live first, newest first. Archived sessions are hidden unless `scope` asks for them — archiving is the soft delete. Output is TOON: a `sessions[N]{columns}:` header then one comma-separated row per session (an empty cell = field absent).',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         workspacePath: z
@@ -87,7 +69,6 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           ),
       },
       annotations: { readOnlyHint: true },
-      outputSchema: sessionListOut,
     },
     async ({ limit, workspacePath, title, scope, includeCold, coldScanMax }, extra) => {
       try {
@@ -96,14 +77,11 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           sessions: items,
           titleSearch,
         } = await collectSessions(ctx, { cwd: workspacePath, title, scope, includeCold, coldScanMax }, extra?.signal)
-        return structuredOut(
-          {
-            total,
-            sessions: items.slice(0, limit ?? 20),
-            ...(titleSearch ? { titleSearch } : {}),
-          },
-          sessionListOut,
-        )
+        return toonOut({
+          total,
+          sessions: sessionRowsOf(items.slice(0, limit ?? 20)),
+          ...(titleSearch ? { titleSearch } : {}),
+        })
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))
       }

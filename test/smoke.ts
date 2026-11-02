@@ -247,10 +247,8 @@ try {
   ]
   checks['tools/list: 会话中心与各控制面工具齐(无 agent_/task_ 前缀漂移)'] =
     SESSION_TOOLS.every((n) => toolNames.includes(n)) && !toolNames.some((n) => n.startsWith('agent_') || n.startsWith('task_'))
-  checks['tools/list: session_list 带 outputSchema'] = (() => {
-    const s = toolsArr.find((t) => t.name === 'session_list')?.outputSchema
-    return Boolean(s && typeof s === 'object' && Object.keys(s).length > 0)
-  })()
+  // 永不双写: 不声明 outputSchema、不回 structuredContent, 文本面即唯一载荷(两个工具面都只读 text)
+  checks['tools/list: 无工具声明 outputSchema(永不双写)'] = toolsArr.every((t) => t.outputSchema === undefined)
   // 图片入站的入参防线: max(8) 必须真的发布在 schema 里(漂移即测试失败)
   const attachmentsSchema: any = (toolsArr.find((t) => t.name === 'session_send')?.inputSchema as any)?.properties?.attachments
   checks['图片入站: attachments 入参 schema 声明 maxItems=8'] = attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === 8
@@ -892,7 +890,7 @@ try {
     jsonrpc: '2.0',
     id: 451,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { cwd: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
   })
   const blankId = innerOf(blankCreate).sessionId
   const blankBlocked = await rpc(init.sid, {
@@ -952,10 +950,10 @@ try {
     slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted' && s.archived === false)
   const live2Row = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
   checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live' && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
-  // 权限预设: live 行经宿主推导; 冷会话行不读日志(字段省略)
+  // 权限预设: live 行经宿主推导; 冷会话行不读日志(TOON 表格式下缺席字段以空串占位)
   checks['session_list: live 行回报权限预设'] =
     slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write' &&
-    slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === undefined
+    slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-persisted')?.permission === ''
   // 标题检索: live 标题在内存里; 冷会话默认不读日志, includeCold 才折叠
   const slTitle = await rpc(init.sid, { jsonrpc: '2.0', id: 53, method: 'tools/call', params: { name: 'session_list', arguments: { title: 'live two' } } })
   const slTitleInner = innerOf(slTitle)
@@ -2384,7 +2382,7 @@ try {
     checks['模型回报: 换模型后 session_result 反映新模型'] = innerOf(res).model?.provider === 'p2' && innerOf(res).model?.model === 'm9'
     const list = await phase.call('session_list', {})
     const row = innerOf(list).sessions?.find((s: any) => s.sessionId === 'sess-select')
-    checks['模型回报: 换模型后 session_list 反映新模型'] = row?.model?.provider === 'p2' && row?.model?.model === 'm9'
+    checks['模型回报: 换模型后 session_list 反映新模型'] = row?.provider === 'p2' && row?.model === 'm9'
     await phase.dispose()
   }
 
@@ -2728,10 +2726,11 @@ try {
     const ml = await phase.call('model_list', {})
     const payload = innerOf(ml) as any
     const p1 = (payload.providers ?? []).find((p: any) => p.id === 'p1')
+    const p1Models = (payload.models ?? []).filter((m: any) => m.provider === 'p1')
     checks['model_list: 部署方简介并入 provider/model 行'] =
       p1?.description === '面向测试的假提供商' &&
-      (p1.models ?? []).find((m: any) => m.id === 'm1')?.description === 'Provider One 的快速模型' &&
-      (p1.models ?? []).find((m: any) => m.id === 'm2')?.description === undefined
+      p1Models.find((m: any) => m.id === 'm1')?.description === 'Provider One 的快速模型' &&
+      p1Models.find((m: any) => m.id === 'm2')?.description === ''
     checks['model_list: 宿主自带长描述不透出(简介只认部署方配置)'] = JSON.stringify(payload).includes('LONG-DESCRIPTION-MUST-NOT-LEAK') === false
     const modelsRoute = await phase.gui('models')
     checks['GUI 路由: models 目录带部署方简介'] =

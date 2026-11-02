@@ -196,11 +196,11 @@ export async function questionListFor(ctx: Context, sessionIds: readonly string[
       }
     }
     const questions = questionEntriesFor(sessionId, events, live !== undefined)
+    // answerable 的持有语义只写在 question_list/question_answer 的描述里, 不随每次载荷重发
     sessions.push({
       sessionId,
       state: questions.length > 0 ? 'waiting-question' : live !== undefined ? (live.status === 'running' ? 'running' : 'idle') : 'inactive',
       questions,
-      ...(questions.length > 0 ? { note: 'question_answer can only answer entries with answerable=true; others are owned by the UI or another client' } : {}),
     })
   }
   return { sessions }

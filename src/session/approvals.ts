@@ -134,12 +134,12 @@ export async function approvalListFor(ctx: Context, sessionIds: readonly string[
     }
     const approvals = approvalEntriesFor(sessionId, events)
     const policy = live !== undefined ? effectiveApprovalPolicy(ctx, live.session) : approvalPolicyOfEvents(events)
+    // answerable 的持有语义只写在 approval_list/approval_answer 的描述里, 不随每次载荷重发
     sessions.push({
       sessionId,
       state: approvals.length > 0 ? 'waiting-approval' : live !== undefined ? (live.status === 'running' ? 'running' : 'idle') : 'inactive',
       ...(policy !== undefined ? { policy } : {}),
       approvals,
-      ...(approvals.length > 0 ? { note: 'approval_answer can only answer entries with answerable=true; others are owned by the UI or another client' } : {}),
     })
   }
   return { sessions }

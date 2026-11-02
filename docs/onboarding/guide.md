@@ -21,7 +21,7 @@ you already know.
   the runtime object that executes turns is its agent. They are 1:1: creating a session
   creates the agent, and the agent's context IS the session history.
 - **workspace** — the dsh web UI groups sessions in the sidebar by workspace:
-  one directory per workspace, listed by `workspace_list` (id, path, owning sessions).
+  one directory per workspace, listed by `workspace_list` (id, path, sessionCount).
   `session_create.workspacePath` selects that directory; a path matching no registered
   workspace gets a new workspace, so any other directory (your own directory, a worktree,
   a subdirectory) silently creates a second one. When the user names a workspace, take its
@@ -236,6 +236,13 @@ you already know.
 <!-- section: results -->
 
 ## Reading results without blowing your context
+
+List and catalog tools (`session_list`, `workspace_list`, `model_list`, `permission_list`,
+`session_subagents`) return **TOON** (Token-Oriented Object Notation) instead of JSON: uniform
+rows sit under a `sessions[N]{col,col,...}:` header, one comma-separated row per item; scalars
+are `key: value` lines. An empty cell means the field is absent, values containing commas are
+double-quoted, and any TOON parser can decode it — at roughly 40% fewer tokens than the same
+JSON. Everything else returns compact JSON; errors are always `{"error": ...}`.
 
 `detail` controls read-back size on both `session_send` (wait=input/turn) and `session_result`: `uri`
 returns only the reference (`resource`) plus bookkeeping, `summary` (default, a few hundred

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+-   工具输出瘦身（破坏性变更：下列工具输出不再可 `JSON.parse`）：列表与目录类工具（`session_list` / `workspace_list` / `model_list` / `permission_list` / `session_subagents`）改用 TOON 表格式文本（表头 + 逗号分隔行，同构数据比紧凑 JSON 省 ~40% token；可用任意 TOON 解码器解析）；其余工具仍为紧凑 JSON，错误统一 `{error}` JSON 不变。
+-   永不双写：不再声明 `outputSchema`、不再回 `structuredContent`（规范建议的兼容性双写在本插件的两个工具面上都只读 text，双写只给 wire 翻倍）；文本面即唯一载荷。
+-   不再随载荷重发与工具描述重复的静态提示：`session_create` / `session_send`(wait=none) 回执的 `note`、`approval_list` / `question_list` 逐会话 `note`；`workspace_list` 清单不再携带逐会话 id（逐会话清单走 `dsh://workspaces/{id}` 资源）；`model_list` 拍平为 `providers` + `models` 两张表（推理档以 `|` 连接，不再投影与 id 语义重复的档位名；部署方写的模型/提供商简介保留在列）。
+-   测试：修复冒烟测试空白会话护栏用例的入参漂移（`cwd` → `workspacePath`，main 上既有失败）。
 -   端点直通：端点策略扩为三档——白名单直行（勾选）、停泊审批（未勾选）、拒绝清单直接拒绝（新增 `endpointDenylist`，优先级高于白名单，不停泊审批）；设置面板端点行点选循环切换三档，顶栏新增"拒绝"快捷框，组头与计数同步反映拒绝档。
 -   设置面板：审批卡显示端点徽标（只读/写/危险）与描述；修复离开审批页期间审批倒计时与进度条停走（重进时先画旧位置再跳到当前值）、虚拟审批项过期后不离开审批页就不出清两个问题。
 -   设置面板：模型白名单的分组展开/收起补上与端点白名单一致的平滑动画（两处共用同一折叠容器组件）。

@@ -136,7 +136,6 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
             preset: r.preset,
             ...(r.permission !== undefined ? { permission: r.permission } : {}),
             ...(r.permissionRequested !== undefined ? { permissionRequested: r.permissionRequested } : {}),
-            note: 'blank session created; send work with session_send (wait="none" for async, "turn" to block)',
           }),
         )
       } catch (e) {
@@ -215,13 +214,8 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       try {
         if (wait === 'none') {
           const r = await submitSession({ ctx, sessionId, task, mode, attachments, requestId })
-          return out(
-            JSON.stringify({
-              ...r,
-              resource: resUri.sessionHistory(sessionId),
-              note: 'accepted; call session_poll([...sessionIds]) to observe states and session_result({ sessionId, requestId }) to fetch the structured result',
-            }),
-          )
+          // 后续动作的指路语义在 session_poll/session_result 的描述里, 回执不重发
+          return out(JSON.stringify({ ...r, resource: resUri.sessionHistory(sessionId) }))
         }
         const result = await promptSession({ ctx, sessionId, task, mode, waitFor: wait, attachments, requestId, signal: extra.signal })
         const effDetail = detail ?? 'summary'
