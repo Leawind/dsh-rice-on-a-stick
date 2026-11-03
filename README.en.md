@@ -75,8 +75,6 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 ### Catalog and status
 
-### Catalog and status
-
 | Tool                | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dsh_guide`         | dsh usage guide: no arguments returns a compact section index; `section` fetches one part (concepts/workflows/errors/results/limits), `all` the full text                  |
