@@ -39,14 +39,14 @@ interface WorkspaceControllerView {
 const ATTACHMENTS_ARG = z
   .array(
     z.object({
-      path: z.string().optional().describe('Image file path readable by the dsh host process (absolute, or relative to the session workspacePath).'),
-      url: z.string().optional().describe('HTTP(S) URL of the image; the dsh host fetches the bytes (64MB source cap).'),
+      path: z.string().optional().describe('File path readable by the dsh host (absolute, or relative to the session workspacePath).'),
+      url: z.string().optional().describe('HTTP(S) URL; the dsh host fetches the bytes (64MB cap).'),
       name: z.string().optional().describe('Display name (default: file name or URL tail).'),
     }),
   )
   .max(8)
   .optional()
-  .describe('Images to attach: a host-readable path or URL (bytes are read host-side, never base64 in arguments); png/jpeg/webp/gif, max 8.')
+  .describe('Images to attach (png/jpeg/webp/gif, max 8); bytes are read host-side, never base64 in arguments.')
 
 /**
  * 投递模式参数(session_send / session_create 首条消息共用): 可省略只在"会话空闲"时有意义——
@@ -56,7 +56,7 @@ const MODE_ARG = z
   .enum(['queue', 'steer'])
   .optional()
   .describe(
-    'queue = after the current turn (a new turn); steer = next step boundary of the running turn (never interrupts one). Omit only when the session is idle.',
+    'queue = after the current turn; steer = at the running turn next step boundary (never interrupts it). Omit only when the session is idle.',
   )
 
 /** 会话的用度: 轮数与"是否用过"(有轮或用户消息即算用过) */
@@ -116,7 +116,7 @@ const WAIT_ARG = z
   .enum(['input', 'turn', 'none'])
   .optional()
   .describe(
-    'none (default): return the admission receipt immediately — observe with session_poll, fetch the result with session_result; input: return early when the session waits for an approval/question; turn: block until the turn ends.',
+    'none (default): admission receipt at once; input: return early when the session waits for an approval/question; turn: block until the turn ends.',
   )
 
 /** 结果详略参数(session_send / session_create 首条消息共用; 只对 wait=input/turn 有意义) */
@@ -189,25 +189,23 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Create session',
       description:
-        'Create a session in `workspacePath` (its run directory and dsh workspace; resolve a user-named workspace with `workspace_list` — another directory silently lands it elsewhere) and deliver the first message in the same call: message params mirror `session_send`, `task` required (no blank sessions). Model + preset from `model_list`. Returns `sessionId`, the `workspace` and the delivery receipt.',
+        'Create a session in `workspacePath` and deliver the first message in the same call: message params mirror `session_send`, `task` required. Resolve a user-named workspace with `workspace_list`; provider/model/preset come from `model_list`. Returns `sessionId`, the resolved `workspace` and the delivery receipt.',
       inputSchema: {
         workspacePath: z
           .string()
           .describe(
-            'Directory the session runs in and the dsh workspace it is grouped under (one directory = one workspace). When the user names a workspace, pass the `path` from `workspace_list`; a path matching no registered workspace creates a new one, so another directory (a worktree, a subdirectory) silently lands the session elsewhere.',
+            'Directory the session runs in and the workspace it groups under (one directory = one workspace); when the user names a workspace, pass the `path` from `workspace_list`.',
           ),
-        provider: z.string().describe('Model provider route (see model_list / dsh://models; must be paired with model).'),
-        model: z.string().describe('Model id (see model_list / dsh://models; must be paired with provider).'),
-        reasoningEffort: z.string().optional().describe('Reasoning effort id (see model_list reasoningEfforts; default = adapter default).'),
-        preset: z.string().describe('Agent preset id to mount (required; see model_list.presets / dsh://presets).'),
+        provider: z.string().describe('Provider route from `model_list`; must be paired with `model`.'),
+        model: z.string().describe('Model id from `model_list`; must be paired with `provider`.'),
+        reasoningEffort: z.string().optional().describe('Effort id from `model_list` `efforts` (default: adapter default).'),
+        preset: z.string().describe('Preset id from `model_list` `presets` (required).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
         permission: z
           .string()
           .optional()
-          .describe('Sandbox + approval bundle for the new session (values from permission_list). Omit = the host default preset.'),
-        task: z
-          .string()
-          .describe('First message to deliver — a session is never created without its task. Sent verbatim: the plugin wraps nothing and appends nothing.'),
+          .describe('Permission preset id from `permission_list`; omit = the host default.'),
+        task: z.string().describe('First message to deliver; mirrors `session_send.task`.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
         wait: WAIT_ARG,
@@ -274,7 +272,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Switch session permission',
       description:
-        "Switch a session's permission preset (a sandbox + approval bundle; values from `permission_list`). Records the preset and sets both knobs through their authoritative setters, so a session reading `custom` gets a consistent bundle.",
+        "Switch a session's permission preset (a sandbox + approval bundle; values from `permission_list`, the UI's switcher semantics). Returns the effective value.",
       inputSchema: {
         sessionId: z.string().describe('Session id to switch.'),
         permission: z.string().describe('Permission preset id (from permission_list).'),
@@ -311,7 +309,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Send session message',
       description:
-        "Send a message into a session (the UI's Send). Default `wait=none`: the admission receipt comes back immediately — observe with `session_poll`, fetch the result with `session_result`; `wait=input|turn` blocks instead. Returning never stops the dsh turn. Repeating a `requestId` returns the first receipt.",
+        "Send a message into a session (the UI's Send). Default `wait=none`: the admission receipt comes back immediately — observe with `session_poll`, fetch the result with `session_result`; `wait=input|turn` blocks instead. Returning never stops the dsh turn; a repeated `requestId` returns the first receipt.",
       inputSchema: {
         sessionId: z.string().describe('Target session id (continue an existing id to keep its conversation and model).'),
         task: z.string().describe('The message to deliver. Sent verbatim: the plugin wraps nothing and appends nothing.'),
@@ -340,7 +338,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Poll sessions',
       description:
-        "Observe many sessions at once: each session's `state` (idle/running/waiting-approval/waiting-question/inactive/not-found), `lastTurn`, `queued`, `pendingApprovals`/`pendingQuestions`, `cursor` and last assistant message. `waitMs` > 0 long-polls up to 30s and returns when any watched session changes (`changed` / `timedOut`).",
+        "Observe many sessions at once: per-session `state`, `lastTurn`, `queued`, `pendingApprovals`/`pendingQuestions`, `cursor`. `waitMs` > 0 long-polls until any watched session changes (`changed`/`timedOut`).",
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to observe (1-20).'),
         waitMs: z
@@ -354,7 +352,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           .enum(['summary', 'normal', 'full'])
           .optional()
           .describe(
-            "Truncation level for each watched session's lastMessage (default summary). Not the session_send/session_result `detail` ladder — it only clips this poll's message preview.",
+            "Truncation level for each watched session's lastMessage (default summary) — clips only this preview, not the session_send/session_result `detail` ladder.",
           ),
       },
       annotations: { readOnlyHint: true },
@@ -378,7 +376,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         'Fetch the structured result of one `session_send` by `requestId` (latest request if omitted). Read `status`/`error`: a tool call that succeeded does not mean the turn succeeded.',
       inputSchema: {
         sessionId: z.string().describe('Session id used when the task was submitted.'),
-        requestId: z.string().min(1).max(200).optional().describe('Request id returned by session_send; omit for the latest request in the session.'),
+        requestId: z.string().min(1).max(200).optional().describe('Request id from session_send; omit = the latest request.'),
         detail: z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(DETAIL_HINT),
       },
       annotations: { readOnlyHint: true },
@@ -420,7 +418,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List queued messages',
       description:
-        "List a session's queued messages (id, text, state) — the UI's QueueDock. Read-only; rewriting, removing or promoting them is `session_queue_manage`.",
+        "List a session's queued messages (id, text, state) — the UI's QueueDock; rewriting, removing or promoting them is `session_queue_manage`.",
       inputSchema: {
         sessionId: z.string().describe('Session id.'),
       },
@@ -446,7 +444,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         "Mutate a session's queued messages: `edit` rewrites one message's text, `remove` drops it, `steer` dequeues it into the running turn. Read counterpart: `session_queue`.",
       inputSchema: {
         sessionId: z.string().describe('Session id.'),
-        action: z.enum(['edit', 'remove', 'steer']).describe('edit = rewrite the text; remove = drop it; steer = promote and steer it into the running turn.'),
+        action: z.enum(['edit', 'remove', 'steer']).describe('Which mutation to apply.'),
         itemId: z.string().describe('Queued message id (from session_queue).'),
         content: z.string().optional().describe('New text (action=edit only).'),
       },
@@ -469,12 +467,12 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Select session model',
       description:
-        "Switch a session's model in place (validated; effective on the next step; history preserved). When the model allowlist is enabled the target must be in it.",
+        "Switch a session's model in place (validated; effective on the next step; history preserved). With the model allowlist on, the target must be in it.",
       inputSchema: {
         sessionId: z.string().describe('Session id whose model should change.'),
-        provider: z.string().describe('Target provider route (see model_list / dsh://models).'),
-        model: z.string().describe('Target model id (see model_list / dsh://models).'),
-        reasoningEffort: z.string().optional().describe('Reasoning effort id (see model_list reasoningEfforts; default = adapter default).'),
+        provider: z.string().describe('Provider route from `model_list`.'),
+        model: z.string().describe('Model id from `model_list`.'),
+        reasoningEffort: z.string().optional().describe('Effort id from `model_list` `efforts` (default: adapter default).'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -536,10 +534,10 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_fork',
     {
       title: 'Fork session',
-      description: `Fork a session from a prefix of its events (default: the most recently completed turn), inheriting its directory, preset and model. Returns the new sessionId with the inherited workspacePath and model echoed back.`,
+      description: `Fork a session from a prefix of its events (default: the most recently completed turn), inheriting its directory, preset and model — echoed back on the new session.`,
       inputSchema: {
         sessionId: z.string().describe('Source session id to fork.'),
-        atSeq: z.number().optional().describe('Fork cut-off (event sequence number; default = the most recently completed turn).'),
+        atSeq: z.number().optional().describe('Fork cut-off (event sequence number).'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -693,16 +691,11 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_archive',
     {
       title: 'Archive session',
-      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE}. An active session needs \`stopActivity=true\` (stops the current turn and background tasks first); a session with no turns and no messages is refused unless \`force=true\`.`,
+      description: `Archive a session — the UI's only delete; ${SOFT_ARCHIVE}. An active session needs \`stopActivity=true\` (stops the current turn first); a session with no turns and no messages is refused unless \`force=true\`.`,
       inputSchema: {
         sessionId: z.string().describe('Session id to archive.'),
         stopActivity: z.boolean().optional().describe("Set true for an active session = stop its current turn first (the UI's Stop and Archive)."),
-        force: z
-          .boolean()
-          .optional()
-          .describe(
-            'Archive a session that was never used (no turns, no messages). Blank sessions are normally created to receive work — set this only to delete one deliberately.',
-          ),
+        force: z.boolean().optional().describe('Set true to archive a never-used session (no turns, no messages) deliberately.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
@@ -761,7 +754,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_unarchive',
     {
       title: 'Unarchive session',
-      description: `Restore an archived session: the session rejoins the lists and \`session_send\` cold-resumes it with history intact. Idempotent — \`wasArchived\` reports whether it was archived.`,
+      description: `Restore an archived session: it rejoins the lists and \`session_send\` cold-resumes it with history intact. Idempotent — \`wasArchived\` reports whether it was archived.`,
       inputSchema: {
         sessionId: z.string().describe('Session id to restore (from session_list with scope="archived").'),
       },
@@ -803,7 +796,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Read image attachment',
       description:
-        'Read one image attachment by reference: its metadata plus the host-local file path (zero image tokens). `inline=true` additionally returns an MCP image content block.',
+        'Read one image attachment by reference: metadata plus the host-local file path (zero image tokens); `inline=true` adds an MCP image content block.',
       inputSchema: {
         sessionId: z.string().optional().describe(OPTIONAL_SESSION_ID),
         attachmentId: z.string().describe('Image attachment id (from a session_send receipt or session_history images).'),

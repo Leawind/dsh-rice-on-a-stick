@@ -19,20 +19,20 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Discover dsh endpoints',
       description:
-        'Discover dsh Remote endpoints (the escape hatch beyond the curated tools). Resolution ladder — search first: `query` = keyword search; no arguments = namespace index; `namespace` = its method list; `endpoint` = one exact contract. Entries are flagged readOnly / allowed (whitelisted, runs directly) / writable / approvalRequired (parks for a human); stream entries are not callable.',
+        'Discover dsh Remote endpoints beyond the curated tools. Resolution ladder — search first: no arguments = namespace index; `query` = keyword search; `namespace` = its method list; `endpoint` = one exact contract. Entries flag readOnly / allowed / writable / approvalRequired; stream entries are not callable.',
       inputSchema: {
         query: z
           .string()
           .optional()
-          .describe('Keyword search over endpoint names and descriptions (case-insensitive, words AND together); scope it with namespace.'),
+          .describe('Keyword search over endpoint names and descriptions (case-insensitive, AND); scope with `namespace`.'),
         namespace: z
           .string()
           .optional()
-          .describe('Namespace name: alone lists its methods; with query scopes the search to it. Omit all arguments for the compact namespace index.'),
+          .describe('Namespace name: alone = its methods; with `query` = search scope. Omit all arguments for the index.'),
         endpoint: z
           .string()
           .optional()
-          .describe('Exact endpoint "namespace/method" for its full contract (parameters + result schema); cannot combine with query/namespace.'),
+          .describe('Exact endpoint "namespace/method" for the full contract; cannot combine with query/namespace.'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -84,13 +84,13 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Call a dsh endpoint',
       description:
-        'Call one dsh Remote endpoint with its named wire arguments (keys from its endpoint_describe contract). Allowlisted endpoints run directly; every other non-stream endpoint — read-only ones included — parks until a person allows or declines it on the settings panel, and decline, timeout or caller disconnect executes nothing.',
+        'Call one dsh Remote endpoint with its named wire arguments (keys per its endpoint_describe contract). Allowlisted endpoints run directly; every other non-stream endpoint parks until a person allows or declines it — decline, timeout or caller disconnect executes nothing.',
       inputSchema: {
         endpoint: z
           .string()
           .describe('Exact endpoint "namespace/method" (allowed=true or approvalRequired in endpoint_describe; stream endpoints are not callable).'),
         // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器
-        args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint (keys per its endpoint_describe contract).'),
+        args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

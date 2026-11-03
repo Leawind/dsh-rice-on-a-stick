@@ -24,10 +24,10 @@ interface UserQuestionServiceView {
 const ANSWER_ITEM = z
   .object({
     id: z.string().describe('Question id echoed from question_list.'),
-    selected: z.array(z.string()).describe('Selected option labels. Empty with no custom means the user explicitly skipped this question.'),
+    selected: z.array(z.string()).describe('Selected option labels; empty (with no custom) = explicitly skipped.'),
     custom: z.string().optional().describe('Optional free-form answer; for a single-select question it replaces selected.'),
   })
-  .describe('One answer item; every question of the call must appear exactly once.')
+  .describe('One answer item.')
 
 export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
   mcp.registerTool(
@@ -35,7 +35,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List pending questions',
       description:
-        'List pending `ask_user_question` batches for one or more sessions: `eventId`, `callId`, `state` (open/continued), `requestedAt`, `answerable`, and the question batch itself (id, question, header, options, multiSelect). `answerable=true` means this plugin holds the forwarded request.',
+        'List pending `ask_user_question` batches for one or more sessions: `eventId`, `callId`, `state` (open/continued), `requestedAt`, `answerable`, and the question batch (id, question, header, options, multiSelect). `answerable=true` = this plugin holds it.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -55,12 +55,12 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer a pending question',
       description:
-        'Answer an `ask_user_question` batch this plugin holds (`answerable=true`): one item per question id, every id exactly once. The native card stays visible; whoever answers first wins. For a timed question already `continued`, pass `callId` to use the host late-answer path.',
+        'Answer an `ask_user_question` batch this plugin holds (`answerable=true`): one item per question id, every id exactly once. For a timed question already `continued`, pass `callId` to use the host late-answer path.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the question.'),
-        eventId: z.string().optional().describe('eventId from question_list (the forwarded-request key; preferred).'),
+        eventId: z.string().optional().describe('eventId from question_list (preferred).'),
         callId: z.string().optional().describe('ask_user_question tool call id (alternative to eventId).'),
-        answers: z.array(ANSWER_ITEM).min(1).describe('Complete answer batch, one item per question of the call.'),
+        answers: z.array(ANSWER_ITEM).min(1).describe('One item per question of the call.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

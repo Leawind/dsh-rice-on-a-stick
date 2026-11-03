@@ -19,7 +19,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List pending approvals',
       description:
-        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` means this plugin holds the forwarded request and `approval_answer` can answer it; false means the UI or another client owns it.',
+        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` = this plugin holds it and `approval_answer` can answer; false = the UI or another client owns it.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -39,12 +39,12 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer an approval',
       description:
-        'Answer an approval this plugin holds (`answerable=true` in `approval_list`): allow = one-time grant, reject = deny. The native card stays visible; whoever answers first wins. Identify it by `eventId` (preferred) or `callId`.',
+        'Answer an approval this plugin holds (`answerable=true` in `approval_list`) by `eventId` (preferred) or `callId`; allow = one-time grant, reject = deny.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the approval.'),
-        eventId: z.string().optional().describe('eventId from approval_list (the forwarded-request key; preferred).'),
-        callId: z.string().optional().describe('Tool call id (alternative to eventId; useful for aligning with session_history tool calls).'),
-        decision: z.enum(['allow', 'reject']).describe('allow = grant once (allowed-once); reject = deny.'),
+        eventId: z.string().optional().describe('eventId from approval_list (preferred).'),
+        callId: z.string().optional().describe('Tool call id (alternative to eventId).'),
+        decision: z.enum(['allow', 'reject']).describe('The decision.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
@@ -109,7 +109,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Set approval policy',
       description:
-        "Set a session's approval knob: ask = request approval when needed, never = reject outright. Live sessions only, and one knob only — for a named permission level use `session_set_permission`. Read counterpart: `approval_policy`.",
+        "Set a session's approval knob (`ask`/`never`, meanings in `approval_policy`): live sessions only; for a named permission level use `session_set_permission`.",
       inputSchema: {
         sessionId: z.string().describe('Target session id.'),
         policy: z.enum(['ask', 'never']).describe('Target policy.'),

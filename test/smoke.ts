@@ -120,10 +120,12 @@ const ctx = makeCtx({
 /**
  * 工具面体积预算(Phase A 的 tools/list / initialize 断言用)。
  * 依据: 这部分是每个会话常驻的系统提示成本, 宿主按 4 字符/token 估算;
- * 当前实测 ~33.3 KB / 描述合计 ~8.7 KB / instructions 1.2 KB(session_create 复用 session_send 的
- * 6 个投递参数, 同一组 schema 在 tools/list 里出现两次, 是本次上调的来源)。要加工具就同步上调, 让增长被显式评审。
+ * 当前实测 ~30.1 KB / 描述合计 ~7.1 KB / instructions 1.2 KB。描述与参数说明已与 guide.md 收敛
+ * (教学/因果解释归 guide, 工具面只留"做什么 + 何时用 + 取值指针"); session_create 复用 session_send 的
+ * 6 个投递参数, 同一组 schema 在 tools/list 里出现两次, 属结构性成本暂不移除。
+ * 要加工具就同步上调, 让增长被显式评审。
  */
-const SURFACE_BUDGET = 34_000
+const SURFACE_BUDGET = 31_500
 const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 

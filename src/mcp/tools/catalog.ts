@@ -15,7 +15,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     'dsh_guide',
     {
       title: 'Rice on a Stick: dsh guide',
-      description: `Rice on a Stick (白饭钓竿) is the bridge behind these tools — the session, approval, question, endpoint and catalog tools plus this guide — and operates a running dsh (DeepSeek Harness): sessions, approvals, questions, models, permissions, raw endpoints. Call with no arguments for a section index (concepts, workflows, errors, results, reliability, limits); fetch one before a non-trivial workflow.`,
+      description: `Rice on a Stick (白饭钓竿) is the bridge behind these tools: it operates a running dsh — sessions, approvals, questions, models, permissions, raw endpoints. Call with no arguments for the section index; fetch a section before a non-trivial workflow.`,
       inputSchema: {
         section: z
           .enum(['all', 'concepts', 'workflows', 'errors', 'results', 'reliability', 'limits'])
@@ -34,7 +34,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'Plugin status',
       description:
-        'Show deployment status: version, listener state, uptime, config summary, subscription stats, connected MCP clients, and the host global tool-registry count (its list lives at the dsh://tools resource). Same data as the Web settings panel.',
+        'Show deployment status: version, listener state, uptime, config summary, subscription stats, connected clients, host global tool count (list at `dsh://tools`). Same data as the Web settings panel.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -51,7 +51,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List workspaces',
       description:
-        'List registered workspaces (id, path, sessionCount) — a workspace is the session-grouping directory in the dsh sidebar. Use it to resolve a user-named workspace to the `path` that `session_create.workspacePath` takes. Headless deployments have no workspace registry; the result says so. Output is TOON tabular text.',
+        'List registered workspaces (id, path, sessionCount) — use it to resolve a user-named workspace to the `path` that `session_create.workspacePath` takes. Headless deployments have none; the result says so. Output is TOON tabular text.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -75,7 +75,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List models',
       description:
-        "List routable providers, model ids and reasoning efforts, the preset roster (`presets`), and the host's current default selection. `session_create` takes its provider/model/preset from here: pick a `models` row (`provider` + `id`) and a `preset`; `efforts` lists reasoning-effort ids joined by `|`; `source` names the catalog. Output is TOON tabular text (flat `providers` / `models` tables).",
+        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/preset. Output is TOON tabular text.",
       inputSchema: {
         provider: z.string().optional().describe('Only list this provider (default: all).'),
       },
@@ -134,7 +134,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List permission presets',
       description:
-        "List the host's permission presets — the sandbox + approval bundles the UI's permission switcher offers. The values are what `session_create.permission` and `session_set_permission` take; `defaultPreset` is what new sessions inherit. Output is TOON tabular text.",
+        "List the host's permission presets (sandbox + approval bundles) — the values `session_create.permission` / `session_set_permission` take; `defaultPreset` is what new sessions inherit. Output is TOON tabular text.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -158,9 +158,9 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List native subagents',
       description:
-        "Read a session's native subagent catalog: child `sessionId`, `createdAt`, `mode` (one-shot/continuable/external/unknown) and `label`; `recursive=true` adds descendants with `parentId`/`depth`. Read-only — it neither loads nor resumes the child; drive one with the session tools. Output is TOON tabular text.",
+        "Read a session's native subagent catalog; `recursive=true` adds descendants with `parentId`/`depth`. Directory only — it does not load or resume the child; drive one with the session tools. Output is TOON tabular text.",
       inputSchema: {
-        parentSessionId: z.string().describe('Parent session id (the root of its subagent catalog).'),
+        parentSessionId: z.string().describe('Parent session id.'),
         recursive: z.boolean().optional().describe('true = list all reachable descendants; default = direct children only.'),
       },
       annotations: { readOnlyHint: true },
