@@ -18,7 +18,7 @@ if (!existsSync(CLIENT_JS)) {
   console.error('[ui-harness] client/client.js is missing; run `npm run build` first')
   process.exit(1)
 }
-const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : 8096)
+const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : 0) // 默认 0 = OS 分配空闲端口, 避免与机器上其他程序撞车
 
 // ── mock 状态(与 statusSnapshot 同形) ──
 const startedAt = Date.now()
@@ -629,5 +629,6 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[ui-harness] http://127.0.0.1:${PORT}/  (Ctrl+C 退出)`)
+  const port = /** @type {{ port: number }} */ (server.address()).port
+  console.log(`[ui-harness] http://127.0.0.1:${port}/  (Ctrl+C 退出)`)
 })

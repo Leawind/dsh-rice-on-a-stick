@@ -10,7 +10,7 @@
 import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
-import { connect } from 'node:net'
+import { connect, createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,7 +28,7 @@ const dshExe = join(installRoot, 'DeepSeek Harness.exe')
 const asarPath = join(installRoot, 'resources', 'app.asar')
 const cliJs = join(asarPath, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
 const profile = 'rice-e2e'
-const mcpPort = 8095
+const mcpPort = await freeTcpPort()
 
 if (!existsSync(join(pluginPath, 'lib', 'index.js'))) {
   console.error(`[e2e] ${pluginPath} 没有 lib/index.js；先构建插件，或用 --plugin 指向已构建的临时副本`)
@@ -62,6 +62,18 @@ function runCli(args, timeoutMs = 120_000) {
       closeSync(fd)
       resolvePromise({ code, log: readFileSync(logPath, 'utf8') })
     })
+  })
+}
+
+function freeTcpPort() {
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.once('error', reject)
+    srv.once('listening', () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+    srv.listen(0, '127.0.0.1')
   })
 }
 

@@ -17,7 +17,7 @@
  * 测试是普通 TypeScript, node test/smoke.ts 直跑(Node 原生 type stripping, 需 Node ≥ 23.6)。
  */
 import { EventEmitter } from 'node:events'
-import { createServer } from 'node:net'
+import { createServer, type AddressInfo } from 'node:net'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1600,7 +1600,7 @@ try {
 
   // ── Phase B: allowedModels 允许清单(独立端口独立 ctx; 缺省开关按"清单非空即启用"推导) ──
   {
-    const phase = await startPhase(8098, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
     const mkOut = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard', task: 'allowlist probe' })
     checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? (innerOf(mkOut).error ?? '') : '').includes('not in allowedModels')
     const mkIn = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'allowlist ok probe' })
@@ -1618,7 +1618,7 @@ try {
 
   // ── Phase B2: 开关显式关闭 = 暂时不限制(清单保留) ──
   {
-    const phase = await startPhase(8092, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       allowedModels: ['p1/m1'],
       allowedModelsEnabled: false,
     })
@@ -1632,7 +1632,7 @@ try {
   // ── Phase B3: 原生自用工具开关(默认开/关闭/volatile 实时切换) ──
   {
     const phaseCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle })
-    const phase = await startPhase(8093, phaseCtx, { selfToolsEnabled: false })
+    const phase = await startPhase(await freePort(), phaseCtx, { selfToolsEnabled: false })
     checks['原生自用工具: selfToolsEnabled=false 不注册'] = phaseCtx.tools.get('rice_session_create') === undefined
     updateVolatile(phase.config.selfToolsEnabled, (ConfigSchema({ selfToolsEnabled: true }) as any).selfToolsEnabled)
     phaseCtx.__fireVolatile([['selfToolsEnabled']])
@@ -1645,7 +1645,7 @@ try {
 
   // ── Phase B4: 无权限预设服务的部署(headless 降级路径) ──
   {
-    const phase = await startPhase(8094, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, permissionPresets: null }), {})
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, permissionPresets: null }), {})
     const plOut = await phase.call('permission_list', {})
     checks['权限预设缺席: permission_list 明确报不可用'] = String(innerOf(plOut).error ?? '').includes('permission-presets service is unavailable')
     const before = created.length
@@ -1671,7 +1671,7 @@ try {
 
   // ── Phase I2: 图片附件管线 —— 引用式入站(宿主侧读字节)/引用投影/session_attachment ──
   {
-    const phase = await startPhase(8095, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
     const tmpDir = mkdtempSync(join(tmpdir(), 'rice-smoke-img-'))
     const pngPath = join(tmpDir, 'shot.png')
     writeFileSync(pngPath, FAKE_PNG)
@@ -1758,7 +1758,7 @@ try {
 
   // ── Phase B2: dsh 端点直通(读面 + 写面闸门) —— 目录/契约/只读调用/闸门分类 ──
   {
-    const phase = await startPhase(8096, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {})
     const dir = await phase.call('endpoint_describe', {})
     const dirPayload = innerOf(dir) as any
     const sessionGroup = (dirPayload.namespaces ?? []).find((n: any) => n.namespace === 'session')
@@ -1906,7 +1906,7 @@ try {
   // ── Phase B3: 端点直通 —— 白名单直行 + 停泊审批(允许/拒绝/超时/断连/不限时) ──
   {
     endpointInvokes.length = 0
-    const phase = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       endpointAllowlist: ['schedule/update'],
       approvalTimeoutMs: 5000,
     })
@@ -2052,7 +2052,7 @@ try {
     checks['端点调用: 同源外的应答没有放行写操作'] = String(innerOf(await guardCall).error ?? '').includes('declined') && endpointInvokes.length === 3
 
     // 限时超时: 测试钩子把在途审批的过期时间前移, 不真等超时
-    const phaseT = await startPhase(8075, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const phaseT = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       approvalTimeoutMs: 1000,
       // 失效条目: 不在活性端点目录里的白名单条目要在 GUI 路由里标出来
       endpointAllowlist: ['ghost/gone'],
@@ -2073,7 +2073,7 @@ try {
 
     // 不限时(0): 时间流逝不停泊消失, 允许后执行
     const ctxU = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
-    const phaseU = await startPhase(8074, ctxU, { approvalTimeoutMs: 0 })
+    const phaseU = await startPhase(await freePort(), ctxU, { approvalTimeoutMs: 0 })
     const guRead = await phaseU.gui('endpoint-approvals', { httpMethod: 'GET' })
     checks['GUI endpoint-approvals: 0 = 不限时标记'] = guRead.status === 200 && JSON.parse(guRead.body).unlimitedWait === true
     const unlimitedCall = phaseU.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'u1' } } })
@@ -2116,7 +2116,7 @@ try {
   // ── Phase B4: 只读端点的白名单直行态(与 B2 的停泊态成对覆盖) ──
   {
     endpointInvokes.length = 0
-    const phaseR = await startPhase(8076, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const phaseR = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       endpointAllowlist: ['session/modelCatalog'],
     })
     const contract = innerOf(await phaseR.call('endpoint_describe', { endpoint: 'session/modelCatalog' })) as any
@@ -2135,7 +2135,7 @@ try {
   // ── Phase B5: 端点拒绝清单 —— 直接拒绝不停泊(与白名单/停泊构成三档策略; 拒绝优先于白名单) ──
   {
     endpointInvokes.length = 0
-    const phaseD = await startPhase(8077, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const phaseD = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       // session/prompt 同时出现在两份清单: 拒绝优先
       endpointAllowlist: ['session/prompt'],
       endpointDenylist: ['session/prompt', 'schedule/update'],
@@ -2170,7 +2170,7 @@ try {
       selection: { provider: 'p1', model: 'm1' },
       preset: 'standard',
     })
-    const phase = await startPhase(8094, approvalCtx, { approvalTimeoutMs: 5000 })
+    const phase = await startPhase(await freePort(), approvalCtx, { approvalTimeoutMs: 5000 })
     approvalAgent.__events.length = 0
 
     // 用测试 runtime 替换真实 gateway 安装: 记录 answer, 不碰网络。
@@ -2293,12 +2293,13 @@ try {
 
   // ── Phase E: 传输层安全(独立端口独立 ctx)——Bearer 401 / Host 403 / 传输 TTL GC ──
   {
-    const phase = await startPhase(8088, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', sessionTtlMs: 400 })
+    const authPort = await freePort()
+    const phase = await startPhase(authPort, makeCtx({ llm: fakeLlm }), { authToken: 'secret-token', sessionTtlMs: 400 })
     const noAuth = await phase.call('plugin_status', {}, { noToken: true })
     checks['安全: 无 Bearer 401(带挑战头)'] = noAuth.status === 401
     const badAuth = await phase.call('plugin_status', {}, { token: 'wrong' })
     checks['安全: 错 Bearer 401'] = badAuth.status === 401
-    const badHost = await rawRequest(8088, {
+    const badHost = await rawRequest(authPort, {
       headers: { Host: 'evil.example.com', Authorization: 'Bearer secret-token' },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -2325,14 +2326,14 @@ try {
     const reInit = await phase.initialize()
     checks['传输 TTL: 客户端可重新 initialize'] = Boolean(reInit.sid)
     // 纯监听连接: 只开着 GET SSE 流、不 POST 的传输会话不能被 TTL GC 回收——流开着就是活跃
-    const sseAlive = openSse(reInit.sid, 'http://127.0.0.1:8088/mcp', { Authorization: 'Bearer secret-token' })
+    const sseAlive = openSse(reInit.sid, `http://127.0.0.1:${authPort}/mcp`, { Authorization: 'Bearer secret-token' })
     await sseAlive.ready
     await new Promise((r) => setTimeout(r, 1000))
     const sseStillAlive = await rpc(
       reInit.sid,
       { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'plugin_status', arguments: {} } },
       { Authorization: 'Bearer secret-token' },
-      'http://127.0.0.1:8088/mcp',
+      `http://127.0.0.1:${authPort}/mcp`,
     )
     checks['传输 TTL: 打开着的 SSE 流算活跃(会话不被回收)'] = sseStillAlive.status === 200
     sseAlive.close()
@@ -2365,7 +2366,8 @@ try {
 
   // ── Phase E3: 入站请求硬化(独立端口独立 ctx)——垃圾 POST 不构建 server / 字节上限不看头 / 意外异常兜底 ──
   {
-    const phase = await startPhase(8085, makeCtx({ llm: fakeLlm }), {})
+    const hardPort = await freePort()
+    const phase = await startPhase(hardPort, makeCtx({ llm: fakeLlm }), {})
     // (1) 无会话头的非 initialize POST: 直接 400, 不再为它构建 McpServer(旧实现每条这类请求泄漏一整套 server+transport)
     let registerCalls = 0
     const origRegister = (McpServer.prototype as any).registerTool
@@ -2373,7 +2375,7 @@ try {
       registerCalls++
       return origRegister.apply(this, args)
     }
-    const junk = await rawRequest(8085, {
+    const junk = await rawRequest(hardPort, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'plugin_status', arguments: {} } }),
     })
@@ -2387,7 +2389,7 @@ try {
       closeCalls++
       return origClose.apply(this, args)
     }
-    const badInit = await rawRequest(8085, {
+    const badInit = await rawRequest(hardPort, {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} }),
     })
@@ -2397,7 +2399,7 @@ try {
     const reinit = await phase.initialize()
     checks['入站: 回收后正常握手不受影响'] = Boolean(reinit.sid)
     // (3) 请求体上限按实际字节计: chunked(无 content-length)的超限 POST 也要 413
-    const oversize = await chunkedRequest(8085, ['x'.repeat(6 * 1024 * 1024), 'y'.repeat(6 * 1024 * 1024)], {
+    const oversize = await chunkedRequest(hardPort, ['x'.repeat(6 * 1024 * 1024), 'y'.repeat(6 * 1024 * 1024)], {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
     })
@@ -2413,7 +2415,7 @@ try {
       throw new Error('boom-intake')
     }
     const crash = await Promise.race([
-      rawRequest(8085, {
+      rawRequest(hardPort, {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -2457,8 +2459,9 @@ try {
   // ── Phase W: 会话观察器(独立端口独立 ctx)——宿主/UI 驱动的变更也让订阅者收到推送 ──
   {
     const wCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle, extraSessions: [{ id: 'sess-watch' }] })
-    const phase = await startPhase(8079, wCtx, {})
-    const wBase = 'http://127.0.0.1:8079/mcp'
+    const wPort = await freePort()
+    const phase = await startPhase(wPort, wCtx, {})
+    const wBase = `http://127.0.0.1:${wPort}/mcp`
     const conn = await phase.initialize()
     const sse = openSse(conn.sid, wBase)
     await sse.ready
@@ -2561,7 +2564,8 @@ try {
 
   // ── Phase F: GUI 控制面路由(独立端口独立 ctx)──
   {
-    const phase = await startPhase(8087, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})
+    const guiPort = await freePort()
+    const phase = await startPhase(guiPort, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm, sessionTitle: fakeSessionTitle }), {})
     const st = await phase.gui('status')
     const stBody = st.status === 200 ? JSON.parse(st.body) : {}
     checks['GUI 路由: status 快照(版本/监听/配置摘要)'] =
@@ -2571,7 +2575,7 @@ try {
       Array.isArray(stBody.config?.allowedModels) &&
       typeof stBody.stats?.connections === 'number' &&
       Array.isArray(stBody.connections)
-    checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === 8087
+    checks['GUI 路由: status 快照带监听地址/端口'] = stBody.config?.host === '127.0.0.1' && stBody.config?.port === guiPort
     // 面板与 Config 完全对应: status 必须回显每个配置项(令牌只回掩码 hint, 不在此列)
     checks['GUI 路由: status 配置项覆盖面板全部字段'] = [
       'http',
@@ -2615,27 +2619,27 @@ try {
     const cfgNullOrigin = await phase.gui('config-update', { headers: { origin: 'null', 'sec-fetch-site': 'same-origin' }, body: badBody })
     checks['GUI 路由: Origin null + Fetch Metadata 同源放行'] = cfgNullOrigin.status === 400
     const cfgAlias = await phase.gui('config-update', {
-      headers: { host: '127.0.0.1:8087', origin: 'http://localhost:8087', 'sec-fetch-site': 'same-site' },
+      headers: { host: `127.0.0.1:${guiPort}`, origin: `http://localhost:${guiPort}`, 'sec-fetch-site': 'same-site' },
       body: badBody,
     })
     checks['GUI 路由: localhost/127 回环别名视为同源'] = cfgAlias.status === 400
-    const cfgCross = await phase.gui('config-update', { headers: { origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'cross-site' }, body: badBody })
+    const cfgCross = await phase.gui('config-update', { headers: { origin: `http://127.0.0.1:${guiPort}`, 'sec-fetch-site': 'cross-site' }, body: badBody })
     checks['GUI 路由: Fetch Metadata cross-site 即使 Origin 匹配也拒'] = cfgCross.status === 403
     // 桌面壳的 scheme 处理器转发时会丢掉 Origin 与 Sec-Fetch-*(真机 site=-, origin=-)
-    const cfgNoMeta = await phase.gui('config-update', { headers: { host: '127.0.0.1:8087' }, body: badBody })
+    const cfgNoMeta = await phase.gui('config-update', { headers: { host: `127.0.0.1:${guiPort}` }, body: badBody })
     checks['GUI 路由: 无 Origin/Fetch Metadata + 回环 Host 放行'] = cfgNoMeta.status === 400
     const cfgNoMetaPublic = await phase.gui('config-update', { headers: { host: 'evil.example.com' }, body: badBody })
     checks['GUI 路由: 无 Origin/Fetch Metadata + 非回环 Host 仍拒'] = cfgNoMetaPublic.status === 403
     // DNS rebinding: 恶意域名 rebind 到本机后, 浏览器如实报 sec-fetch-site=same-origin 且 Origin==Host——
     // sameOrigin 的既有判定全部放行, 只有 Host 白名单能拦。浏览器形态(带 Sec-Fetch-*)下非本机 Host 一律拒;
     // status 回显完整令牌, 读面同样要拦
-    const rebindHeaders = { host: 'evil.example.com:8087', origin: 'http://evil.example.com:8087', 'sec-fetch-site': 'same-origin' }
+    const rebindHeaders = { host: `evil.example.com:${guiPort}`, origin: `http://evil.example.com:${guiPort}`, 'sec-fetch-site': 'same-origin' }
     const cfgRebind = await phase.gui('config-update', { headers: rebindHeaders, body: badBody })
     checks['GUI 路由: rebinding 形态(同源+外部域名 Host)的写操作拒'] = cfgRebind.status === 403
     const stRebind = await phase.gui('status', { httpMethod: 'GET', headers: rebindHeaders })
     checks['GUI 路由: rebinding 形态的 status(令牌回显面)拒'] = stRebind.status === 403
     const cfgLocalBrowser = await phase.gui('config-update', {
-      headers: { host: '127.0.0.1:8087', origin: 'http://127.0.0.1:8087', 'sec-fetch-site': 'same-origin' },
+      headers: { host: `127.0.0.1:${guiPort}`, origin: `http://127.0.0.1:${guiPort}`, 'sec-fetch-site': 'same-origin' },
       body: badBody,
     })
     checks['GUI 路由: 同源+回环 Host 的浏览器写操作放行'] = cfgLocalBrowser.status === 400
@@ -2664,7 +2668,7 @@ try {
         },
       },
     })
-    const phase = await startPhase(8095, editorCtx, {})
+    const phase = await startPhase(await freePort(), editorCtx, {})
     const cfgListen = await phase.gui('config-update', {
       headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ values: { host: '0.0.0.0', port: 8096 } }),
@@ -2764,7 +2768,7 @@ try {
 
   // ── Phase F2c: 工具白名单按 toolAllowlist 门控工具面(tools/list 隐藏 + tools/call 拒绝) ──
   {
-    const gatePhase = await startPhase(8141, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const gatePhase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       toolAllowlist: ['dsh_guide', 'session_list'],
       toolAllowlistEnabled: true,
     })
@@ -2776,7 +2780,7 @@ try {
       blocked.status === 200 && String(innerOf(blocked).error ?? '').includes('session_create disabled')
     await gatePhase.dispose()
     // 开关关闭 = 不限制: 清单原样保留但工具面齐全
-    const offPhase = await startPhase(8142, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const offPhase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       toolAllowlist: ['dsh_guide'],
       toolAllowlistEnabled: false,
     })
@@ -2787,7 +2791,7 @@ try {
 
   // ── Phase F2b: 模型/提供商简介随目录透出(model_list / GUI models 同源) ──
   {
-    const phase = await startPhase(8073, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       modelDescriptions: { 'p1/m1': 'Provider One 的快速模型', 'p9/ghost': '目录外条目' },
       providerDescriptions: { p1: '面向测试的假提供商' },
     })
@@ -2809,7 +2813,8 @@ try {
   // ── Phase F3: http:false(外部 MCP 关闭态)——不监听, 但 GUI 控制面仍可用 ──
   {
     const ctx = makeCtx({ llm: fakeLlm })
-    const parsed = ConfigSchema({ port: 8089, host: '127.0.0.1', http: false }) as any
+    const quietPort = await freePort()
+    const parsed = ConfigSchema({ port: quietPort, host: '127.0.0.1', http: false }) as any
     await apply(ctx, parsed)
     await new Promise((r) => setTimeout(r, 150))
     const st = await guiRequest(ctx, 'status')
@@ -2828,7 +2833,7 @@ try {
           resolveProbe()
         })
       })
-      probe.listen(8089, '127.0.0.1')
+      probe.listen(quietPort, '127.0.0.1')
     })
     for (const d of disposers.splice(0)) if (typeof d === 'function') d()
     await new Promise((r) => setTimeout(r, 150))
@@ -2939,7 +2944,7 @@ try {
   // ── Phase N: 状态快照的 endpoint(IPv6 绑定地址必须加方括号才是合法 URL) ──
   {
     const ctxV6 = makeCtx({ llm: fakeLlm })
-    await apply(ctxV6, { port: 8081, host: '::1' })
+    await apply(ctxV6, { port: await freePort('::1'), host: '::1' })
     await new Promise((r) => setTimeout(r, 200))
     const st = await guiRequest(ctxV6, 'status', { httpMethod: 'GET' })
     const stV6 = st.status === 200 ? JSON.parse(st.body) : {}
@@ -3132,6 +3137,19 @@ async function firstBindablePort(candidates: number[]): Promise<number> {
     if (ok) return port
   }
   throw new Error(`no bindable port among ${candidates.join(', ')}`)
+}
+
+// 向 OS 要一个当前空闲端口后立即释放: 给低冲突起服用(释放到复用之间存在极小竞态窗口)
+async function freePort(host = '127.0.0.1'): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.once('error', reject)
+    srv.once('listening', () => {
+      const { port } = srv.address() as AddressInfo
+      srv.close(() => resolve(port))
+    })
+    srv.listen(0, host)
+  })
 }
 
 /** 探测端口当前是否可绑定(插件没在监听) */

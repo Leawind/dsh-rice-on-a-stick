@@ -17,10 +17,12 @@ const ctx: any = {
 }
 
 const blocker = net.createServer()
-blocker.listen(8097, '127.0.0.1', async () => {
+blocker.listen(0, '127.0.0.1', async () => {
+  // 端口由 OS 分配, 冲突由本用例自己制造, 不依赖某个写死端口恰好空闲
+  const port = (blocker.address() as net.AddressInfo).port
   let result
   try {
-    await apply(ctx, { port: 8097, host: '127.0.0.1' })
+    await apply(ctx, { port, host: '127.0.0.1' })
     result = 'BAD: apply resolved'
   } catch (e) {
     result = `OK: apply rejected (${e.message})`
