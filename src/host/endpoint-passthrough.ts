@@ -486,7 +486,7 @@ interface ParkedCall extends ParkedCallInfo {
 
 const pendingCalls = new Map<string, ParkedCall>()
 
-/** 参数摘要上限(审批卡展示; 完整 args 只留在内存, 不进任何持久面) */
+/** 参数摘要上限(审批卡默认展示; 完整参数经 parkedCallArgs 按需读取, 同样只留在内存不进任何持久面) */
 const ARGS_PREVIEW_CAP = 600
 
 function argsPreviewOf(args: Record<string, unknown>): string {
@@ -567,6 +567,21 @@ export function listParkedCalls(): ParkedCallInfo[] {
     ...(p.descriptionZh !== undefined ? { descriptionZh: p.descriptionZh } : {}),
     ...(p.descriptionEn !== undefined ? { descriptionEn: p.descriptionEn } : {}),
   }))
+}
+
+/** 面板审批卡的完整参数按需读取(pretty JSON): 与摘要同一份内存数据, 不进任何持久面; 未停泊的 id 给出可诊断原因 */
+export function parkedCallArgs(approvalId: string): { ok: true; argsJson: string } | { ok: false; error: string } {
+  const entry = pendingCalls.get(approvalId)
+  if (entry === undefined) {
+    return { ok: false, error: `no pending call approval "${approvalId}" (already answered, expired, or unknown id)` }
+  }
+  let json: string
+  try {
+    json = JSON.stringify(entry.args, null, 2) ?? 'undefined'
+  } catch {
+    json = String(entry.args)
+  }
+  return { ok: true, argsJson: json }
 }
 
 /** 面板审批卡的人工应答: allow 一次放行一次, reject 失败关闭; 未停泊的 id 给出可诊断原因 */

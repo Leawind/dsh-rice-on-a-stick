@@ -21,18 +21,9 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
       description:
         'Discover dsh Remote endpoints beyond the curated tools. Resolution ladder — search first: no arguments = namespace index; `query` = keyword search; `namespace` = its method list; `endpoint` = one exact contract. Entries flag readOnly / allowed / writable / approvalRequired; stream entries are not callable.',
       inputSchema: {
-        query: z
-          .string()
-          .optional()
-          .describe('Keyword search over endpoint names and descriptions (case-insensitive, AND); scope with `namespace`.'),
-        namespace: z
-          .string()
-          .optional()
-          .describe('Namespace name: alone = its methods; with `query` = search scope. Omit all arguments for the index.'),
-        endpoint: z
-          .string()
-          .optional()
-          .describe('Exact endpoint "namespace/method" for the full contract; cannot combine with query/namespace.'),
+        query: z.string().optional().describe('Keyword search over endpoint names and descriptions (case-insensitive, AND); scope with `namespace`.'),
+        namespace: z.string().optional().describe('Namespace name: alone = its methods; with `query` = search scope. Omit all arguments for the index.'),
+        endpoint: z.string().optional().describe('Exact endpoint "namespace/method" for the full contract; cannot combine with query/namespace.'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -92,7 +83,8 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
         // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器
         args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint.'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      // 可直行白名单内的写端点(含元数据 dangerous 的): 非只读且可破坏, 标 false 会误导客户端审批 UI
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ endpoint, args }, extra) => {
       try {

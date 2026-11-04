@@ -1990,6 +1990,13 @@ try {
       gaRead.status === 200 &&
       (gaBody.approvals ?? []).some((p: any) => p.approvalId === held.approvalId && p.endpoint === 'session/prompt') &&
       gaBody.unlimitedWait === false
+    const gaArgs = await phase.gui('endpoint-approval-args', {
+      httpMethod: 'POST',
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ approvalId: held.approvalId }),
+    })
+    const gaArgsBody = gaArgs.status === 200 ? JSON.parse(gaArgs.body) : {}
+    checks['GUI endpoint-approval-args: 完整参数按需可读'] = gaArgs.status === 200 && gaArgsBody.ok === true && String(gaArgsBody.argsJson).includes('hi')
     const gaAllow = await phase.gui('endpoint-approval-answer', {
       httpMethod: 'POST',
       headers: { 'sec-fetch-site': 'same-origin' },

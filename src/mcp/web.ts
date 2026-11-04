@@ -13,7 +13,7 @@ import { PLUGIN_NAME, clampApprovalTimeout } from '../core/config.js'
 import { state } from '../core/state.js'
 import { captureToolCatalog } from './tools/index.js'
 import { serviceOf } from '../host/bridge.js'
-import { answerParkedCall, classifyInvocation, listParkedCalls, listInvocations } from '../host/endpoint-passthrough.js'
+import { answerParkedCall, classifyInvocation, listParkedCalls, listInvocations, parkedCallArgs } from '../host/endpoint-passthrough.js'
 import { NAMESPACE_META, endpointMetaOf } from '../host/endpoint-meta.js'
 
 /** webServer 服务视图(web profile 提供; 可选依赖): GUI 同源 HTTP 路由, 形态对齐 dsh-bottom-info-bar */
@@ -406,6 +406,15 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
       approvals: listParkedCalls(),
       unlimitedWait: state.config.approvalTimeoutMs === 0,
     }),
+    // 端点调用停泊审批的完整参数(审批卡"查看完整参数"的数据源): 按需读取, 只读路由不进 WEB_MUTATING
+    'endpoint-approval-args': (body) => {
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        throw httpError(400, '请求体必须是 { approvalId } 对象')
+      }
+      const { approvalId } = body as { approvalId?: unknown }
+      if (typeof approvalId !== 'string' || approvalId === '') throw httpError(400, 'approvalId 必须是非空字符串')
+      return parkedCallArgs(approvalId)
+    },
     // 端点调用停泊审批的人工应答: allow 一次放行一次, reject 失败关闭; 未知/已结的 id 回 ok:false
     'endpoint-approval-answer': (body) => {
       if (typeof body !== 'object' || body === null || Array.isArray(body)) {

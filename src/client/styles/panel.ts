@@ -210,6 +210,10 @@ export const PANEL_CSS = [
   // 参数摘要: 以 label-primary 4% 中性微染的代码块, 深浅主题都比卡片底深/浅一档, 不再画边框
   '.dcs-apprargs{margin:0;padding:8px 10px;max-height:140px;overflow:auto;overscroll-behavior:contain;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-secondary,#61666b);background:color-mix(in srgb,var(--dsw-alias-label-primary,#0f1115) 4%,transparent);border-radius:var(--dsw-radius-sm,8px);white-space:pre-wrap;word-break:break-all;}',
   '.dcs-apprbtns{display:flex;align-items:center;gap:8px;}',
+  // 完整参数的展开入口: 预览块下方的下划线文字按钮(比实体按钮轻, 不与允许/拒绝抢视觉), 展开体复用 .dcs-apprargs
+  '.dcs-apprfull{margin:-2px 0 0;}',
+  '.dcs-apprfullbtn{background:none;border:none;padding:0;font:inherit;font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;}',
+  '.dcs-apprfullbtn:hover:enabled{color:var(--dsw-alias-label-secondary,#61666b);}',
   // 危险动作的次级按钮: 发丝描边, 悬停才上错误色(拒绝/全部拒绝用)
   '.dcs-btn-danger{color:var(--dsw-alias-label-secondary,#61666b);box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l4,rgba(0,0,0,.16));}',
   '.dcs-btn-danger:hover:enabled{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 8%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 28%,transparent);}',
