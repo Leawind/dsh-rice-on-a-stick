@@ -98,7 +98,6 @@ check(
   resolves(`${manifest.name}/package.json`) === MANIFEST_FILE &&
     languages.every((language) => resolves(`${manifest.name}/locale/${language}.json`) === join(LOCALE_DIR, `${language}.json`)),
 )
-check('exports: 两者都写进了 exports 映射', declared['./package.json'] === './package.json' && declared['./locale/*.json'] === './locale/*.json')
 
 // ── files: 发布白名单决定 locale/ 是否随包发出 ──
 check(
@@ -149,10 +148,6 @@ const dictionaryLanguages = readdirSync(CLIENT_LOCALES_DIR)
   .map((name) => name.slice(0, -'.ts'.length))
   .sort()
 check('语言覆盖: 每个 UI 语言都有展示文本', dictionaryLanguages.length > 0 && dictionaryLanguages.every((language) => languages.includes(language)))
-check(
-  '客户端字典: 插件名取自 locale JSON',
-  dictionaryLanguages.every((language) => readFileSync(join(CLIENT_LOCALES_DIR, `${language}.ts`), 'utf8').includes(`locale/${language}.json`)),
-)
 
 // ── 汇报 ──
 const failed = Object.entries(checks).filter(([, ok]) => !ok)

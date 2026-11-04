@@ -1,7 +1,7 @@
 // Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的侧栏页真实渲染到浏览器。
 // 不依赖 dsh 宿主——stub __ModuleLoader__/slots(main + sidebar.panellist 同真机契约), 假侧栏行渲染插件
 // 注册的图标组件(含待审批角标); mock GUI 路由(status/models/endpoint-allowlist/endpoint-approvals/config-update),
-// 状态形状与 src/index.ts 的 statusSnapshot() 逐字段对齐。先 `npm run build` 生成 client/client.js。用法:
+// 返回的状态是任意 fixture 数据(形状让 UI 能渲染即可, 不逐字段对齐实现)。先 `npm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
 //   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误 + 侧栏行认领报告
@@ -78,7 +78,7 @@ const answeredApprovals = new Set()
 let navReport = null
 
 function snapshot() {
-  // 与 src/index.ts 的 statusSnapshot() 同形: stats 只含 connections 与 subscriptions 观测
+  // fixture 数据: stats 里的数值是任意占位(如 subscriptions: 3), 只求面板能渲染, 不对应实现
   return {
     ...state,
     uptimeMs: now() - startedAt,

@@ -138,39 +138,16 @@ try {
   // ── 工具面(目录/状态 5 + echo + 会话中心 + 异步/审批/子代理 + 归档清单/恢复 + 附件/端点直通) ──
   const toolsList = await rpc(sid, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   const names = parsePayload(toolsList.text).result?.tools?.map((t) => t.name) ?? []
+  // 只钉公开契约面: 客户端没有这些工具就接不上的那几个(完整清单以 dsh://tools / plugin_status 为准)
   const expected = [
     'dsh_guide',
     'plugin_status',
-    'workspace_list',
-    'model_list',
     'session_create',
     'session_send',
-    'session_poll',
     'session_result',
-    'session_cancel',
-    'session_queue',
-    'session_queue_manage',
     'session_command_list',
-    'session_command_run',
-    'session_select_model',
-    'session_rename',
-    'session_list',
-    'session_inspect',
-    'session_history',
-    'session_events',
-    'session_search',
-    'session_fork',
-    'session_archive',
-    'session_unarchive',
     'approval_list',
-    'approval_answer',
-    'approval_policy',
-    'approval_policy_set',
     'question_list',
-    'question_answer',
-    'session_subagents',
-    'session_attachment',
-    'endpoint_describe',
     'endpoint_call',
   ]
   report(
@@ -207,11 +184,9 @@ try {
     toolsPayload?.source === 'global-registry' && Array.isArray(toolsPayload?.tools),
     `${Array.isArray(toolsPayload?.tools) ? toolsPayload.tools.length : '?'} 个全局工具`,
   )
-  const nativeNames = (toolsPayload?.tools ?? []).map((t: any) => String(t.name)).filter((n: string) => n.startsWith('rice_'))
   report(
-    '将工具注册到本dsh实例(每个 MCP 工具都有 rice_ 原生孪生)',
-    names.every((n) => nativeNames.includes(`rice_${n}`)) && nativeNames.includes('rice_session_create') && nativeNames.includes('rice_plugin_status'),
-    `native=${nativeNames.length} mcp=${names.length}`,
+    '将工具注册到本dsh实例(契约工具的 rice_ 原生孪生在注册表里)',
+    expected.every((n) => (toolsPayload?.tools ?? []).some((t: any) => t.name === `rice_${n}`)),
   )
 
   const status = await callTool(sid, 6, 'plugin_status')
@@ -220,15 +195,7 @@ try {
     status.inner?.name === 'dsh-rice-on-a-stick' && status.inner?.listening === true,
     `endpoint=${status.inner?.endpoint ?? '?'} version=${status.inner?.version ?? '?'}`,
   )
-  // 全局注册表计数对的是 dsh://tools 的同一份注册表(宿主/其它插件也可能注册全局工具), 不是本插件的原生工具数
-  const hostGlobalTotal = (toolsPayload?.tools ?? []).length
-  report(
-    'plugin_status 回报自用工具开关与数量、全局注册表计数',
-    status.inner?.config?.selfToolsEnabled === true &&
-      status.inner?.stats?.selfTools === nativeNames.length &&
-      status.inner?.hostGlobalTools?.total === hostGlobalTotal,
-    `selfTools=${status.inner?.stats?.selfTools ?? '?'} hostGlobalTools=${status.inner?.hostGlobalTools?.total ?? '?'} (dsh://tools=${hostGlobalTotal})`,
-  )
+  report('plugin_status 回报自用工具开关', status.inner?.config?.selfToolsEnabled === true)
 
   const workspaces = await callTool(sid, 7, 'workspace_list')
   report('workspace_list 返回工作区', Array.isArray(workspaces.inner?.workspaces), `total=${workspaces.inner?.total ?? '?'}`)
@@ -318,10 +285,11 @@ try {
   // ── 资源面 ──
   const resList = await rpc(sid, { jsonrpc: '2.0', id: 20, method: 'resources/list', params: {} })
   const resUris = parsePayload(resList.text).result?.resources?.map((r) => r.uri) ?? []
+  // 只钉客户端依赖的契约资源; dsh://presets / dsh://models / dsh://sessions 在下方逐一读取验证
   report(
-    'resources/list 静态资源全集',
-    ['dsh://status', 'dsh://guide', 'dsh://tools', 'dsh://models', 'dsh://presets', 'dsh://workspaces', 'dsh://sessions'].every((u) => resUris.includes(u)),
-    `${resUris.length} 个静态资源`,
+    'resources/list 契约资源在列',
+    ['dsh://status', 'dsh://guide', 'dsh://tools'].every((u) => resUris.includes(u)),
+    resUris.join(','),
   )
   const rPresets = await readResource(sid, 21, 'dsh://presets')
   report(

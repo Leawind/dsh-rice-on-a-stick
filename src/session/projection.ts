@@ -67,7 +67,7 @@ function jsonCandidatesOf(text: string): string[] {
 }
 
 /** 各级别字段上限(字符) */
-const DETAIL_CAPS: Record<
+export const DETAIL_CAPS: Record<
   DetailLevel,
   {
     summaryField: number
@@ -264,7 +264,7 @@ export type HistoryRole = 'user' | 'assistant' | 'tool_call' | 'tool_result' | '
 export type HistoryDetail = 'summary' | 'full'
 
 /** summary 档的按角色截断上限(字符); full 档不截断, 条数由 limit/beforeIndex 控量 */
-const HISTORY_CLIP = { assistant: 600, user: 200, toolCallArgs: 200, toolResult: 300 } as const
+export const HISTORY_CLIP = { assistant: 600, user: 200, toolCallArgs: 200, toolResult: 300 } as const
 
 /**
  * 按上限截断并如实标记: 截断了才带 truncated 字段(digest 视角的读者据此知道该去
@@ -356,7 +356,7 @@ export function historyTurnsOf(
 // ── 会话概览的"最近内容"折叠(session_overview / dsh://sessions/{id}/overview) ──
 
 /** 概览一行摘要的按类预算(字符): 归一化与宿主 turnOutline 轮次卡片同源, 档位取"一行能放下"的宽度 */
-const OVERVIEW_CLIP = { user: 80, assistant: 160, toolArgs: 100 } as const
+export const OVERVIEW_CLIP = { user: 80, assistant: 160, toolArgs: 100 } as const
 
 /**
  * 界面预览同源的归一化: 空白折叠为单空格、去首尾, 超过 limit-1 截断补省略号

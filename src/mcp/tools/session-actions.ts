@@ -35,6 +35,9 @@ interface WorkspaceControllerView {
   unarchiveSession?: (request: { sessionId: string }) => Promise<unknown>
 }
 
+/** 图片附件张数上限(schema 与描述文案共用一份) */
+export const MAX_ATTACHMENTS = 8
+
 /** 图片附件参数(session_send 共用): 引用不传值, 字节在宿主侧读取 */
 const ATTACHMENTS_ARG = z
   .array(
@@ -44,9 +47,9 @@ const ATTACHMENTS_ARG = z
       name: z.string().optional().describe('Display name (default: file name or URL tail).'),
     }),
   )
-  .max(8)
+  .max(MAX_ATTACHMENTS)
   .optional()
-  .describe('Images to attach (png/jpeg/webp/gif, max 8); bytes are read host-side, never base64 in arguments.')
+  .describe(`Images to attach (png/jpeg/webp/gif, max ${MAX_ATTACHMENTS}); bytes are read host-side, never base64 in arguments.`)
 
 /**
  * 投递模式参数(session_send / session_create 首条消息共用): 可省略只在"会话空闲"时有意义——
