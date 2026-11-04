@@ -50,14 +50,8 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           .optional()
           .describe('Only sessions in this directory or below (containment; workspace grouping itself is exact-path — see workspace_list).'),
         title: z.string().optional().describe('Only sessions whose title contains this text (case-insensitive); titleless sessions never match.'),
-        scope: z
-          .enum(['active', 'archived', 'all'])
-          .optional()
-          .describe('Which sessions to list: active (default), archived, or all.'),
-        includeCold: z
-          .boolean()
-          .optional()
-          .describe('Also match persisted-only sessions by title (bounded by `coldScanMax`; default false).'),
+        scope: z.enum(['active', 'archived', 'all']).optional().describe('Which sessions to list: active (default), archived, or all.'),
+        includeCold: z.boolean().optional().describe('Also match persisted-only sessions by title (bounded by `coldScanMax`; default false).'),
         coldScanMax: z
           .number()
           .int()
@@ -203,10 +197,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       description: `Search session content by literal phrase (same as the UI search box): matching sessions plus snippet excerpts. Archived sessions are excluded unless \`scope\` includes them; \`hasMore\` is the host's page flag — filtering can shrink a page.`,
       inputSchema: {
         query: z.string().describe('Search phrase (literal match against message content).'),
-        scope: z
-          .enum(['active', 'archived', 'all'])
-          .optional()
-          .describe('active (default) = non-archived; archived = archived only; all = both.'),
+        scope: z.enum(['active', 'archived', 'all']).optional().describe('active (default) = non-archived; archived = archived only; all = both.'),
       },
       annotations: { readOnlyHint: true },
     },

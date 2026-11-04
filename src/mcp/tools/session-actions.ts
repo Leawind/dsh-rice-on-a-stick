@@ -55,9 +55,7 @@ const ATTACHMENTS_ARG = z
 const MODE_ARG = z
   .enum(['queue', 'steer'])
   .optional()
-  .describe(
-    'queue = after the current turn; steer = at the running turn next step boundary (never interrupts it). Omit only when the session is idle.',
-  )
+  .describe('queue = after the current turn; steer = at the running turn next step boundary (never interrupts it). Omit only when the session is idle.')
 
 /** 会话的用度: 轮数与"是否用过"(有轮或用户消息即算用过) */
 function usageOfEvents(events: readonly unknown[]): { turns: number; unused: boolean } {
@@ -115,9 +113,7 @@ const REQUEST_ID_ARG = z
 const WAIT_ARG = z
   .enum(['input', 'turn', 'none'])
   .optional()
-  .describe(
-    'none (default): admission receipt at once; input: return early when the session waits for an approval/question; turn: block until the turn ends.',
-  )
+  .describe('none (default): admission receipt at once; input: return early when the session waits for an approval/question; turn: block until the turn ends.')
 
 /** 结果详略参数(session_send / session_create 首条消息共用; 只对 wait=input/turn 有意义) */
 const DETAIL_ARG = z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail (wait=input/turn only): ${DETAIL_HINT}`)
@@ -201,10 +197,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         reasoningEffort: z.string().optional().describe('Effort id from `model_list` `efforts` (default: adapter default).'),
         preset: z.string().describe('Preset id from `model_list` `presets` (required).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
-        permission: z
-          .string()
-          .optional()
-          .describe('Permission preset id from `permission_list`; omit = the host default.'),
+        permission: z.string().optional().describe('Permission preset id from `permission_list`; omit = the host default.'),
         task: z.string().describe('First message to deliver; mirrors `session_send.task`.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
@@ -338,7 +331,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Poll sessions',
       description:
-        "Observe many sessions at once: per-session `state`, `lastTurn`, `queued`, `pendingApprovals`/`pendingQuestions`, `cursor`. `waitMs` > 0 long-polls until any watched session changes (`changed`/`timedOut`).",
+        'Observe many sessions at once: per-session `state`, `lastTurn`, `queued`, `pendingApprovals`/`pendingQuestions`, `cursor`. `waitMs` > 0 long-polls until any watched session changes (`changed`/`timedOut`).',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to observe (1-20).'),
         waitMs: z
@@ -417,8 +410,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     'session_queue',
     {
       title: 'List queued messages',
-      description:
-        "List a session's queued messages (id, text, state) — the UI's QueueDock; rewriting, removing or promoting them is `session_queue_manage`.",
+      description: "List a session's queued messages (id, text, state) — the UI's QueueDock; rewriting, removing or promoting them is `session_queue_manage`.",
       inputSchema: {
         sessionId: z.string().describe('Session id.'),
       },
