@@ -5,7 +5,8 @@
  * 本模块不复制任何业务实现——它用一个"记录式" McpServer 跑一遍 `registerTools`,
  * 拿到权威的名称/描述/参数 schema/回调, 再逐条包装成 ToolDefinition。因此:
  *   - 新增/修改 MCP 工具只改 src/mcp/tools/ 一处, 原生面自动跟随;
- *   - 原生工具与 MCP 工具同描述、同参数 schema、同实现;
+ *   - 原生工具与 MCP 工具同实现; 描述 = MCP 描述 + TS 签名投影(ts-signature.ts),
+ *     parameters 收缩为空壳——模型契约进描述, 参数约束仍由同一份 zod shape 在执行期强制;
  *   - 原生工具名统一加 `rice_` 前缀, 避免与宿主/第三方工具撞名;
  *   - 描述里对其它工具的引用会被自动改写成带前缀的名字。
  *
@@ -22,6 +23,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { isToolAllowed } from '../core/config.js'
 import { state } from '../core/state.js'
 import { registerTools } from '../mcp/tools/index.js'
+import { renderTsSignature, type JsonSchemaNode } from './ts-signature.js'
 import type { ToolDeps } from '../host/data.js'
 
 // Loader 的 volatile-only 配置更新事件: 开关切换后立即同步注册/撤销, 不重载插件(不切断 MCP 连接)
@@ -167,11 +169,17 @@ export interface SelfToolsController {
 export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsController {
   const captured = captureMcpTools(ctx, deps)
   const names = captured.map((tool) => tool.name)
-  const definitions: CapturedTool[] = captured.map((tool) => ({
-    ...tool,
-    nativeName: `${NATIVE_PREFIX}${tool.name}`,
-    description: nativeDescription(tool.config.description, names),
-  }))
+  const definitions: CapturedTool[] = captured.map((tool) => {
+    // 描述 = MCP 描述 + TS 签名(参数文档/约束全保留, 见 ts-signature.ts); 先拼好再统一做
+    // 前缀改写——参数文档里引用的其它工具名(session_create 文档里的 session_send 等)同样加 rice_
+    const schema = z.toJSONSchema(z.object(tool.config.inputSchema), { io: 'input' }) as unknown as JsonSchemaNode
+    const signature = renderTsSignature(tool.name, schema)
+    return {
+      ...tool,
+      nativeName: `${NATIVE_PREFIX}${tool.name}`,
+      description: nativeDescription(signature ? `${tool.config.description}\n\n${signature}` : tool.config.description, names),
+    }
+  })
 
   const disposers: (() => void)[] = []
   const registeredNames: string[] = []
@@ -191,12 +199,11 @@ export function installSelfTools(ctx: Context, deps?: ToolDeps): SelfToolsContro
   const registerAll = (tools: readonly CapturedTool[]) => {
     for (const tool of tools) {
       const objectSchema = z.object(tool.config.inputSchema)
-      const parameters = { ...z.toJSONSchema(objectSchema, { io: 'input' }) } as Record<string, unknown>
-      delete parameters.$schema
       const definition: ToolDefinition = {
         name: tool.nativeName,
         description: tool.description,
-        parameters,
+        // 空壳: harness 不校验原生入参(pipeline 只校验 output value), 约束由下方 objectSchema.parse 全量强制
+        parameters: { type: 'object' },
         output: {
           // 原生工具拿到的是 MCP 结果信封(content), 统一按对象透出;
           // 插件永不双写——MCP 面只发 text(错误 JSON / 目录清单 TOON / 其余 JSON), 原生面透传同一份文本。

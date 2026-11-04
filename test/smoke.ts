@@ -126,6 +126,12 @@ const ctx = makeCtx({
 const SURFACE_BUDGET = 31_500
 const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
+/**
+ * 原生面体积预算: rice_ 工具的 描述+parameters 每请求都随工具面发给模型。
+ * TS 签名投影(ts-signature.ts)后实测 18,362 B——parameters 是空壳, 增长基本只来自
+ * 描述与参数文档; JSON Schema 时代的基线是 22,308 B。要加工具就同步上调, 让增长被显式评审。
+ */
+const NATIVE_SURFACE_BUDGET = 19_000
 
 try {
   // ── Phase A(主流程): 无认证、无白名单, 端口 8099 ──
@@ -161,6 +167,22 @@ try {
     const description = ctx.tools.get('rice_session_send')?.description ?? ''
     return description.includes('rice_session_poll') && !/(?<!rice_)session_poll/.test(description)
   })()
+  // ── 原生面 TS 签名投影(ts-signature.ts): harness 不校验原生入参, parameters 收缩为空壳, 契约进描述 ──
+  checks['原生自用工具: parameters 空壳(契约走 TS 签名)'] =
+    nativeSchemas.length > 0 && nativeSchemas.every((s: any) => JSON.stringify(s.parameters) === '{"type":"object"}')
+  checks['原生自用工具: TS 签名带类型/枚举/参数文档/约束'] = (() => {
+    const description = ctx.tools.get('rice_session_send')?.description ?? ''
+    return (
+      description.includes('sessionId: string') &&
+      description.includes('task: string, // The message to deliver') &&
+      description.includes("detail?: 'uri'|'summary'|'normal'|'full'") &&
+      description.includes('0..8 items') &&
+      description.includes('1..200 chars')
+    )
+  })()
+  const nativeBytes = nativeSchemas.reduce((sum: number, s: any) => sum + String(s.description ?? '').length + JSON.stringify(s.parameters ?? {}).length, 0)
+  console.log(`  原生面: ${nativeSchemas.length} 个工具 / ${nativeBytes} bytes(描述+parameters, TS 签名投影)`)
+  checks['原生自用工具: 体积在预算内(TS 签名投影)'] = nativeBytes <= NATIVE_SURFACE_BUDGET
   const nativeListDef = ctx.tools.get('rice_session_list')
   const nativeListValue = await nativeListDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeListText = nativeListDef.output.render({}, nativeListValue)[0]?.text ?? ''
