@@ -69,7 +69,7 @@ The MCP server listens on `http://127.0.0.1:5642/mcp` by default, with Streamabl
 
 ## Configuration
 
-All configuration can be changed on the "Rice on a Stick" page in the dsh sidebar; for the full configuration format, see [src/core/config.ts](src/core/config.ts):
+All configuration can be changed on the "Rice on a Stick" page in the dsh sidebar; for the full configuration format, see [src/core/config.ts](src/core/config.ts).
 
 ## Tools
 

@@ -69,7 +69,7 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ## 配置
 
-所有配置都可在 dsh 侧栏的"白饭钓竿"页里改；配置的完整格式见 [src/core/config.ts](src/core/config.ts)：
+所有配置都可在 dsh 侧栏的"白饭钓竿"页里改；配置的完整格式见 [src/core/config.ts](src/core/config.ts)。
 
 ## 工具
 
