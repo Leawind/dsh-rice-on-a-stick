@@ -2,7 +2,7 @@
 
 开发期间的改动记录在 conventional commits 的提交信息里，发布时整理为版本条目。
 
-## Unreleased
+## 0.2.2-rc.1 (2026-11-05)
 
 -   工具输出瘦身（破坏性变更：下列工具输出不再可 `JSON.parse`）：列表与目录类工具（`session_list` / `workspace_list` / `model_list` / `permission_list` / `session_subagents`）改用 TOON 表格式文本（表头 + 逗号分隔行，同构数据比紧凑 JSON 省 ~40% token；可用任意 TOON 解码器解析）；其余工具仍为紧凑 JSON，错误统一 `{error}` JSON 不变。
 -   永不双写：不再声明 `outputSchema`、不再回 `structuredContent`（规范建议的兼容性双写在本插件的两个工具面上都只读 text，双写只给 wire 翻倍）；文本面即唯一载荷。
