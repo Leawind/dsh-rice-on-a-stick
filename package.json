@@ -69,10 +69,7 @@
       "patch": "./cordis.yml"
     },
     "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-settings"
-      ]
+      "platform": "web"
     }
   },
   "license": "MIT",

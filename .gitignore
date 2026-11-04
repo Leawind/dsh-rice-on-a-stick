@@ -23,7 +23,6 @@ AGENTS-*.md
 node_modules/
 /lib/
 /client/
-.acl-repair/
 *.tsbuildinfo
 .npm-tmp/
 .tmp/
