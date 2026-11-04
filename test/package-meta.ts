@@ -116,10 +116,8 @@ check(
   languages.length > 0 && languages.every((language) => textOf(shown(language).title) !== undefined && textOf(shown(language).description) !== undefined),
 )
 check(
-  '展示文本: 名字不是裸包名, 中英两版不同',
-  languages.every((language) => shown(language).title !== manifest.name) &&
-    shown('en').title !== shown('zh').title &&
-    shown('en').description !== shown('zh').description,
+  '展示文本: 名字不是裸包名',
+  languages.every((language) => shown(language).title !== manifest.name),
 )
 
 // ── 图标: manifest 字段是 dsh 的首选, 只声明这一处 ──

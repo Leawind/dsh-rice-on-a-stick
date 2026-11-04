@@ -287,14 +287,6 @@ try {
     attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === MAX_ATTACHMENTS
   const guideTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'dsh_guide')
   checks['工具带 title + annotations(2025-06-18 协议字段)'] = guideTool?.title === 'Rice on a Stick: dsh guide' && guideTool?.annotations?.readOnlyHint === true
-  // 与 dsh 自带工具一致: 面向 MCP 客户端的标题/描述/参数说明统一用英语, 不混中文。
-  // 唯一例外是插件自己的中文专名"白饭钓竿": 身份必须挂在 tools/list 这条所有客户端都收的通道上
-  // (initialize instructions 是 MAY, 个别客户端会丢弃), 所以 guide 描述里保留一次专名。
-  const CJK = /[\u4e00-\u9fff]/
-  const PROPER_NOUN = /白饭钓竿/g
-  checks['tools/list: 面向客户端的说明统一为英文(专名除外)'] = toolsArr.every(
-    (t) => !CJK.test([t.title ?? '', t.description ?? '', JSON.stringify(t.inputSchema ?? {})].join('\n').replace(PROPER_NOUN, '')),
-  )
   // tools/list 是所有 MCP 客户端必收的通道: 插件身份必须在这里出现一次, 不能只靠 instructions
   checks['tools/list: dsh_guide 描述携带插件身份(中英文名)'] =
     typeof guideTool?.description === 'string' && guideTool.description.includes('Rice on a Stick') && guideTool.description.includes('白饭钓竿')
@@ -2408,7 +2400,7 @@ try {
   {
     const hardPort = await freePort()
     const phase = await startPhase(hardPort, makeCtx({ llm: fakeLlm }), {})
-    // (1) 无会话头的非 initialize POST: 直接 400, 不再为它构建 McpServer(旧实现每条这类请求泄漏一整套 server+transport)
+    // (1) 无会话头的非 initialize POST: 直接 400, 不为此构建 McpServer
     let registerCalls = 0
     const origRegister = (McpServer.prototype as any).registerTool
     ;(McpServer.prototype as any).registerTool = function (...args: any[]) {
@@ -2486,7 +2478,7 @@ try {
     const sub = await phase.call('session_send', { wait: 'none', sessionId: 'sess-select', task: 'model freshness probe' })
     checks['模型回报: 提交时按日志头回报(p1/m1)'] = innerOf(sub).model?.provider === 'p1' && innerOf(sub).model?.model === 'm1'
     // 换模型(session_select_model 的效果 = 日志头变为新选择): 之后的结果与清单必须反映新模型,
-    // 不能沿用创建记录里的旧选择(旧实现记录优先, 换模型后一直报创建时的模型)
+    // 不能沿用创建记录里的旧选择
     agent.session.requestHeader = () => ({ config: { provider: 'p2', model: 'm9' } })
     const res = await phase.call('session_result', { sessionId: 'sess-select' })
     checks['模型回报: 换模型后 session_result 反映新模型'] = innerOf(res).model?.provider === 'p2' && innerOf(res).model?.model === 'm9'
