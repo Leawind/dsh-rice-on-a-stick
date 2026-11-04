@@ -34,7 +34,7 @@ export function parseSummary(assistantText: string): { changes: string; verifica
 
 /**
  * 按括号配对收集顶层的 {...} 片段(嵌套对象整体成对, 不截在内部 } 上; 字符串里的花括号不参与配对)。
- * 旧实现的非贪婪正则 `/\{[\s\S]*?\}/` 在 `{"a":{"b":1}}` 上截到内部 } 产生非法片段, 嵌套 JSON 永远解析失败。
+ * 非贪婪正则 `/\{[\s\S]*?\}/` 在 `{"a":{"b":1}}` 上会截到内部 } 产生非法片段, 不能用。
  */
 function jsonCandidatesOf(text: string): string[] {
   const out: string[] = []

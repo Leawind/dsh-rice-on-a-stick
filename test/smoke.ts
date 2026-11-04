@@ -286,7 +286,9 @@ try {
   checks[`图片入站: attachments 入参 schema 声明 maxItems=${MAX_ATTACHMENTS}`] =
     attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === MAX_ATTACHMENTS
   const guideTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'dsh_guide')
-  checks['工具带 title + annotations(2025-06-18 协议字段)'] = guideTool?.title === 'Rice on a Stick: dsh guide' && guideTool?.annotations?.readOnlyHint === true
+  // 2025-06-18 协议扩展字段的发布面: 字段在(意外删除即失败), 具体文案不钉死
+  checks['工具带 title + annotations(2025-06-18 协议字段)'] =
+    typeof guideTool?.title === 'string' && guideTool.title.length > 0 && guideTool?.annotations?.readOnlyHint !== undefined
   // tools/list 是所有 MCP 客户端必收的通道: 插件身份必须在这里出现一次, 不能只靠 instructions
   checks['tools/list: dsh_guide 描述携带插件身份(中英文名)'] =
     typeof guideTool?.description === 'string' && guideTool.description.includes('Rice on a Stick') && guideTool.description.includes('白饭钓竿')

@@ -211,7 +211,7 @@ export interface TurnParseOptions {
 
 /**
  * 把 TurnRange 投影成 SessionTurnResult(全量; 出口再按 detail 裁剪)。
- * 解析形状与 engine 的旧实现一致: assistant/message、tool/call、tool/result、turn/end、usage。
+ * 解析形状与 engine 一致: assistant/message、tool/call、tool/result、turn/end、usage。
  */
 export function buildTurnResult(events: readonly unknown[], range: TurnRange, opts: TurnParseOptions): SessionTurnResult {
   const slice = events.slice(range.start, range.end ?? events.length)

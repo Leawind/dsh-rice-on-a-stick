@@ -350,7 +350,7 @@ export function headerOfSnapshot(snap: unknown): SessionHeader | undefined {
 }
 
 /** 单会话 header: live 读内存, 持久化-only 走后端 stat(只观察这一个会话, 不列语料);
- * 后端没有 stat(旧宿主/极简桩)或 stat 失败时退回 list 扫描——行为与旧实现一致。 */
+ * 后端没有 stat(旧宿主/极简桩)或 stat 失败时退回 list 扫描。 */
 export async function findSessionHeader(ctx: Context, sessionId: SessionId): Promise<SessionHeader | undefined> {
   const sessions = ctx.get('sessions') as { get?: (id: SessionId) => { header: SessionHeader } | undefined } | undefined
   const live = sessions?.get?.(sessionId)
