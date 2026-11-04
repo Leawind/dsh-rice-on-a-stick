@@ -4,15 +4,15 @@
 
 ## 分层与命令
 
-| 层                     | 命令                                  | 依赖                | 断什么                                                                                                                                |
-| ---------------------- | ------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 类型                   | `npm run typecheck`                   | 无                  | 三个 tsconfig：src（严格）/ test / client                                                                                             |
-| 包元数据               | `npm run test:meta`                   | 无                  | dsh 读取插件展示文本的唯一链路（exports 解析 / locale 覆盖 / package.json 兜底 / 图标单源）                                           |
-| 冒烟                   | `npm test`（= `test:meta` + `smoke`） | 无                  | 构建 + `test/smoke.ts`（假宿主桩 + 真 HTTP 的 MCP 往返，约 400 条断言）+ `test/smoke-port.ts`（端口被占时 `apply()` 必须显式 reject） |
-| UI 冒烟                | `npm run smoke:ui`                    | 无（目检需人）      | 侧栏页真实渲染进浏览器桩（`test/ui-harness.mjs`），`/__test/*` 控制面可供自动化驱动                                                   |
-| 真机 e2e（直连）       | `npm run e2e`                         | 手动起好的宿主      | 对已在跑的插件 HTTP 面跑 `test/e2e.ts`（`E2E_MCP_URL` / `E2E_TOKEN`）                                                                 |
-| 真机 e2e（一次性宿主） | `npm run e2e:isolated`                | 本机 DSH 桌面发行版 | 复制临时 DSH_HOME → link 安装插件 → 起独立真机宿主 → 跑 `test/e2e.ts` → 杀宿主                                                        |
-| 隔离构建               | `node scripts/isolated-test.mjs`      | 无                  | 工作区写权限受限（Windows ACL）时，在临时副本里构建 + 跑冒烟                                                                          |
+| 层 | 命令 | 依赖 | 断什么 |
+| --- | --- | --- | --- |
+| 类型 | `npm run typecheck` | 无 | 三个 tsconfig：src（严格）/ test / client |
+| 包元数据 | `npm run test:meta` | 无 | dsh 读取插件展示文本的唯一链路（exports 解析 / locale 覆盖 / package.json 兜底 / 图标单源） |
+| 冒烟 | `npm test`（= `test:meta` + `smoke`） | 无 | 构建 + `test/smoke.ts`（假宿主桩 + 真 HTTP 的 MCP 往返，约 400 条断言）+ `test/smoke-port.ts`（端口被占时 `apply()` 必须显式 reject） |
+| UI 冒烟 | `npm run smoke:ui` | 无（目检需人） | 侧栏页真实渲染进浏览器桩（`test/ui-harness.mjs`），`/__test/*` 控制面可供自动化驱动 |
+| 真机 e2e（直连） | `npm run e2e` | 手动起好的宿主 | 对已在跑的插件 HTTP 面跑 `test/e2e.ts`（`E2E_MCP_URL` / `E2E_TOKEN`） |
+| 真机 e2e（一次性宿主） | `npm run e2e:isolated` | 本机 DSH 桌面发行版 | 复制临时 DSH_HOME → link 安装插件 → 起独立真机宿主 → 跑 `test/e2e.ts` → 杀宿主 |
+| 隔离构建 | `node scripts/isolated-test.mjs` | 无 | 工作区写权限受限（Windows ACL）时，在临时副本里构建 + 跑冒烟 |
 
 约定：行为改动跑 `npm test`；动了真机语义（投递 / 审批 / 资源面 / 宿主服务消费点）再跑 `npm run e2e:isolated`；改 bug 先让断言红（在 smoke.ts 加复现用例，或改桩复现真机行为），再动 src。
 

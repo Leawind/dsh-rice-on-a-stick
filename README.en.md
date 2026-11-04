@@ -5,11 +5,9 @@
 
 [中文](README.md) | English
 
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
-[![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
+[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness) [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
 
-[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
-[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
+[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main) [![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
 
 A dsh plugin that exposes control over [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) as MCP and built-in tools.
 
@@ -75,44 +73,44 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 ### Catalog and status
 
-| Tool                | Purpose                                                                                                                                                                    |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dsh_guide`         | dsh usage guide: no arguments returns a compact section index; `section` fetches one part (concepts/workflows/errors/results/limits), `all` the full text                  |
-| `plugin_status`     | Read-only deployment status: version, listener, config summary, subscription stats, connected clients and the host global-tool count — the same data as the settings panel |
-| `workspace_list`    | List registered workspaces (id, path, owning sessions); resolve a user-named workspace to the `path` that `session_create.workspacePath` takes                             |
-| `model_list`        | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection                                                          |
-| `permission_list`   | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission`                               |
-| `session_subagents` | Read a session's native subagent catalog; `recursive=true` lists descendants                                                                                               |
+| Tool | Purpose |
+| --- | --- |
+| `dsh_guide` | dsh usage guide: no arguments returns a compact section index; `section` fetches one part (concepts/workflows/errors/results/limits), `all` the full text |
+| `plugin_status` | Read-only deployment status: version, listener, config summary, subscription stats, connected clients and the host global-tool count — the same data as the settings panel |
+| `workspace_list` | List registered workspaces (id, path, owning sessions); resolve a user-named workspace to the `path` that `session_create.workspacePath` takes |
+| `model_list` | List routable providers, model ids, reasoning efforts, the preset roster and the host's current default selection |
+| `permission_list` | List the host's permission presets (sandbox + approval bundles) — the values taken by `session_create.permission` / `session_set_permission` |
+| `session_subagents` | Read a session's native subagent catalog; `recursive=true` lists descendants |
 
 ### Session actions
 
-| Tool                     | Purpose                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session_create`         | Create a session and deliver its first message in the same call (`task` required, message parameters mirroring `session_send` — no blank sessions); `workspacePath` is the workspace directory (resolve a user-named workspace with `workspace_list` first), provider/model and preset all explicit; returns `sessionId`, the resolved workspace (id/path) and the delivery receipt |
-| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations                                                                                                                                                                                                                                                           |
-| `session_send`           | Send a message into a session; `wait` picks the blocking semantics: none (default) returns the receipt immediately, input returns early on approvals/questions, turn blocks until the turn ends                                                                                                                                                                                     |
-| `session_poll`           | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message                                                                                                                                                                                                                                                     |
-| `session_result`         | Fetch the structured result by `requestId` (omitting it returns the session's latest request)                                                                                                                                                                                                                                                                                       |
-| `session_cancel`         | Stop the session's current turn, keeping queued messages that have not started                                                                                                                                                                                                                                                                                                      |
-| `session_queue`          | List a session's queued messages (read-only)                                                                                                                                                                                                                                                                                                                                        |
-| `session_queue_manage`   | Mutate a session's queued messages — edit, remove, or promote one to a steer with `action="steer"`                                                                                                                                                                                                                                                                                  |
-| `session_select_model`   | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list)                                                                                                                                                                                                                         |
-| `session_rename`         | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title)                                                                                                                                                                                                                                                                              |
-| `session_fork`           | Fork a session from a prefix of its events, inheriting its directory, preset and current model (echoed as workspacePath)                                                                                                                                                                                                                                                            |
-| `session_command_list`   | List a session's slash commands (read-only)                                                                                                                                                                                                                                                                                                                                         |
-| `session_command_run`    | Run one slash command without sending it to the model or creating a turn                                                                                                                                                                                                                                                                                                            |
-| `session_archive`        | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`, and a never-used one requires `force=true`                                                                                                                                                                                                                                   |
-| `session_unarchive`      | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false`                                                                                                                                                                                                                                                                           |
+| Tool | Purpose |
+| --- | --- |
+| `session_create` | Create a session and deliver its first message in the same call (`task` required, message parameters mirroring `session_send` — no blank sessions); `workspacePath` is the workspace directory (resolve a user-named workspace with `workspace_list` first), provider/model and preset all explicit; returns `sessionId`, the resolved workspace (id/path) and the delivery receipt |
+| `session_set_permission` | Switch a session's permission preset (the server side of the UI's `/permission`), fixing knob-level `custom` combinations |
+| `session_send` | Send a message into a session; `wait` picks the blocking semantics: none (default) returns the receipt immediately, input returns early on approvals/questions, turn blocks until the turn ends |
+| `session_poll` | Observe many sessions at once; `waitMs` waits up to 30s and reports states, queue lengths, pending answers and the last message |
+| `session_result` | Fetch the structured result by `requestId` (omitting it returns the session's latest request) |
+| `session_cancel` | Stop the session's current turn, keeping queued messages that have not started |
+| `session_queue` | List a session's queued messages (read-only) |
+| `session_queue_manage` | Mutate a session's queued messages — edit, remove, or promote one to a steer with `action="steer"` |
+| `session_select_model` | Switch a session's model in place, effective on the next step with history preserved (with "Only allow specific models" on, the target must be on the list) |
+| `session_rename` | Rename a session through the host `sessionTitle` service (a user rename pins the auto-generated title) |
+| `session_fork` | Fork a session from a prefix of its events, inheriting its directory, preset and current model (echoed as workspacePath) |
+| `session_command_list` | List a session's slash commands (read-only) |
+| `session_command_run` | Run one slash command without sending it to the model or creating a turn |
+| `session_archive` | Archive a session (the UI's only delete, a soft mark); an active session requires `stopActivity=true`, and a never-used one requires `force=true` |
+| `session_unarchive` | Restore an archived session; idempotent, and a session that was not archived reports `wasArchived: false` |
 
 ### Session reads
 
-| Tool              | Purpose                                                                                                                                                                      |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session_list`    | List session metadata (title, workspacePath, preset, permission preset, current model), hiding archived ones by default                                                      |
-| `session_history` | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex`                                                   |
-| `session_events`  | Read a live session's raw event stream (JSONL), paged with the `after` cursor, 500-line cap                                                                                  |
+| Tool | Purpose |
+| --- | --- |
+| `session_list` | List session metadata (title, workspacePath, preset, permission preset, current model), hiding archived ones by default |
+| `session_history` | Read a session's conversation digest (user + assistant by default; `roles` opts into tool calls), paged with `beforeIndex` |
+| `session_events` | Read a live session's raw event stream (JSONL), paged with the `after` cursor, 500-line cap |
 | `session_inspect` | One-call GUI-style glance: title, workspacePath, permission, model, in-progress state, context occupancy and a recent digest; `fields` opts into turn/step counters and more |
-| `session_search`  | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default                                                                 |
+| `session_search` | Search session content by literal phrase (same as the UI search box), excluding archived sessions by default |
 
 ### Approvals
 
@@ -140,10 +138,10 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 These two tools cover the long tail of dsh Remote endpoints; the endpoints themselves are not enumerated because their number follows the host (see [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md) for the mechanism).
 
-| Tool                | Purpose                                                                                                                                                                                                                                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool | Purpose |
+| --- | --- |
 | `endpoint_describe` | Discover dsh Remote endpoints, search first: `query` keyword search (optionally scoped by `namespace`), no arguments for the namespace index, `namespace` for one domain's methods, `endpoint` for the exact contract; entries are flagged `readOnly` / `allowed` / `writable` / `approvalRequired` |
-| `endpoint_call`     | Invoke an endpoint from `endpoint_describe` with its named wire `args`; allowlisted endpoints execute directly, every other non-stream endpoint parks for a human decision, and decline, timeout or caller disconnect fails closed with nothing executed                                            |
+| `endpoint_call` | Invoke an endpoint from `endpoint_describe` with its named wire `args`; allowlisted endpoints execute directly, every other non-stream endpoint parks for a human decision, and decline, timeout or caller disconnect fails closed with nothing executed |
 
 ## Send behavior: queue / steer
 

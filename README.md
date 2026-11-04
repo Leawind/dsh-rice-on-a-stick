@@ -5,11 +5,9 @@
 
 中文 | [English](README.en.md)
 
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
-[![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
+[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness) [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
 
-[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
-[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
+[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases) [![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
 
 一个将控制 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的能力暴露为 MCP 和内置工具的 dsh 插件。
 
@@ -86,23 +84,23 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ### 会话操作
 
-| 工具                     | 用途                                                                                                                                                                                                                                                                       |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session_create`         | 新建会话并同调用投递首条消息（`task` 必填，消息参数与 `session_send` 同构，没有空白会话），`workspacePath` 取工作区目录（用户点名工作区时先用 `workspace_list` 取 `path`），provider/model、preset 全部显式给出，返回 `sessionId`、解析出的工作区（id/path）与首条消息回执 |
-| `session_set_permission` | 切换会话的权限预设（界面 `/permission` 的服务端语义），可修正旋钮级改动造成的 `custom` 组合                                                                                                                                                                                |
-| `session_send`           | 向会话发消息，`wait` 选阻塞语义：none（默认）立即回执、input 等审批/提问即回、turn 等本轮收敛                                                                                                                                                                              |
-| `session_poll`           | 批量观察会话状态，`waitMs` 最多等 30 秒，返回状态、排队数、待回答项与最后一条消息                                                                                                                                                                                          |
-| `session_result`         | 按 `requestId` 取回结构化结果，省略则取该会话最近一次请求                                                                                                                                                                                                                  |
-| `session_cancel`         | 停止会话当前 turn，保留尚未开始的排队消息                                                                                                                                                                                                                                  |
-| `session_queue`          | 列出会话的排队消息（只读）                                                                                                                                                                                                                                                 |
-| `session_queue_manage`   | 修改会话的排队消息：改写、删除，或用 `action="steer"` 提升为插话                                                                                                                                                                                                           |
-| `session_select_model`   | 会话内切换模型，下一个步生效且历史保留（开启“只允许特定模型”时目标须在清单内）                                                                                                                                                                                             |
-| `session_rename`         | 重命名会话，走宿主 `sessionTitle` 服务（用户改名会钉住自动标题）                                                                                                                                                                                                           |
-| `session_fork`           | 分叉会话：从源会话事件的前缀派生新会话，继承 workspacePath、预设与当前模型并回显                                                                                                                                                                                           |
-| `session_command_list`   | 列出会话可用的斜杠命令（只读）                                                                                                                                                                                                                                             |
-| `session_command_run`    | 执行一条斜杠命令，不发给模型也不产生 turn                                                                                                                                                                                                                                  |
-| `session_archive`        | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`，从未用过的会话需 `force=true`                                                                                                                                                                        |
-| `session_unarchive`      | 恢复已归档会话，幂等；未归档的会话如实回报 `wasArchived: false`                                                                                                                                                                                                            |
+| 工具 | 用途 |
+| --- | --- |
+| `session_create` | 新建会话并同调用投递首条消息（`task` 必填，消息参数与 `session_send` 同构，没有空白会话），`workspacePath` 取工作区目录（用户点名工作区时先用 `workspace_list` 取 `path`），provider/model、preset 全部显式给出，返回 `sessionId`、解析出的工作区（id/path）与首条消息回执 |
+| `session_set_permission` | 切换会话的权限预设（界面 `/permission` 的服务端语义），可修正旋钮级改动造成的 `custom` 组合 |
+| `session_send` | 向会话发消息，`wait` 选阻塞语义：none（默认）立即回执、input 等审批/提问即回、turn 等本轮收敛 |
+| `session_poll` | 批量观察会话状态，`waitMs` 最多等 30 秒，返回状态、排队数、待回答项与最后一条消息 |
+| `session_result` | 按 `requestId` 取回结构化结果，省略则取该会话最近一次请求 |
+| `session_cancel` | 停止会话当前 turn，保留尚未开始的排队消息 |
+| `session_queue` | 列出会话的排队消息（只读） |
+| `session_queue_manage` | 修改会话的排队消息：改写、删除，或用 `action="steer"` 提升为插话 |
+| `session_select_model` | 会话内切换模型，下一个步生效且历史保留（开启“只允许特定模型”时目标须在清单内） |
+| `session_rename` | 重命名会话，走宿主 `sessionTitle` 服务（用户改名会钉住自动标题） |
+| `session_fork` | 分叉会话：从源会话事件的前缀派生新会话，继承 workspacePath、预设与当前模型并回显 |
+| `session_command_list` | 列出会话可用的斜杠命令（只读） |
+| `session_command_run` | 执行一条斜杠命令，不发给模型也不产生 turn |
+| `session_archive` | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`，从未用过的会话需 `force=true` |
+| `session_unarchive` | 恢复已归档会话，幂等；未归档的会话如实回报 `wasArchived: false` |
 
 ### 会话读取
 
@@ -140,10 +138,10 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 两工具覆盖 dsh 的长尾 Remote 端点，端点数量随宿主而变化，因此端点本身不逐条列出（机制见 [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md)）。
 
-| 工具                | 用途                                                                                                                                                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 工具 | 用途 |
+| --- | --- |
 | `endpoint_describe` | 搜索优先地发现 dsh Remote 端点：`query` 关键词搜索并可按 `namespace` 收窄、无参给命名空间索引、`namespace` 列单域方法、`endpoint` 取精确契约；条目标注 `readOnly` / `allowed` / `writable` / `approvalRequired` |
-| `endpoint_call`     | 按 `endpoint_describe` 给出的端点调用，`args` 为具名线参；白名单内直接执行，其余非流式端点挂起到人工审批，拒绝、超时与调用方断开一律失败且不执行                                                                |
+| `endpoint_call` | 按 `endpoint_describe` 给出的端点调用，`args` 为具名线参；白名单内直接执行，其余非流式端点挂起到人工审批，拒绝、超时与调用方断开一律失败且不执行 |
 
 ## 发送行为：排队 / 插话
 

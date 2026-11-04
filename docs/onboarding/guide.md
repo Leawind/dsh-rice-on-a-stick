@@ -1,295 +1,83 @@
 # dsh usage guide (for MCP clients)
 
-This server — Rice on a Stick (白饭钓竿; that Chinese name is the plugin's own name for
-its tools) — bridges you into dsh (DeepSeek Harness), a local agent runtime.
-Sessions here are the same sessions the dsh web UI shows: creating a session creates
-its agent, the agent keeps its conversation history, and everything you do is visible
-in the UI. You compose tasks; dsh agents execute them with a full toolset
-(bash, fs, web, todo, ...). All tool names, arguments, and result shapes are described
-in each tool's own description — this guide covers what those descriptions assume
-you already know.
+This server — Rice on a Stick (白饭钓竿; that Chinese name is the plugin's own name for its tools) — bridges you into dsh (DeepSeek Harness), a local agent runtime. Sessions here are the same sessions the dsh web UI shows: creating a session creates its agent, the agent keeps its conversation history, and everything you do is visible in the UI. You compose tasks; dsh agents execute them with a full toolset (bash, fs, web, todo, ...). All tool names, arguments, and result shapes are described in each tool's own description — this guide covers what those descriptions assume you already know.
 
 <!-- section: concepts -->
 
 ## Concepts
 
-- **dsh / Harness** — the host process this plugin runs inside. Sessions, agents, model
-  routing and presets all live there; the plugin only projects them over MCP.
-  A "deployment" below means this dsh process together with the plugin as configured on
-  it — limits flagged per-deployment come from that configuration, not from dsh itself.
-- **session / agent** — one conversation and its runtime. The web UI calls it a session;
-  the runtime object that executes turns is its agent. They are 1:1: creating a session
-  creates the agent, and the agent's context IS the session history.
-- **workspace** — the dsh web UI groups sessions in the sidebar by workspace:
-  one directory per workspace, listed by `workspace_list` (id, path, sessionCount).
-  `session_create.workspacePath` selects that directory; a path matching no registered
-  workspace gets a new workspace, so any other directory (your own directory, a worktree,
-  a subdirectory) silently creates a second one. When the user names a workspace, take its
-  `path` from `workspace_list` and pass it as `workspacePath` — never substitute your own
-  directory or worktree.
-- **Model & preset selection** — chosen per session at creation (`session_create`
-  requires an explicit `provider`+`model` pair and a `preset`, all from
-  `model_list` / `dsh://presets`; nothing is backfilled). A provider is a routable model
-  source — the UI's model-provider entry (模型提供商); the `provider`+`model` pair is
-  what the descriptions call a "route". The model is switchable
-  later with `session_select_model` (takes effect on the next step, history
-  preserved); the preset stays with the session.
-- **preset** — the persona mounted at session creation (an id from `model_list`'s
-  `presets` field or the `dsh://presets` resource). Required explicitly at creation,
-  like the model; continuing an existing session keeps its original preset.
-- **send modes** — `session_send` chooses the delivery mode per call;
-  it is independent of any UI preference. `queue` delivers after the current turn ends,
-  as a new turn. `steer` delivers at the next step boundary inside the current turn
-  (it extends that turn; a running step is never interrupted). When the session is idle
-  the two are identical, so `mode` may be omitted and `queue` is assumed; while it is
-  running, omitting `mode` fails with `MODE_REQUIRED` — the choice is yours to make.
-- **wait semantics** — `session_send` and `session_create` share a `wait` argument:
-  `none` (default) admits the task and returns the `requestId` receipt immediately;
-  `input` returns early when the session awaits an approval/question; `turn` blocks
-  until the turn ends. Waiting is opt-in — a script should take the receipt and poll.
-- **async request** — `session_send` (and the first message of `session_create`) admits
-  a task and returns `requestId` immediately by default; `session_poll` observes one or
-  many sessions (bounded `waitMs`, returns `changed`/`timedOut`); `session_result`
-  fetches the structured result by `requestId`. The id is persisted on the user message,
-  so it survives a plugin restart. Cancelling a waiting `session_send` call never
-  cancels the dsh turn.
-- **turn vs step** — a _turn_ is one full run ending in a structured result. _Steps_ are
-  the model rounds inside it. `steer` is consumed at the next step boundary;
-  `session_select_model` takes effect on the next step.
-- **Session lifecycle** — sessions live until the host process ends or the session is
-  archived (`session_archive`, the UI's only "delete"; an active session needs
-  `stopActivity=true`). Archiving is a soft mark: the UI hides the session and the host
-  refuses model steps for it and its subagent lineage, while the log stays readable.
-  `session_list` with `scope: "archived"` lists archived sessions (they are hidden from
-  the default `active` view and from `session_search`); `session_unarchive` restores one,
-  and the next prompt then cold-resumes it with its history intact.
-- **Native subagent** — the host can delegate work into child sessions (one-shot,
-  continuable, or external). `session_subagents` reads that catalog without activating
-  anything; each child is a normal session id for `session_send` / `session_poll` /
-  `session_result`. Starting a child stays with the host/model-side subagent tools.
-- **Approval policy** — the host may ask for confirmation before a sensitive operation
-  (`ask`) or reject it deterministically (`never`). This plugin is an ordinary Web answer
-  client: it receives the same `approval/request` the browser does, **the native approval
-  card stays visible**, and whoever answers first wins (the other side gets a cancel).
-  `session_poll` reports `waiting-approval` with `pendingApprovals`; `approval_list`
-  returns `eventId` / `approvalId` / `toolName` / `callId` / `reason` / `answerable`.
-  `approval_answer` grants `allowed-once` or `rejected` for entries with
-  `answerable=true` (by `eventId` or `callId`). Entries held by the UI or another client
-  are read-only for you. `approval_policy` reads and `approval_policy_set` switches the
-  session's `ask`/`never` knob.
-- **User questions** — when a session calls `ask_user_question`, `session_poll` reports
-  `waiting-question` with `pendingQuestions`; `question_list` returns the question batch,
-  `callId`, `state` (`open`/`continued`) and `answerable`. `question_answer` answers the
-  whole batch (every question id exactly once) and the child turn continues with that
-  answer as the tool result — the same as clicking the card. The native card stays
-  visible and the human may answer first. In a timed deployment the question can become
-  `continued` after its foreground wait; then pass the `callId` and the host's
-  late-answer path is used (the reply arrives as a user message, not the tool result).
-- **Permission preset** — what the UI's permission switcher shows: a bundle of sandbox
-  mode + approval policy (for example `workspace-write` = write inside the workspace
-  with approval prompts, `danger-full-access` = full file access with no approval
-  prompts). `permission_list` returns the deployment's presets and its default.
-  `session_create.permission` picks one for a new session; `session_set_permission`
-  switches an existing one (they use the same host path as the UI and `/permission`).
-  Changing only the approval knob can leave a sandbox+approval combination that matches
-  no preset — the UI then shows `custom`; switch a named preset instead of stacking
-  knob-level changes. For unattended runs, a full-access preset is the predictable
-  choice.
-- **Image attachments (reference-only)** — `session_send` accepts
-  `attachments: [{ path | url, name? }]` (png/jpeg/webp/gif, up to 8). Pass a
-  host-readable path or an http(s) URL — the plugin reads the bytes inside the dsh
-  process and admits them through the host attachment service, so image data never
-  enters tool arguments or your context as base64. Attachment ids come back in the
-  receipt (wait=none responses carry `attachments`) or in `session_history` entries
-  (`images` fields); `session_attachment` returns metadata plus the host file path (zero image
-  tokens), and `inline: true` adds an MCP image content block for multimodal clients
-  (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were
-  inlined as base64 text).
-- **dsh endpoint passthrough** — `endpoint_describe` resolves dsh Remote endpoints through a
-  search-first ladder: `query` keyword-searches endpoint names + descriptions
-  (case-insensitive substrings, multiple words AND, optionally scoped with
-  `namespace`); no arguments return a compact namespace index; `namespace` lists one
-  domain's methods; one `endpoint` returns its exact contract (named wire parameters +
-  result JSON Schema). Entries carry `readOnly` (semantic only), `allowed`
-  (whitelisted, executes directly), `writable` (whitelisted mutation) and
-  `approvalRequired` (parks for a human) flags. `endpoint_call` invokes an endpoint by
-  reference with named `args` — use the wire keys from the contract; parameters the host
-  resolves itself (e.g. an agent parameter) take the session id as their wire value, and
-  the gateway resolves them. Whitelisted (`allowed`) endpoints run directly; every other
-  non-stream endpoint — including read-only ones — parks the call until a human answers
-  on the deployment's settings panel — decline, timeout (`approvalTimeoutMs`, 0 = wait
-  indefinitely) and caller disconnect all fail closed with nothing executed; dangerous
-  endpoints (credentials, plugin installs) take the same allowlist/parking paths but are
-  flagged for a second look. Use it for the long tail of dsh capabilities the curated
-  tools do not cover.
+- **dsh / Harness** — the host process this plugin runs inside. Sessions, agents, model routing and presets all live there; the plugin only projects them over MCP. A "deployment" below means this dsh process together with the plugin as configured on it — limits flagged per-deployment come from that configuration, not from dsh itself.
+- **session / agent** — one conversation and its runtime. The web UI calls it a session; the runtime object that executes turns is its agent. They are 1:1: creating a session creates the agent, and the agent's context IS the session history.
+- **workspace** — the dsh web UI groups sessions in the sidebar by workspace: one directory per workspace, listed by `workspace_list` (id, path, sessionCount). `session_create.workspacePath` selects that directory; a path matching no registered workspace gets a new workspace, so any other directory (your own directory, a worktree, a subdirectory) silently creates a second one. When the user names a workspace, take its `path` from `workspace_list` and pass it as `workspacePath` — never substitute your own directory or worktree.
+- **Model & preset selection** — chosen per session at creation (`session_create` requires an explicit `provider`+`model` pair and a `preset`, all from `model_list` / `dsh://presets`; nothing is backfilled). A provider is a routable model source — the UI's model-provider entry (模型提供商); the `provider`+`model` pair is what the descriptions call a "route". The model is switchable later with `session_select_model` (takes effect on the next step, history preserved); the preset stays with the session.
+- **preset** — the persona mounted at session creation (an id from `model_list`'s `presets` field or the `dsh://presets` resource). Required explicitly at creation, like the model; continuing an existing session keeps its original preset.
+- **send modes** — `session_send` chooses the delivery mode per call; it is independent of any UI preference. `queue` delivers after the current turn ends, as a new turn. `steer` delivers at the next step boundary inside the current turn (it extends that turn; a running step is never interrupted). When the session is idle the two are identical, so `mode` may be omitted and `queue` is assumed; while it is running, omitting `mode` fails with `MODE_REQUIRED` — the choice is yours to make.
+- **wait semantics** — `session_send` and `session_create` share a `wait` argument: `none` (default) admits the task and returns the `requestId` receipt immediately; `input` returns early when the session awaits an approval/question; `turn` blocks until the turn ends. Waiting is opt-in — a script should take the receipt and poll.
+- **async request** — `session_send` (and the first message of `session_create`) admits a task and returns `requestId` immediately by default; `session_poll` observes one or many sessions (bounded `waitMs`, returns `changed`/`timedOut`); `session_result` fetches the structured result by `requestId`. The id is persisted on the user message, so it survives a plugin restart. Cancelling a waiting `session_send` call never cancels the dsh turn.
+- **turn vs step** — a _turn_ is one full run ending in a structured result. _Steps_ are the model rounds inside it. `steer` is consumed at the next step boundary; `session_select_model` takes effect on the next step.
+- **Session lifecycle** — sessions live until the host process ends or the session is archived (`session_archive`, the UI's only "delete"; an active session needs `stopActivity=true`). Archiving is a soft mark: the UI hides the session and the host refuses model steps for it and its subagent lineage, while the log stays readable. `session_list` with `scope: "archived"` lists archived sessions (they are hidden from the default `active` view and from `session_search`); `session_unarchive` restores one, and the next prompt then cold-resumes it with its history intact.
+- **Native subagent** — the host can delegate work into child sessions (one-shot, continuable, or external). `session_subagents` reads that catalog without activating anything; each child is a normal session id for `session_send` / `session_poll` / `session_result`. Starting a child stays with the host/model-side subagent tools.
+- **Approval policy** — the host may ask for confirmation before a sensitive operation (`ask`) or reject it deterministically (`never`). This plugin is an ordinary Web answer client: it receives the same `approval/request` the browser does, **the native approval card stays visible**, and whoever answers first wins (the other side gets a cancel). `session_poll` reports `waiting-approval` with `pendingApprovals`; `approval_list` returns `eventId` / `approvalId` / `toolName` / `callId` / `reason` / `answerable`. `approval_answer` grants `allowed-once` or `rejected` for entries with `answerable=true` (by `eventId` or `callId`). Entries held by the UI or another client are read-only for you. `approval_policy` reads and `approval_policy_set` switches the session's `ask`/`never` knob.
+- **User questions** — when a session calls `ask_user_question`, `session_poll` reports `waiting-question` with `pendingQuestions`; `question_list` returns the question batch, `callId`, `state` (`open`/`continued`) and `answerable`. `question_answer` answers the whole batch (every question id exactly once) and the child turn continues with that answer as the tool result — the same as clicking the card. The native card stays visible and the human may answer first. In a timed deployment the question can become `continued` after its foreground wait; then pass the `callId` and the host's late-answer path is used (the reply arrives as a user message, not the tool result).
+- **Permission preset** — what the UI's permission switcher shows: a bundle of sandbox mode + approval policy (for example `workspace-write` = write inside the workspace with approval prompts, `danger-full-access` = full file access with no approval prompts). `permission_list` returns the deployment's presets and its default. `session_create.permission` picks one for a new session; `session_set_permission` switches an existing one (they use the same host path as the UI and `/permission`). Changing only the approval knob can leave a sandbox+approval combination that matches no preset — the UI then shows `custom`; switch a named preset instead of stacking knob-level changes. For unattended runs, a full-access preset is the predictable choice.
+- **Image attachments (reference-only)** — `session_send` accepts `attachments: [{ path | url, name? }]` (png/jpeg/webp/gif, up to 8). Pass a host-readable path or an http(s) URL — the plugin reads the bytes inside the dsh process and admits them through the host attachment service, so image data never enters tool arguments or your context as base64. Attachment ids come back in the receipt (wait=none responses carry `attachments`) or in `session_history` entries (`images` fields); `session_attachment` returns metadata plus the host file path (zero image tokens), and `inline: true` adds an MCP image content block for multimodal clients (~1-2k visual tokens for a typical screenshot, versus ~350k if the bytes were inlined as base64 text).
+- **dsh endpoint passthrough** — `endpoint_describe` resolves dsh Remote endpoints through a search-first ladder: `query` keyword-searches endpoint names + descriptions (case-insensitive substrings, multiple words AND, optionally scoped with `namespace`); no arguments return a compact namespace index; `namespace` lists one domain's methods; one `endpoint` returns its exact contract (named wire parameters + result JSON Schema). Entries carry `readOnly` (semantic only), `allowed` (whitelisted, executes directly), `writable` (whitelisted mutation) and `approvalRequired` (parks for a human) flags. `endpoint_call` invokes an endpoint by reference with named `args` — use the wire keys from the contract; parameters the host resolves itself (e.g. an agent parameter) take the session id as their wire value, and the gateway resolves them. Whitelisted (`allowed`) endpoints run directly; every other non-stream endpoint — including read-only ones — parks the call until a human answers on the deployment's settings panel — decline, timeout (`approvalTimeoutMs`, 0 = wait indefinitely) and caller disconnect all fail closed with nothing executed; dangerous endpoints (credentials, plugin installs) take the same allowlist/parking paths but are flagged for a second look. Use it for the long tail of dsh capabilities the curated tools do not cover.
 
 <!-- section: workflows -->
 
 ## Workflow recipes
 
-1. **One-off task** — `session_create` (workspacePath + provider/model pair + preset, plus
-   the first message as `task` — same message parameters as `session_send`: `attachments`,
-   `mode`, `wait`, `requestId`, `detail`; there are no blank sessions). `workspacePath` is
-   the workspace directory: when the user names a workspace, resolve its `path`
-   with `workspace_list` first — another directory silently creates a separate
-   workspace. The result carries the `sessionId`, the resolved workspace (id/path)
-   the session landed in, and the delivery receipt (`requestId`); pass the sessionId
-   back later to continue that conversation (send only the delta).
-2. **Keep working in a session** — repeat `session_send` with the same `sessionId`.
-   The agent remembers previous turns; for a fresh start create a new session.
-3. **Session is busy** — `session_send` with mode=`queue` lines up behind the current
-   turn as a new turn; mode=`steer` injects at the next step boundary of that same turn.
-   Omitting `mode` on a running session fails (`MODE_REQUIRED`) — pass it on every prompt
-   when you are unsure. Inspect the queue with `session_queue`; prune or rewrite it with
-   `session_queue_manage` (its `action=steer` promotes a queued message);
-   `session_cancel` stops the current turn and keeps the queue.
-4. **Change course mid-conversation** — `session_select_model` for a different model,
-   `session_rename` for housekeeping, `session_fork` to branch a conversation,
-   `session_archive` to retire one (the UI's only "delete"), and `session_command_list` /
-   `session_command_run` to list and run the session's slash commands without sending them
-   to the model (for example `name: "compact"` runs `/compact`; it is idle-only and
-   reports busy otherwise). The command list comes from the host registry, so plugin
-   commands appear automatically.
-5. **Find and inspect sessions** — `session_list` (filtered by `workspacePath` or by title, and by
-   `scope`: `active` by default, `archived`, or `all` — archived sessions are the soft
-   delete and stay out of lists and searches unless asked for; `includeCold: true` also
-   matches persisted-only sessions' titles, which come from the host's durable projection
-   cache without reading logs, and only sessions the cache cannot answer cost a log read,
-   capped per call by `coldScanMax` — default 50, cap 500),
-   `session_inspect` for a one-call, GUI-style glance (title,
-   workspacePath, permission, model + reasoning effort, in-progress state, context occupancy, recent
-   content digest; bookkeeping like historyReadable is always included; `fields` opts
-   into turn/step counters and preset), `session_history` for recent turns
-   (a conversation view by default — `roles` adds tool calls or turn boundaries when you
-   are debugging; `entryDetail: "full"` returns entry text untruncated), `session_events` for the
-   raw event stream of a live session (JSONL, `after` cursor paging), `session_search` to
-   find sessions by content.
-6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool:
-   `dsh://status[/config|/stats|/connections]`, `dsh://guide[/section]`, `dsh://tools`,
-   `dsh://models[/{provider}]`, `dsh://presets`, `dsh://workspaces[/{id}]`,
-   `dsh://sessions[/{id}[/history[/before]|/events[/after]|/activity|/overview]]`.
-   Subscribe with `resources/subscribe`: `dsh://sessions/{id}/activity` streams what a
-   running session is doing right now, history updates push on turn completion, and
-   `dsh://sessions/{id}/overview` pushes the one-call glance on the same boundaries.
-7. **Fan-out / parallel workers** — create N sessions with `session_create`, one task per
-   session in the same call (optionally with your own idempotent `requestId`; the default
-   wait=none receipt comes back immediately). Pass every session of one project the same `workspacePath`:
-   identical paths share one workspace in the sidebar, each distinct path spawns a separate
-   one — resolve the intended directory with `workspace_list` once and reuse it. Loop `session_poll` with
-   `sessionIds: [...]` and `waitMs: 20000`:
-   it returns when any watched session changes or the wait times out, so do not poll
-   faster than that. Once a session reports `lastTurn.reason`, call `session_result`
-   with its `requestId`; `status` tells you completed/blocked/errored/cancelled.
-   Retrying a lost create receipt: repeat the same `requestId` and `session_create`
-   refuses cleanly (the first session already has it — fetch with `session_result`);
-   a fresh `requestId` would create a twin session. `session_cancel` stops one worker;
-   `session_archive` retires it.
-8. **Human-input gate** — when `session_poll` reports `waiting-approval` or
-   `waiting-question`, call `approval_list` / `question_list` with the session id. If the
-   entry is `answerable`, answer it with `approval_answer` (allow/reject) or
-   `question_answer` (the whole batch), then keep polling. Otherwise the UI or another
-   client holds it; the native card is still the human's path. `session_send` with
-   `wait: "input"` returns early with `pending=true` and `waiting` when the
-   session starts waiting, so you can answer and then call `session_result` for the final
-   result (the default `wait=none` returns the receipt immediately — opt into `input`
-   when you want that hand-off in one call). To avoid approval gates up front, create the
-   session with a full-access `permission` preset (see `permission_list`) or switch it
-   with `session_set_permission`.
-9. **Native subagents** — `session_subagents({ parentSessionId })` returns direct children
-   (recursive=true adds descendants). Then treat each child id like any other session:
-   `session_poll`, `session_result`, `session_send`. The catalog read is passive;
-   it does not load or resume the child.
-10. **Send an image** — `session_send({ sessionId, task, attachments: [{ path: "/abs/shot.png" }] })`.
-    Keep the reference short (path or URL); never inline image bytes into `task`. Find
-    the attachment id in the wait=none receipt or `session_history`'s `images`;
-    hand it to `session_attachment` (add `inline: true` only for multimodal read-back).
-11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }`
-    to search endpoints by keyword (no args for the namespace index, `{ namespace }`
-    for one domain's methods), `endpoint_describe { endpoint }` for the contract,
-    `endpoint_call { endpoint, args }` to execute. The descriptions are bilingual, so a
-    UI feature name the user mentions is an effective search keyword as-is — 会话目标
-    (session goals), 定时任务 (scheduled tasks), 终端 (terminals), 备注 (session
-    remarks), 文件上传 (file uploads) all resolve this way. Whitelisted (`allowed`) endpoints run
-    at once; every other non-stream endpoint — including read-only ones — parks the call
-    until a human allows it on the deployment's settings panel (the tool call blocks in
-    the meantime) — if the human declines, or the wait times out, or you disconnect,
-    nothing is executed and the error says so. Dangerous endpoints (credentials, plugin
-    installs) take the same paths, but the panel flags them separately — expect the human
-    to look closely; a deployment can also whitelist an endpoint so it no longer parks.
+1. **One-off task** — `session_create` (workspacePath + provider/model pair + preset, plus the first message as `task` — same message parameters as `session_send`: `attachments`, `mode`, `wait`, `requestId`, `detail`; there are no blank sessions). `workspacePath` is the workspace directory: when the user names a workspace, resolve its `path` with `workspace_list` first — another directory silently creates a separate workspace. The result carries the `sessionId`, the resolved workspace (id/path) the session landed in, and the delivery receipt (`requestId`); pass the sessionId back later to continue that conversation (send only the delta).
+2. **Keep working in a session** — repeat `session_send` with the same `sessionId`. The agent remembers previous turns; for a fresh start create a new session.
+3. **Session is busy** — `session_send` with mode=`queue` lines up behind the current turn as a new turn; mode=`steer` injects at the next step boundary of that same turn. Omitting `mode` on a running session fails (`MODE_REQUIRED`) — pass it on every prompt when you are unsure. Inspect the queue with `session_queue`; prune or rewrite it with `session_queue_manage` (its `action=steer` promotes a queued message); `session_cancel` stops the current turn and keeps the queue.
+4. **Change course mid-conversation** — `session_select_model` for a different model, `session_rename` for housekeeping, `session_fork` to branch a conversation, `session_archive` to retire one (the UI's only "delete"), and `session_command_list` / `session_command_run` to list and run the session's slash commands without sending them to the model (for example `name: "compact"` runs `/compact`; it is idle-only and reports busy otherwise). The command list comes from the host registry, so plugin commands appear automatically.
+5. **Find and inspect sessions** — `session_list` (filtered by `workspacePath` or by title, and by `scope`: `active` by default, `archived`, or `all` — archived sessions are the soft delete and stay out of lists and searches unless asked for; `includeCold: true` also matches persisted-only sessions' titles, which come from the host's durable projection cache without reading logs, and only sessions the cache cannot answer cost a log read, capped per call by `coldScanMax` — default 50, cap 500), `session_inspect` for a one-call, GUI-style glance (title, workspacePath, permission, model + reasoning effort, in-progress state, context occupancy, recent content digest; bookkeeping like historyReadable is always included; `fields` opts into turn/step counters and preset), `session_history` for recent turns (a conversation view by default — `roles` adds tool calls or turn boundaries when you are debugging; `entryDetail: "full"` returns entry text untruncated), `session_events` for the raw event stream of a live session (JSONL, `after` cursor paging), `session_search` to find sessions by content.
+6. **Token-cheap browsing / push updates** — MCP resources mirror every read tool: `dsh://status[/config|/stats|/connections]`, `dsh://guide[/section]`, `dsh://tools`, `dsh://models[/{provider}]`, `dsh://presets`, `dsh://workspaces[/{id}]`, `dsh://sessions[/{id}[/history[/before]|/events[/after]|/activity|/overview]]`. Subscribe with `resources/subscribe`: `dsh://sessions/{id}/activity` streams what a running session is doing right now, history updates push on turn completion, and `dsh://sessions/{id}/overview` pushes the one-call glance on the same boundaries.
+7. **Fan-out / parallel workers** — create N sessions with `session_create`, one task per session in the same call (optionally with your own idempotent `requestId`; the default wait=none receipt comes back immediately). Pass every session of one project the same `workspacePath`: identical paths share one workspace in the sidebar, each distinct path spawns a separate one — resolve the intended directory with `workspace_list` once and reuse it. Loop `session_poll` with `sessionIds: [...]` and `waitMs: 20000`: it returns when any watched session changes or the wait times out, so do not poll faster than that. Once a session reports `lastTurn.reason`, call `session_result` with its `requestId`; `status` tells you completed/blocked/errored/cancelled. Retrying a lost create receipt: repeat the same `requestId` and `session_create` refuses cleanly (the first session already has it — fetch with `session_result`); a fresh `requestId` would create a twin session. `session_cancel` stops one worker; `session_archive` retires it.
+8. **Human-input gate** — when `session_poll` reports `waiting-approval` or `waiting-question`, call `approval_list` / `question_list` with the session id. If the entry is `answerable`, answer it with `approval_answer` (allow/reject) or `question_answer` (the whole batch), then keep polling. Otherwise the UI or another client holds it; the native card is still the human's path. `session_send` with `wait: "input"` returns early with `pending=true` and `waiting` when the session starts waiting, so you can answer and then call `session_result` for the final result (the default `wait=none` returns the receipt immediately — opt into `input` when you want that hand-off in one call). To avoid approval gates up front, create the session with a full-access `permission` preset (see `permission_list`) or switch it with `session_set_permission`.
+9. **Native subagents** — `session_subagents({ parentSessionId })` returns direct children (recursive=true adds descendants). Then treat each child id like any other session: `session_poll`, `session_result`, `session_send`. The catalog read is passive; it does not load or resume the child.
+10. **Send an image** — `session_send({ sessionId, task, attachments: [{ path: "/abs/shot.png" }] })`. Keep the reference short (path or URL); never inline image bytes into `task`. Find the attachment id in the wait=none receipt or `session_history`'s `images`; hand it to `session_attachment` (add `inline: true` only for multimodal read-back).
+11. **Reach a capability the curated tools lack** — `endpoint_describe { query: "…" }` to search endpoints by keyword (no args for the namespace index, `{ namespace }` for one domain's methods), `endpoint_describe { endpoint }` for the contract, `endpoint_call { endpoint, args }` to execute. The descriptions are bilingual, so a UI feature name the user mentions is an effective search keyword as-is — 会话目标 (session goals), 定时任务 (scheduled tasks), 终端 (terminals), 备注 (session remarks), 文件上传 (file uploads) all resolve this way. Whitelisted (`allowed`) endpoints run at once; every other non-stream endpoint — including read-only ones — parks the call until a human allows it on the deployment's settings panel (the tool call blocks in the meantime) — if the human declines, or the wait times out, or you disconnect, nothing is executed and the error says so. Dangerous endpoints (credentials, plugin installs) take the same paths, but the panel flags them separately — expect the human to look closely; a deployment can also whitelist an endpoint so it no longer parks.
 
 <!-- section: errors -->
 
 ## Error → alternative path
 
-| Situation                                          | Do this instead                                                                                                                                                                                                                          |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "provider + model are required"                    | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own)                                                                                                                    |
-| "unknown preset"                                   | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset                                                                                                           |
-| "unknown permission preset"                        | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults)                                                                  |
-| "cannot resume session"                            | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_send`                               |
-| model refused (allowedModels)                      | the model is not in the deployment's allowlist — pick one from `model_list` that appears there                                                                                                                                           |
-| "session is not running" (cancel/queue)            | the session has no live agent right now; send a `session_send` first                                                                                                                                                                     |
-| "refusing to archive ... no turns and no messages" | the target is a blank session — you probably meant `session_send`; to delete it deliberately, retry `session_archive` with `force: true`                                                                                                 |
-| turn ends `blocked`                                | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_send` |
-| `pending: true` with `waiting`                     | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling)                                   |
-| "unknown requestId"                                | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history`                                                   |
-| "requestId ... was already used by session ..."    | `session_create` refuses a used id before creating anything — fetch that request with `session_result`, deliver more with `session_send`; do not retry `session_create` with a fresh id (that twins the session)                         |
-| `status: "pending"` / `pending: true`              | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it                                                                                                                                 |
-| `status: "cancelled"`                              | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit                                                                                                                   |
-| "not a recognized image"                           | the attachment file is not png/jpeg/webp/gif — the curated tools carry images only; for other file kinds search the endpoint passthrough (`endpoint_describe` query: "upload" or 文件上传) and park the call for approval as usual       |
-| "not callable in this deployment" / `blockedBy`    | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe`                                                                 |
-| "declined by the human reviewer"                   | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint                                                                                          |
-| "approval timed out ... failed closed"             | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry                                                                                                |
+| Situation | Do this instead |
+| --- | --- |
+| "provider + model are required" | call `model_list` and pass the pair — new sessions always need an explicit model (resuming a sessionId keeps its own) |
+| "unknown preset" | pick an id from `model_list`'s `presets` field (or the `dsh://presets` resource) — new sessions always need an explicit preset |
+| "unknown permission preset" | pick one of `permission_list`'s `options[].value` (the deployment may compose no permission presets; then omit `permission` and leave permissions to the host defaults) |
+| "cannot resume session" | the host session controller refused the cold open (not found, writer held, subagent-owned, or a format migration is pending); check `session_list` / open it in the dsh UI once, then retry `session_send` |
+| model refused (allowedModels) | the model is not in the deployment's allowlist — pick one from `model_list` that appears there |
+| "session is not running" (cancel/queue) | the session has no live agent right now; send a `session_send` first |
+| "refusing to archive ... no turns and no messages" | the target is a blank session — you probably meant `session_send`; to delete it deliberately, retry `session_archive` with `force: true` |
+| turn ends `blocked` | the host waits for interactive approval. Call `approval_list`; if `answerable`, use `approval_answer`. Otherwise switch the session to a full-access `permission` preset with `session_set_permission`, then continue via `session_send` |
+| `pending: true` with `waiting` | the session is waiting for an approval or a question; the turn is still running. Answer with `approval_answer` / `question_answer`, then fetch the final result via `session_result` (or keep polling) |
+| "unknown requestId" | the in-process index keeps the last 200 requests for 6h; after a plugin restart pass the same `requestId` again (it is persisted in the session log) or inspect with `session_history` |
+| "requestId ... was already used by session ..." | `session_create` refuses a used id before creating anything — fetch that request with `session_result`, deliver more with `session_send`; do not retry `session_create` with a fresh id (that twins the session) |
+| `status: "pending"` / `pending: true` | the request is queued or the turn is still running; `session_poll` again, or `session_cancel` to stop it |
+| `status: "cancelled"` | the turn was stopped (explicitly or by client cancellation); read `error` for the cause and decide whether to resubmit |
+| "not a recognized image" | the attachment file is not png/jpeg/webp/gif — the curated tools carry images only; for other file kinds search the endpoint passthrough (`endpoint_describe` query: "upload" or 文件上传) and park the call for approval as usual |
+| "not callable in this deployment" / `blockedBy` | the endpoint is refused outright in this deployment — only stream endpoints are, since MCP tools answer once per request; pick another endpoint from `endpoint_describe` |
+| "declined by the human reviewer" | the parked write was rejected on the deployment's panel — nothing executed; adjust the approach or ask the deployment to whitelist the endpoint |
+| "approval timed out ... failed closed" | the parked write outlived `approvalTimeoutMs` (0 = unlimited) with no answer — retry if the human is around, or ask for a whitelist entry |
 
 <!-- section: results -->
 
 ## Reading results without blowing your context
 
-List and catalog tools (`session_list`, `workspace_list`, `model_list`, `permission_list`,
-`session_subagents`) return **TOON** (Token-Oriented Object Notation) instead of JSON: uniform
-rows sit under a `sessions[N]{col,col,...}:` header, one comma-separated row per item; scalars
-are `key: value` lines. An empty cell means the field is absent, values containing commas are
-double-quoted, and any TOON parser can decode it — at roughly 40% fewer tokens than the same
-JSON. Everything else returns compact JSON; errors are always `{"error": ...}`.
+List and catalog tools (`session_list`, `workspace_list`, `model_list`, `permission_list`, `session_subagents`) return **TOON** (Token-Oriented Object Notation) instead of JSON: uniform rows sit under a `sessions[N]{col,col,...}:` header, one comma-separated row per item; scalars are `key: value` lines. An empty cell means the field is absent, values containing commas are double-quoted, and any TOON parser can decode it — at roughly 40% fewer tokens than the same JSON. Everything else returns compact JSON; errors are always `{"error": ...}`.
 
-`detail` controls read-back size on both `session_send` (wait=input/turn) and `session_result`: `uri`
-returns only the reference (`resource`) plus bookkeeping, `summary` (default, a few hundred
-tokens — the changes/verification/leftovers summary + answer tail + tool names), `normal`
-(~2k, adds truncated tool calls and results), `full` (everything, for debugging). A result
-that had to clip something at its own level carries `truncated: true` and a `more` line
-naming the next level — re-call `session_result` with the same `requestId` at that level
-instead of guessing. A `summary` result lists tool names only by design; that is not
-truncation. Tool-level failures return `isError: true` with the reason in the payload.
-Every result also names the session and the model/preset that actually answered.
+`detail` controls read-back size on both `session_send` (wait=input/turn) and `session_result`: `uri` returns only the reference (`resource`) plus bookkeeping, `summary` (default, a few hundred tokens — the changes/verification/leftovers summary + answer tail + tool names), `normal` (~2k, adds truncated tool calls and results), `full` (everything, for debugging). A result that had to clip something at its own level carries `truncated: true` and a `more` line naming the next level — re-call `session_result` with the same `requestId` at that level instead of guessing. A `summary` result lists tool names only by design; that is not truncation. Tool-level failures return `isError: true` with the reason in the payload. Every result also names the session and the model/preset that actually answered.
 
-Async results carry `requestId`, `status` (completed / blocked / errored / cancelled;
-running/pending while not settled), `turn`, and `pending`. A `session_result` call that
-succeeds with `status: "errored"` is still a successful tool call — inspect the payload,
-not only `isError`. `session_send` with `wait: "input"` (opt-in; the default is
-`none`) returns `pending: true` plus `waiting: { approvals, questions }` when the
-session starts waiting for an approval/question while the turn keeps running; answer it
-and call `session_result` for the final result. A client-cancelled wait also returns
-`pending: true` with the `requestId` to fetch later (use `wait: "turn"` to always
-block until the turn ends).
+Async results carry `requestId`, `status` (completed / blocked / errored / cancelled; running/pending while not settled), `turn`, and `pending`. A `session_result` call that succeeds with `status: "errored"` is still a successful tool call — inspect the payload, not only `isError`. `session_send` with `wait: "input"` (opt-in; the default is `none`) returns `pending: true` plus `waiting: { approvals, questions }` when the session starts waiting for an approval/question while the turn keeps running; answer it and call `session_result` for the final result. A client-cancelled wait also returns `pending: true` with the `requestId` to fetch later (use `wait: "turn"` to always block until the turn ends).
 
-`session_history` follows the same budget idea: its default view clips each entry's text
-(assistant messages at 600 characters, less for tool entries; clipped entries carry
-`truncated: true`). Its knob is `entryDetail` (deliberately not `detail` — that name is
-the session_send/session_result ladder; `session_poll` clips its preview with
-`lastMessageDetail`). `entryDetail: "full"` returns entries untruncated — that is the way to
-read a whole long message (it works for persisted-only sessions too); page back with
-`limit` / `beforeIndex` instead of pulling an entire history at full detail.
+`session_history` follows the same budget idea: its default view clips each entry's text (assistant messages at 600 characters, less for tool entries; clipped entries carry `truncated: true`). Its knob is `entryDetail` (deliberately not `detail` — that name is the session_send/session_result ladder; `session_poll` clips its preview with `lastMessageDetail`). `entryDetail: "full"` returns entries untruncated — that is the way to read a whole long message (it works for persisted-only sessions too); page back with `limit` / `beforeIndex` instead of pulling an entire history at full detail.
 
-`session_inspect` is the tightest budget of all: its `recent` digest keeps one line per
-entry (80 characters for user text, 160 for assistant, 100 for tool arguments — the same
-normalization the UI turn cards use), enough to recognize what a session is doing, not
-to read it. Each entry's `index` doubles as a `session_history` `beforeIndex` anchor
-when you want the real text.
+`session_inspect` is the tightest budget of all: its `recent` digest keeps one line per entry (80 characters for user text, 160 for assistant, 100 for tool arguments — the same normalization the UI turn cards use), enough to recognize what a session is doing, not to read it. Each entry's `index` doubles as a `session_history` `beforeIndex` anchor when you want the real text.
 
-`session_inspect` locates a single session with one host-side `stat`
-(no corpus listing) and reads persisted-only sessions by folding their log through the
-same non-activating host read as `session_history`; when a session's log is unreadable
-it degrades to the `session_list` row and says so with `eventsReadable: false`.
+`session_inspect` locates a single session with one host-side `stat` (no corpus listing) and reads persisted-only sessions by folding their log through the same non-activating host read as `session_history`; when a session's log is unreadable it degrades to the `session_list` row and says so with `eventsReadable: false`.
 
 <!-- section: reliability -->
 
@@ -297,79 +85,29 @@ it degrades to the `session_list` row and says so with `eventsReadable: false`.
 
 What "failed" means, in three layers — check them in order:
 
-1. **Argument validation** — an `isError` result whose text starts with `MCP error
--32602` and names the expected parameter (nothing ran; fix the arguments).
-2. **Refusal** — `isError: true` with a `{ error, code? }` payload: the tool declined
-   before doing anything (`MODE_REQUIRED` says so explicitly: "nothing was sent, so
-   retrying with the same requestId is safe"). Nothing happened; follow the payload.
-3. **Turn failure** — the call succeeded but the turn did not: either an `isError`
-   receipt that still names `sessionId` (e.g. a `session_create` whose first message was
-   refused after creation — deliver it with `session_send`), or a successful result with
-   `status: "errored"` / `status: "blocked"` (a `session_result` payload — read `error`).
+1. **Argument validation** — an `isError` result whose text starts with `MCP error -32602` and names the expected parameter (nothing ran; fix the arguments).
+2. **Refusal** — `isError: true` with a `{ error, code? }` payload: the tool declined before doing anything (`MODE_REQUIRED` says so explicitly: "nothing was sent, so retrying with the same requestId is safe"). Nothing happened; follow the payload.
+3. **Turn failure** — the call succeeded but the turn did not: either an `isError` receipt that still names `sessionId` (e.g. a `session_create` whose first message was refused after creation — deliver it with `session_send`), or a successful result with `status: "errored"` / `status: "blocked"` (a `session_result` payload — read `error`).
 
-Delivery receipts are one JSON text block: `accepted: true` with `sessionId` / `requestId` /
-`messageId` (text is the only payload — there is no `structuredContent` mirror). Success and
-refusal are distinguishable by `isError` alone — never by shape-guessing.
+Delivery receipts are one JSON text block: `accepted: true` with `sessionId` / `requestId` / `messageId` (text is the only payload — there is no `structuredContent` mirror). Success and refusal are distinguishable by `isError` alone — never by shape-guessing.
 
-**Safe retries with `requestId`.** Repeating a `session_send` with the same `requestId`
-returns the first receipt instead of re-delivering — that is the reconnect story: if a
-response is lost (timeout, disconnect), either repeat the call verbatim or fetch with
-`session_result({ sessionId, requestId })`. `session_create` is not idempotent (a retry
-makes a new session), so it guards the key instead: a used `requestId` refuses before
-creating anything and names the session that owns it.
+**Safe retries with `requestId`.** Repeating a `session_send` with the same `requestId` returns the first receipt instead of re-delivering — that is the reconnect story: if a response is lost (timeout, disconnect), either repeat the call verbatim or fetch with `session_result({ sessionId, requestId })`. `session_create` is not idempotent (a retry makes a new session), so it guards the key instead: a used `requestId` refuses before creating anything and names the session that owns it.
 
-**Polling.** `session_poll({ sessionIds, waitMs })` is a bounded long-poll: it returns as
-soon as any watched session changes or `waitMs` (≤30s) elapses — loop it instead of
-sleeping, and fetch each settled request with `session_result`. MCP cancellation of a
-waiting call never stops the turn in dsh; stopping work is always `session_cancel`.
+**Polling.** `session_poll({ sessionIds, waitMs })` is a bounded long-poll: it returns as soon as any watched session changes or `waitMs` (≤30s) elapses — loop it instead of sleeping, and fetch each settled request with `session_result`. MCP cancellation of a waiting call never stops the turn in dsh; stopping work is always `session_cancel`.
 
 <!-- section: limits -->
 
 ## Deployment-imposed limits (visible via `plugin_status` / `model_list`)
 
-- `allowedModels`: the allowlist of models sessions may be created with
-  (absent/empty = any model).
-- Model and preset are both explicit: new sessions require `provider`+`model` (from
-  `model_list`) and a `preset` (from `model_list`'s `presets` / `dsh://presets`);
-  resuming a sessionId keeps that session's model and preset. The result tells you
-  which model/preset actually answered (`model` / `preset` fields).
-- Permission presets are deployment-defined (`permission_list`). `session_create`
-  echoes the effective `permission` (the host default when you omit it); persisted-only
-  sessions report the preset recorded in the log, while a live session's value comes
-  from the host (`custom` means the current sandbox+approval combination matches no
-  preset). Switching requires the host permission-presets service — deployments without
-  it reject `permission` explicitly and leave permissions to the host defaults.
-- Async request index: the last 200 requests are kept for 6 hours in memory. The
-  `requestId` is also persisted on the user message, so an explicit `session_result`
-  can rebuild its position from the session log after a restart.
-- `session_poll` reports live sessions from memory; a persisted-only session returns
-  `state: "inactive"` (its log is still readable with `session_history`).
-- Pending approvals and questions are exposed in `session_poll`
-  (`pendingApprovals` / `pendingQuestions`), `approval_list` and `question_list`. This
-  plugin is an ordinary Web answer client: it only answers requests it currently holds
-  (`answerable=true`); the native card stays visible for the human, and the UI or another
-  client may answer first. When the host has no answer-client seam the plugin degrades to
-  read-only and every `answerable` is false.
-- `ask_user_question` is answered in the child turn (same tool result) while it is
-  `open`; a timed deployment may turn it into `continued` after the foreground wait, in
-  which case the host late-answer path is used and the reply arrives as a user message.
-- `session_subagents` is discovery only: it reads the host's child catalog and treats each
-  child as a normal session. Starting native children remains a host/model-side tool.
-- `session_command_list` / `session_command_run` need a live agent (`ctx.commands` is per
-  agent): a persisted-only
-  session has no command list until it is activated once. Execution is logged
-  (`command/run`/`command/done`) but creates no turn and never enters model history.
-- `session_inspect` context occupancy prefers the host token meter; a persisted-only session
-  (or a deployment without the meter) falls back to the last logged request usage, and
-  the window comes from the newest `request/context` or the model route. Omit `sessionId`
-  only from native `rice_` tools — an MCP call has no "current session".
-- Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap
-  (the host attachment service enforces its own image limits on top); `session_attachment`
-  inlines at most 8MB per image — use the host path for larger ones.
-- The endpoint passthrough exposes what the deployment opened: `allowed` endpoints from
-  `endpointAllowlist` execute directly; every other non-stream endpoint (read-only ones
-  included) is callable but each call parks until a human answers on the deployment's
-  settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited).
-  Dangerous endpoints (credentials, plugin installs, connection trust) are not
-  hard-blocked: they take the same two paths, but the panel lists them separately
-  with a warning so the deployment can decide per endpoint.
+- `allowedModels`: the allowlist of models sessions may be created with (absent/empty = any model).
+- Model and preset are both explicit: new sessions require `provider`+`model` (from `model_list`) and a `preset` (from `model_list`'s `presets` / `dsh://presets`); resuming a sessionId keeps that session's model and preset. The result tells you which model/preset actually answered (`model` / `preset` fields).
+- Permission presets are deployment-defined (`permission_list`). `session_create` echoes the effective `permission` (the host default when you omit it); persisted-only sessions report the preset recorded in the log, while a live session's value comes from the host (`custom` means the current sandbox+approval combination matches no preset). Switching requires the host permission-presets service — deployments without it reject `permission` explicitly and leave permissions to the host defaults.
+- Async request index: the last 200 requests are kept for 6 hours in memory. The `requestId` is also persisted on the user message, so an explicit `session_result` can rebuild its position from the session log after a restart.
+- `session_poll` reports live sessions from memory; a persisted-only session returns `state: "inactive"` (its log is still readable with `session_history`).
+- Pending approvals and questions are exposed in `session_poll` (`pendingApprovals` / `pendingQuestions`), `approval_list` and `question_list`. This plugin is an ordinary Web answer client: it only answers requests it currently holds (`answerable=true`); the native card stays visible for the human, and the UI or another client may answer first. When the host has no answer-client seam the plugin degrades to read-only and every `answerable` is false.
+- `ask_user_question` is answered in the child turn (same tool result) while it is `open`; a timed deployment may turn it into `continued` after the foreground wait, in which case the host late-answer path is used and the reply arrives as a user message.
+- `session_subagents` is discovery only: it reads the host's child catalog and treats each child as a normal session. Starting native children remains a host/model-side tool.
+- `session_command_list` / `session_command_run` need a live agent (`ctx.commands` is per agent): a persisted-only session has no command list until it is activated once. Execution is logged (`command/run`/`command/done`) but creates no turn and never enters model history.
+- `session_inspect` context occupancy prefers the host token meter; a persisted-only session (or a deployment without the meter) falls back to the last logged request usage, and the window comes from the newest `request/context` or the model route. Omit `sessionId` only from native `rice_` tools — an MCP call has no "current session".
+- Image attachments: png/jpeg/webp/gif only, up to 8 per message, 64MB source cap (the host attachment service enforces its own image limits on top); `session_attachment` inlines at most 8MB per image — use the host path for larger ones.
+- The endpoint passthrough exposes what the deployment opened: `allowed` endpoints from `endpointAllowlist` execute directly; every other non-stream endpoint (read-only ones included) is callable but each call parks until a human answers on the deployment's settings panel (`approvalTimeoutMs` bounds the wait, 0 = unlimited). Dangerous endpoints (credentials, plugin installs, connection trust) are not hard-blocked: they take the same two paths, but the panel lists them separately with a warning so the deployment can decide per endpoint.
