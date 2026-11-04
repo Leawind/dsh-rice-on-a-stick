@@ -183,7 +183,6 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
    * 但流开着就是活跃——TTL GC 豁免它们。响应结束(正常关流或断连)即注销; 同会话多条流按响应记账。
    */
   const streamingGets = new Map<string, Set<http.ServerResponse>>()
-  let server: http.Server | undefined
   let listening = false
   let disposed = false
   let sweeper: ReturnType<typeof setTimeout> | undefined
@@ -434,7 +433,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
     }
   }
 
-  server = http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     void handleRequest(req, res)
   })
 

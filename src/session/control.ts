@@ -162,7 +162,7 @@ export async function sessionResult(
 ): Promise<Record<string, unknown>> {
   const wanted = requestId?.trim() ?? ''
   const live = ctx.agents.get(asSessionId(sessionId))
-  let events: readonly unknown[] | undefined = live !== undefined ? eventsOf(live.session) : undefined
+  const events: readonly unknown[] | undefined = live !== undefined ? eventsOf(live.session) : undefined
   let record = wanted !== '' ? requestOf(wanted) : latestRequestFor(sessionId)
 
   // 索引丢失(插件重启/TTL 淘汰)时按 user 消息的 source.rpcId 从会话日志重建记录——

@@ -237,6 +237,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
       throw new Error(
         `session "${String(newSessionId)}" was created, but applying permission preset "${permission}" failed: ` +
           `${(e as Error)?.message ?? String(e)}; retry with session_set_permission({ sessionId: "${String(newSessionId)}", permission: "${permission}" })`,
+        { cause: e },
       )
     }
   }
@@ -317,7 +318,7 @@ export async function resolveSessionForPrompt(ctx: Context, sessionId: string): 
   try {
     resolved = await controller.resolveAgent(sid)
   } catch (e) {
-    throw new Error(`cannot resume session "${sessionId}": ${(e as Error)?.message ?? String(e)}`)
+    throw new Error(`cannot resume session "${sessionId}": ${(e as Error)?.message ?? String(e)}`, { cause: e })
   }
   const agent = resolved?.agent
   if (!agent) {

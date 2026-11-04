@@ -200,9 +200,9 @@ if (new URLSearchParams(location.search).has('clean')) {
   document.body.classList.add('clean');
   document.body.style.margin = '0 16px';
 }
-<\/script>
-<script src="/vendor/react.js"><\/script>
-<script src="/vendor/react-dom.js"><\/script>
+</script>
+<script src="/vendor/react.js"></script>
+<script src="/vendor/react-dom.js"></script>
 <script>
 window.__boot = { errors: [], registered: [], applied: false };
 window.__ModuleLoader__ = {
@@ -344,8 +344,8 @@ setInterval(function () {
     body: JSON.stringify({ rows: rows }),
   }).catch(function () { /* 控制面未就绪时忽略 */ });
 }, 800);
-<\/script>
-<script src="/client.js"><\/script>
+</script>
+<script src="/client.js"></script>
 </body>
 </html>`
 

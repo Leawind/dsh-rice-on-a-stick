@@ -734,7 +734,7 @@ export function makeCtx(
     },
   }
   const fakeWebServer = {
-    register: ({ path, handler }) => {
+    register: ({ handler }) => {
       webHandlers.set('gui', handler)
       return () => webHandlers.delete('gui')
     },

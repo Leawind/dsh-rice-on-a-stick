@@ -654,6 +654,7 @@ export async function sessionHistoryPayload(
       throw new Error(
         `session not readable: ${sessionId} (${(e as Error)?.message ?? String(e)}); ` +
           'open the session in the dsh UI, or continue it with session_send first',
+        { cause: e },
       )
     }
   }

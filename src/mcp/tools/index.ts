@@ -75,7 +75,10 @@ export function applyToolGate(mcp: McpServer, cfg: { toolAllowlist: readonly str
   for (const { name, tool } of registered) {
     if (typeof tool.enable !== 'function' || typeof tool.disable !== 'function') continue
     const want = isToolAllowed(cfg, name)
-    if (want !== tool.enabled) want ? tool.enable() : tool.disable()
+    if (want !== tool.enabled) {
+      if (want) tool.enable()
+      else tool.disable()
+    }
   }
 }
 

@@ -24,7 +24,7 @@ function readDoc(name: string): string {
   try {
     return readFileSync(url, 'utf8')
   } catch (e) {
-    throw new Error(`cannot read agent-facing doc ${url.pathname}: ${(e as Error)?.message ?? String(e)}`)
+    throw new Error(`cannot read agent-facing doc ${url.pathname}: ${(e as Error)?.message ?? String(e)}`, { cause: e })
   }
 }
 

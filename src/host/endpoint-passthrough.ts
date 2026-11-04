@@ -120,7 +120,7 @@ function asInvocation(raw: unknown): InvocationView | undefined {
 export function listInvocations(ctx: Context): InvocationView[] {
   const local = typertOf(ctx)?.local
   if (local === undefined || typeof local.list !== 'function') return []
-  let raw: readonly unknown[] = []
+  let raw: readonly unknown[]
   try {
     // 注意在服务对象上调用: 宿主方法可能依赖 this(摘离引用会丢绑定), spike 已踩过
     raw = local.list() ?? []

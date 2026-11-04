@@ -80,7 +80,7 @@ async function readSourceBytes(input: ImageRefInput, baseDir: string | undefined
     if (data.byteLength > MAX_SOURCE_BYTES) {
       throw new Error(`${input.url}: ${data.byteLength} bytes exceeds the ${MAX_SOURCE_BYTES}-byte source cap`)
     }
-    let tail = ''
+    let tail: string
     try {
       tail = decodeURIComponent(new URL(input.url!).pathname.split('/').filter(Boolean).pop() ?? '')
     } catch {

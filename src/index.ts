@@ -31,7 +31,7 @@ import { installPromptSection } from './host/prompt.js'
 import { createNotifyHub } from './mcp/notify.js'
 import { registerWebRoutes } from './mcp/web.js'
 import { createUnavailableAnswerRuntime, installRemoteAnswerClient } from './session/answers.js'
-import { installSelfTools, type SelfToolsController } from './session/self-tools.js'
+import { installSelfTools } from './session/self-tools.js'
 
 /** Cordis 插件名 */
 export const name = PLUGIN_NAME
@@ -55,7 +55,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   state.config = bindRuntimeConfig(parsed)
 
   // 本实例自用工具控制器: 在 statusSnapshot 定义后安装(工具里的 plugin_status 要读同一份快照)
-  let selfToolsController: SelfToolsController | undefined
 
   let httpServer: McpHttpServer | undefined
   /** 当前监听的地址/端口(与 state.config 比对, 决定是否需要重建监听器) */
@@ -215,7 +214,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   // ── 本实例自用工具: 同一份 MCP 工具面再注册到 ctx.tools, 不走 HTTP/认证 ──
   // 原生工具是会话内直调能力; 对外 MCP 服务仍是独立的可选面。默认开启, 面板/配置可关。
-  selfToolsController = installSelfTools(ctx, { statusSnapshot })
+  const selfToolsController = installSelfTools(ctx, { statusSnapshot })
   selfToolsController.sync(state.config.selfToolsEnabled)
   ctx.effect(() => {
     return () => {

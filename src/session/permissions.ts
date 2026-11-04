@@ -154,6 +154,6 @@ export function setPermissionPreset(ctx: Context, session: unknown, name: string
   try {
     svc.set?.(session, name)
   } catch (e) {
-    throw new Error(`applying permission preset "${name}" failed: ${(e as Error)?.message ?? String(e)}`)
+    throw new Error(`applying permission preset "${name}" failed: ${(e as Error)?.message ?? String(e)}`, { cause: e })
   }
 }

@@ -116,7 +116,7 @@ export async function approvalListFor(ctx: Context, sessionIds: readonly string[
   const sessions: Record<string, unknown>[] = []
   for (const sessionId of sessionIds) {
     const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown; status?: string } | undefined
-    let events: readonly unknown[] = []
+    let events: readonly unknown[]
     if (live !== undefined) {
       events = eventsOf(live.session)
     } else {

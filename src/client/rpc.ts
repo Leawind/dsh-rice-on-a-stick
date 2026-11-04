@@ -9,12 +9,12 @@ export function rpc(method: string, args?: unknown) {
     if (!res.ok) {
       return res.text().then(function (raw) {
         let body = null;
-        try { body = JSON.parse(raw); } catch (e) { /* 非 JSON 错误体 */ }
+        try { body = JSON.parse(raw); } catch { /* 非 JSON 错误体 */ }
         throw new Error((body && body.error) || ('HTTP ' + res.status));
       });
     }
     return res.text().then(function (raw) {
-      try { return JSON.parse(raw); } catch (e) { throw new Error('响应解析失败'); }
+      try { return JSON.parse(raw); } catch (e) { throw new Error('响应解析失败', { cause: e }); }
     });
   });
 }

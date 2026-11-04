@@ -19,7 +19,7 @@ function readSectionText(): string {
   try {
     return readFileSync(url, 'utf8').trimEnd()
   } catch (e) {
-    throw new Error(`cannot read the system-prompt section ${url.pathname}: ${(e as Error)?.message ?? String(e)}`)
+    throw new Error(`cannot read the system-prompt section ${url.pathname}: ${(e as Error)?.message ?? String(e)}`, { cause: e })
   }
 }
 

@@ -18,7 +18,7 @@ export var approvalStore = (function () {
   var running = false;
   var debugSeq = 0;
   function rebuild() { snapshot = items.concat(debugItems); }
-  function notify() { listeners.forEach(function (fn) { try { fn(); } catch (e) { /* 订阅方异常不拖垮轮询 */ } }); }
+  function notify() { listeners.forEach(function (fn) { try { fn(); } catch { /* 订阅方异常不拖垮轮询 */ } }); }
   // 虚拟项的自动回收: 到期 +3s 自清, 不依赖审批页的秒针(秒针只在审批标签页走,
   // 人停在别的标签时角标/计数也得跟着掉)。
   function pruneDebugNow() {

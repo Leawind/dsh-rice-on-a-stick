@@ -32,7 +32,8 @@ export var t = function (key: keyof typeof zh, params?: Record<string, unknown>)
 // locale 服务(订阅语言切换用), bindHostLocale 里赋值
 export var LOCALE: { subscribe: (fn: () => void) => () => void } | null = null;
 
-export function bindHostLocale(locale: any) {
+// locale 服务(dsh-client-locale)按结构类型收窄: bind 返回活绑定翻译函数, subscribe 订阅语言切换
+export function bindHostLocale(locale: { bind: (ns: string) => typeof t; subscribe: (fn: () => void) => () => void }) {
   t = locale.bind(NS_I18N);
   LOCALE = locale;
 }
