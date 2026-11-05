@@ -5,22 +5,18 @@
 
 中文 | [English](README.en.md)
 
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness) [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
+[![DSH](https://img.shields.io/badge/DSH-≥0.2.1--rc.5-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness) [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
 
 [![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases) [![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
 
-一个将控制 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的能力暴露为 MCP 和内置工具的 dsh 插件。
+一个将控制 dsh ([DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)) 的能力暴露为 MCP 和内置工具的插件。
 
 </div>
 
-## 特性
-
-- **操作会话**：
-  - 新建、发送、排队、分叉、归档与恢复、切换模型等
-  - 可配置为只允许调用方使用特定模型
-  - 可通过配置为模型提供商和模型编写描述，描述将被提供给调用方
+- **控制会话**：新建、发送、排队、分叉、归档与恢复、切换模型等
+  - 可配置为只允许调用方使用特定模型，也可为模型提供商和模型编写描述提供给调用方
 - **像网页用户一样与会话交互**：调用方通过本插件可像 web 端用户一样处理权限审批与提问
-- **dsh 端点直通**：通过 `endpoint_call` 调用 dsh 的 Remote 端点，端点策略三档可配：白名单直行（`endpointAllowlist`）、拒绝清单直接拒绝（`endpointDenylist`）、其余每次调用停泊审批
+- **dsh 端点直通**：调用 dsh 的远程访问端点，端点策略三档可配：允许、需审批、拒绝
 - **dsh 自己也能用**：这些能力同时注册为 dsh 的内置工具，本 dsh 实例无需额外接入 MCP
 - **安全默认**：默认只监听本机，可配置访问令牌。
 
@@ -31,7 +27,7 @@
 
 ## 环境要求
 
-- dsh `0.2.1-rc.2` 及以上。图形界面（侧栏“白饭钓竿”页）和完整的会话功能需要 web 或 desktop 版 dsh
+- dsh `0.2.1-rc.5` 及以上。图形界面（侧栏“白饭钓竿”页）和完整的会话功能需要 web 或 desktop 版 dsh
 - MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接
 
 ## 安装
@@ -67,90 +63,25 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ## 配置
 
-所有配置都可在 dsh 侧栏的"白饭钓竿"页里改；配置的完整格式见 [src/core/config.ts](src/core/config.ts)。
+所有配置都可在 dsh 侧栏的"白饭钓竿"页里改。
 
-## 工具
+## 主要工具
 
-### 目录与状态
+### 发送消息
 
-| 工具                | 用途                                                                                                        |
-| ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `dsh_guide`         | dsh 入门指南：无参返回节索引，`section` 取一节（概念/工作流/错误/结果/限制），`all` 才给全文                |
-| `plugin_status`     | 只读部署状态：版本、监听、配置摘要、订阅统计、已连接客户端与宿主全局工具计数，与设置面板同源                |
-| `workspace_list`    | 列出已注册工作区（id、路径、会话数）；把用户说的“工作区”解析成 `session_create.workspacePath` 的路径        |
-| `model_list`        | 列出可路由的提供商、模型 id、推理档、预设花名册与宿主当前缺省选择                                           |
-| `permission_list`   | 列出宿主的权限预设（沙箱 + 审批组合），是 `session_create.permission` / `session_set_permission` 的取值来源 |
-| `session_subagents` | 只读读取会话的原生子代理目录，`recursive=true` 递归列出后代                                                 |
+`session_send` 向会话发消息。目标会话正在运行时须显式选择投递方式：排队（等当前回合结束）或插话（在步边界注入并延长本轮）；空闲时二者等价，运行中不指定会直接失败。
 
-### 会话操作
+### 观察会话状态
 
-| 工具 | 用途 |
-| --- | --- |
-| `session_create` | 新建会话并同调用投递首条消息（`task` 必填，消息参数与 `session_send` 同构，没有空白会话），`workspacePath` 取工作区目录（用户点名工作区时先用 `workspace_list` 取 `path`），provider/model、preset 全部显式给出，返回 `sessionId`、解析出的工作区（id/path）与首条消息回执 |
-| `session_set_permission` | 切换会话的权限预设（界面 `/permission` 的服务端语义），可修正旋钮级改动造成的 `custom` 组合 |
-| `session_send` | 向会话发消息，`wait` 选阻塞语义：none（默认）立即回执、input 等审批/提问即回、turn 等本轮收敛 |
-| `session_poll` | 批量观察会话状态，`waitMs` 最多等 30 秒，返回状态、排队数、待回答项与最后一条消息 |
-| `session_result` | 按 `requestId` 取回结构化结果，省略则取该会话最近一次请求 |
-| `session_cancel` | 停止会话当前 turn，保留尚未开始的排队消息 |
-| `session_queue` | 列出会话的排队消息（只读） |
-| `session_queue_manage` | 修改会话的排队消息：改写、删除，或用 `action="steer"` 提升为插话 |
-| `session_select_model` | 会话内切换模型，下一个步生效且历史保留（开启“只允许特定模型”时目标须在清单内） |
-| `session_rename` | 重命名会话，走宿主 `sessionTitle` 服务（用户改名会钉住自动标题） |
-| `session_fork` | 分叉会话：从源会话事件的前缀派生新会话，继承 workspacePath、预设与当前模型并回显 |
-| `session_command_list` | 列出会话可用的斜杠命令（只读） |
-| `session_command_run` | 执行一条斜杠命令，不发给模型也不产生 turn |
-| `session_archive` | 归档会话（界面唯一的“删除”，软标记）；活动会话需 `stopActivity=true`，从未用过的会话需 `force=true` |
-| `session_unarchive` | 恢复已归档会话，幂等；未归档的会话如实回报 `wasArchived: false` |
+`session_poll` 批量观察会话状态：状态、排队数、待回答项与最后一条消息。
 
-### 会话读取
+### 处理权限审批与提问
 
-| 工具              | 用途                                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `session_list`    | 列出会话元信息（标题、workspacePath、预设、权限预设、当前模型），默认隐藏已归档                                     |
-| `session_history` | 读取会话对话纪要，默认 user + assistant，可分页并用 `roles` 展开工具调用                                            |
-| `session_events`  | 读取 live 会话的原始事件流（JSONL），`after` 游标翻页，500 行上限                                                   |
-| `session_inspect` | 一次调用给出界面级概览：标题、workspacePath、权限、模型、进行中状态、上下文占用与近期摘要；`fields` 可选轮/步计数等 |
-| `session_search`  | 按字面短语搜索会话内容（同界面搜索框），默认排除已归档                                                              |
+像网页用户一样处理权限审批（`approval_list` / `approval_answer`）与回答模型的提问（`question_list` / `question_answer`）。
 
-### 审批
+### 调用 dsh 的远程访问端点
 
-| 工具                  | 用途                                                            |
-| --------------------- | --------------------------------------------------------------- |
-| `approval_list`       | 列出若干会话中待处理的审批（含 `answerable` 与 `policy`），只读 |
-| `approval_answer`     | 回答本插件持有的审批：`allow` 一次性放行，`reject` 拒绝         |
-| `approval_policy`     | 读取会话的审批策略旋钮（`ask` / `never`），只读                 |
-| `approval_policy_set` | 切换会话的审批策略旋钮（需 live 会话）                          |
-
-### 问题
-
-| 工具              | 用途                                                           |
-| ----------------- | -------------------------------------------------------------- |
-| `question_list`   | 列出若干会话中待回答的 `ask_user_question`（含问题批次），只读 |
-| `question_answer` | 回答本插件持有的提问批次，子 turn 带着答案继续                 |
-
-### 附件
-
-| 工具                 | 用途                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `session_attachment` | 按引用读取会话中的图片附件：默认返回元数据与宿主本地路径，`inline=true` 时回 MCP 图片内容块 |
-
-### 宿主端点直通
-
-两工具覆盖 dsh 的长尾 Remote 端点，端点数量随宿主而变化，因此端点本身不逐条列出（机制见 [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md)）。
-
-| 工具 | 用途 |
-| --- | --- |
-| `endpoint_describe` | 搜索优先地发现 dsh Remote 端点：`query` 关键词搜索并可按 `namespace` 收窄、无参给命名空间索引、`namespace` 列单域方法、`endpoint` 取精确契约；条目标注 `readOnly` / `allowed` / `writable` / `approvalRequired` |
-| `endpoint_call` | 按 `endpoint_describe` 给出的端点调用，`args` 为具名线参；白名单内直接执行，其余非流式端点挂起到人工审批，拒绝、超时与调用方断开一律失败且不执行 |
-
-## 发送行为：排队 / 插话
-
-`session_send` 的投递方式按调用选择，与界面偏好无关。目标会话正在跑 turn 时必须显式指定 `mode`：
-
-- `mode: "queue"`（排队）：当前 turn 结束后作为新一轮投递
-- `mode: "steer"`（插话）：在当前 turn 的下一个步边界注入并延长本轮，不打断正在执行的步
-- 省略 `mode` 只在会话空闲时成立，此时 queue 与 steer 等价、引擎按 queue 处理；会话运行中省略会直接失败（`MODE_REQUIRED`），插件不会替调用方猜测
-- 若已有排队消息，可用 `session_queue_manage` 的 `action: "steer"` 将其提升为插话
+发现（`endpoint_describe`）并调用（`endpoint_call`）dsh 的远程访问端点，机制见 [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md)。
 
 ## 感谢
 
