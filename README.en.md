@@ -65,6 +65,8 @@ The MCP server listens on `http://127.0.0.1:5642/mcp` by default, with Streamabl
 
 All configuration can be changed on the "Rice on a Stick" page in the dsh sidebar.
 
+Endpoint and tool permissions never list the largest set: `endpointDefault` / `toolDefault` names the default mode and the config stores only the other buckets. The panel converges on every write and drops empty lists, so "allow everything" costs a single line instead of a snapshot of the host's endpoint directory.
+
 ## Main tools
 
 ### Sending messages

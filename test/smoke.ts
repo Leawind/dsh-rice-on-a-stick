@@ -1967,23 +1967,25 @@ try {
     checks['写端点: 危险端点经人工允许后执行'] =
       (innerOf(credCall) as any).set === true && endpointInvokes.length === invBeforeCred + 1 && listParkedCalls().length === 0
 
-    // GUI 端点目录路由(设置面板白名单清单的数据源): 全量端点 + 分类 + 白名单标记
+    // GUI 端点目录路由(设置面板三档清单的数据源): 全量端点 + 分类 + 当前档位 + 默认档
     const epsRes = await phase.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsBody = epsRes.status === 200 ? JSON.parse(epsRes.body) : {}
     const epsMap = Object.fromEntries((epsBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
-    checks['GUI endpoint-allowlist: 全量端点+分类+白名单标记'] =
+    checks['GUI endpoint-allowlist: 全量端点+分类+当前档位'] =
       epsBody.available === true &&
       epsBody.total === (epsBody.endpoints ?? []).length &&
+      epsBody.defaultMode === 'approval' &&
       epsMap['session/modelCatalog']?.kind === 'selectable' &&
       epsMap['session/modelCatalog']?.readOnly === true &&
-      epsMap['session/modelCatalog']?.allowed === false &&
+      epsMap['session/modelCatalog']?.mode === 'approval' &&
       epsMap['session/follow']?.kind === 'stream' &&
+      epsMap['session/follow']?.mode === undefined &&
       epsMap['credentials/set']?.kind === 'selectable' &&
       epsMap['credentials/set']?.dangerous === true &&
       epsMap['session/prompt']?.kind === 'selectable' &&
-      epsMap['session/prompt']?.allowed === false &&
+      epsMap['session/prompt']?.mode === 'approval' &&
       epsMap['schedule/update']?.kind === 'selectable' &&
-      epsMap['schedule/update']?.allowed === true &&
+      epsMap['schedule/update']?.mode === 'allow' &&
       Array.isArray(epsBody.stale) &&
       epsBody.stale.length === 0 &&
       typeof epsMap['session/modelCatalog']?.description === 'string' &&
@@ -2089,7 +2091,8 @@ try {
     const epsStale = await phaseT.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsStaleBody = epsStale.status === 200 ? JSON.parse(epsStale.body) : {}
     checks['GUI endpoint-allowlist: 白名单失效条目标记 stale'] =
-      JSON.stringify(epsStaleBody.stale) === JSON.stringify(['ghost/gone']) && (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
+      JSON.stringify(epsStaleBody.stale) === JSON.stringify([{ endpoint: 'ghost/gone', mode: 'allow' }]) &&
+      (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
     const invBeforeTimeout = endpointInvokes.length
     const timeoutCall = phaseT.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 't1' } } })
     await waitFor(() => {
@@ -2186,9 +2189,33 @@ try {
     const epsDeny = await phaseD.gui('endpoint-allowlist', { httpMethod: 'GET' })
     const epsDenyBody = epsDeny.status === 200 ? JSON.parse(epsDeny.body) : {}
     const epsDenyMap = Object.fromEntries((epsDenyBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
-    checks['GUI endpoint-allowlist: 拒绝标记 denied, 失效拒绝条目标 staleDenied'] =
-      epsDenyMap['session/prompt']?.denied === true && epsDenyMap['schedule/update']?.denied === true && epsDenyMap['session/list']?.denied === false
+    checks['GUI endpoint-allowlist: 拒绝档位标记, 失效条目带原档位'] =
+      epsDenyMap['session/prompt']?.mode === 'deny' &&
+      epsDenyMap['schedule/update']?.mode === 'deny' &&
+      epsDenyMap['session/list']?.mode === 'approval' &&
+      epsDenyBody.defaultMode === 'approval'
     await phaseD.dispose()
+    // 默认档 = 允许 + 审批例外: 不在清单里的端点直行, 审批清单里的仍停泊
+    const phaseDef = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      endpointDefault: 'allow',
+      endpointApprovalList: ['schedule/update'],
+    })
+    const defParked = phaseDef.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'd2' } } })
+    checks['默认档: 默认允许时审批清单内端点仍停泊'] =
+      (await waitFor(() => listParkedCalls().some((p) => p.endpoint === 'schedule/update'))) && endpointInvokes.length === 0
+    answerParkedCall(listParkedCalls()[0].approvalId, 'reject')
+    checks['默认档: 停泊调用被拒后不执行'] = String(innerOf(await defParked).error ?? '').includes('declined')
+    const defDirect = await phaseDef.call('endpoint_call', { endpoint: 'session/list', args: {} })
+    checks['默认档: 未列出的端点按默认档直行'] = innerOf(defDirect) !== undefined && listParkedCalls().length === 0
+    await phaseDef.dispose()
+    // 默认档 = 拒绝: 未列出的端点直接拒绝
+    const phaseDeny = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      endpointDefault: 'deny',
+      endpointAllowlist: ['session/list'],
+    })
+    const denyByDefault = await phaseDeny.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'd3' } } })
+    checks['默认档: 默认拒绝时未列出端点直接拒绝'] = String(innerOf(denyByDefault).error ?? '').includes('denied by configuration')
+    await phaseDeny.dispose()
   }
 
   // ── Phase G2: 远程回答面(审批/问题都是 forwarded answer client; 原生 UI 保留) ──
@@ -2751,8 +2778,15 @@ try {
       cfgTools.status === 200 && JSON.stringify(edits[edits.length - 1].toolAllowlist) === JSON.stringify(['dsh_guide', 'session_list'])
     const cfgToolsBad = await guiPut({ toolAllowlist: 'dsh_guide' })
     checks['GUI 路由: toolAllowlist 非数组 400'] = cfgToolsBad.status === 400
-    const cfgToolsOn = await guiPut({ toolAllowlistEnabled: true })
-    checks['GUI 路由: toolAllowlistEnabled 写入'] = cfgToolsOn.status === 200 && edits[edits.length - 1].toolAllowlistEnabled === true
+    const cfgToolsOn = await guiPut({ toolDefault: 'allow', toolBlocklist: ['session_create'] })
+    checks['GUI 路由: 工具默认档与拒绝清单写入'] =
+      cfgToolsOn.status === 200 &&
+      edits[edits.length - 1].toolDefault === 'allow' &&
+      JSON.stringify(edits[edits.length - 1].toolBlocklist) === JSON.stringify(['session_create'])
+    const cfgToolDefaultBad = await guiPut({ toolDefault: 'deny' })
+    checks['GUI 路由: 工具默认档非法枚举 400'] = cfgToolDefaultBad.status === 400
+    const cfgEndpointDefaultBad = await guiPut({ endpointDefault: 'sometimes' })
+    checks['GUI 路由: 端点默认档非法枚举 400'] = cfgEndpointDefaultBad.status === 400
     // 工具白名单清单数据源: 静态目录全量 + 只读标注
     const toolCat = await phase.gui('tool-allowlist', { httpMethod: 'GET' })
     const toolCatPayload = JSON.parse(toolCat.body) as { available?: boolean; tools?: { name: string; readOnly?: boolean }[] }
@@ -2774,10 +2808,13 @@ try {
       allowedHosts: ['example.com'],
       sessionTtlMs: 0,
       approvalTimeoutMs: 120000,
+      endpointDefault: 'allow',
       endpointAllowlist: ['schedule/update'],
+      endpointApprovalList: ['session/prompt'],
       endpointDenylist: ['ghost/gone'],
+      toolDefault: 'allow',
       toolAllowlist: ['dsh_guide'],
-      toolAllowlistEnabled: false,
+      toolBlocklist: ['session_create'],
       modelDescriptions: { 'p1/m1': 'Provider One 的快速模型' },
       providerDescriptions: { p1: '面向测试的假提供商' },
     }
@@ -2800,11 +2837,40 @@ try {
     await phase.dispose()
   }
 
+  // ── Phase F2d: 策略收敛 —— 任何字段的写入都顺手把旧的显式快照收敛成 默认档 + 例外清单 ──
+  {
+    const shrinkEdits: Record<string, unknown>[] = []
+    const shrinkCtx = makeCtx({
+      sessionController: fakeSessionController,
+      llm: fakeLlm,
+      configEditor: {
+        edit: async (_entry: unknown, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>) => {
+          shrinkEdits.push(change({}, {}))
+        },
+      },
+    })
+    const shrinkPhase = await startPhase(await freePort(), shrinkCtx, {
+      // 显式快照(等于默认档的冗余条目)在第一次写入后必须消失
+      endpointDefault: 'allow',
+      endpointAllowlist: ['session/list'],
+      toolDefault: 'allow',
+      toolAllowlist: ['dsh_guide'],
+    })
+    const shrinkRes = await shrinkPhase.gui('config-update', {
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ values: { approvalTimeoutMs: 120000 } }),
+    })
+    const shrinkEdit = shrinkEdits[shrinkEdits.length - 1] ?? {}
+    checks['GUI 路由: 无关写入也收敛策略(等于默认档的清单不落盘)'] =
+      shrinkRes.status === 200 && shrinkEdit.approvalTimeoutMs === 120000 && !('endpointAllowlist' in shrinkEdit) && !('toolAllowlist' in shrinkEdit)
+    await shrinkPhase.dispose()
+  }
+
   // ── Phase F2c: 工具白名单按 toolAllowlist 门控工具面(tools/list 隐藏 + tools/call 拒绝) ──
   {
     const gatePhase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       toolAllowlist: ['dsh_guide', 'session_list'],
-      toolAllowlistEnabled: true,
+      toolDefault: 'block',
     })
     const gatedNames = await gatePhase.toolNames()
     checks['工具白名单: 启用时 tools/list 只剩清单内工具'] = gatedNames.length === 2 && gatedNames.includes('dsh_guide') && gatedNames.includes('session_list')
@@ -2813,13 +2879,30 @@ try {
     checks['工具白名单: 清单外工具 tools/call 被拒(disabled)'] =
       blocked.status === 200 && String(innerOf(blocked).error ?? '').includes('session_create disabled')
     await gatePhase.dispose()
-    // 开关关闭 = 不限制: 清单原样保留但工具面齐全
+    // 默认允许 + 拒绝清单: 只隐藏清单里的工具
+    const blockPhase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      toolDefault: 'allow',
+      toolBlocklist: ['session_create'],
+    })
+    const blockNames = await blockPhase.toolNames()
+    checks['工具白名单: 默认允许时拒绝清单外工具齐全'] = blockNames.length > 10 && !blockNames.includes('session_create') && blockNames.includes('dsh_guide')
+    const blockedByList = await blockPhase.call('session_create', {})
+    checks['工具白名单: 拒绝清单内工具 tools/call 被拒(disabled)'] =
+      blockedByList.status === 200 && String(innerOf(blockedByList).error ?? '').includes('session_create disabled')
+    await blockPhase.dispose()
+    // 默认拒绝 + 空允许清单 = 一个工具都不注册
+    const nonePhase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
+      toolDefault: 'block',
+    })
+    checks['工具白名单: 默认拒绝且允许清单为空时工具面为空'] = (await nonePhase.toolNames()).length === 0
+    await nonePhase.dispose()
+    // 默认允许 = 不限制: 允许清单不再生效, 工具面齐全
     const offPhase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       toolAllowlist: ['dsh_guide'],
-      toolAllowlistEnabled: false,
+      toolDefault: 'allow',
     })
     const offNames = await offPhase.toolNames()
-    checks['工具白名单: 开关关闭时不限制(工具面齐全)'] = offNames.length > 10 && offNames.includes('dsh_guide') && offNames.includes('session_create')
+    checks['工具白名单: 默认允许时不限制(工具面齐全)'] = offNames.length > 10 && offNames.includes('dsh_guide') && offNames.includes('session_create')
     await offPhase.dispose()
   }
 

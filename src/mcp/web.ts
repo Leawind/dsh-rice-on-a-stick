@@ -9,7 +9,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
-import { PLUGIN_NAME, clampApprovalTimeout } from '../core/config.js'
+import { PLUGIN_NAME, Config, clampApprovalTimeout, endpointModeOf, type EndpointMode, type ToolMode } from '../core/config.js'
+import { canonicalEndpointPolicy, canonicalToolPolicy } from '../core/policy.js'
 import { state } from '../core/state.js'
 import { captureToolCatalog } from './tools/index.js'
 import { serviceOf } from '../host/bridge.js'
@@ -162,12 +163,82 @@ function webReadBody(req: http.IncomingMessage, maxBytes: number): Promise<strin
   })
 }
 
-// ── GUI 配置编辑(config-update 路由)的字段面 ──
+/** 字符串数组的防御性读取(载荷/生效值都可能缺字段) */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+/**
+ * 策略收敛(端点三档 / 工具两档): 以"当前生效值 + 本次载荷"为输入, 按"最大的集合不列出"重算
+ * 默认档与例外清单。面板写入时对**任何**字段都跑一遍——旧配置（显式快照）因此会在第一次
+ * 面板写入时自动收敛; 目录不可用(无 Typert / 无工具目录)时对应部分原样跳过, 不猜。
+ */
+function canonicalPolicyValues(ctx: Context, base: Record<string, unknown>, toolNames: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  // ── 端点: 活端点逐个定档, 清单里已失效的条目按原档位保留(不参与默认档选举) ──
+  const live = listInvocations(ctx)
+    .filter((inv) => !inv.stream)
+    .map((inv) => `${inv.namespace}/${inv.method}`)
+  if (live.length > 0) {
+    const explicitDefault = base.endpointDefault
+    const cfg = {
+      endpointDefault: (explicitDefault === 'allow' || explicitDefault === 'deny' ? explicitDefault : 'approval') as EndpointMode,
+      endpointAllowlist: stringList(base.endpointAllowlist),
+      endpointApprovalList: stringList(base.endpointApprovalList),
+      endpointDenylist: stringList(base.endpointDenylist),
+    }
+    const liveSet = new Set(live)
+    const entries: { endpoint: string; mode: EndpointMode; live: boolean }[] = live.map((endpoint) => ({
+      endpoint,
+      mode: endpointModeOf(cfg, endpoint),
+      live: true,
+    }))
+    const stale = new Map<string, EndpointMode>()
+    const rank: Record<EndpointMode, number> = { deny: 0, approval: 1, allow: 2 }
+    const buckets: [EndpointMode, string[]][] = [
+      ['allow', cfg.endpointAllowlist],
+      ['approval', cfg.endpointApprovalList],
+      ['deny', cfg.endpointDenylist],
+    ]
+    for (const [mode, list] of buckets) {
+      for (const endpoint of list) {
+        if (liveSet.has(endpoint)) continue
+        const current = stale.get(endpoint)
+        if (current === undefined || rank[mode] < rank[current]) stale.set(endpoint, mode)
+      }
+    }
+    for (const [endpoint, mode] of stale) entries.push({ endpoint, mode, live: false })
+    Object.assign(out, canonicalEndpointPolicy(entries))
+  }
+  // ── 工具: 目录固定, 允许集合 = 默认档 + 清单; 目录外的历史条目在收敛时自然消失 ──
+  if (toolNames.length > 0) {
+    const explicitDefault = base.toolDefault
+    const toolDefault: ToolMode =
+      explicitDefault === 'allow' || explicitDefault === 'block' ? explicitDefault : stringList(base.toolAllowlist).length > 0 ? 'block' : 'allow'
+    const allow = new Set(stringList(base.toolAllowlist))
+    const block = new Set(stringList(base.toolBlocklist))
+    const allowed = toolNames.filter((name) => (toolDefault === 'allow' ? !block.has(name) : allow.has(name)))
+    Object.assign(out, canonicalToolPolicy(allowed, toolNames))
+  }
+  return out
+}
 
 /** 字符串字段(authToken 只写: 空串 = 清除已配置的 Token; host 是监听级字段) */
 const GUI_STRING_FIELDS = new Set(['authToken', 'host'])
 /** 布尔字段(白名单/认证/自用工具/外部 MCP; 关闭均不清除对应值) */
-const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'toolAllowlistEnabled', 'http'])
+const GUI_BOOL_FIELDS = new Set(['allowedModelsEnabled', 'authEnabled', 'selfToolsEnabled', 'http'])
+/** 枚举字段: 端点/工具的默认档(三档/两档; 具体取值由 parseGuiConfigValues 校验) */
+const GUI_MODE_FIELDS = new Set(['endpointDefault', 'toolDefault'])
+/** 端点三档清单(三份互斥; 只有非默认档需要落盘) */
+const GUI_ENDPOINT_LIST_FIELDS = new Set(['endpointAllowlist', 'endpointApprovalList', 'endpointDenylist'])
+/** 工具两档清单(只有非默认档需要落盘) */
+const GUI_TOOL_LIST_FIELDS = new Set(['toolAllowlist', 'toolBlocklist'])
+/**
+ * schema 认识的全部字段: 面板写配置时顺手剔除不属于当前版本的残留键
+ * (历史上改过名的 bridgeWriteAllowlist / bridgeEndpointAllowlist / defaultDetail /
+ * toolAllowlistEnabled 等)。取不到 schema 字段表时退化为"不动其它键", 配置仍然可读。
+ */
+const SCHEMA_CONFIG_KEYS = new Set(Object.keys((Config as unknown as { dict?: Record<string, unknown> }).dict ?? {}))
 /** 数字字段 → 下限(运行时 getter 还有同向钳制, 这里前置拦截避免写入后才被钳; approvalTimeoutMs 有专用分支: 0 = 不限时) */
 const GUI_NUMBER_MIN: Record<string, number> = { sessionTtlMs: 0, port: 1 }
 /** 数字字段 → 上限(与 config.ts 的钳制保持一致) */
@@ -235,7 +306,16 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !s.includes('/'))
       if (bad !== undefined) throw httpError(400, `allowedModels 条目必须是 "provider/model" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
-    } else if (key === 'endpointAllowlist' || key === 'endpointDenylist') {
+    } else if (GUI_MODE_FIELDS.has(key)) {
+      if (key === 'endpointDefault') {
+        if (value !== 'approval' && value !== 'allow' && value !== 'deny') {
+          throw httpError(400, 'endpointDefault 必须是 approval / allow / deny')
+        }
+      } else if (value !== 'block' && value !== 'allow') {
+        throw httpError(400, 'toolDefault 必须是 block 或 allow')
+      }
+      out[key] = value
+    } else if (GUI_ENDPOINT_LIST_FIELDS.has(key)) {
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
         throw httpError(400, `${key} 必须是字符串数组`)
       }
@@ -243,10 +323,10 @@ function parseGuiConfigValues(raw: unknown): Record<string, unknown> {
       const bad = entries.find((s) => !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(s))
       if (bad !== undefined) throw httpError(400, `${key} 条目必须是 "namespace/method" 形式: ${bad}`)
       out[key] = [...new Set(entries)]
-    } else if (key === 'toolAllowlist') {
-      // 工具白名单: 只校验字符串形态, 不校验工具名是否在目录里(跨版本重命名不拒收, 未匹配条目无副作用)
+    } else if (GUI_TOOL_LIST_FIELDS.has(key)) {
+      // 工具清单: 只校验字符串形态, 不校验工具名是否在目录里(跨版本重命名不拒收, 未匹配条目无副作用)
       if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-        throw httpError(400, 'toolAllowlist 必须是字符串数组')
+        throw httpError(400, `${key} 必须是字符串数组`)
       }
       out[key] = [...new Set((value as string[]).map((s) => s.trim()).filter(Boolean))]
     } else if (key === 'modelDescriptions' || key === 'providerDescriptions') {
@@ -287,6 +367,17 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     }
     const { values } = body as { values?: unknown }
     const nextValues = parseGuiConfigValues(values)
+    // 策略收敛: 任何字段的写入都顺手把端点/工具策略收敛成"默认档 + 例外清单"——
+    // 旧配置(显式快照)因此在第一次面板写入时自动缩短; 与当前生效值相同的字段不重复写入。
+    const currentConfig = state.config as unknown as Record<string, unknown>
+    const policy = canonicalPolicyValues(
+      ctx,
+      { ...currentConfig, ...nextValues },
+      toolCatalog.map((tool) => tool.name),
+    )
+    for (const [key, value] of Object.entries(policy)) {
+      if (JSON.stringify(currentConfig[key]) !== JSON.stringify(value)) nextValues[key] = value
+    }
     const editor = serviceOf<ConfigEditorView>(ctx, 'configEditor')
     const entry = (ctx as { fiber?: { entry?: unknown } }).fiber?.entry
     if (editor === undefined || entry === undefined || typeof editor.edit !== 'function') {
@@ -324,7 +415,17 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
       }
     }
     try {
-      await editor.edit(entry, (current) => ({ ...current, ...nextValues }))
+      await editor.edit(entry, (current) => {
+        // 空清单 = 等于默认值, 不写进 patch; 旧字段与其它版本残留键一并剔除,
+        // 让配置文件只保留当前版本确实有值的字段(改过名的历史字段也在这里消失)。
+        const next: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries({ ...current, ...nextValues })) {
+          if (SCHEMA_CONFIG_KEYS.size > 0 && !SCHEMA_CONFIG_KEYS.has(key)) continue
+          if ((GUI_ENDPOINT_LIST_FIELDS.has(key) || GUI_TOOL_LIST_FIELDS.has(key)) && Array.isArray(value) && value.length === 0) continue
+          next[key] = value
+        }
+        return next
+      })
     } catch (e) {
       throw httpError(400, `配置写入被拒绝: ${(e as Error)?.message ?? String(e)}`)
     }
@@ -350,21 +451,22 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
     },
     // 模型目录(面板选择器的数据源): 与 model_list 工具同源(sessionController 官方目录, 缺席时 llm 回退)
     models: () => deps.models(),
-    // dsh 端点目录(面板白名单清单的数据源): 活性 descriptor + 当前分类, stale = 白名单里已失效的条目。
-    // descriptionZh/descriptionEn 来自开发期端点元数据(endpoint-meta.ts): 中文始终提供; 英文只在
-    // descriptor 无描述(插件端点)时提供, 其余面板回退 descriptor 描述;
+    // dsh 端点目录(面板三档清单的数据源): 活性 descriptor + 当前档位, stale = 三份清单里已失效的条目。
+    // mode 由 classifyInvocation 统一判定(与调用闸门同一份口径): allow 直行 / approval 停泊 / deny 拒绝;
+    // stream 行锁定, 不带 mode。descriptionZh/descriptionEn 来自开发期端点元数据(endpoint-meta.ts):
+    // 中文始终提供; 英文只在 descriptor 无描述(插件端点)时提供, 其余面板回退 descriptor 描述;
     // dangerous = 元数据标注的危险端点(信任与供应链类), 面板单列清单。
     // namespaces = 各命名空间的中英文一句话描述(面板组头显示), 同样来自开发期元数据。
     'endpoint-allowlist': () => {
       const invocations = listInvocations(ctx)
-      const allow = new Set(state.config.endpointAllowlist)
-      const deny = new Set(state.config.endpointDenylist)
+      const cfg = state.config
       const live = new Set<string>()
       const endpoints = invocations.map((inv) => {
         const endpoint = `${inv.namespace}/${inv.method}`
         live.add(endpoint)
         const cls = classifyInvocation(inv)
         const meta = endpointMetaOf(endpoint)
+        const mode = cls.denied === true ? 'deny' : cls.allowed ? 'allow' : 'approval'
         return {
           endpoint,
           ...(meta?.description !== undefined
@@ -374,24 +476,27 @@ export function registerWebRoutes(ctx: Context, deps: WebRouteDeps): void {
               }
             : {}),
           ...(inv.description !== undefined ? { description: inv.description } : {}),
-          // kind: stream 行锁定(不适用); 其余行都可勾选入白名单, readOnly 只是语义徽标
+          // kind: stream 行锁定(不适用); 其余行都可三档切换, readOnly 只是语义徽标
           kind: inv.stream ? 'stream' : 'selectable',
           readOnly: cls.readOnly,
           ...(cls.dangerous === true ? { dangerous: true } : {}),
-          allowed: allow.has(endpoint),
-          denied: deny.has(endpoint),
+          ...(inv.stream ? {} : { mode }),
         }
       })
+      const staleOf = (list: readonly string[], mode: string) => list.filter((endpoint) => !live.has(endpoint)).map((endpoint) => ({ endpoint, mode }))
       return {
         available: invocations.length > 0,
         total: invocations.length,
+        defaultMode: cfg.endpointDefault,
         endpoints,
         namespaces: Object.fromEntries(Object.entries(NAMESPACE_META).map(([ns, d]) => [ns, { zh: d.zh, en: d.en }])),
-        stale: [...allow].filter((endpoint) => !live.has(endpoint)).sort(),
-        staleDenied: [...deny].filter((endpoint) => !live.has(endpoint)).sort(),
+        // 失效条目按它当前所在的档位列出(面板可原样移除; 不在目录里就永远落不到默认档)
+        stale: [...staleOf(cfg.endpointAllowlist, 'allow'), ...staleOf(cfg.endpointApprovalList, 'approval'), ...staleOf(cfg.endpointDenylist, 'deny')].sort(
+          (a, b) => a.endpoint.localeCompare(b.endpoint),
+        ),
       }
     },
-    // 工具白名单清单(面板安全标签的数据源): 本插件工具面的静态目录(开关状态随 status 走)
+    // 工具清单(面板安全标签的数据源): 本插件工具面的静态目录(两档策略随 status 的 toolDefault/清单走)
     'tool-allowlist': () => ({
       available: toolCatalog.length > 0,
       tools: toolCatalog.map((tool) => ({

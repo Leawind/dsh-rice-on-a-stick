@@ -69,7 +69,10 @@ export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): vo
  * 避免无谓的 tools/list changed 广播)。原生自用面的记录式 tap 返回的假句柄没有
  * enable/disable, 在这里被自然跳过。
  */
-export function applyToolGate(mcp: McpServer, cfg: { toolAllowlist: readonly string[]; toolAllowlistEnabled: boolean }): void {
+export function applyToolGate(
+  mcp: McpServer,
+  cfg: { toolDefault: 'block' | 'allow'; toolAllowlist: readonly string[]; toolBlocklist: readonly string[] },
+): void {
   const registered = registeredTools.get(mcp)
   if (registered === undefined) return
   for (const { name, tool } of registered) {

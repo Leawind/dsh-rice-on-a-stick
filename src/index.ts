@@ -36,6 +36,9 @@ import { installSelfTools } from './session/self-tools.js'
 /** Cordis 插件名 */
 export const name = PLUGIN_NAME
 
+/** 工具门控字段: 任一变化都要按当前生效值重套 MCP 面与原生自用面 */
+const TOOL_POLICY_KEYS = ['toolDefault', 'toolAllowlist', 'toolBlocklist'] as const
+
 /**
  * 声明依赖的核心服务。
  * workspaceRegistry/sessionPersistence/sessions 是续接/归组三个增量用到的服务——
@@ -146,10 +149,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         selfToolsEnabled: state.config.selfToolsEnabled,
         sessionTtlMs: state.config.sessionTtlMs,
         approvalTimeoutMs: state.config.approvalTimeoutMs,
+        endpointDefault: state.config.endpointDefault,
         endpointAllowlist: state.config.endpointAllowlist,
+        endpointApprovalList: state.config.endpointApprovalList,
         endpointDenylist: state.config.endpointDenylist,
+        toolDefault: state.config.toolDefault,
         toolAllowlist: state.config.toolAllowlist,
-        toolAllowlistEnabled: state.config.toolAllowlistEnabled,
+        toolBlocklist: state.config.toolBlocklist,
         modelDescriptions: state.config.modelDescriptions,
         providerDescriptions: state.config.providerDescriptions,
       },
@@ -231,7 +237,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   ctx.effect(() => {
     const off = ctx.on('loader/volatile-update', (paths) => {
       const keys = paths.map((path) => String(path[0] ?? ''))
-      const toolGateTouched = keys.includes('toolAllowlist') || keys.includes('toolAllowlistEnabled')
+      const toolGateTouched = TOOL_POLICY_KEYS.some((key) => keys.includes(key))
       // 自用工具的开关与白名单共用一个 sync: 差量比较, 无变化时是 no-op
       if (keys.includes('selfToolsEnabled') || toolGateTouched) selfToolsController?.sync(state.config.selfToolsEnabled)
       if (toolGateTouched) httpServer?.syncToolGate()
@@ -250,10 +256,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     // 配置写入落盘后立即同步(事件监听也覆盖手改配置的路径; 显式再调一次让面板点击没有轮询延迟)
     onConfigCommitted: (values) => {
       // 自用工具的开关与白名单共用一个 sync: 差量比较, 无变化时是 no-op
-      if (typeof values.selfToolsEnabled === 'boolean' || 'toolAllowlist' in values || 'toolAllowlistEnabled' in values) {
+      if (typeof values.selfToolsEnabled === 'boolean' || TOOL_POLICY_KEYS.some((key) => key in values)) {
         selfToolsController?.sync(state.config.selfToolsEnabled)
       }
-      if ('toolAllowlist' in values || 'toolAllowlistEnabled' in values) httpServer?.syncToolGate()
+      if (TOOL_POLICY_KEYS.some((key) => key in values)) httpServer?.syncToolGate()
       if ('http' in values || 'host' in values || 'port' in values) void requestListenerSync()
     },
   })

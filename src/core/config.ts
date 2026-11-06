@@ -15,6 +15,9 @@ import { createRequire } from 'node:module'
 import type { Volatile } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from './config-defaults.js'
+import type { EndpointMode, ToolMode } from './modes.js'
+
+export type { EndpointMode, ToolMode } from './modes.js'
 
 /** Cordis 插件名(= 包名, 也是 userMessage.source.plugin 的取值) */
 export const PLUGIN_NAME = 'dsh-rice-on-a-stick'
@@ -87,28 +90,38 @@ export interface Config {
    */
   approvalTimeoutMs?: number
   /**
-   * dsh 端点白名单("namespace/method" 形式; 默认空 = 全部非流式端点停泊审批)。
-   * 白名单内的非流式端点(含只读)经 endpoint_call 直接执行——等价部署方预先审批;
-   * 白名单外的非流式端点不停留在"拒绝": 调用先停泊, 由部署方在设置面板的人工审批卡
-   * 允许/拒绝(允许一次执行一次, 拒绝/超时/调用方断开一律失败关闭)。
-   * 开发期端点元数据标了 dangerous 的端点(凭据写入/插件安装/连接信任等)同样走这两条通路,
-   * 只是在面板上单列并标注危险, 提醒部署方谨慎勾选。
+   * dsh 端点默认档: 没有出现在下面三份清单里的端点一律落此档。默认 approval(停泊审批)。
+   * 三档语义: allow = endpoint_call 直接执行; approval = 停泊等人审批; deny = 直接拒绝。
+   * 存储约定: 默认档不落清单, 只写另外两档——面板写入时把成员最多的那档设为默认档
+   * (即"最大的集合不列出"), 因此同一份策略在手工配置里也只占两段小清单。
+   */
+  endpointDefault?: EndpointMode
+  /**
+   * dsh 端点允许清单("namespace/method" 形式): endpointDefault 不是 allow 时, 这些端点直行。
+   * 默认档为 allow 时本清单是冗余的(面板不会写)。开发期端点元数据标了 dangerous 的端点
+   * (凭据写入/插件安装/连接信任等)照常参与, 面板单列并标注危险, 提醒部署方谨慎勾选。
    */
   endpointAllowlist?: string[]
   /**
-   * dsh 端点拒绝清单("namespace/method" 形式; 默认空)。
-   * 清单内的非流式端点直接拒绝, 不停泊审批——与白名单外的"每次停泊"相对的第三档策略。
-   * 优先级高于白名单: 同端点同时出现在两份清单时按拒绝处理。
+   * dsh 端点审批清单("namespace/method" 形式): endpointDefault 不是 approval 时, 这些端点仍停泊审批。
+   * 与允许/拒绝清单互斥; 同一端点出现在多份清单里时按 拒绝 > 审批 > 允许 处理(失败关闭)。
+   */
+  endpointApprovalList?: string[]
+  /**
+   * dsh 端点拒绝清单("namespace/method" 形式): 这些端点直接拒绝, 不停泊审批。
+   * 默认档为 deny 时本清单是冗余的(面板不会写)。
    */
   endpointDenylist?: string[]
   /**
-   * 工具白名单(工具名数组; 开关 toolAllowlistEnabled 启用且清单非空时才限制)。
-   * 启用时白名单外的工具: MCP 面 tools/list 不再出现、tools/call 明确拒绝;
-   * 原生自用面(同工具面注册的 rice_ 工具)也不再注册。关闭 = 暂时不限制, 清单原样保留。
+   * 工具默认档: 没有出现在下面两份清单里的工具一律落此档。默认 block。
+   * block = 对 MCP 客户端隐藏并拒绝(原生自用面也不注册); allow = 直接可用。
+   * 存储约定同端点: 默认档不落清单, 只写成员较少的那一档。
    */
+  toolDefault?: ToolMode
+  /** 工具允许清单: toolDefault 为 block 时, 只有这些工具可用(缺省空 = 全部禁用) */
   toolAllowlist?: string[]
-  /** 工具白名单开关(缺省按"清单非空即启用"推导), 语义同 allowedModelsEnabled */
-  toolAllowlistEnabled?: boolean
+  /** 工具拒绝清单: toolDefault 为 allow 时, 这些工具不可用(缺省空 = 全部可用) */
+  toolBlocklist?: string[]
   /**
    * 模型简介("provider/model" → 一段话简介; 侧栏页编辑)。
    * 随 model_list / dsh://models 透出给调用方, 让 AI 在选模型时能看到部署方写的介绍。
@@ -139,10 +152,13 @@ export interface ParsedConfig {
   allowedHosts: Volatile<string[]>
   sessionTtlMs: Volatile<number>
   approvalTimeoutMs: Volatile<number>
+  endpointDefault: Volatile<EndpointMode>
   endpointAllowlist: Volatile<string[]>
+  endpointApprovalList: Volatile<string[]>
   endpointDenylist: Volatile<string[]>
+  toolDefault: Volatile<ToolMode | undefined>
   toolAllowlist: Volatile<string[]>
-  toolAllowlistEnabled: Volatile<boolean | undefined>
+  toolBlocklist: Volatile<string[]>
   modelDescriptions: Volatile<Record<string, string>>
   providerDescriptions: Volatile<Record<string, string>>
 }
@@ -162,10 +178,13 @@ export const DEFAULTS = {
   selfToolsEnabled: true as boolean,
   approvalTimeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
   allowedHosts: [] as string[],
+  endpointDefault: 'approval' as EndpointMode,
   endpointAllowlist: [] as string[],
+  endpointApprovalList: [] as string[],
   endpointDenylist: [] as string[],
+  toolDefault: 'block' as ToolMode,
   toolAllowlist: [] as string[],
-  toolAllowlistEnabled: false as boolean,
+  toolBlocklist: [] as string[],
   modelDescriptions: {} as Record<string, string>,
   providerDescriptions: {} as Record<string, string>,
 }
@@ -209,6 +228,12 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       .map((s) => String(s).trim())
       .filter(Boolean)
   // 与 endpointAllowlist 同口径: 去空白、丢空串
+  const readEndpointApprovalList = () =>
+    parsed.endpointApprovalList
+      .get()
+      .map((s) => String(s).trim())
+      .filter(Boolean)
+  // 与 endpointAllowlist 同口径: 去空白、丢空串
   const readEndpointDenylist = () =>
     parsed.endpointDenylist
       .get()
@@ -220,6 +245,23 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       .get()
       .map((s) => String(s).trim())
       .filter(Boolean)
+  // 与 toolAllowlist 同口径
+  const readToolBlocklist = () =>
+    parsed.toolBlocklist
+      .get()
+      .map((s) => String(s).trim())
+      .filter(Boolean)
+  // 默认档: 手改配置里的非法值一律按安全侧解释(端点 = 审批, 工具 = 禁用)
+  const readEndpointDefault = (): EndpointMode => {
+    const value = parsed.endpointDefault.get()
+    return value === 'allow' || value === 'deny' ? value : 'approval'
+  }
+  // 工具默认档: 新字段优先; 缺省回退"清单非空即限制"(与旧开关缺省推导同一口径)
+  const readToolDefault = (): ToolMode => {
+    const explicit = parsed.toolDefault.get()
+    if (explicit === 'allow' || explicit === 'block') return explicit
+    return readToolAllowlist().length > 0 ? 'block' : 'allow'
+  }
   // 简介表: 键与值都去空白, 丢空值与空键(界面写入口已清理, 这里兜住手改配置)
   const readDescriptionTable = (raw: Record<string, string>): Record<string, string> => {
     const out: Record<string, string> = {}
@@ -242,10 +284,13 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
     selfToolsEnabled: true,
     approvalTimeoutMs: DEFAULTS.approvalTimeoutMs,
     allowedHosts: [],
+    endpointDefault: 'approval',
     endpointAllowlist: [],
+    endpointApprovalList: [],
     endpointDenylist: [],
+    toolDefault: 'block',
     toolAllowlist: [],
-    toolAllowlistEnabled: false,
+    toolBlocklist: [],
     modelDescriptions: {},
     providerDescriptions: {},
   }
@@ -283,14 +328,13 @@ export function bindRuntimeConfig(parsed: ParsedConfig): RuntimeConfig {
       get: () => Math.max(0, parsed.sessionTtlMs.get() ?? DEFAULTS.sessionTtlMs),
     },
     allowedHosts: { enumerable: true, configurable: true, get: readHosts },
+    endpointDefault: { enumerable: true, configurable: true, get: readEndpointDefault },
     endpointAllowlist: { enumerable: true, configurable: true, get: readEndpointAllowlist },
+    endpointApprovalList: { enumerable: true, configurable: true, get: readEndpointApprovalList },
     endpointDenylist: { enumerable: true, configurable: true, get: readEndpointDenylist },
+    toolDefault: { enumerable: true, configurable: true, get: readToolDefault },
     toolAllowlist: { enumerable: true, configurable: true, get: readToolAllowlist },
-    toolAllowlistEnabled: {
-      enumerable: true,
-      configurable: true,
-      get: () => parsed.toolAllowlistEnabled.get() ?? readToolAllowlist().length > 0,
-    },
+    toolBlocklist: { enumerable: true, configurable: true, get: readToolBlocklist },
     modelDescriptions: {
       enumerable: true,
       configurable: true,
@@ -313,11 +357,30 @@ export function clampApprovalTimeout(value: number): number {
 
 /**
  * 工具门控的统一判定(MCP 面与原生自用面同口径):
- * 开关关闭或清单为空 = 全部放行; 启用且清单非空时只放行清单内工具。
+ * 默认档为 allow 时除拒绝清单外全部放行; 默认档为 block 时只放行允许清单里的工具。
  */
-export function isToolAllowed(cfg: { toolAllowlist: readonly string[]; toolAllowlistEnabled: boolean }, name: string): boolean {
-  if (cfg.toolAllowlistEnabled !== true || cfg.toolAllowlist.length === 0) return true
+export function isToolAllowed(cfg: { toolDefault: ToolMode; toolAllowlist: readonly string[]; toolBlocklist: readonly string[] }, name: string): boolean {
+  if (cfg.toolDefault === 'allow') return !cfg.toolBlocklist.includes(name)
   return cfg.toolAllowlist.includes(name)
+}
+
+/**
+ * 端点三档判定的单一事实来源(调用闸门与目录/面板共用, 避免两处口径漂移)。
+ * 显式清单优先于默认档; 手改配置误把同一端点放进多份清单时按 拒绝 > 审批 > 允许 失败关闭。
+ */
+export function endpointModeOf(
+  cfg: {
+    endpointDefault: EndpointMode
+    endpointAllowlist: readonly string[]
+    endpointApprovalList: readonly string[]
+    endpointDenylist: readonly string[]
+  },
+  endpoint: string,
+): EndpointMode {
+  if (cfg.endpointDenylist.includes(endpoint)) return 'deny'
+  if (cfg.endpointApprovalList.includes(endpoint)) return 'approval'
+  if (cfg.endpointAllowlist.includes(endpoint)) return 'allow'
+  return cfg.endpointDefault
 }
 
 /**
@@ -382,29 +445,43 @@ export const Config = Schema.object({
     .description(
       'Wait limit for a dsh endpoint call parked on the settings panel, in milliseconds (default 120000; 0 = wait indefinitely; a timeout fails closed). Session approvals are answered through the dsh answer-client chain and are not bounded by this value.',
     ),
+  endpointDefault: Schema.union([Schema.const('approval'), Schema.const('allow'), Schema.const('deny')])
+    .default('approval')
+    .volatile()
+    .description(
+      'Default dsh endpoint policy for every non-stream endpoint not listed below: approval (park each call for a human on the settings panel; the default), allow (execute directly) or deny (reject outright). The settings panel sets this to the largest policy bucket automatically and lists only the other two, keeping the config short.',
+    ),
   endpointAllowlist: Schema.array(Schema.string())
     .default(DEFAULTS.endpointAllowlist)
     .volatile()
     .description(
-      'dsh endpoint allowlist in "namespace/method" form (default empty = every non-stream endpoint parks for per-call panel approval). Allowlisted endpoints — read-only ones included — execute directly; other non-stream endpoints park the call until a human answers on this deployment\'s settings panel (decline / timeout / caller disconnect all fail closed). Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take the same two paths but are listed separately with a warning in the panel.',
+      'dsh endpoints (in "namespace/method" form) that execute directly. Only meaningful when endpointDefault is not "allow". Endpoints flagged dangerous by the dev-time metadata (credential writes, plugin installs, connection trust) take part like any other; the panel lists them separately with a warning.',
+    ),
+  endpointApprovalList: Schema.array(Schema.string())
+    .default(DEFAULTS.endpointApprovalList)
+    .volatile()
+    .description(
+      'dsh endpoints (in "namespace/method" form) that still park each call for panel approval. Only meaningful when endpointDefault is not "approval". The explicit lists are mutually exclusive; a hand-edited duplicate resolves deny > approval > allow (fail closed).',
     ),
   endpointDenylist: Schema.array(Schema.string())
     .default(DEFAULTS.endpointDenylist)
     .volatile()
     .description(
-      'dsh endpoint denylist in "namespace/method" form (default empty). Denied non-stream endpoints are rejected outright — no parking, no panel approval — the explicit third policy beside allow (direct execution) and approval (each call parks). Takes precedence over the allowlist when an endpoint appears in both.',
+      'dsh endpoints (in "namespace/method" form) rejected outright — no parking, no panel approval. Only meaningful when endpointDefault is not "deny". Takes precedence over the other two lists when an endpoint appears in several.',
+    ),
+  toolDefault: Schema.union([Schema.const('block'), Schema.const('allow')])
+    .volatile()
+    .description(
+      'Default tool policy for every tool not listed below: block (hidden from tools/list, rejected on tools/call, not registered as a native rice_ tool) or allow. Defaults to "block when the allowlist is non-empty".',
     ),
   toolAllowlist: Schema.array(Schema.string())
     .default(DEFAULTS.toolAllowlist)
     .volatile()
-    .description(
-      'Tool allowlist by tool name. When enabled (toolAllowlistEnabled) and non-empty, tools outside the list are hidden from tools/list, rejected on tools/call, and not registered as native rice_ tools.',
-    ),
-  toolAllowlistEnabled: Schema.boolean()
+    .description('Tools allowed when toolDefault is "block" (default block). Ignored when toolDefault is "allow".'),
+  toolBlocklist: Schema.array(Schema.string())
+    .default(DEFAULTS.toolBlocklist)
     .volatile()
-    .description(
-      'Tool allowlist switch. Off = temporarily unrestricted, the list is kept (turning it back on restores the constraint); defaults to "enabled when the list is non-empty".',
-    ),
+    .description('Tools blocked when toolDefault is "allow". Ignored when toolDefault is "block".'),
   modelDescriptions: Schema.dict(Schema.string())
     .default(DEFAULTS.modelDescriptions)
     .volatile()

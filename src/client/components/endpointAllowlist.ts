@@ -1,4 +1,4 @@
-// ── dsh 端点白名单清单(三档策略) ──
+// ── dsh 端点三档清单(按"每个端点在哪一档"编辑, 写入时收敛成两段小清单) ──
 // 端点全量列出, 按是否危险拆成两个独立清单(危险 = 开发期端点元数据的 dangerous 标注,
 // 信任与供应链类): 普通清单在上; 危险清单带错误色段头单列在下, 没有已知危险端点时整段不出现。
 // 顶层按 namespace 分组, 组与组内端点均按名称字母序排列(与工具白名单一致); 默认收起, 点组头展开/收起, 过滤时强制展开且无命中的
@@ -9,19 +9,20 @@
 // 端点行显示 method 部分(namespace 在组头), 悬停行经自绘 tooltip 给出徽标 + 描述(靠右弹出,
 // 不含端点名, 不盖住左侧名称列)。描述按界面语言取端点元数据的中/英文, 缺失时回退 descriptor
 // 自带描述。每行按端点性质给徽标: 只读/写/流式之一, 危险行另加危险徽标, 徽标恒靠右。
-// 三档策略(点行或组头循环切换): 未勾 = 每次调用停泊审批; 勾 = 入白名单(endpoint_call 免审批
-// 直行); ✕ = 入拒绝清单, 直接拒绝且不停泊(优先级高于白名单)。流式行锁定不可切。
+// 三档策略(点行或组头循环切换): 未勾 = 默认档; 勾 = 允许; ✕ = 拒绝。默认档由面板写入时按
+// "成员最多的档"自动收敛(见 ../policy), 界面上用顶栏的"未列出的端点"标注出来。
 // 顶栏快捷框: 全选/只读/可写 = 允许档的批量(不动已拒绝的行), 拒绝框 = 拒绝档的批量。
 // 无通配符: 每个条目都是精确端点。
-// props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, namespaces, stale, staleDenied}。
-// props.onChange({allow, deny}): 两份清单一次性回传, 由上层分别落配置。
+// props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, namespaces, defaultMode}。
+// props.allowed/approval/denied/defaultMode: 当前生效的收敛后策略(草稿)。
+// props.onChange(收敛后的四个字段): 由上层落配置。
 import React from 'react';
 import { t, LOCALE } from '../i18n';
 import { showTip, hideTip } from './ui';
 import { CollapseBody } from './collapse';
+import { canonicalEndpointPolicy, type EndpointMode } from '../../core/policy';
 
-/** 单个端点的三档状态: 'approval' = 停泊审批(默认), 'allow' = 白名单直行, 'deny' = 直接拒绝 */
-type EndpointMode = 'approval' | 'allow' | 'deny';
+/** 单个端点的档位循环: 默认审批 → 允许 → 拒绝 → 默认审批 */
 const MODE_CYCLE: Record<EndpointMode, EndpointMode> = { approval: 'allow', allow: 'deny', deny: 'approval' };
 
 export function EndpointAllowlist(props) {
@@ -35,12 +36,30 @@ export function EndpointAllowlist(props) {
   function groupKey(list, ns) { return list + '\0' + ns; }
   const data = props.data;
   const endpoints = data && data.endpoints ? data.endpoints : [];
-  const stale = data && Array.isArray(data.stale) ? data.stale : [];
-  const staleDenied = data && Array.isArray(data.staleDenied) ? data.staleDenied : [];
-  const allowed = props.allowed || [];
-  const denied = props.denied || [];
-  const allowedSet = new Set(allowed);
-  const deniedSet = new Set(denied);
+  /** 默认档: 没有单独列出的端点落在这里(由配置的 endpointDefault 给出) */
+  const defaultMode: EndpointMode = props.defaultMode === 'allow' || props.defaultMode === 'deny' ? props.defaultMode : 'approval';
+  const allowedSet = new Set(props.allowed || []);
+  const approvalSet = new Set(props.approval || []);
+  const deniedSet = new Set(props.denied || []);
+  const live = new Set(endpoints.map(function (e) { return e.endpoint; }));
+  // 失效条目: 三份清单里有、目录里没有的端点(按所在档位展示, 可移除)
+  const stale: { endpoint: string; mode: EndpointMode }[] = [];
+  [{ mode: 'allow' as EndpointMode, list: props.allowed || [] },
+   { mode: 'approval' as EndpointMode, list: props.approval || [] },
+   { mode: 'deny' as EndpointMode, list: props.denied || [] }].forEach(function (bucket) {
+    bucket.list.forEach(function (endpoint) { if (!live.has(endpoint)) stale.push({ endpoint: endpoint, mode: bucket.mode }); });
+  });
+  stale.sort(function (a, b) { return a.endpoint.localeCompare(b.endpoint); });
+  // 显式清单优先, 都不在则落默认档(与服务端 endpointModeOf 同序: 拒绝 > 审批 > 允许)
+  function modeOf(e): EndpointMode {
+    if (deniedSet.has(e.endpoint)) return 'deny';
+    if (approvalSet.has(e.endpoint)) return 'approval';
+    if (allowedSet.has(e.endpoint)) return 'allow';
+    return defaultMode;
+  }
+  // 本帧的活端点档位(组头/批量按它判断当前态; stream 行不参与策略)
+  const liveModes = new Map<string, EndpointMode>();
+  endpoints.forEach(function (e) { if (e.kind !== 'stream') liveModes.set(e.endpoint, modeOf(e)); });
   const q = filter.trim().toLowerCase();
   // 描述按界面语言选用: 端点/命名空间元数据的中/英文优先, 回退 descriptor 自带描述。
   // locale 服务的快照类型只声明了 subscribe, active 经防御性读取(宿主/桩都带它)
@@ -58,6 +77,11 @@ export function EndpointAllowlist(props) {
     const m = nsMeta[ns];
     if (!m) return '';
     return langOf() === 'en' ? (m.en || m.zh || '') : (m.zh || m.en || '');
+  }
+  function modeLabel(mode: EndpointMode) {
+    if (mode === 'allow') return t('endpoint.modeAllow');
+    if (mode === 'deny') return t('endpoint.modeDenyName');
+    return t('endpoint.modeApproval');
   }
 
   // 分组(先按 endpoint 全名升序, 分组保持该顺序: namespace 与组内 method 因此都是字母序)
@@ -87,18 +111,14 @@ export function EndpointAllowlist(props) {
   const readEps = togglableOf(normalEndpoints).filter(isReadOnly);
   const normalTogglable = togglableOf(normalEndpoints);
   const normalMutating = mutatingOf(normalEndpoints);
-  function modeOf(e): EndpointMode {
-    if (deniedSet.has(e.endpoint)) return 'deny';
-    if (allowedSet.has(e.endpoint)) return 'allow';
-    return 'approval';
-  }
+  function modeOfName(name: string): EndpointMode | undefined { return liveModes.get(name); }
   const readOn = readEps.length > 0 && readEps.every(function (e) { return modeOf(e) === 'allow'; });
   const readSome = !readOn && readEps.some(function (e) { return modeOf(e) === 'allow'; });
   const writeOn = normalMutating.length > 0 && normalMutating.every(function (e) { return modeOf(e) === 'allow'; });
   const writeSome = !writeOn && normalMutating.some(function (e) { return modeOf(e) === 'allow'; });
   const denyAllOn = allTogglable.length > 0 && allTogglable.every(function (e) { return modeOf(e) === 'deny'; });
   const denyAllSome = !denyAllOn && allTogglable.some(function (e) { return modeOf(e) === 'deny'; });
-  // 全选 = 普通(非危险)非流式端点全部入白名单(已拒绝的行不动, 得先逐行/拒绝框退掉拒绝档)
+  // 全选 = 普通(非危险)非流式端点全部允许(已拒绝的行不动, 得先逐行/拒绝框退掉拒绝档)
   const allSelected = normalTogglable.length > 0 && normalTogglable.every(function (e) { return modeOf(e) === 'allow'; });
   const someSelected = !allSelected && normalTogglable.some(function (e) { return modeOf(e) === 'allow'; });
   const matches = function (e) {
@@ -107,50 +127,56 @@ export function EndpointAllowlist(props) {
   // 搜索时空组隐藏: 无命中端点的 namespace 连组头一起不出现; 全部空时落到"没有匹配的端点"
   const visibleGroups = q ? groups.filter(function (g) { return g.items.some(matches); }) : groups;
   const visibleDanger = q ? dangerGroups.filter(function (g) { return g.items.some(matches); }) : dangerGroups;
-  function emit(nextAllow: string[], nextDeny: string[]) {
-    props.onChange({ allow: nextAllow, deny: nextDeny });
+  // 把当前帧的完整档位收敛成"默认档 + 另外两档清单": 失效条目按原档位一起带上
+  function emitModes(modes: Map<string, EndpointMode>) {
+    const entries: { endpoint: string; mode: EndpointMode; live: boolean }[] = [];
+    modes.forEach(function (mode, endpoint) { entries.push({ endpoint: endpoint, mode: mode, live: live.has(endpoint) }); });
+    props.onChange(canonicalEndpointPolicy(entries));
   }
-  function without(names: string[], list: string[]) {
-    return list.filter(function (x) { return names.indexOf(x) === -1; });
+  /** 当前帧的完整档位: 活端点按 modeOf, 失效条目按它在清单里的档位 */
+  function currentModes(): Map<string, EndpointMode> {
+    const modes = new Map<string, EndpointMode>();
+    endpoints.forEach(function (e) { if (e.kind !== 'stream') modes.set(e.endpoint, liveModes.get(e.endpoint)); });
+    stale.forEach(function (s) { modes.set(s.endpoint, s.mode); });
+    return modes;
   }
-  // 把一批端点切到目标档: 从两份清单里都摘掉再按目标档加回(拒绝档优先, 不允许两处共存)
+  // 把一批端点切到目标档(只改这些端点的档位, 其余保持)
   function setModes(names: string[], mode: EndpointMode) {
-    emit(
-      mode === 'allow' ? without(names, allowed).concat(names) : without(names, allowed),
-      mode === 'deny' ? without(names, denied).concat(names) : without(names, denied),
-    );
+    if (names.length === 0) return;
+    const modes = currentModes();
+    names.forEach(function (name) { modes.set(name, mode); });
+    emitModes(modes);
   }
   function cycleEndpoint(e: { endpoint: string; kind: string }) {
     if (e.kind === 'stream') return;
-    setModes([e.endpoint], MODE_CYCLE[modeOf(e)]);
+    const current = modeOfName(e.endpoint) ?? defaultMode;
+    setModes([e.endpoint], MODE_CYCLE[current]);
   }
   function cycleGroup(g, checked: EndpointMode | 'next') {
-    const names = togglableOf(g.items).map(function (e) { return e.endpoint; });
-    if (names.length === 0) return;
+    const items = togglableOf(g.items);
+    if (items.length === 0) return;
+    const names = items.map(function (e) { return e.endpoint; });
     // 组控点: 显式目标(快捷路径)或按组内现状循环(全允许→全拒绝→全审批; 其余一律先到全允许)
     let mode: EndpointMode;
     if (checked !== 'next') mode = checked;
-    else if (names.every(function (x) { return allowedSet.has(x); })) mode = 'deny';
-    else if (names.every(function (x) { return deniedSet.has(x); })) mode = 'approval';
+    else if (names.every(function (x) { return modeOfName(x) === 'allow'; })) mode = 'deny';
+    else if (names.every(function (x) { return modeOfName(x) === 'deny'; })) mode = 'approval';
     else mode = 'allow';
     setModes(names, mode);
   }
   function toggleAll() {
-    // 全选 = 显式快照(一次写入普通非流式端点的完整清单);
-    // 危险端点不进全选, 取消全选也只摘普通端点(危险与失效条目原样保留);
-    // 已拒绝的普通行不批量改成允许, 避免一键误放危险配置
+    // 全选 = 普通非流式端点全部允许; 取消全选 = 这些端点全部回到审批档。
+    // 危险端点不进全选, 已拒绝的普通行也不批量改成允许(避免一键误放危险配置)
     const names = normalTogglable.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
-    emit(allSelected
-      ? without(names, allowed)
-      : without(names, allowed).concat(names), denied);
+    setModes(names, allSelected ? 'approval' : 'allow');
   }
   function toggleRead() {
     const names = readEps.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
-    emit(readOn ? without(names, allowed) : without(names, allowed).concat(names), denied);
+    setModes(names, readOn ? 'approval' : 'allow');
   }
   function toggleWritable() {
     const names = normalMutating.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
-    emit(writeOn ? without(names, allowed) : without(names, allowed).concat(names), denied);
+    setModes(names, writeOn ? 'approval' : 'allow');
   }
   function toggleDenyAll() {
     setModes(allTogglable.map(function (e) { return e.endpoint; }), denyAllOn ? 'approval' : 'deny');
@@ -194,7 +220,7 @@ export function EndpointAllowlist(props) {
     s.textContent = b.label;
     return s;
   }
-  // 行尾的三档控点: 允许 = 勾选框, 审批 = 空勾选框, 拒绝 = 红叉标记(与顶栏快捷框同一套视觉)
+  // 行尾的三档控点: 允许 = 勾选框, 审批/默认 = 空勾选框, 拒绝 = 红叉标记(与顶栏快捷框同一套视觉)
   function modeControl(mode: EndpointMode, onCycle: () => void, disabled?: boolean) {
     if (mode === 'deny') {
       return React.createElement('span', {
@@ -288,26 +314,21 @@ export function EndpointAllowlist(props) {
   } else if (data === false) {
     body = React.createElement('div', { className: 'dcs-listmsg' }, t('endpoint.unavailable'));
   } else {
-    const staleBlock = stale.length === 0 && staleDenied.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
+    const staleBlock = stale.length === 0 ? null : React.createElement('div', { className: 'dcs-epstale' },
       React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.staleTitle')),
       stale.map(function (s) {
-        return React.createElement(React.Fragment, { key: s },
-          React.createElement('span', { className: 'dcs-eprname' }, s),
+        return React.createElement(React.Fragment, { key: s.endpoint },
+          React.createElement('span', { className: 'dcs-eprname' }, s.endpoint),
           React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('endpoint.staleBadge')),
+          React.createElement('span', { className: s.mode === 'deny' ? 'dcs-epbadge dcs-epbadge-deny' : s.mode === 'allow' ? 'dcs-epbadge dcs-epbadge-read' : 'dcs-epbadge dcs-epbadge-write' },
+            modeLabel(s.mode)),
           React.createElement('button', {
-            type: 'button', className: 'dcs-x', title: t('endpoint.staleRemove', { e: s }),
-            onClick: function () { emit(allowed.filter(function (x) { return x !== s; }), denied); },
-          }, '✕'),
-        );
-      }),
-      staleDenied.map(function (s) {
-        return React.createElement(React.Fragment, { key: s },
-          React.createElement('span', { className: 'dcs-eprname' }, s),
-          React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-stale' }, t('endpoint.staleBadge')),
-          React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-deny' }, t('endpoint.denied')),
-          React.createElement('button', {
-            type: 'button', className: 'dcs-x', title: t('endpoint.staleRemove', { e: s }),
-            onClick: function () { emit(allowed, denied.filter(function (x) { return x !== s; })); },
+            type: 'button', className: 'dcs-x', title: t('endpoint.staleRemove', { e: s.endpoint }),
+            onClick: function () {
+              const modes = currentModes();
+              modes.delete(s.endpoint);
+              emitModes(modes);
+            },
           }, '✕'),
         );
       }),
@@ -389,6 +410,7 @@ export function EndpointAllowlist(props) {
         m: allTogglable.length,
       })),
       deniedCount > 0 ? React.createElement('span', { className: 'dcs-epcount dcs-epcount-deny' }, t('endpoint.deniedCount', { n: deniedCount })) : null,
+      React.createElement('span', { className: 'dcs-epcount', title: t('endpoint.defaultHint') }, t('endpoint.default', { mode: modeLabel(defaultMode) })),
     ),
     body,
   );

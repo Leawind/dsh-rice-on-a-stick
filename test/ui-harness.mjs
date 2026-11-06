@@ -61,8 +61,13 @@ const state = {
     authEnabled: false,
     authToken: '',
     selfToolsEnabled: true,
-    endpointAllowlist: ['session/rename', 'schedule/runNow', 'legacy/gone'],
+    endpointDefault: 'allow',
+    endpointAllowlist: [],
+    endpointApprovalList: ['session/rename', 'legacy/gone'],
     endpointDenylist: ['terminal/kill'],
+    toolDefault: 'allow',
+    toolAllowlist: [],
+    toolBlocklist: ['session_archive'],
     approvalTimeoutMs: 120000,
     sessionTtlMs: 604800000,
     modelDescriptions: { 'fake-prov/m1': '排名第一的假模型，响应快。' },
@@ -383,11 +388,19 @@ const server = createServer(async (req, res) => {
         return json(res, 200, snapshot())
       }
       if (method === 'endpoint-allowlist') {
-        // dsh 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): 流式锁定行 + 只读语义标注 + 危险端点标注 + 失效条目 + 超长描述
+        // 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): 流式锁定行 + 只读语义标注 + 危险端点标注 + 失效条目 + 超长描述
         // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
-        // 供白名单清单目检(普通/危险两份清单、默认折叠/缩进/只读行同样需勾选/悬停 tooltip)。allowed 跟随 config 白名单计算。
+        // 供三档清单目检(普通/危险两份清单、默认折叠/缩进/只读行同样可切、悬停 tooltip)。mode 跟随 config 的三档策略计算。
         const allow = new Set(state.config.endpointAllowlist)
+        const approval = new Set(state.config.endpointApprovalList)
         const deny = new Set(state.config.endpointDenylist)
+        const defaultMode = state.config.endpointDefault || 'approval'
+        const modeOf = (endpoint) => {
+          if (deny.has(endpoint)) return 'deny'
+          if (approval.has(endpoint)) return 'approval'
+          if (allow.has(endpoint)) return 'allow'
+          return defaultMode
+        }
         const endpoints = [
           {
             endpoint: 'session/list',
@@ -481,12 +494,19 @@ const server = createServer(async (req, res) => {
           },
         ].map((e) => {
           const readOnly = e.kind === 'read' || e.readOnly === true
-          return { ...e, readOnly, kind: e.kind === 'read' ? 'selectable' : e.kind, allowed: allow.has(e.endpoint), denied: deny.has(e.endpoint) }
+          return {
+            ...e,
+            readOnly,
+            kind: e.kind === 'read' ? 'selectable' : e.kind,
+            ...(e.kind === 'stream' ? {} : { mode: modeOf(e.endpoint) }),
+          }
         })
         const live = new Set(endpoints.map((e) => e.endpoint))
+        const staleOf = (list, mode) => list.filter((x) => !live.has(x)).map((endpoint) => ({ endpoint, mode }))
         return json(res, 200, {
           available: true,
           total: endpoints.length,
+          defaultMode,
           endpoints,
           namespaces: {
             session: { zh: '会话与轮次', en: 'Sessions and turns' },
@@ -498,8 +518,9 @@ const server = createServer(async (req, res) => {
             pluginManager: { zh: '插件管理', en: 'Plugin management' },
             credentials: { zh: '提供商凭据', en: 'Provider credentials' },
           },
-          stale: [...allow].filter((x) => !live.has(x)).sort(),
-          staleDenied: [...deny].filter((x) => !live.has(x)).sort(),
+          stale: [...staleOf([...allow], 'allow'), ...staleOf([...approval], 'approval'), ...staleOf([...deny], 'deny')].sort((a, b) =>
+            a.endpoint.localeCompare(b.endpoint),
+          ),
         })
       }
       if (method === 'endpoint-approvals') {

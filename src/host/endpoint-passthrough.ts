@@ -8,16 +8,18 @@
  *   身份       connection.createPeer({principal: {kind:'owner'}, interactions:'none'}) ——
  *              插件级惰性单例; 卸载时经 index.ts 的清理 effect dispose
  *
- * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的 endpointAllowlist/endpointDenylist:
- * 非流式端点有三条通路——白名单内直行(部署方预审批), 拒绝清单内直接拒绝(不停泊),
- * 两份清单都不在则停泊审批(调用挂起等人在设置面板应答, 拒绝/超时/断连一律失败关闭)。
- * 只读标注只是语义徽标, 不再是免审批通道。
- * 危险端点(信任与供应链类, 见元数据表的 dangerous 标注)走同样的三条通路,
+ * 暴露面 = 开发期策展的端点元数据(endpoint-meta.ts) + 配置的三档策略:
+ * 每个非流式端点按 endpointDefault + 三份互斥清单落到 allow / approval / deny 之一——
+ * allow 直行(部署方预审批), approval 停泊等人在设置面板应答(拒绝/超时/断连一律失败关闭),
+ * deny 直接拒绝不停泊。显式清单优先于默认档, 冲突时按 拒绝 > 审批 > 允许 失败关闭。
+ * 只读标注只是语义徽标, 不改变档位。
+ * 危险端点(信任与供应链类, 见元数据表的 dangerous 标注)走同样的三档,
  * 界面单列并标注。读写性 dsh 侧不标注——元数据是本插件自己的策展, 逐条人工确认过语义。
  * 流式方法(@Remote mode:'stream')不进直通面: MCP 工具一次请求一次响应。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
+import { endpointModeOf } from '../core/config.js'
 import { state } from '../core/state.js'
 import { serviceOf } from './bridge.js'
 import { endpointMetaOf } from './endpoint-meta.js'
@@ -167,10 +169,11 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   const readOnly = meta?.readOnly === true
   const dangerous = meta?.dangerous === true ? { dangerous: true } : {}
   if (inv.stream) return { endpoint, readOnly: false, allowed: false, writable: false, ...dangerous, reason: 'stream' }
-  if (state.config.endpointDenylist.includes(endpoint)) {
+  const mode = endpointModeOf(state.config, endpoint)
+  if (mode === 'deny') {
     return { endpoint, readOnly, allowed: false, writable: false, ...dangerous, denied: true, reason: 'denied' }
   }
-  if (state.config.endpointAllowlist.includes(endpoint)) {
+  if (mode === 'allow') {
     return { endpoint, readOnly, allowed: true, writable: !readOnly, ...dangerous }
   }
   return {
@@ -258,9 +261,10 @@ export function describeDirectory(ctx: Context): Record<string, unknown> {
     })),
     note:
       'Compact namespace index: query=… keyword-searches endpoint names + descriptions (preferred entry), ' +
-      'namespace=… lists one domain, endpoint=… gives the exact contract. Allowlisted non-stream endpoints ' +
-      'execute directly (allowed: true); every other non-stream endpoint parks each call for a human decision ' +
-      "on this deployment's settings panel (approvalRequired: true). readOnly is a semantic flag, not a gate.",
+      'namespace=… lists one domain, endpoint=… gives the exact contract. Every non-stream endpoint runs in one of ' +
+      'three modes: allow (execute directly, allowed: true), approval (park each call for a human decision on this ' +
+      "deployment's settings panel, approvalRequired: true) or deny (rejected outright, denied: true). readOnly is a " +
+      'semantic flag, not a gate.',
   }
 }
 
@@ -394,10 +398,10 @@ export async function disposeCallerPeer(): Promise<void> {
 export type EndpointCallOutcome = { ok: true; result: unknown } | { ok: false; error: string }
 
 /**
- * 端点调用入口: 白名单内的非流式端点直接执行; 白名单外的非流式端点不停留在拒绝——先停泊
- * (settling 面板审批卡), 阻塞本次调用等人工应答, 允许才执行;
+ * 端点调用入口: 允许档的非流式端点直接执行; 审批档的调用不停留在拒绝——先停泊
+ * (settling 面板审批卡), 阻塞本次调用等人工应答, 允许才执行; 拒绝档直接失败。
  * 拒绝 / 超时(approvalTimeoutMs, 0 = 不限时) / 调用方断开一律失败关闭, 什么都不执行。
- * 只读标注不参与闸门: 只读端点未入白名单时同样停泊。
+ * 只读标注不参与闸门: 只读端点落在审批档时同样停泊。
  * 参数校验由网关做(具名参数严格匹配), 这里只做端点级闸门与服务可达性检查。
  */
 export async function invokeEndpoint(

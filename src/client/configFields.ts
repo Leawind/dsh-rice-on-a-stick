@@ -34,13 +34,15 @@ export function draftFromStatus(st) {
     sessionTtlMs: typeof c.sessionTtlMs === 'number' ? c.sessionTtlMs : DEFAULT_SESSION_TTL_MS,
     allowedHosts: Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : [],
     hostsText: (Array.isArray(c.allowedHosts) ? c.allowedHosts.filter(function (v) { return typeof v === 'string' && v; }) : []).join(', '),
-    // dsh 端点白名单("namespace/method" 数组; 勾选清单 GUI 维护)
+    // dsh 端点三档策略(勾选清单 GUI 维护; 写入时按最大集合收敛, 默认档不落清单)
+    endpointDefault: c.endpointDefault === 'allow' || c.endpointDefault === 'deny' ? c.endpointDefault : 'approval',
     endpointAllowlist: Array.isArray(c.endpointAllowlist) ? c.endpointAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
-    // dsh 端点拒绝清单("namespace/method" 数组; 三档策略的"直接拒绝"档)
+    endpointApprovalList: Array.isArray(c.endpointApprovalList) ? c.endpointApprovalList.filter(function (v) { return typeof v === 'string' && v; }) : [],
     endpointDenylist: Array.isArray(c.endpointDenylist) ? c.endpointDenylist.filter(function (v) { return typeof v === 'string' && v; }) : [],
-    // 工具白名单(工具名数组; 勾选清单 GUI 维护)与其开关
-    toolAllowlistOn: c.toolAllowlistEnabled === true,
+    // 工具两档策略(勾选清单 GUI 维护; 同样只写非默认档)
+    toolDefault: c.toolDefault === 'allow' ? 'allow' : 'block',
     toolAllowlist: Array.isArray(c.toolAllowlist) ? c.toolAllowlist.filter(function (v) { return typeof v === 'string' && v; }) : [],
+    toolBlocklist: Array.isArray(c.toolBlocklist) ? c.toolBlocklist.filter(function (v) { return typeof v === 'string' && v; }) : [],
     // 模型/提供商简介(键值表; 面板编辑, 随 model_list / dsh://models 透出)
     modelDescriptions: descTableOf(c.modelDescriptions),
     providerDescriptions: descTableOf(c.providerDescriptions),

@@ -230,13 +230,15 @@ export function PanelPage() {
       allowedModels: (next.allowedModels || []).slice(),
       authEnabled: next.authOn === true,
       selfToolsEnabled: next.selfToolsOn === true,
-      // dsh 端点白名单: 勾选清单直接给数组, 服务端做格式校验("namespace/method")与去重;
-      // 拒绝清单同口径(三档策略的"直接拒绝"档)
+      // dsh 端点三档策略: 只提交收敛后的"默认档 + 非默认档清单"; 格式校验与去重仍在服务端
+      endpointDefault: next.endpointDefault || 'approval',
       endpointAllowlist: (next.endpointAllowlist || []).slice(),
+      endpointApprovalList: (next.endpointApprovalList || []).slice(),
       endpointDenylist: (next.endpointDenylist || []).slice(),
-      // 工具白名单: 勾选清单直接给数组, 服务端做去重; 开关单独提交(toolAllowlistEnabled)
-      toolAllowlistEnabled: next.toolAllowlistOn === true,
+      // 工具两档策略: 同口径(默认档为最大集合, 只写另一档清单)
+      toolDefault: next.toolDefault === 'allow' ? 'allow' : 'block',
       toolAllowlist: (next.toolAllowlist || []).slice(),
+      toolBlocklist: (next.toolBlocklist || []).slice(),
       // 模型/提供商简介: 键值表原样提交, 服务端清理空键空值
       modelDescriptions: next.modelDescriptions || {},
       providerDescriptions: next.providerDescriptions || {},
@@ -678,36 +680,30 @@ export function PanelPage() {
         ),
       }),
       ),
-      // ── 工具白名单(勾选 = 工具可用, 开关关闭 = 全部可用且清单锁定; 静态清单不长, 端点白名单沉底前先过它) ──
-      groupHead(t('tool.title'), {
-        hint: t('tool.hint'),
-        control: React.createElement(Switch, {
-          checked: d.toolAllowlistOn,
-          label: t('tool.title'),
-          onChange: function (v) { change({ toolAllowlistOn: v }); },
-        }),
-      }),
+      // ── 工具白名单(勾选 = 工具可用; 默认档按最大集合自动收敛, 全选时配置里不落清单) ──
+      groupHead(t('tool.title'), { hint: t('tool.hint') }),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-listwrap' },
         React.createElement(ToolAllowlist, {
           data: toolCat,
-          enabled: d.toolAllowlistOn,
+          defaultMode: d.toolDefault,
           allowed: d.toolAllowlist || [],
-          onChange: function (nextArray) { change({ toolAllowlist: nextArray }); },
+          blocked: d.toolBlocklist || [],
+          onChange: function (next) { change(next); },
         }),
       ),
       ),
-      // ── dsh 端点白名单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列; 两个清单完整展示不设滚动容器) ──
+      // ── dsh 端点三档清单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列) ──
       groupHead(t('endpoint.title'), { hint: t('endpoint.hint') }),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-listwrap' },
         React.createElement(EndpointAllowlist, {
           data: eps,
+          defaultMode: d.endpointDefault || 'approval',
           allowed: d.endpointAllowlist || [],
+          approval: d.endpointApprovalList || [],
           denied: d.endpointDenylist || [],
-          onChange: function (next) {
-            change({ endpointAllowlist: next.allow, endpointDenylist: next.deny });
-          },
+          onChange: function (next) { change(next); },
         }),
       ),
       ),
