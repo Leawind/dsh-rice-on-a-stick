@@ -40,7 +40,7 @@ npm run e2e:isolated -- --agent     # 加一次真实 turn（花模型调用）
 1. **类型真源是官方包**：宿主服务的类型以各服务包的 `declare module '@deepseek-ai/cordis'` Context 增强为准（每个服务一个公开包：`dsh-api-session-controller` / `dsh-user-approval` / `dsh-permission-presets` / `dsh-token-meter` / `dsh-attachment` / `dsh-subagent` / `dsh-workspace` …），作为类型用途的 devDependencies 引入。src 的 View 只承载“这个服务在此部署里可能缺席”的可选语义，成员签名从官方类型派生；桩用 `satisfies` 对齐官方类型，不另引类型断言库。
 2. **行为真源是官方实现 + 真机**：agent/session 核心面逐步换成官方测试件（`dsh-agent-loop-testkit` + `dsh-llm-replay` 在进程内跑真 Agent 的确定性 turn；挂住/取消场景用 `dsh-llm-mock-server`），typert 远程面用 `dsh-remote-mock`；`npm run e2e:isolated` 是天花板。
 3. **手写桩只保留两类**：官方包给不了的缺席/降级部署形状（headless 没有 permissionPresets、某些部署没有 sessionController——缺席即不 mount），以及本插件自己的 MCP 契约。桩不发明行为：没有官方实现或真机断言支撑的行为不写进桩。
-4. **版本窗口**：类型与测试件钉在 `engines.dsh` 的支持下限（0.2.1-rc.2，也是桌面版当前的宿主包版本），真机 e2e 跑用户机器上的最新宿主；升下限是一次有意识的 bump，不被动追 `next`。
+4. **版本窗口**：类型与测试件钉在 `engines.dsh` 的支持下限（0.2.2-rc.1），真机 e2e 跑用户机器上的最新宿主；升下限是一次有意识的 bump，不被动追 `next`。
 5. **漂移处理**：真机或官方实现与桩不符时先修桩，再决定 src 要不要跟——桩服务于复现真机，不服务于让测试变绿。
 
 ## smoke 的组织（test/smoke.ts）

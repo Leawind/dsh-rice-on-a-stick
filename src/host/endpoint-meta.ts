@@ -12,8 +12,10 @@
  *
  * 另有 NAMESPACE_META: 每个命名空间的中英文一句话描述(面板组头显示, 亦是纯界面数据)。
  *
- * 表以 dsh 0.2.1-rc.2 实机目录(web profile 全量 167 端点)为基准逐条核对过; 不要求列全,
- * 表外端点按"变更类"处理(停泊审批)。其中 136 个 dsh 核心端点只保留中文译文, 英文由 descriptor
+ * 表以 dsh 0.2.1-rc.2 实机目录(web profile 全量 167 端点)为基准逐条核对过; 0.2.2-rc.1 的
+ * web profile 目录已增至 179 个端点, 新增端点(如 session/events、session/state、session/wait、
+ * toolResults/watch)尚未逐条核对, 表外端点按"变更类"处理(停泊审批)。
+ * 不要求列全, 表外端点按"变更类"处理(停泊审批)。其中 136 个 dsh 核心端点只保留中文译文, 英文由 descriptor
  * 提供; 31 个插件端点(mcpManager / skillsViewer / opsSettings)的 descriptor 不带描述, 按对应
  * 插件源码补齐中英文。策展错误的最坏结局是让一个只读端点多等一次审批, 或让一个危险端点少一个
  * 醒目标注——都不会绕过任何闸门; 反向(把变更端点标成只读)必须避免。
