@@ -11,7 +11,7 @@
 | 冒烟 | `npm test`（= `test:meta` + `smoke`） | 无 | 构建 + `test/smoke.ts`（假宿主桩 + 真 HTTP 的 MCP 往返，约 400 条断言）+ `test/smoke-port.ts`（端口被占时 `apply()` 必须显式 reject） |
 | UI 冒烟 | `npm run smoke:ui` | 无（目检需人） | 侧栏页真实渲染进浏览器桩（`test/ui-harness.mjs`），`/__test/*` 控制面可供自动化驱动 |
 | 真机 e2e（直连） | `npm run e2e` | 手动起好的宿主 | 对已在跑的插件 HTTP 面跑 `test/e2e.ts`（`E2E_MCP_URL` / `E2E_TOKEN`） |
-| 真机 e2e（一次性宿主） | `npm run e2e:isolated` | 本机 DSH 桌面发行版 | 复制临时 DSH_HOME → link 安装插件 → 起独立真机宿主 → 跑 `test/e2e.ts` → 杀宿主 |
+| 真机 e2e（一次性宿主） | `npm run e2e:isolated` | 本机 DSH（桌面发行版，或 `DSH_E2E_DSH` 指定的 npm CLI） | 复制临时 DSH_HOME → link 安装插件 → 起独立真机宿主 → 跑 `test/e2e.ts` → 杀宿主 |
 | 隔离构建 | `node scripts/isolated-test.mjs` | 无 | 工作区写权限受限（Windows ACL）时，在临时副本里构建 + 跑冒烟 |
 
 约定：行为改动跑 `npm test`；动了真机语义（投递 / 审批 / 资源面 / 宿主服务消费点）再跑 `npm run e2e:isolated`；改 bug 先让断言红（在 smoke.ts 加复现用例，或改桩复现真机行为），再动 src。
@@ -26,7 +26,7 @@ e2e 分相：
 - 可选开关：`E2E_PERMISSION=<预设>`（权限预设 + 审批策略面）、`E2E_ARCHIVE=1`（归档 / 恢复）、`E2E_AGENT_TIMEOUT_MS`、`E2E_CWD`、`E2E_TOKEN`（直连开启了认证的宿主时）。
 - **断言口径**：一次性宿主跑在全新的 web 模板 profile 上，断言不能假设开发 profile 的状态——全局工具注册表里可能有别的插件的工具（对比 `dsh://tools` 的同一份注册表，而不是本插件的原生工具数）；端点默认档为审批且清单为空（叠加层只放行 e2e 探针用的只读 `session/modelCatalog`，其余端点会停泊等人工审批）；宿主可能没有远程回答接缝（`approval_answer` 走 `answers.ts` 的明确降级拒绝）。单次调用超时降级为该项 FAIL，不中断整个 run。
 
-`npm run e2e:isolated`（`scripts/e2e-isolated.mjs`）把真机宿主的准备全部自动化：临时 `DSH_HOME`（mkdtemp）→ 复制 `.credentials.yaml` / `settings.yaml.imported`（只复制，不读取不打印内容）→ `--from-default-profile web` 创建 `rice-e2e` profile → `dsh plugin add link:<本仓库>` → cordis.patch.yml 叠加插件配置（端口 8095、关认证、approvalControl off）→ 以 `ELECTRON_RUN_AS_NODE` 起宿主（`--no-open --port 0`：Web UI 端口交给 OS 挑，所以能和正在运行的桌面版 / web 实例共存；e2e 只走插件自己的 MCP 端口）→ 等端口就绪 → 跑 `test/e2e.ts` → 杀宿主。依赖本机桌面发行版（`%LOCALAPPDATA%/Programs/DeepSeek Harness`）。零 token 相的完整链路：
+`npm run e2e:isolated`（`scripts/e2e-isolated.mjs`）把真机宿主的准备全部自动化：临时 `DSH_HOME`（mkdtemp）→ 复制 `.credentials.yaml` / `settings.yaml.imported`（只复制，不读取不打印内容）→ `--from-default-profile web` 创建 `rice-e2e` profile → `dsh plugin add link:<本仓库>` → cordis.patch.yml 叠加插件配置（端口 8095、关认证、approvalControl off）→ 以 `ELECTRON_RUN_AS_NODE` 起宿主（`--no-open --port 0`：Web UI 端口交给 OS 挑，所以能和正在运行的桌面版 / web 实例共存；e2e 只走插件自己的 MCP 端口）→ 等端口就绪 → 跑 `test/e2e.ts` → 杀宿主。默认使用桌面发行版；桌面版低于 `engines.dsh` 时（插件安装会被引擎检查拒绝）改用 npm 安装的 CLI：`DSH_E2E_DSH=<...>/node_modules/@deepseek-ai/dsh/lib/bin.js npm run e2e:isolated`。零 token 相的完整链路：
 
 ```sh
 npm run e2e:isolated                # 零 token 相

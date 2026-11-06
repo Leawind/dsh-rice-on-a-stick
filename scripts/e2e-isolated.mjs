@@ -26,7 +26,12 @@ const withAgent = process.argv.includes('--agent') ? '1' : (process.env.E2E_WITH
 const installRoot = join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness')
 const dshExe = join(installRoot, 'DeepSeek Harness.exe')
 const asarPath = join(installRoot, 'resources', 'app.asar')
-const cliJs = join(asarPath, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+const desktopCliJs = join(asarPath, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+// DSH_E2E_DSH 指向 npm 安装的 @deepseek-ai/dsh/lib/bin.js 时用 node 起宿主;
+// 默认仍用桌面发行版(依赖桌面版版本 >= package.json 的 engines.dsh)。
+const dshJsOverride = process.env.DSH_E2E_DSH
+const hostRunner = dshJsOverride === undefined ? dshExe : process.execPath
+const hostArgsPrefix = dshJsOverride === undefined ? [desktopCliJs] : [resolve(dshJsOverride)]
 const profile = 'rice-e2e'
 const mcpPort = await freeTcpPort()
 
@@ -34,8 +39,13 @@ if (!existsSync(join(pluginPath, 'lib', 'index.js'))) {
   console.error(`[e2e] ${pluginPath} 没有 lib/index.js；先构建插件，或用 --plugin 指向已构建的临时副本`)
   process.exit(1)
 }
-if (!existsSync(dshExe) || !existsSync(asarPath)) {
-  console.error('[e2e] 找不到本机 DSH 发行版')
+if (dshJsOverride === undefined) {
+  if (!existsSync(dshExe) || !existsSync(asarPath)) {
+    console.error('[e2e] 找不到本机 DSH 发行版；或用 DSH_E2E_DSH 指向 npm 安装的 @deepseek-ai/dsh/lib/bin.js')
+    process.exit(1)
+  }
+} else if (!existsSync(resolve(dshJsOverride))) {
+  console.error(`[e2e] DSH_E2E_DSH 指向的文件不存在: ${resolve(dshJsOverride)}`)
   process.exit(1)
 }
 
@@ -55,7 +65,7 @@ function runCli(args, timeoutMs = 120_000) {
   return new Promise((resolvePromise) => {
     const logPath = join(home, 'cli.log')
     const fd = openSync(logPath, 'a')
-    const child = spawn(dshExe, [cliJs, ...args], { env, windowsHide: true, stdio: ['ignore', fd, fd] })
+    const child = spawn(hostRunner, [...hostArgsPrefix, ...args], { env, windowsHide: true, stdio: ['ignore', fd, fd] })
     const timer = setTimeout(() => child.kill(), timeoutMs)
     child.on('exit', (code) => {
       clearTimeout(timer)
@@ -98,6 +108,7 @@ function waitPort(port, timeoutMs) {
 
 console.log(`[e2e] home: ${home}`)
 console.log(`[e2e] plugin: ${pluginPath}`)
+console.log(`[e2e] host: ${dshJsOverride === undefined ? 'desktop distribution' : resolve(dshJsOverride)}`)
 console.log('[e2e] create profile from the shipped web template')
 const dump = await runCli(['--profile', profile, '--from-default-profile', 'web', '--dump-config'])
 if (dump.code !== 0) {
@@ -139,7 +150,7 @@ const hostLogPath = join(home, 'host.log')
 const hostFd = openSync(hostLogPath, 'a')
 // --port 0: Web UI 端口交给 OS 挑——web profile 默认抢 3080, 桌面版/另一个 web 实例在跑时宿主会因 EADDRINUSE 启动失败;
 // e2e 只走插件自己的 MCP 端口, 不需要可预测的 Web UI 端口
-const host = spawn(dshExe, [cliJs, '--profile', profile, '--no-open', '--port', '0'], {
+const host = spawn(hostRunner, [...hostArgsPrefix, '--profile', profile, '--no-open', '--port', '0'], {
   env,
   windowsHide: true,
   stdio: ['ignore', hostFd, hostFd],
