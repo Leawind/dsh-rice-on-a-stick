@@ -2,7 +2,7 @@
  * 会话只读洞察: 从事件日志折出标题、轮/步计数与上下文占用。
  *
  * 目标是"不激活也不改写会话"的读取——live 会话读内存日志, 冷会话由调用方经
- * sessionController.inspect 交进同一批事件; 本模块只做纯折叠, 不持有会话。
+ * sessionQuery.observeSession 交进同一批事件; 本模块只做纯折叠, 不持有会话。
  * 宿主能力一律按可选依赖处理: 测量服务/模型目录缺席时降级为日志估算或省略字段。
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -235,7 +235,7 @@ export interface SessionEventSource {
 
 /**
  * 取一个会话的事件源: live(agent.session 优先, sessions.get 兜底)读内存日志;
- * 否则经宿主 sessionController.inspect 非激活读取(读不到 = events undefined, 不抛)。
+ * 否则经宿主 sessionQuery.observeSession 非激活读取(读不到 = events undefined, 不抛)。
  * `signal` 只作用于冷读——live 会话的事件本来就在内存里。
  */
 export async function sessionEventSourceOf(ctx: Context, sessionId: string, signal?: AbortSignal): Promise<SessionEventSource> {
@@ -254,8 +254,8 @@ export async function sessionEventSourceOf(ctx: Context, sessionId: string, sign
 
 /**
  * 会话元信息: 清单行(标题/workspacePath/模型/preset/谱系) + 运行态(live/state) +
- * 轮与步计数 + 上下文占用。live 读内存, 冷会话经 inspect 只读; 都读不到时至少给出清单行。
- * source: 调用方已取的事件源(概览等聚合面)则复用, 冷会话不付第二次 inspect 读。
+ * 轮与步计数 + 上下文占用。live 读内存, 冷会话经 sessionQuery 只读; 都读不到时至少给出清单行。
+ * source: 调用方已取的事件源(概览等聚合面)则复用, 冷会话不付第二次非激活读。
  */
 export async function sessionInsightPayload(
   ctx: Context,

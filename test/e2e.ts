@@ -4,7 +4,7 @@
 // (dsh_guide / plugin_status / workspace_list / model_list /
 // session_list), the attachment read-only face and the dsh endpoint passthrough face (endpoint_describe / endpoint_call
 // session/modelCatalog / session_attachment unknown-id), session_history on a persisted-only
-// session (host sessionController.inspect), and the resource face (list / read / presets).
+// session (host sessionQuery.observeSession), and the resource face (list / read / presets).
 //
 // Agent phase (E2E_WITH_AGENT=1): create a session with an explicit provider/model/preset and
 // run ONE small real turn (tool call + one-line JSON summary). With E2E_SESSION_ID it skips
@@ -250,16 +250,16 @@ try {
     approvalAnswerError.slice(0, 160),
   )
 
-  // ── 冷会话历史: 经宿主 sessionController.inspect 非激活读取 ──
+  // ── 冷会话历史: 经宿主 sessionQuery.observeSession 非激活读取 ──
   // 首轮(宿主刚启动、还没有历史会话)没有 persisted-only 会话可测; 重启后第二轮才可测。
   const persisted = sessionItems.find((s) => s.sessionId && s.sessionId !== RESUME_SESSION)
   if (persisted) {
     const hist = await callTool(sid, 10, 'session_history', { sessionId: persisted.sessionId, limit: 5 })
     if (hist.inner.source === 'live') {
-      console.log('  SKIP  session_history 冷会话可读(宿主 inspect) — 该会话仍是 live(重启宿主后测 persisted/inspect 路径)')
+      console.log('  SKIP  session_history 冷会话可读(宿主 sessionQuery) — 该会话仍是 live(重启宿主后测 persisted 路径)')
     } else {
       report(
-        'session_history 冷会话可读(宿主 inspect)',
+        'session_history 冷会话可读(宿主 sessionQuery)',
         !hist.inner.error && hist.inner.source === 'persisted' && Number.isInteger(hist.inner.totalEvents),
         hist.inner.error
           ? String(hist.inner.error).slice(0, 140)
@@ -273,7 +273,7 @@ try {
       )
     }
   } else {
-    console.log('  SKIP  session_history 冷会话可读(宿主 inspect) — 当前没有持久化会话(重启宿主后再测)')
+    console.log('  SKIP  session_history 冷会话可读(宿主 sessionQuery) — 当前没有持久化会话(重启宿主后再测)')
   }
   const histMissing = await callTool(sid, 12, 'session_history', { sessionId: 'e2e-nonexistent-session' })
   report(

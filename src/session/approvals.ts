@@ -108,7 +108,7 @@ export function approvalEntriesFor(sessionId: string, events: readonly unknown[]
 }
 
 /**
- * approval_list 的读实现: live 读内存, 冷会话经宿主 inspect 非激活读取。
+ * approval_list 的读实现: live 读内存, 冷会话经宿主 sessionQuery 非激活读取。
  * `answerable=true` 只来自本插件当前的远程 answer client; 日志里更早的 pending
  * 审批仍展示(可诊断), 但由界面/宿主或其他客户端持有。
  */

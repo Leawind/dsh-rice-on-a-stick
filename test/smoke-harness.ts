@@ -19,8 +19,8 @@ export const steered = []
 export const injected = []
 // 冷恢复: 走宿主 sessionController.resolveAgent 的会话 id(0.2.x 的真实冷恢复入口)
 export const resolvedAgents = []
-// 非激活读取: 走宿主 sessionController.inspect 的会话 id(冷会话历史)
-export const inspectedSessions = []
+// 非激活读取: 走宿主 sessionQuery.observeSession 的会话 id(冷会话历史)
+export const observedSessions = []
 // 持久化后端调用计数: 断言单会话读取走 stat(一次), 而不是为一行列全语料(list)
 export const persistenceCalls = { list: 0, stat: 0 }
 // 每次 followup 一条(按 agent id): 断言"任务实际执行了几次"
@@ -344,48 +344,6 @@ export const fakeSessionController = {
     if (request.model === 'boom') throw new Error('model boom is not routable')
     return { selected: { ...request, sessionId: undefined } }
   },
-  // 非激活读取(0.2.x 的 SessionInspection 形状: meta/inheritedEventCount/events)。
-  // sess-persisted 的日志里有 request/header(模型 p1/m1)与完整轮次; sess-legacy 日志为空。
-  inspect: async (sessionId) => {
-    inspectedSessions.push(String(sessionId))
-    if (sessionId === 'sess-persisted') {
-      return {
-        meta: { version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' },
-        inheritedEventCount: 0,
-        events: [
-          { type: 'session/title', data: { title: 'Persisted Older' } },
-          { type: 'request/header', data: { header: { config: { provider: 'p1', model: 'm1' } }, reason: 'initial' } },
-          // 路由容量(日志口径优先于 llm.resolveModelInfo): ratio 断言用
-          { type: 'request/context', data: { provider: 'p1', model: 'm1', contextWindow: 80000 } },
-          // 权限预设: 冷会话只能折叠日志里记录的预设(session_meta.permission)
-          { type: 'permission/preset', data: { preset: 'danger-full-access' } },
-          { type: 'user/message', data: { message: { id: 'u-old', role: 'user', content: [{ type: 'text', text: 'earlier question' }] } } },
-          {
-            type: 'assistant/message',
-            data: {
-              message: { content: [{ type: 'text', text: 'earlier answer' }] },
-              // 冷会话没有 tokenMeter(拿不到 session 对象): 上下文占用按这次 usage 估算
-              usage: { inputTokens: 900, cacheReadTokens: 100, outputTokens: 200, totalTokens: 1200 },
-            },
-          },
-          // 长回答: 冷会话(inspect 路径)的 detail=full 逃生门断言素材
-          { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: longAnswer }] } } },
-          { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
-        ],
-      }
-    }
-    if (sessionId === 'sess-legacy') {
-      return { meta: { version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD }, inheritedEventCount: 0, events: [] }
-    }
-    if (sessionId === 'sess-persisted2') {
-      return {
-        meta: { version: 0, id: 'sess-persisted2', createdAt: 5, cwd: FAKE_CWD },
-        inheritedEventCount: 0,
-        events: [{ type: 'session/title', data: { title: 'Persisted Newer' } }],
-      }
-    }
-    throw new Error(`session "${sessionId}" not found`)
-  },
   // 官方冷恢复(界面打开旧会话同一路径): 返回活体或稳定错误。
   // 活体的日志头给出会话真实模型(p1/m1), 与 agent.options(部署默认)不同——结果回报取日志头。
   resolveAgent: async (sessionId) => {
@@ -405,6 +363,48 @@ export const fakeSessionController = {
   fork: async ({ sessionId, atSeq }) => {
     forked.push({ sessionId, atSeq })
     return { sessionId: 'sess-forked' }
+  },
+}
+// 非激活读取假服务(sessionQuery = 官方 SessionObservation 形状: header/inheritedEventCount/events + dispose)。
+// sess-persisted 的日志里有 request/header(模型 p1/m1)与完整轮次; sess-legacy 日志为空。
+export const fakeSessionQuery = {
+  observeSession: async (sessionId, options: { signal?: AbortSignal; projectionMode?: 'all' | 'none' } = {}) => {
+    observedSessions.push(String(sessionId))
+    const make = (header, events) => ({
+      header,
+      inheritedEventCount: 0,
+      events,
+      // 真实宿主返回观察租约; 桩只需证明插件会释放它(断开/取消后不长期占用观察缓存)
+      [Symbol.dispose]: () => {},
+    })
+    if (sessionId === 'sess-persisted') {
+      return make({ version: 0, id: 'sess-persisted', createdAt: 1, cwd: FAKE_CWD, agentPreset: 'reviewer' }, [
+        { type: 'session/title', data: { title: 'Persisted Older' } },
+        { type: 'request/header', data: { header: { config: { provider: 'p1', model: 'm1' } }, reason: 'initial' } },
+        // 路由容量(日志口径优先于 llm.resolveModelInfo): ratio 断言用
+        { type: 'request/context', data: { provider: 'p1', model: 'm1', contextWindow: 80000 } },
+        // 权限预设: 冷会话只能折叠日志里记录的预设(session_meta.permission)
+        { type: 'permission/preset', data: { preset: 'danger-full-access' } },
+        { type: 'user/message', data: { message: { id: 'u-old', role: 'user', content: [{ type: 'text', text: 'earlier question' }] } } },
+        {
+          type: 'assistant/message',
+          data: {
+            message: { content: [{ type: 'text', text: 'earlier answer' }] },
+            // 冷会话没有 tokenMeter(拿不到 session 对象): 上下文占用按这次 usage 估算
+            usage: { inputTokens: 900, cacheReadTokens: 100, outputTokens: 200, totalTokens: 1200 },
+          },
+        },
+        // 长回答: 冷会话(sessionQuery 路径)的 detail=full 逃生门断言素材
+        { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: longAnswer }] } } },
+        { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      ])
+    }
+    if (sessionId === 'sess-legacy') return make({ version: 0, id: 'sess-legacy', createdAt: 2, cwd: FAKE_CWD }, [])
+    if (sessionId === 'sess-persisted2') {
+      return make({ version: 0, id: 'sess-persisted2', createdAt: 5, cwd: FAKE_CWD }, [{ type: 'session/title', data: { title: 'Persisted Newer' } }])
+    }
+    if (options.signal?.aborted === true) throw new Error('aborted')
+    throw new Error(`session "${sessionId}" not found`)
   },
 }
 // 归档假服务(workspaceController): archiveSession 活动会话(live 表里的)拒绝并报 session-active,
@@ -688,6 +688,7 @@ export function makeCtx(
     extraSessions?: { id: string; cwd?: string }[]
     extraPersisted?: { id: string; cwd?: string }[]
     projectionCache?: any
+    /** 覆盖默认的非激活读取桩(readTitleSnapshots 等单方法); 传 null 表示该部署没有 sessionQuery */
     sessionQuery?: any
   } = {},
 ): any {
@@ -705,8 +706,11 @@ export function makeCtx(
     extraSessions = [],
     extraPersisted = [],
     projectionCache,
-    sessionQuery,
+    sessionQuery: sessionQueryOverride,
   } = opts
+  // 默认提供冷会话非激活读取面; 单相位覆盖只替换它声明的方法, observeSession 等仍继承默认桩
+  const sessionQuery =
+    sessionQueryOverride === null ? undefined : sessionQueryOverride === undefined ? fakeSessionQuery : { ...fakeSessionQuery, ...sessionQueryOverride }
   const permissionService = permissionPresets === null ? undefined : permissionPresets
   const webHandlers = new Map()
   const extraAgents = new Map(extraSessions.map((s) => [s.id, makeAgent(s.id, s.cwd, { provider: 'extra-p', model: 'extra-m' })]))

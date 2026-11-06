@@ -174,7 +174,7 @@ export function questionEntriesFor(sessionId: string, events: readonly unknown[]
   return entries
 }
 
-/** question_list 的读实现: live 读内存, 冷会话经宿主 inspect 非激活读取 */
+/** question_list 的读实现: live 读内存, 冷会话经宿主 sessionQuery 非激活读取 */
 export async function questionListFor(ctx: Context, sessionIds: readonly string[]): Promise<Record<string, unknown>> {
   const sessions: Record<string, unknown>[] = []
   for (const sessionId of sessionIds) {

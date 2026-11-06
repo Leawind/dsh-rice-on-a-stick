@@ -925,7 +925,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       const target = resolveSessionTarget(sessionId, extra)
       if ('error' in target) return outError(JSON.stringify({ error: target.error }))
       try {
-        // 定位引用: live 事件快照优先, 冷会话走官方 inspect(非激活读)
+        // 定位引用: live 事件快照优先, 冷会话走官方 sessionQuery 非激活读
         const live = ctx.agents.get(asSessionId(target.sessionId))
         const events =
           live !== undefined ? eventsOf((live as { session?: unknown }).session ?? live) : await inspectSessionEvents(ctx, asSessionId(target.sessionId))

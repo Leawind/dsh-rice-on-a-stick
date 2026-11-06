@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "ESNext.Disposable"],
     "rootDir": "src",
     "outDir": "lib",
     "declaration": true,

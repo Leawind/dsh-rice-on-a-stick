@@ -80,7 +80,7 @@ import {
   followups,
   FAKE_CWD,
   innerOf,
-  inspectedSessions,
+  observedSessions,
   liveAgent,
   longAnswer,
   LONG_HEAD,
@@ -1337,17 +1337,17 @@ try {
       },
     },
   })
-  const inspectedBeforeProjection = inspectedSessions.length
+  const observedBeforeProjection = observedSessions.length
   const cachedHit = await collectSessions(perfCtx, { title: 'cached needle', includeCold: true })
   checks['冷标题: 投影检查点命中即命中, 一次日志都不读'] =
     cachedHit.total === 1 &&
     cachedHit.sessions?.[0]?.sessionId === 'sess-cold-a' &&
     cachedHit.titleSearch?.coldLogReads === 0 &&
-    inspectedSessions.length === inspectedBeforeProjection
+    observedSessions.length === observedBeforeProjection
   const predecessorHit = await collectSessions(perfCtx, { title: 'legacy migrated', includeCold: true, scope: 'all' })
   checks['冷标题: 旧格式代际走 cachedPredecessorTitle'] =
     predecessorHit.total === 1 && predecessorHit.sessions?.[0]?.sessionId === 'sess-legacy' && predecessorHit.titleSearch?.coldLogReads === 0
-  checks['冷标题: 检查点覆盖的冷会话不再逐个 inspect'] = projectionReads.length > 0 && projectionReads.includes('predecessor:sess-legacy')
+  checks['冷标题: 检查点覆盖的冷会话不再逐个非激活读日志'] = projectionReads.length > 0 && projectionReads.includes('predecessor:sess-legacy')
 
   // 检查点答不了(无投影缓存)时仍能落回日志, 并如实计数
   state.coldTitles.clear()
@@ -1356,7 +1356,7 @@ try {
   checks['冷标题: 检查点答不了才落回日志(并计数)'] =
     projectionMiss.total === 1 && projectionMiss.sessions?.[0]?.sessionId === 'sess-persisted2' && (projectionMiss.titleSearch?.coldLogReads ?? 0) > 0
 
-  // ── 批量折叠: 未命中数达到门槛时一次批量, 不逐个 inspect ──
+  // ── 批量折叠: 未命中数达到门槛时一次批量, 不逐个非激活读日志 ──
   state.coldTitles.clear()
   const batchCalls: string[][] = []
   const batchCtx = makeCtx({
@@ -1370,14 +1370,14 @@ try {
       },
     },
   })
-  const inspectedBeforeBatch = inspectedSessions.length
+  const observedBeforeBatch = observedSessions.length
   const batched = await collectSessions(batchCtx, { title: 'batch sess-batch-b', includeCold: true })
-  checks['冷标题: 达到门槛时一次批量折叠, 不逐个 inspect'] =
+  checks['冷标题: 达到门槛时一次批量折叠, 不逐个非激活读日志'] =
     batched.total === 1 &&
     batched.sessions?.[0]?.sessionId === 'sess-batch-b' &&
     batchCalls.length === 1 &&
     batchCalls[0].length >= 4 &&
-    inspectedSessions.length === inspectedBeforeBatch
+    observedSessions.length === observedBeforeBatch
 
   // ── 单会话读取: stat 单点观察 + 投影检查点取标题, 不再列全语料 ──
   const listCallsBefore = persistenceCalls.list
@@ -1476,7 +1476,7 @@ try {
   checks['session_list(scope=archived): 恢复后不再列出'] =
     innerOf(archiveListAfter).total === 1 && innerOf(archiveListAfter).sessions?.[0]?.sessionId === 'sess-legacy'
   checks['归档集合与宿主 registry 同步(unarchive 已生效)'] = archivedSessionIds.includes('sess-legacy') && !archivedSessionIds.includes('sess-live')
-  // 会话检查: 模型/轮步/上下文占用(纯只读, 冷会话经 inspect 折日志); 轮步走 progress 选段
+  // 会话检查: 模型/轮步/上下文占用(纯只读, 冷会话经 sessionQuery 折日志); 轮步走 progress 选段
   const metaLive = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 56,
@@ -1590,7 +1590,7 @@ try {
   )
   const ovColdEntries = ovCold.recent?.entries ?? []
   const ovColdLong = ovColdEntries.at(-1)
-  checks['session_inspect: 冷会话经 inspect 折默认档'] =
+  checks['session_inspect: 冷会话经 sessionQuery 折默认档'] =
     ovCold.state === 'inactive' &&
     ovCold.inProgress === false &&
     ovCold.title === 'Persisted Older' &&
@@ -1664,15 +1664,15 @@ try {
   })
   checks['session_history 按 roles 取轮次'] =
     JSON.stringify(innerOf(sh)).includes('"role":"assistant"') && !JSON.stringify(innerOf(sh)).includes('"role":"tool_call"')
-  // 冷会话: 经宿主 sessionController.inspect 非激活读取(不激活 agent)
+  // 冷会话: 经宿主 sessionQuery.observeSession 非激活读取(不激活 agent)
   const shCold = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 52,
     method: 'tools/call',
     params: { name: 'session_history', arguments: { sessionId: 'sess-persisted', roles: ['assistant'] } },
   })
-  checks['session_history 冷会话经官方 inspect 读取'] =
-    innerOf(shCold).source === 'persisted' && JSON.stringify(innerOf(shCold)).includes('earlier answer') && inspectedSessions.includes('sess-persisted')
+  checks['session_history 冷会话经官方 sessionQuery 读取'] =
+    innerOf(shCold).source === 'persisted' && JSON.stringify(innerOf(shCold)).includes('earlier answer') && observedSessions.includes('sess-persisted')
   // 默认视角: 只给对话消息(user + assistant); 工具调用过程要显式传 roles
   const shDefault = await rpc(init.sid, {
     jsonrpc: '2.0',
@@ -2829,7 +2829,7 @@ try {
 
   // ── Phase F0: 归档护栏在没有非激活读取通道的部署里 fail-open(读不到 ≠ 没用过) ──
   {
-    const phase = await startPhase(await firstBindablePort([8081, 8082]), makeCtx({ llm: fakeLlm }), {})
+    const phase = await startPhase(await firstBindablePort([8081, 8082]), makeCtx({ llm: fakeLlm, sessionQuery: null }), {})
     const cold = await phase.call('session_archive', { sessionId: 'sess-persisted2' })
     checks['session_archive: 事件不可读时护栏 fail-open(照常归档, 不报 UNUSED_SESSION)'] =
       cold.status === 200 && innerOf(cold).archived === true && innerOf(cold).turns === undefined

@@ -24,7 +24,6 @@ import {
   headerOfSnapshot,
   inspectSessionEvents,
   serviceOf,
-  sessionControllerOf,
   sessionPersistenceOf,
   sessionProjectionCacheOf,
   sessionQueryOf,
@@ -606,9 +605,9 @@ export async function sessionInspectPayload(
   const row = await sessionRowOf(ctx, sessionId)
   const source = await sessionEventSourceOf(ctx, sessionId, signal)
   const insight = await sessionInsightPayload(ctx, sessionId, row, source)
-  // historyReadable: 历史资源(dsh://sessions/{id}/history)可读性——live 或宿主具备非激活 inspect 通道
+  // historyReadable: 历史资源(dsh://sessions/{id}/history)可读性——live 或宿主具备 sessionQuery 非激活读取
   const live = (ctx.get('sessions') as { get?: (id: string) => unknown } | undefined)?.get?.(sessionId)
-  const readable = live !== undefined || typeof sessionControllerOf(ctx)?.inspect === 'function'
+  const readable = live !== undefined || typeof sessionQueryOf(ctx)?.observeSession === 'function'
 
   const want = (field: InspectField) => wanted.includes(field)
   const result: Record<string, unknown> = {
@@ -649,7 +648,7 @@ export const HISTORY_DEFAULT_ROLES: readonly HistoryRole[] = ['user', 'assistant
  * 默认调用因此不为工具条目付 token。
  * 文本档位(entryDetail): summary(默认, 按角色截断并标记 truncated) / full(不截断, 冷会话同样可读)。
  * 字段名刻意不叫 detail——与 session_send/session_result 的结果投影梯子不是一回事, 同名会误导调用方归纳。
- * live 会话直接读内存日志; persisted-only 会话走宿主 sessionController.inspect 的非激活读取
+ * live 会话直接读内存日志; persisted-only 会话走宿主 sessionQuery.observeSession 的非激活读取
  * (0.2.x 的 Host 公共 API, 界面打开旧会话也用它, 不激活 agent)。不可读时抛错。
  */
 export async function sessionHistoryPayload(

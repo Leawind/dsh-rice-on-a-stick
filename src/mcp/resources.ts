@@ -499,7 +499,7 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
   )
 
   // 现状概览: 默认档字段(工具面的 fields/recentLimit 细粒度是工具参数, 资源面读默认档);
-  // 清单含 persisted-only 会话(冷会话经 inspect 同样可读), 与元数据资源同一补全源
+  // 清单含 persisted-only 会话(冷会话经 sessionQuery 同样可读), 与元数据资源同一补全源
   mcp.registerResource(
     'session-overview',
     new ResourceTemplate(resUri.sessions + '/{sessionId}/overview', {

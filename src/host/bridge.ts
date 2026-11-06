@@ -99,13 +99,6 @@ export interface LiveAgentView {
   readonly ctx?: Context
 }
 
-/** sessionController.inspect 的返回(宿主 SessionInspection 形状; 非激活读取) */
-export interface SessionInspectionView {
-  meta?: SessionHeader
-  inheritedEventCount?: number
-  events?: readonly unknown[]
-}
-
 /** 原生子代理目录条目(宿主 subagents.listChildren/listDescendants 的公共字段) */
 export interface SubagentCatalogEntryView {
   id: string
@@ -197,13 +190,11 @@ export function compactionOf(ctx: Context): CompactionServiceView | undefined {
 }
 
 /**
- * sessionController 的会话读/恢复入口(可选依赖, web profile 提供):
- *   inspect      非激活读取一个 live 或 persisted 会话的完整事件日志
+ * sessionController 的会话恢复入口(可选依赖, web profile 提供):
  *   resolveAgent 界面打开旧会话的官方冷恢复(组装 preset + 从日志恢复模型选择 + 迁移/归属校验)
- * 两个方法在 0.2.x 的 SessionController 上都是 Host 公共方法(非 Remote)。
+ * 非激活读取完整日志不在这里——dsh 0.2.2 起由 sessionQuery.observeSession 承担。
  */
 export interface SessionControllerHostView {
-  inspect?: (sessionId: SessionId, signal?: AbortSignal) => Promise<SessionInspectionView | undefined>
   resolveAgent?: (sessionId: SessionId) => Promise<
     | {
         agent?: LiveAgentView
@@ -256,12 +247,21 @@ export interface TitleObservationResultView {
   reason?: unknown
 }
 
-/** sessionQuery 的读面: 只折叠标题, 不恢复会话(比 inspect 轻一个量级) */
-export interface SessionQueryView {
-  readTitleSnapshots?: (ids: readonly SessionId[], signal?: AbortSignal) => Promise<readonly TitleObservationResultView[]>
+/** 一次非激活会话观察(宿主 SessionObservation 的读面): 克隆后的 header 与完整事件日志; [Symbol.dispose] 释放观察租约 */
+export interface SessionObservationView {
+  header?: SessionHeader
+  inheritedEventCount?: number
+  events?: readonly unknown[]
+  [Symbol.dispose]?: () => void
 }
 
-/** 取会话查询服务(可选依赖; 缺席时标题退化为逐个 inspect) */
+/** sessionQuery 的读面: 折叠标题(零 I/O) + 非激活观察完整日志(不恢复会话) */
+export interface SessionQueryView {
+  readTitleSnapshots?: (ids: readonly SessionId[], signal?: AbortSignal) => Promise<readonly TitleObservationResultView[]>
+  observeSession?: (sessionId: SessionId, options?: { signal?: AbortSignal; projectionMode?: 'all' | 'none' }) => Promise<SessionObservationView | undefined>
+}
+
+/** 取会话查询服务(可选依赖; 缺席时标题退化为逐个读日志, 冷会话历史不可读) */
 export function sessionQueryOf(ctx: Context): SessionQueryView | undefined {
   return serviceOf<SessionQueryView>(ctx, 'sessionQuery')
 }
@@ -303,15 +303,28 @@ export function presetOfAgent(ctx: Context, agent: unknown): string {
   }
 }
 
-/** 非激活读取一个会话的事件日志(冷会话经官方 inspect); 服务缺席或读取失败时抛错(带宿主原因)。
- * `signal` 传到底: 客户端断开后不再继续读日志(宿主 inspect 接受可选取消信号)。 */
+/** 非激活读取一个会话的事件日志(经官方 sessionQuery.observeSession: live 优先, persisted-only 读持久日志);
+ * 服务缺席或读取失败时抛错(带宿主原因)。`signal` 传到底: 客户端断开后不再继续读日志。
+ * 观察是租约: 拷贝出事件后立刻 dispose, 不长期占用宿主的观察缓存。 */
 export async function inspectSessionEvents(ctx: Context, sessionId: SessionId, signal?: AbortSignal): Promise<readonly unknown[]> {
-  const controller = sessionControllerOf(ctx)
-  if (typeof controller?.inspect !== 'function') {
-    throw new Error('the host session controller does not expose inspect (a web profile is required to read persisted sessions)')
+  const query = sessionQueryOf(ctx)
+  if (typeof query?.observeSession !== 'function') {
+    throw new Error('the host session query service is unavailable (a web profile is required to read persisted sessions without activating them)')
   }
-  const inspection = signal === undefined ? await controller.inspect(sessionId) : await controller.inspect(sessionId, signal)
-  return inspection?.events ?? []
+  const observation = await query.observeSession(sessionId, {
+    projectionMode: 'none',
+    ...(signal === undefined ? {} : { signal }),
+  })
+  if (observation === undefined) return []
+  try {
+    return observation.events ?? []
+  } finally {
+    try {
+      observation[Symbol.dispose]?.()
+    } catch {
+      // 释放租约失败不应覆盖读取结果
+    }
+  }
 }
 
 // ── 工作区归组 ──
