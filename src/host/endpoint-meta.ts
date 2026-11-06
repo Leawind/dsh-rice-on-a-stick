@@ -497,7 +497,8 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── session(会话与轮次) ──
   'session/attachment': {
     readOnly: true,
-    description: { zh: '读取一张可从目标会话日志到达的图片。' },
+    // 0.2.2 起改为按调用方给出的引用读取, 不再核对它是否出现在会话日志里
+    description: { zh: '按给定引用读取一张图片（不再核对会话日志是否引用它）。' },
   },
   'session/cancel': {
     description: { zh: '取消会话正在进行的轮次。' },
