@@ -96,6 +96,8 @@ export interface SessionReadView {
 export interface LiveAgentView {
   readonly session: SessionReadView
   readonly options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+  /** 宿主 agent.model.current()(0.2.2 起): 已记录的下一步选择优先于 options */
+  readonly model?: { current?: () => { provider?: unknown; model?: unknown; reasoningEffort?: unknown } | undefined }
   readonly ctx?: Context
 }
 
@@ -105,9 +107,13 @@ export interface SubagentCatalogEntryView {
   createdAt: number
   mode: 'one-shot' | 'external' | 'continuable' | 'unknown'
   label?: string
+  /** 宿主机在父级下分配的展示名(0.2.2 起的新条目才有; 旧条目按 session id 寻址) */
+  name?: string
   /** listDescendants 追加字段 */
   parentId?: string
   depth?: number
+  /** 从请求根开始的斜杠分隔名称路径(本条目或根以下某祖先没有名字时缺失) */
+  path?: string
   kind?: 'child' | 'diagnostic'
   activity?: 'running' | 'inactive'
   hasChildren?: boolean

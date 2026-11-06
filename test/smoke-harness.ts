@@ -812,7 +812,7 @@ export function makeCtx(
     const run = (i) => (i >= list.length ? Promise.resolve('unavailable') : Promise.resolve(list[i](request, () => run(i + 1))))
     return run(0)
   }
-  // 原生子代理发现桩: sess-live 有一个 continuable 子级; 递归时带 parentId/depth
+  // 原生子代理发现桩: sess-live 有一个 continuable 子级(0.2.2 起带 name); 递归时带 parentId/depth/path
   const fakeSubagents = {
     sendMessage: async (sender, targetId, content) => {
       subagentSends.push({ sender: sender?.session?.header?.id ?? sender?.id, targetId, content })
@@ -823,7 +823,7 @@ export function makeCtx(
     },
     listChildren: async (parentId) =>
       parentId === 'sess-live'
-        ? [{ id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', kind: 'child', activity: 'running', hasChildren: true }]
+        ? [{ id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', name: 'reviewer', kind: 'child', activity: 'running', hasChildren: true }]
         : [],
     listDescendants: async (rootId) =>
       rootId === 'sess-live'
@@ -833,8 +833,10 @@ export function makeCtx(
               createdAt: 5,
               mode: 'continuable',
               label: 'child',
+              name: 'reviewer',
               parentId: 'sess-live',
               depth: 1,
+              path: 'reviewer',
               kind: 'child',
               activity: 'running',
               hasChildren: true,
@@ -842,9 +844,12 @@ export function makeCtx(
             {
               id: 'sess-grandchild',
               createdAt: 6,
-              mode: 'one-shot',
+              mode: 'continuable',
+              label: 'worker',
+              name: 'worker',
               parentId: 'sess-child',
               depth: 2,
+              path: 'reviewer/worker',
               kind: 'child',
               activity: 'inactive',
               hasChildren: false,

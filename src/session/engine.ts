@@ -123,45 +123,60 @@ export function selectionOf(args: { provider?: string; model?: string; reasoning
   return selection
 }
 
+/** 把宿主的模型选择值收敛成本插件的 ModelSelection; provider/model 不成对时 undefined */
+function selectionValueOf(value: unknown): ModelSelection | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const rec = value as { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+  const provider = typeof rec.provider === 'string' && rec.provider ? rec.provider : undefined
+  const model = typeof rec.model === 'string' && rec.model ? rec.model : undefined
+  if (provider === undefined || model === undefined) return undefined
+  const selection: ModelSelection = { provider, model }
+  if (typeof rec.reasoningEffort === 'string' && rec.reasoningEffort) selection.reasoningEffort = rec.reasoningEffort
+  return selection
+}
+
 /**
- * 已知会话的当前模型选择: live 日志头(requestHeader) → 本插件记录 → live agent options。
- * 日志头优先于创建记录: session_select_model 换模型后日志头是事实, 记录只是提交当时的快照——
- * 沿用记录会让 session_result/session_list 一直回报创建时的旧模型。都没有(如 UI 建的未触达会话)返回 undefined。
+ * 读 live agent 的当前模型选择: 宿主 agent.model.current()(0.2.2 起, 已记录的下一步选择优先于
+ * 请求头与 options), 退回到建 agent 时的 options。宿主未提供该 API 的服务时返回 undefined。
+ */
+function agentModelSelectionOf(agent: unknown): ModelSelection | undefined {
+  const model = (agent as { model?: { current?: () => unknown } } | undefined)?.model
+  if (typeof model?.current !== 'function') return undefined
+  try {
+    return selectionValueOf(model.current())
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 已知会话的当前模型选择: live agent.model.current() → live 日志头(requestHeader) → 本插件记录 → options。
+ * current() 优先: 它把"已记录但下一个 step 才生效"的选择也算进来——session_select_model 之后、
+ * 下一次请求之前, 日志头仍是旧模型, 只有 current() 反映新选择。
  */
 export function knownSelectionOf(ctx: Context, sessionId: string): ModelSelection | undefined {
   const live = ctx.agents.get(asSessionId(sessionId))
   if (live) {
+    const current = agentModelSelectionOf(live)
+    if (current) return current
     const effective = selectionOfSession((live as { session?: unknown }).session)
     if (effective) return effective
   }
   const rec = state.sessionRecords.get(sessionId)
   if (rec) return rec.selection
-  if (live) {
-    const opts = (live as { options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }).options
-    const s = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
-    const provider = s(opts?.provider)
-    const model = s(opts?.model)
-    if (provider && model) {
-      const selection: ModelSelection = { provider, model }
-      const effort = s(opts?.reasoningEffort)
-      if (effort) selection.reasoningEffort = effort
-      return selection
-    }
-  }
+  if (live) return selectionValueOf((live as { options?: unknown }).options)
   return undefined
 }
 
-/** 读 live 会话自己的模型选择(接管时结果回报用; 优先日志里最后一条 request/header 的 config,
- * 没有请求头时退回建 agent 的 options; 都读不到就全空) */
+/** 读 live 会话自己的模型选择(接管时结果回报用; 优先日志里最后一条 request/header 的 config——
+ * "实际答了这一轮"的事实, 然后 agent.model.current() 的下一步选择, 最后退回建 agent 的 options;
+ * 都读不到就全空) */
 function selectionOfAgent(agent: unknown): ModelSelection {
   const effective = selectionOfSession((agent as { session?: unknown } | undefined)?.session)
   if (effective) return effective
-  const opts = (agent as { options?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } } | undefined)?.options
-  const s = (v: unknown) => (typeof v === 'string' ? v : '')
-  const provider = s(opts?.provider)
-  const model = s(opts?.model)
-  const reasoningEffort = s(opts?.reasoningEffort)
-  return reasoningEffort ? { provider, model, reasoningEffort } : { provider, model }
+  const current = agentModelSelectionOf(agent)
+  if (current) return current
+  return selectionValueOf((agent as { options?: unknown } | undefined)?.options) ?? { provider: '', model: '' }
 }
 
 /** 定位一个已存在会话的 cwd(本插件记录 → live header → 持久化 header), 找不到返回 undefined */

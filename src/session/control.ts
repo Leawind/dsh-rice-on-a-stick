@@ -10,11 +10,21 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
-import { asSessionId, eventsOf, findSessionHeader, inspectSessionEvents } from '../host/bridge.js'
+import { asSessionId, eventsOf, findSessionHeader, inspectSessionEvents, selectionOfSession } from '../host/bridge.js'
 import { knownSelectionOf } from './engine.js'
 import { latestRequestFor, requestOf } from './requests.js'
 import { state } from '../core/state.js'
-import { buildTurnResult, clipText, findRequestMessage, findRequestTurn, lastAssistantTextOf, lastTurnOf, queuedCountOf, selectionOfEvents } from './turn.js'
+import {
+  answeredSelectionOfEvents,
+  buildTurnResult,
+  clipText,
+  findRequestMessage,
+  findRequestTurn,
+  lastAssistantTextOf,
+  lastTurnOf,
+  queuedCountOf,
+  selectionOfEvents,
+} from './turn.js'
 import { approvalEntriesFor } from './approvals.js'
 import { questionEntriesFor } from './questions.js'
 import { renderResult, renderUriResult } from './projection.js'
@@ -233,7 +243,10 @@ export async function sessionResult(
   }
 
   const log = events ?? (await inspectSessionEvents(ctx, asSessionId(sessionId)))
-  const selection: ModelSelection = knownSelectionOf(ctx, sessionId) ?? selectionOfEvents(log) ?? { provider: '', model: '' }
+  const selection: ModelSelection = (live !== undefined ? selectionOfSession(live.session) : undefined) ??
+    answeredSelectionOfEvents(log) ??
+    knownSelectionOf(ctx, sessionId) ??
+    selectionOfEvents(log) ?? { provider: '', model: '' }
   const range = findRequestTurn(log, record.requestId, record.messageId, record.startSeq)
   if (range === undefined) {
     const note = 'request is accepted but no turn has claimed it yet; poll again'

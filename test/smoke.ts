@@ -38,7 +38,7 @@ import { MAX_ATTACHMENTS } from '../lib/mcp/tools/session-actions.js'
 import { approvalPolicyOfEvents } from '../lib/session/approvals.js'
 import { createAnswerRuntime } from '../lib/session/answers.js'
 import { state } from '../lib/core/state.js'
-import { pendingApprovalsOf } from '../lib/session/turn.js'
+import { pendingApprovalsOf, selectionOfEvents } from '../lib/session/turn.js'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { Config as ConfigSchema, DEFAULTS, authTokenHint } from '../lib/core/config.js'
 import { DEFAULT_HOST, DEFAULT_PORT, DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_SESSION_TTL_MS } from '../src/core/config-defaults.ts'
@@ -336,7 +336,10 @@ try {
   })
   const subInner = subList.status === 200 ? innerOf(subList) : { error: 'bad' }
   checks['session_subagents: 直接子级目录'] =
-    subInner.subagents?.[0]?.sessionId === 'sess-child' && subInner.subagents?.[0]?.mode === 'continuable' && subInner.subagents?.[0]?.activity === 'running'
+    subInner.subagents?.[0]?.sessionId === 'sess-child' &&
+    subInner.subagents?.[0]?.mode === 'continuable' &&
+    subInner.subagents?.[0]?.name === 'reviewer' &&
+    subInner.subagents?.[0]?.activity === 'running'
   const subTree = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 96,
@@ -344,10 +347,11 @@ try {
     params: { name: 'session_subagents', arguments: { parentSessionId: 'sess-live', recursive: true } },
   })
   const subTreeInner = subTree.status === 200 ? innerOf(subTree) : { error: 'bad' }
-  checks['session_subagents: 递归后代带 parentId/depth'] =
+  checks['session_subagents: 递归后代带 parentId/depth/path'] =
     subTreeInner.subagents?.[1]?.sessionId === 'sess-grandchild' &&
     subTreeInner.subagents?.[1]?.parentId === 'sess-child' &&
-    subTreeInner.subagents?.[1]?.depth === 2
+    subTreeInner.subagents?.[1]?.depth === 2 &&
+    subTreeInner.subagents?.[1]?.path === 'reviewer/worker'
 
   // 原生子代理控制面: interrupt 走 user 权限; send 只有原生面有 sender(外部 MCP 明确拒绝)
   const subInt = await rpc(init.sid, {
@@ -2728,6 +2732,20 @@ try {
     const list = await phase.call('session_list', {})
     const row = innerOf(list).sessions?.find((s: any) => s.sessionId === 'sess-select')
     checks['模型回报: 换模型后 session_list 反映新模型'] = row?.provider === 'p2' && row?.model === 'm9'
+    // 已选但尚未发出请求(0.2.2: 宿主写 model/selection, 下一个 step 才进 request/header):
+    // 清单/元数据按 agent.model.current() 回报新选择, 结果回报仍按实际答过这一轮的日志头。
+    agent.session.requestHeader = () => ({ config: { provider: 'p1', model: 'm1' } })
+    agent.model = { current: () => ({ provider: 'p2', model: 'm9' }) }
+    const pendingList = await phase.call('session_list', {})
+    const pendingRow = innerOf(pendingList).sessions?.find((s: any) => s.sessionId === 'sess-select')
+    checks['模型回报: 尚未发请求的新选择经 agent.model.current() 进清单'] = pendingRow?.provider === 'p2' && pendingRow?.model === 'm9'
+    const answered = await phase.call('session_result', { sessionId: 'sess-select' })
+    checks['模型回报: 结果仍按日志头回报已答模型'] = innerOf(answered).model?.provider === 'p1' && innerOf(answered).model?.model === 'm1'
+    checks['模型回报: 冷日志里 model/selection 晚于日志头时以它为准'] =
+      selectionOfEvents([
+        { type: 'request/header', data: { header: { config: { provider: 'p1', model: 'm1' } } } },
+        { type: 'model/selection', data: { provider: 'p2', model: 'm9' } },
+      ])?.provider === 'p2'
     await phase.dispose()
   }
 

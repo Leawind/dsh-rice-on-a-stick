@@ -158,7 +158,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List native subagents',
       description:
-        "Read a session's native subagent catalog; `recursive=true` adds descendants with `parentId`/`depth`. Directory only — it does not load or resume the child; drive one with the session tools. Output is TOON tabular text.",
+        "Read a session's native subagent catalog; `recursive=true` adds descendants with `parentId`/`depth`/`path`. Directory only — it does not load or resume the child; drive one with the session tools. Output is TOON tabular text.",
       inputSchema: {
         parentSessionId: z.string().describe('Parent session id.'),
         recursive: z.boolean().optional().describe('true = list all reachable descendants; default = direct children only.'),
@@ -185,9 +185,11 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
               sessionId: String(row.id),
               createdAt: row.createdAt,
               mode: row.mode,
+              ...(row.name !== undefined ? { name: row.name } : {}),
               ...(row.label !== undefined ? { label: row.label } : {}),
               ...(row.parentId !== undefined ? { parentId: String(row.parentId) } : {}),
               ...(row.depth !== undefined ? { depth: row.depth } : {}),
+              ...(row.path !== undefined ? { path: row.path } : {}),
               ...(row.kind !== undefined ? { kind: row.kind } : {}),
               ...(row.activity !== undefined ? { activity: row.activity } : {}),
               ...(row.hasChildren !== undefined ? { hasChildren: row.hasChildren } : {}),

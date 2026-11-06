@@ -370,28 +370,56 @@ export function pendingApprovalsOf(events: readonly unknown[]): PendingApproval[
   return [...pending.values()]
 }
 
+/** request/header 事件 → 该请求实际使用的模型选择 */
+function headerSelectionOf(ev: ReturnType<typeof asEvent>): ModelSelection | undefined {
+  const d = ev.data as
+    | {
+        header?: { config?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }
+      }
+    | undefined
+  const config = d?.header?.config
+  const provider = typeof config?.provider === 'string' ? config.provider : ''
+  const model = typeof config?.model === 'string' ? config.model : ''
+  if (!provider || !model) return undefined
+  return {
+    provider,
+    model,
+    ...(typeof config?.reasoningEffort === 'string' && config.reasoningEffort ? { reasoningEffort: config.reasoningEffort } : {}),
+  }
+}
+
 /**
- * 从日志最后一条 request/header 读模型选择。
- * 冷会话/插件重启后已知选择索引可能为空, 日志头是同一事实的持久来源(与界面打开旧会话一致)。
+ * 从日志最后一条 request/header 读"实际答过这一轮"的模型(不含尚未被请求消费的 model/selection)。
+ * 结果回报用它; 清单/元数据要下一步的当前选择, 用 selectionOfEvents。
+ */
+export function answeredSelectionOfEvents(events: readonly unknown[]): ModelSelection | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = asEvent(events[i])
+    if (ev.type === 'request/header') return headerSelectionOf(ev)
+  }
+  return undefined
+}
+
+/**
+ * 从日志读当前模型选择: 最后一条 request/header(实际用过)或 model/selection(选中但可能尚未使用,
+ * session_select_model 在 0.2.2 起只写后者), 取时间上最新的一条。
+ * 冷会话/插件重启后已知选择索引可能为空, 日志是同一事实的持久来源(与界面打开旧会话一致)。
  */
 export function selectionOfEvents(events: readonly unknown[]): ModelSelection | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = asEvent(events[i])
-    if (ev.type !== 'request/header') continue
-    const d = ev.data as
-      | {
-          header?: { config?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }
-        }
-      | undefined
-    const config = d?.header?.config
-    const provider = typeof config?.provider === 'string' ? config.provider : ''
-    const model = typeof config?.model === 'string' ? config.model : ''
-    if (!provider || !model) return undefined
-    return {
-      provider,
-      model,
-      ...(typeof config?.reasoningEffort === 'string' && config.reasoningEffort ? { reasoningEffort: config.reasoningEffort } : {}),
+    if (ev.type === 'model/selection') {
+      const d = ev.data as { provider?: unknown; model?: unknown; reasoningEffort?: unknown } | undefined
+      const provider = typeof d?.provider === 'string' ? d.provider : ''
+      const model = typeof d?.model === 'string' ? d.model : ''
+      if (!provider || !model) return undefined
+      return {
+        provider,
+        model,
+        ...(typeof d?.reasoningEffort === 'string' && d.reasoningEffort ? { reasoningEffort: d.reasoningEffort } : {}),
+      }
     }
+    if (ev.type === 'request/header') return headerSelectionOf(ev)
   }
   return undefined
 }
