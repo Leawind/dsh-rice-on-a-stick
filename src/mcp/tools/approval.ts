@@ -117,6 +117,16 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ sessionId, policy }) => {
+      // 委派子会话的审批策略在创建时固定: 驱动方不能中途把审批关掉(宿主 UI 仍可切)
+      if (state.delegations.has(sessionId)) {
+        return outError(
+          JSON.stringify({
+            error:
+              `session "${sessionId}" is a rice delegation: its approval policy is fixed at creation and cannot be changed from this tool. ` +
+              'Create a new delegation with the intended policy, or switch it in the dsh UI (a human decision).',
+          }),
+        )
+      }
       try {
         const live = ctx.agents.get(asSessionId(sessionId)) as { session: unknown } | undefined
         if (live === undefined) {

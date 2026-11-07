@@ -408,7 +408,7 @@ export async function invokeEndpoint(
   ctx: Context,
   endpoint: string,
   args: Record<string, unknown>,
-  opts: { signal?: AbortSignal } = {},
+  opts: { signal?: AbortSignal; sessionId?: string } = {},
 ): Promise<EndpointCallOutcome> {
   const { signal } = opts
   const slash = endpoint.indexOf('/')
@@ -440,7 +440,11 @@ export async function invokeEndpoint(
   if ('error' in peer) return { ok: false, error: peer.error }
   // 白名单外的调用: 停泊等面板审批, 允许才落到网关(可达性检查已过, 停泊不会白等)
   if (cls.approvalRequired === true) {
-    const verdict = await parkCall(endpoint, args, signal, { description: inv.description, readOnly: cls.readOnly })
+    const verdict = await parkCall(endpoint, args, signal, {
+      description: inv.description,
+      readOnly: cls.readOnly,
+      ...(opts.sessionId !== undefined && opts.sessionId !== '' ? { sessionId: opts.sessionId } : {}),
+    })
     if (verdict !== 'allowed') return { ok: false, error: callDeclineError(verdict, endpoint) }
   }
   try {
@@ -475,8 +479,10 @@ export interface ParkedCallInfo {
   description?: string
   /** 中文描述(开发期元数据): 审批卡按界面语言回退 */
   descriptionZh?: string
-  /** 英文描述(开发期元数据): 审批卡按界面语语言回退 */
+  /** 英文描述(开发期元数据): 审批卡按界面语言回退 */
   descriptionEn?: string
+  /** 调用归属会话(审批卡显示"谁发起的"); 由 endpoint_call 的 sessionId 参数给出, 不参与鉴权 */
+  sessionId?: string
 }
 
 interface ParkedCall extends ParkedCallInfo {
@@ -508,7 +514,7 @@ function parkCall(
   endpoint: string,
   args: Record<string, unknown>,
   signal: AbortSignal | undefined,
-  display: { description?: string; readOnly?: boolean } = {},
+  display: { description?: string; readOnly?: boolean; sessionId?: string } = {},
 ): Promise<CallVerdict> {
   if (signal?.aborted === true) return Promise.resolve('cancelled')
   const meta = endpointMetaOf(endpoint)
@@ -525,6 +531,7 @@ function parkCall(
     ...(meta?.description?.en !== undefined ? { descriptionEn: meta.description.en } : {}),
     ...(display.description !== undefined ? { description: display.description } : {}),
     ...(display.readOnly === true ? { readOnly: true } : {}),
+    ...(display.sessionId !== undefined ? { sessionId: display.sessionId } : {}),
     args,
     settled: false,
     // 先占位再赋值(闭包里引用 entry, 不能写在对象字面量里)
@@ -570,6 +577,7 @@ export function listParkedCalls(): ParkedCallInfo[] {
     ...(p.description !== undefined ? { description: p.description } : {}),
     ...(p.descriptionZh !== undefined ? { descriptionZh: p.descriptionZh } : {}),
     ...(p.descriptionEn !== undefined ? { descriptionEn: p.descriptionEn } : {}),
+    ...(p.sessionId !== undefined ? { sessionId: p.sessionId } : {}),
   }))
 }
 

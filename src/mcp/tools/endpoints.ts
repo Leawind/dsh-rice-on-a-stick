@@ -82,13 +82,20 @@ export function registerEndpointTools(mcp: McpServer, ctx: Context): void {
           .describe('Exact endpoint "namespace/method" (allowed=true or approvalRequired in endpoint_describe; stream endpoints are not callable).'),
         // 不用 z.record(双 zod 实例下 tools/list 会崩, 见 AGENTS.md 踩坑记录): looseObject 走 object 处理器
         args: z.looseObject({}).optional().describe('Named wire arguments of the endpoint.'),
+        sessionId: z
+          .string()
+          .optional()
+          .describe('Session this call is made on behalf of (attribution only, shown in the parked approval card; not an authorization gate).'),
       },
       // 可直行白名单内的写端点(含元数据 dangerous 的): 非只读且可破坏, 标 false 会误导客户端审批 UI
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ endpoint, args }, extra) => {
+    async ({ endpoint, args, sessionId }, extra) => {
       try {
-        const r = await invokeEndpoint(ctx, endpoint, args ?? {}, { signal: extra?.signal })
+        const r = await invokeEndpoint(ctx, endpoint, args ?? {}, {
+          signal: extra?.signal,
+          ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
+        })
         if (!r.ok) return outError(JSON.stringify({ error: r.error }))
         let rendered: string
         try {

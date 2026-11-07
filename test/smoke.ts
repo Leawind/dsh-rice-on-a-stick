@@ -446,6 +446,21 @@ try {
   checks['session_create: 委派簿记写入插件 ledger(不写宿主 header)'] =
     state.delegations.get(mkChildInner.sessionId)?.parentSessionId === 'sess-live' &&
     state.delegationById.get(mkChildInner.delegationId)?.sessionId === mkChildInner.sessionId
+  // 委派子会话的权限/审批策略在创建时固定: 驱动方不能中途换宽(宿主 UI 仍可切)
+  const childPerm = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 1121,
+    method: 'tools/call',
+    params: { name: 'session_set_permission', arguments: { sessionId: mkChildInner.sessionId, permission: 'danger-full-access' } },
+  })
+  checks['委派: 权限固定, 子会话不能中途换宽'] = String(innerOf(childPerm).error ?? '').includes('fixed at creation')
+  const childPolicy = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 1122,
+    method: 'tools/call',
+    params: { name: 'approval_policy_set', arguments: { sessionId: mkChildInner.sessionId, policy: 'never' } },
+  })
+  checks['委派: 审批策略固定, 子会话不能中途关审批'] = String(innerOf(childPolicy).error ?? '').includes('fixed at creation')
 
   // 省略 permission = 继承宿主默认预设(宿主在创建时固定), 且不额外调用 set
   const mkDefaultPerm = await rpc(init.sid, {
@@ -1975,13 +1990,14 @@ try {
     checks['端点契约: 未知端点明确报错'] = String(innerOf(unknown).error ?? '').includes('unknown endpoint')
 
     // 只读端点也走白名单闸门: 未入白名单先停泊, 允许后执行一次
-    let heldRead: { approvalId: string; endpoint: string } | undefined
-    const callRead = phase.call('endpoint_call', { endpoint: 'session/modelCatalog' })
+    let heldRead: { approvalId: string; endpoint: string; sessionId?: string } | undefined
+    const callRead = phase.call('endpoint_call', { endpoint: 'session/modelCatalog', sessionId: 'sess-attrib' })
     checks['端点调用: 只读端点未入白名单也停泊进台账(不执行)'] =
       (await waitFor(() => {
         heldRead = listParkedCalls().find((p) => p.endpoint === 'session/modelCatalog')
         return heldRead !== undefined && typeof heldRead.approvalId === 'string'
       })) && endpointInvokes.length === 0
+    checks['端点调用: 停泊卡带上调用归属会话'] = heldRead?.sessionId === 'sess-attrib'
     answerParkedCall(heldRead!.approvalId, 'allow')
     const callOk = await callRead
     const callOkPayload = innerOf(callOk) as any

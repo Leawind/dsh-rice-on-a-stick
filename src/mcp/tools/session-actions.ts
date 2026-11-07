@@ -338,6 +338,16 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ sessionId, permission }) => {
+      // 委派子会话的权限在创建时固定: 驱动方不能中途把它换成更宽的预设(宿主 UI 仍可切, 那是人的决定)
+      if (state.delegations.has(sessionId)) {
+        return outError(
+          JSON.stringify({
+            error:
+              `session "${sessionId}" is a rice delegation: its permission preset is fixed at creation and cannot be changed from this tool. ` +
+              'Create a new delegation with the intended permission, or switch it in the dsh UI (a human decision).',
+          }),
+        )
+      }
       if (permissionPresetsOf(ctx) === undefined) {
         return outError(JSON.stringify({ error: 'the host permission-presets service is unavailable (this deployment composes no permission presets)' }))
       }
