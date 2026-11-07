@@ -133,10 +133,10 @@ const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 /**
  * 原生面体积预算: rice_ 工具的 描述+parameters 每请求都随工具面发给模型。
- * TS 签名投影(ts-signature.ts)后实测 18,362 B——parameters 是空壳, 增长基本只来自
+ * TS 签名投影(ts-signature.ts)后实测 19,429 B——parameters 是空壳, 增长基本只来自
  * 描述与参数文档; JSON Schema 时代的基线是 22,308 B。要加工具就同步上调, 让增长被显式评审。
  */
-const NATIVE_SURFACE_BUDGET = 19_000
+const NATIVE_SURFACE_BUDGET = 20_000
 
 try {
   // ── Phase A(主流程): 无认证、无白名单, 端口 8099 ──
@@ -826,6 +826,17 @@ try {
   checks['session_poll waitMs 观察到状态变化'] = slowPollInner.changed === true && slowPollInner.sessions?.[0]?.state === 'idle'
   await waitFor(() => slowAgents.find((a) => a.session.id === 'sess-slow')?.status === 'idle', 5000)
   await slowPrompt
+
+  // settled 口径: 无 turn/无排队; include=results 附最近一次请求的结果摘要(opt-in)
+  const settledPoll = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 302,
+    method: 'tools/call',
+    params: { name: 'session_poll', arguments: { sessionIds: ['sess-slow'], waitMs: 0, until: 'settled', include: 'results' } },
+  })
+  const settledInner = innerOf(settledPoll)
+  checks['session_poll: settled 口径 + until=settled 立即返回'] = settledInner.settled === true && settledInner.sessions?.[0]?.settled === true
+  checks['session_poll: include=results 附结果摘要'] = typeof settledInner.sessions?.[0]?.result?.status === 'string'
 
   const cancelIdle = await rpc(init.sid, {
     jsonrpc: '2.0',

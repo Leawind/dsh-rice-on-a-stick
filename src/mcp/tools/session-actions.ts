@@ -361,7 +361,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Poll sessions',
       description:
-        'Observe many sessions at once: per-session `state`, `lastTurn`, `queued`, `pendingApprovals`/`pendingQuestions`, `cursor`. `waitMs` > 0 long-polls until any watched session changes (`changed`/`timedOut`).',
+        'Observe many sessions at once: per-session `state`, `settled`, `lastTurn`, `queued`, `pendingApprovals`/`pendingQuestions`, `cursor`. `waitMs` > 0 long-polls until any watched session changes (`changed`/`timedOut`); `until="settled"` waits for a session with no running turn and no queued messages, and `include="results"` attaches each settled session\'s last result summary.',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to observe (1-20).'),
         waitMs: z
@@ -371,6 +371,16 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           .max(POLL_MAX_WAIT_MS)
           .optional()
           .describe(`Maximum wait in milliseconds (0-${POLL_MAX_WAIT_MS}; default 0 = return immediately).`),
+        until: z
+          .enum(['change', 'settled'])
+          .optional()
+          .describe(
+            'change (default) = any observed field changed; settled = a watched session has no running turn and no queued messages (already-settled sessions return immediately).',
+          ),
+        include: z
+          .enum(['status', 'results'])
+          .optional()
+          .describe("status (default) = state only; results = also attach each settled session's last result summary (opt-in; costs tokens)."),
         lastMessageDetail: z
           .enum(['summary', 'normal', 'full'])
           .optional()
@@ -380,9 +390,9 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionIds, waitMs, lastMessageDetail }, extra) => {
+    async ({ sessionIds, waitMs, until, include, lastMessageDetail }, extra) => {
       try {
-        const payload = await pollSessions(ctx, sessionIds, { waitMs, detail: lastMessageDetail, signal: extra.signal })
+        const payload = await pollSessions(ctx, sessionIds, { waitMs, until, include, detail: lastMessageDetail, signal: extra.signal })
         return out(JSON.stringify(payload))
       } catch (e) {
         return outError(JSON.stringify({ error: (e as Error)?.message ?? String(e) }))

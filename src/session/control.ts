@@ -31,6 +31,10 @@ const DETAIL_TEXT_CAP: Record<DetailLevel, number> = { summary: 600, normal: 200
 export interface PollOptions {
   waitMs?: number
   detail?: DetailLevel
+  /** change(默认)= 任一观察字段变化就返回; settled = 任一被观察会话收敛(turn 结束且队列空)就返回 */
+  until?: 'change' | 'settled'
+  /** results = 对已收敛会话附上最近一次请求的结果摘要(opt-in, 会多花 token) */
+  include?: 'status' | 'results'
   signal?: AbortSignal
 }
 
@@ -53,9 +57,12 @@ async function pollOne(ctx: Context, sessionId: string, detail: DetailLevel, hea
     const queued = queuedCountOf(live)
     const lastMessage = lastAssistantTextOf(events)
     const header = live.session.header
+    const state = approvals.length > 0 ? 'waiting-approval' : questions.length > 0 ? 'waiting-question' : live.status === 'running' ? 'running' : 'idle'
     return {
       sessionId,
-      state: approvals.length > 0 ? 'waiting-approval' : questions.length > 0 ? 'waiting-question' : live.status === 'running' ? 'running' : 'idle',
+      state,
+      // 收敛口径: 没有待回答、没有在跑的 turn、没有排队消息; 读不到 queued 时按 0 处理(只影响等待判定)
+      settled: state === 'idle' && (queued ?? 0) === 0,
       ...(header.cwd !== undefined ? { cwd: header.cwd } : {}),
       ...(header.agentPreset !== undefined ? { preset: header.agentPreset } : {}),
       ...(header.parentSession !== undefined ? { parentSession: String(header.parentSession) } : {}),
@@ -75,10 +82,11 @@ async function pollOne(ctx: Context, sessionId: string, detail: DetailLevel, hea
     header = (await findSessionHeader(ctx, asSessionId(sessionId))) ?? null
     headerCache.set(sessionId, header)
   }
-  if (header === null) return { sessionId, state: 'not-found' }
+  if (header === null) return { sessionId, state: 'not-found', settled: false }
   return {
     sessionId,
     state: 'inactive',
+    settled: true,
     ...(header.cwd !== undefined ? { cwd: header.cwd } : {}),
     ...(header.agentPreset !== undefined ? { preset: header.agentPreset } : {}),
     ...(header.parentSession !== undefined ? { parentSession: String(header.parentSession) } : {}),
@@ -94,6 +102,7 @@ function fingerprintOf(sessions: Record<string, unknown>[]): string {
       [
         String(s.sessionId),
         String(s.state),
+        String(s.settled ?? ''),
         String(s.cursor ?? ''),
         String(s.queued ?? ''),
         JSON.stringify(s.lastTurn ?? null),
@@ -126,25 +135,55 @@ export async function pollSessions(ctx: Context, sessionIds: readonly string[], 
     for (const sessionId of sessionIds) sessions.push(await pollOne(ctx, sessionId, detail, headerCache))
     return { sessions, fingerprint: fingerprintOf(sessions) }
   }
+  const settledOf = (snapshot: PollSnapshot): boolean => snapshot.sessions.some((s) => s.settled === true)
+  /** include=results: 对已收敛会话附上最近一次请求的结果摘要; 单条失败只丢该条, 不拖垮整次 poll */
+  const withResults = async (snapshot: PollSnapshot): Promise<PollSnapshot> => {
+    if (opts.include !== 'results') return snapshot
+    for (const row of snapshot.sessions) {
+      if (row.settled !== true || row.state === 'not-found') continue
+      const sessionId = String(row.sessionId)
+      const record = latestRequestFor(sessionId)
+      if (record === undefined) continue
+      try {
+        row.result = await sessionResult(ctx, sessionId, record.requestId, { detail: 'summary' })
+      } catch {
+        // 结果面读不到时保留状态行即可
+      }
+    }
+    return snapshot
+  }
 
   const first = await collect()
-  if (waitMs === 0) {
-    return present(first, { changed: false, timedOut: false, retryAfterMs: 1000 })
+  const firstSettled = settledOf(first)
+  if (waitMs === 0 || (opts.until === 'settled' && firstSettled)) {
+    return present(await withResults(first), {
+      changed: false,
+      timedOut: false,
+      settled: firstSettled,
+      retryAfterMs: waitMs === 0 ? 1000 : 0,
+    })
   }
 
   const deadline = Date.now() + waitMs
   while (Date.now() < deadline) {
     if (opts.signal?.aborted) {
-      return present(first, { changed: false, timedOut: false, cancelled: true, retryAfterMs: 0 })
+      return present(await withResults(first), { changed: false, timedOut: false, settled: firstSettled, cancelled: true, retryAfterMs: 0 })
     }
     await sleep(Math.min(POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())))
     const next = await collect()
-    if (next.fingerprint !== first.fingerprint) {
-      return present(next, { changed: true, timedOut: false, retryAfterMs: 0 })
+    const settled = settledOf(next)
+    const fire = opts.until === 'settled' ? settled : next.fingerprint !== first.fingerprint
+    if (fire) {
+      return present(await withResults(next), { changed: next.fingerprint !== first.fingerprint, timedOut: false, settled, retryAfterMs: 0 })
     }
   }
   const last = await collect()
-  return present(last, { changed: last.fingerprint !== first.fingerprint, timedOut: true, retryAfterMs: 1000 })
+  return present(await withResults(last), {
+    changed: last.fingerprint !== first.fingerprint,
+    timedOut: true,
+    settled: settledOf(last),
+    retryAfterMs: 1000,
+  })
 }
 
 /**
