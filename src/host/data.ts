@@ -244,6 +244,11 @@ export interface SessionQuery {
    * 缺席时视为没有会话被归档, active 与 all 等价。行上仍带 archived 标记。
    */
   scope?: SessionScope
+  /**
+   * 只列插件委派簿记里以该会话为父的会话(直接子级; 不含原生 subagent 目录)。
+   * 这是 rice 自己的树, 不是宿主 header 的 parentSession。
+   */
+  parentSessionId?: string
 }
 
 /** 会话清单一行的来源(整份清单与单会话读取共用同一份行投影) */
@@ -267,6 +272,7 @@ function projectRow(ctx: Context, header: SessionHeader, sources: RowSources, ar
   // 权限预设只对 live 行推导(宿主投影读取; 冷会话推导需要读日志, 清单面不为它付 I/O)
   const liveSession = sources.liveOf(header.id)
   const permission = liveSession === undefined ? undefined : currentPermissionOf(ctx, liveSession)
+  const delegation = state.delegations.get(header.id)
   return {
     sessionId: header.id,
     createdAt: header.createdAt,
@@ -279,6 +285,14 @@ function projectRow(ctx: Context, header: SessionHeader, sources: RowSources, ar
     ...(header.parentSession !== undefined ? { parentSession: String(header.parentSession) } : {}),
     ...(header.origin !== undefined ? { origin: header.origin } : {}),
     ...(header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {}),
+    // rice 自己的委派簿记(与上面的原生谱系字段分开命名, 不冒充宿主事实)
+    ...(delegation !== undefined
+      ? {
+          delegationId: delegation.delegationId,
+          ...(delegation.parentSessionId !== undefined ? { delegationParent: delegation.parentSessionId } : {}),
+          ...(delegation.label !== undefined ? { delegationLabel: delegation.label } : {}),
+        }
+      : {}),
     ...(model ? { model: projectModel(model) } : {}),
   }
 }
@@ -480,9 +494,12 @@ export async function collectSessions(
   const archivedIds = new Set(archivedSessionIdsOf(ctx))
   // 范围默认 active: 归档 = 软删除, 不主动出现在清单里
   const scope: SessionScope = query.scope ?? 'active'
+  // 委派树过滤: 只保留 rice 簿记里 parentSessionId 匹配的直接子级(不碰原生 subagent 目录)
+  const parentFilter = query.parentSessionId?.trim()
   const visible = [...headers.values()].filter((h) => {
     // 归档范围只看归档集合本身, 不影响 cwd/标题过滤的语义
     if (scope !== 'all' && archivedIds.has(h.id) !== (scope === 'archived')) return false
+    if (parentFilter !== undefined && parentFilter !== '' && state.delegations.get(h.id)?.parentSessionId !== parentFilter) return false
     const sessionCwd = h.cwd
     return filterRoot === undefined || (sessionCwd !== undefined && isWithin(filterRoot, sessionCwd))
   })

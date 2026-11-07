@@ -115,6 +115,8 @@ const ctx = makeCtx({
   extraSessions: [
     { id: 'sess-forked', cwd: FAKE_CWD },
     { id: 'sess-blank', cwd: FAKE_CWD },
+    // 委派树过滤夹具: 只有插件簿记把它登记为 sess-live 的子级(宿主 header 不带任何谱系字段)
+    { id: 'sess-ledger-child', cwd: FAKE_CWD },
   ],
 })
 
@@ -228,6 +230,15 @@ try {
     nativeNoAgentError = String((e as Error)?.message ?? e)
   }
   checks['原生自用工具: 无 agent 上下文时省略 sessionId 明确报错'] = nativeNoAgentError.includes('sessionId is required')
+  // 委派谱系: 原生面省略 parentSessionId 时记录调用方为父(记录"谁创建了它"这一事实, 不替调用方选模型/权限)
+  const nativeCreateDef = ctx.tools.get('rice_session_create')
+  const nativeCreateValue = await nativeCreateDef.execute(
+    { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'native delegated child' },
+    { signal: new AbortController().signal, agent: liveAgent } as any,
+  )
+  const nativeCreateJson = JSON.parse(nativeCreateDef.output.render({}, nativeCreateValue)[0]?.text ?? '{}')
+  checks['原生自用工具: session_create 记录调用方为委派父'] =
+    typeof nativeCreateJson.delegationId === 'string' && nativeCreateJson.delegationId.length > 0 && nativeCreateJson.delegationParent === 'sess-live'
 
   const init = await rpc(undefined, {
     jsonrpc: '2.0',
@@ -382,6 +393,31 @@ try {
   // 创建结果回显解析出的工作区(侧边栏分组事实), 让调用方无需二次查询即可核对归属
   checks['session_create 回显解析出的工作区'] = mkInner.workspace?.id === 'ws-fake' && mkInner.workspace?.path === FAKE_CWD
   checks['session_create title 经 sessionTitle.rename'] = fakeSessionTitle.renamed.some((r) => r.title === 'smoke 会话')
+
+  // 委派簿记: 显式父 + label —— 只记插件自己的树(不写宿主 header)
+  const mkChild = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 1120,
+    method: 'tools/call',
+    params: {
+      name: 'session_create',
+      arguments: {
+        workspacePath: FAKE_CWD,
+        provider: 'p1',
+        model: 'm1',
+        preset: 'standard',
+        task: 'delegated child probe',
+        parentSessionId: 'sess-live',
+        label: 'worker-a',
+      },
+    },
+  })
+  const mkChildInner = mkChild.status === 200 ? innerOf(mkChild) : { error: 'bad' }
+  checks['session_create: 委派簿记回显 delegationId/父/标签'] =
+    typeof mkChildInner.delegationId === 'string' && mkChildInner.delegationParent === 'sess-live' && mkChildInner.delegationLabel === 'worker-a'
+  checks['session_create: 委派簿记写入插件 ledger(不写宿主 header)'] =
+    state.delegations.get(mkChildInner.sessionId)?.parentSessionId === 'sess-live' &&
+    state.delegationById.get(mkChildInner.delegationId)?.sessionId === mkChildInner.sessionId
 
   // 省略 permission = 继承宿主默认预设(宿主在创建时固定), 且不额外调用 set
   const mkDefaultPerm = await rpc(init.sid, {
@@ -1027,6 +1063,31 @@ try {
     slAllInner.sessions?.some((s: any) => s.sessionId === 'sess-persisted' && s.archived === false)
   const live2Row = slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live2')
   checks['session_list 投影原生子代理谱系字段'] = live2Row?.parentSession === 'sess-live' && live2Row?.origin === 'subagent' && live2Row?.delegationDepth === 1
+  // rice 委派树: 只列插件簿记里的直接子级(原生 subagent 谱系字段不混入)
+  state.delegations.set('sess-ledger-child', {
+    delegationId: 'del-ledger-child',
+    sessionId: 'sess-ledger-child',
+    parentSessionId: 'sess-live',
+    label: 'ledger-a',
+    createdAt: 1,
+    origin: 'mcp',
+    model: { provider: 'p1', model: 'm1' },
+    preset: 'standard',
+  })
+  const slTree = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 502,
+    method: 'tools/call',
+    params: { name: 'session_list', arguments: { parentSessionId: 'sess-live', scope: 'all' } },
+  })
+  const slTreeInner = innerOf(slTree)
+  const treeChild = slTreeInner.sessions?.find((s: any) => s.sessionId === 'sess-ledger-child')
+  checks['session_list: parentSessionId 过滤 rice 委派树'] =
+    slTreeInner.total === 1 &&
+    treeChild?.delegationParent === 'sess-live' &&
+    treeChild?.delegationLabel === 'ledger-a' &&
+    treeChild?.delegationId === 'del-ledger-child'
+  checks['session_list: 委派树不混入原生 subagent 谱系'] = !slTreeInner.sessions?.some((s: any) => s.sessionId === 'sess-live2')
   // 权限预设: live 行经宿主推导; 冷会话行不读日志(TOON 表格式下缺席字段以空串占位)
   checks['session_list: live 行回报权限预设'] =
     slAllInner.sessions?.find((s: any) => s.sessionId === 'sess-live')?.permission === 'workspace-write' &&

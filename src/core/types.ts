@@ -25,6 +25,29 @@ export interface SessionRecord {
 }
 
 /**
+ * 本插件自己的委派簿记(不写宿主 header: parent/child 是 rice 管理的委派关系,
+ * 不是 dsh 原生 subagent 谱系; 宿主 origin/parentSession 的语义留给原生机制)。
+ * 进程内记录, 插件重启后丢失——会话仍可操作, 只是树退化为平铺。
+ */
+export interface DelegationRecord {
+  /** 委派 id(创建时生成; 同一次委派之后的 session_send 不再新建记录) */
+  delegationId: string
+  /** 被创建的会话 */
+  sessionId: string
+  /** 创建者会话(原生 rice_ 调用方; 外部 MCP 无调用方时由调用方显式指定) */
+  parentSessionId?: string
+  /** 树上的短标签(同时用作未指定 title 时的会话标题) */
+  label?: string
+  createdAt: number
+  /** 创建来源: native = dsh 会话内自用工具面; mcp = 外部 MCP 客户端 */
+  origin: 'native' | 'mcp'
+  /** 创建时的显式选择回显(不是默认回填, 只是记录) */
+  model: ModelSelection
+  preset: string
+  permission?: string
+}
+
+/**
  * 消息投递模式(与宿主 agent-loop 的两个 inbox 目标同构):
  *   queue = 本轮结束后的新 turn(没有进行中的 turn 时等价于立刻开始);
  *   steer = 本轮的下一个 step 边界, 消息被消费后本轮继续(即"延长本轮", 不打断正在跑的 step)。

@@ -27,7 +27,7 @@ import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSession
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, sessionRowOf, type SessionControllerView } from '../../host/data.js'
 import { latestTitleOf, turnStepStatsOf } from '../../session/insight.js'
-import { errorJson, OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
+import { errorJson, currentSessionIdOf, OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
 
 /** workspaceController 视图(归档/恢复; 可选依赖) */
 interface WorkspaceControllerView {
@@ -201,6 +201,13 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         preset: z.string().describe('Preset id from `model_list` `presets` (required).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
         permission: z.string().optional().describe('Permission preset id from `permission_list`; omit = the host default.'),
+        parentSessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Parent session id recorded in the plugin delegation ledger (the rice tree view; not a host subagent field). Omit = the calling session on the native rice_ face; external MCP calls have no parent unless set.',
+          ),
+        label: z.string().min(1).max(120).optional().describe('Short delegation label for the tree; also used as the session title when `title` is omitted.'),
         task: z.string().describe('First message to deliver; mirrors `session_send.task`.'),
         attachments: ATTACHMENTS_ARG,
         mode: MODE_ARG,
@@ -210,7 +217,10 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ workspacePath, provider, model, reasoningEffort, preset, title, permission, task, attachments, mode, wait, requestId, detail }, extra) => {
+    async (
+      { workspacePath, provider, model, reasoningEffort, preset, title, permission, parentSessionId, label, task, attachments, mode, wait, requestId, detail },
+      extra,
+    ) => {
       try {
         // requestId 预检: 已被其他会话占用就在创建之前拒绝 —— 否则建完才失败, 会留下一个无任务的空白会话
         if (requestId !== undefined) {
@@ -227,11 +237,28 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           }
         }
         const selection = selectionOf({ provider, model, reasoningEffort })
-        const r = await createSession({ ctx, cwd: workspacePath, selection, preset, title, permission })
+        // 父会话: 显式值优先; 原生 rice_ 面省略时取调用方(记录"谁创建了它"这一事实, 不替调用方选模型/权限)。
+        // 外部 MCP 调用没有调用方会话, 省略即无父。
+        const callerSessionId = currentSessionIdOf(extra)
+        const parent = (parentSessionId?.trim() ?? '') || callerSessionId
+        const r = await createSession({
+          ctx,
+          cwd: workspacePath,
+          selection,
+          preset,
+          title: title ?? label,
+          permission,
+          ...(parent !== undefined ? { parentSessionId: parent } : {}),
+          ...(label !== undefined ? { label } : {}),
+          origin: callerSessionId !== undefined ? 'native' : 'mcp',
+        })
         try {
           const delivery = await deliverMessage(ctx, r.sessionId, { task, attachments, mode, wait, requestId, detail }, extra)
           const payload = {
             sessionId: r.sessionId,
+            delegationId: r.delegationId,
+            ...(r.delegationParent !== undefined ? { delegationParent: r.delegationParent } : {}),
+            ...(r.delegationLabel !== undefined ? { delegationLabel: r.delegationLabel } : {}),
             workspacePath: r.cwd,
             ...(r.workspace !== undefined ? { workspace: r.workspace } : {}),
             model: projectModel(r.selection),

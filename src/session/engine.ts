@@ -19,7 +19,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
 import { state } from '../core/state.js'
-import type { ModelSelection, ModelSelectionOverride, PendingInput, SendMode, SessionRecord, SessionRequestRecord, SessionTurnResult } from '../core/types.js'
+import type {
+  DelegationRecord,
+  ModelSelection,
+  ModelSelectionOverride,
+  PendingInput,
+  SendMode,
+  SessionRecord,
+  SessionRequestRecord,
+  SessionTurnResult,
+} from '../core/types.js'
 import { canonicalCwd, canonicalWorkdir } from '../core/paths.js'
 import { admitImages, type ImageBlockView, type ImageRefInput } from '../host/attachments.js'
 import { recordRequest, requestOf } from './requests.js'
@@ -193,6 +202,15 @@ export interface CreateSessionOptions {
    * 走 permissionPresets.set(与界面选择器、`/permission` 同源): 写预设记录 + 沙箱/审批两个权威旋钮。
    */
   permission?: string
+  /**
+   * 插件侧委派簿记的父会话(不写宿主 header: 这是 rice 自己的树, 不是原生 subagent 谱系)。
+   * 原生 rice_ 调用方默认取当前会话; 外部 MCP 调用没有调用方, 由调用方显式给出。
+   */
+  parentSessionId?: string
+  /** 树上的短标签(未指定 title 时也用作会话标题) */
+  label?: string
+  /** 簿记来源(只用于审计/界面, 不改变创建行为) */
+  origin?: 'native' | 'mcp'
 }
 
 /**
@@ -210,6 +228,12 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
   permission?: string
   /** 调用方指定的权限预设(仅请求时回报, 供确认实际生效值与请求一致) */
   permissionRequested?: string
+  /** 插件侧委派 id(与 sessionId 一起用于树/审计; 不写宿主 header) */
+  delegationId: string
+  /** 簿记里的父会话(仅请求时回报; 外部 MCP 未指定时无) */
+  delegationParent?: string
+  /** 簿记里的标签(仅请求时回报) */
+  delegationLabel?: string
 }> {
   const { ctx, cwd, selection, title, permission } = opts
   const presetName = await resolvePreset(ctx, opts.preset)
@@ -229,6 +253,22 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
   })
   const rec: SessionRecord = { sessionId: newSessionId, cwd: canonical, selection, preset: presetName }
   state.sessionRecords.set(String(newSessionId), rec)
+  // 委派簿记: 记在插件自己的账上(不写宿主 parentSession/origin——那不是 rice 的语义)。
+  // 权限切换失败时会话已存在, 记录保留(树里仍能看到这个会话)。
+  const delegationId = randomUUID()
+  const delegation: DelegationRecord = {
+    delegationId,
+    sessionId: String(newSessionId),
+    ...(opts.parentSessionId !== undefined && opts.parentSessionId !== '' ? { parentSessionId: opts.parentSessionId } : {}),
+    ...(opts.label !== undefined && opts.label !== '' ? { label: opts.label } : {}),
+    createdAt: Date.now(),
+    origin: opts.origin ?? 'mcp',
+    model: selection,
+    preset: presetName,
+    ...(permission !== undefined ? { permission } : {}),
+  }
+  state.delegations.set(String(newSessionId), delegation)
+  state.delegationById.set(delegationId, delegation)
   // 权限预设: 创建后立刻应用(与界面在会话建好后切换预设完全同源); 失败时会话已存在, 带上修复路径
   if (permission !== undefined) {
     try {
@@ -251,6 +291,9 @@ export async function createSession(opts: CreateSessionOptions): Promise<{
   const effectivePermission = currentPermissionOf(ctx, handle.agent.session)
   return {
     sessionId: String(newSessionId),
+    delegationId,
+    ...(opts.parentSessionId !== undefined && opts.parentSessionId !== '' ? { delegationParent: opts.parentSessionId } : {}),
+    ...(opts.label !== undefined && opts.label !== '' ? { delegationLabel: opts.label } : {}),
     cwd: canonical,
     ...(ws !== undefined ? { workspace: { id: ws.id, path: ws.path } } : {}),
     selection,

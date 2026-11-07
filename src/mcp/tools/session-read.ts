@@ -50,6 +50,12 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
           .optional()
           .describe('Only sessions in this directory or below (containment; workspace grouping itself is exact-path — see workspace_list).'),
         title: z.string().optional().describe('Only sessions whose title contains this text (case-insensitive); titleless sessions never match.'),
+        parentSessionId: z
+          .string()
+          .optional()
+          .describe(
+            'Only direct children of this session in the plugin delegation ledger (the rice tree; native subagent catalogs stay in `session_subagents`).',
+          ),
         scope: z.enum(['active', 'archived', 'all']).optional().describe('Which sessions to list: active (default), archived, or all.'),
         includeCold: z.boolean().optional().describe('Also match persisted-only sessions by title (bounded by `coldScanMax`; default false).'),
         coldScanMax: z
@@ -64,13 +70,13 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ limit, workspacePath, title, scope, includeCold, coldScanMax }, extra) => {
+    async ({ limit, workspacePath, title, parentSessionId, scope, includeCold, coldScanMax }, extra) => {
       try {
         const {
           total,
           sessions: items,
           titleSearch,
-        } = await collectSessions(ctx, { cwd: workspacePath, title, scope, includeCold, coldScanMax }, extra?.signal)
+        } = await collectSessions(ctx, { cwd: workspacePath, title, parentSessionId, scope, includeCold, coldScanMax }, extra?.signal)
         return toonOut({
           total,
           sessions: sessionRowsOf(items.slice(0, limit ?? 20)),

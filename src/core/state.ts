@@ -7,7 +7,7 @@
  * 本插件持有的 sessionRecords 只起"记住创建参数"的作用, 生命周期归宿主 registry。
  */
 import { DEFAULTS, type RuntimeConfig } from './config.js'
-import type { AnswerRuntime, SessionRecord, SessionRequestRecord } from './types.js'
+import type { AnswerRuntime, DelegationRecord, SessionRecord, SessionRequestRecord } from './types.js'
 
 /**
  * apply 绑定的通知钩子(缺省 no-op, 使数据层/引擎在无 MCP 面的部署形态下零通知开销)。
@@ -28,6 +28,10 @@ interface RuntimeState {
   config: RuntimeConfig
   /** 本插件创建/续接过的会话记录(常驻, 不淘汰——与界面行为一致; 生命周期归宿主 registry) */
   sessionRecords: Map<string, SessionRecord>
+  /** 委派簿记: sessionId → 记录(不写宿主 header, 见 DelegationRecord) */
+  delegations: Map<string, DelegationRecord>
+  /** 委派簿记: delegationId → 记录 */
+  delegationById: Map<string, DelegationRecord>
   /**
    * 异步请求索引(requestId → 记录): 只做当前进程的加速定位, TTL/上限淘汰。
    * requestId 本身写进 user 消息的 source.rpcId, 所以日志才是持久事实。
@@ -62,6 +66,8 @@ const UNAVAILABLE_ANSWERS: AnswerRuntime = {
 export const state: RuntimeState = {
   config: { ...DEFAULTS },
   sessionRecords: new Map(),
+  delegations: new Map(),
+  delegationById: new Map(),
   sessionRequests: new Map(),
   latestRequestBySession: new Map(),
   coldTitles: new Map(),

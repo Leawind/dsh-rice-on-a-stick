@@ -269,6 +269,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return () => {
       clearInterval(sessionWatcher)
       state.sessionRecords.clear()
+      state.delegations.clear()
+      state.delegationById.clear()
       state.sessionRequests.clear()
       state.latestRequestBySession.clear()
       state.coldTitles.clear()
