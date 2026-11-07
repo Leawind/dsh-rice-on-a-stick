@@ -125,6 +125,10 @@ export interface SubagentCatalogEntryView {
 export interface SubagentServiceView {
   listChildren?: (parentSessionId: SessionId, signal?: AbortSignal) => Promise<readonly SubagentCatalogEntryView[]>
   listDescendants?: (rootSessionId: SessionId, signal?: AbortSignal) => Promise<readonly SubagentCatalogEntryView[]>
+  /** 在树内向可继续子级发消息(原生面: sender 是调用方 agent; 外部 MCP 无 sender) */
+  sendMessage?: (sender: unknown, targetId: SessionId, content: readonly unknown[], options: { signal: AbortSignal }) => Promise<unknown>
+  /** 中断一个 live 子级(与界面 Stop 同源; user 是可信宿主操作) */
+  interrupt?: (targetSessionId: SessionId, authority: { kind: 'user' } | { kind: 'ancestor'; agent: unknown }) => void
 }
 
 /** 取原生子代理服务(可选依赖; 不加入 inject, 缺席不影响其他能力) */

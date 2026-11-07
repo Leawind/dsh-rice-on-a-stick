@@ -101,6 +101,8 @@ import {
   slowLiveAgent,
   slowLiveAgent2,
   steered,
+  subagentInterrupts,
+  subagentSends,
   waitFor,
   unarchived,
 } from './smoke-harness.ts'
@@ -125,20 +127,20 @@ const ctx = makeCtx({
 /**
  * 工具面体积预算(Phase A 的 tools/list / initialize 断言用)。
  * 依据: 这部分是每个会话常驻的系统提示成本, 宿主按 4 字符/token 估算;
- * 当前实测 35 个工具 / 31.9 KB / 描述合计 ~7.3 KB / instructions 1.3 KB。描述与参数说明已与 guide.md 收敛
+ * 当前实测 37 个工具 / 33.2 KB / 描述合计 ~7.7 KB / instructions 1.3 KB。描述与参数说明已与 guide.md 收敛
  * (教学/因果解释归 guide, 工具面只留"做什么 + 何时用 + 取值指针"); session_create 复用 session_send 的
  * 6 个投递参数, 同一组 schema 在 tools/list 里出现两次, 属结构性成本暂不移除。
  * 要加工具就同步上调, 让增长被显式评审。
  */
-const SURFACE_BUDGET = 32_500
+const SURFACE_BUDGET = 34_500
 const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 /**
  * 原生面体积预算: rice_ 工具的 描述+parameters 每请求都随工具面发给模型。
- * TS 签名投影(ts-signature.ts)后实测 19,937 B——parameters 是空壳, 增长基本只来自
+ * TS 签名投影(ts-signature.ts)后实测 20,670 B——parameters 是空壳, 增长基本只来自
  * 描述与参数文档; JSON Schema 时代的基线是 22,308 B。要加工具就同步上调, 让增长被显式评审。
  */
-const NATIVE_SURFACE_BUDGET = 20_000
+const NATIVE_SURFACE_BUDGET = 21_500
 
 try {
   // ── Phase A(主流程): 无认证、无白名单, 端口 8099 ──
@@ -288,6 +290,8 @@ try {
     'question_list',
     'question_answer',
     'session_subagents',
+    'subagent_send',
+    'subagent_interrupt',
     'permission_list',
   ]
   checks['tools/list: 会话中心与各控制面工具齐(无 agent_/task_ 前缀漂移)'] =
@@ -338,6 +342,28 @@ try {
     subTreeInner.subagents?.[1]?.sessionId === 'sess-grandchild' &&
     subTreeInner.subagents?.[1]?.parentId === 'sess-child' &&
     subTreeInner.subagents?.[1]?.depth === 2
+
+  // 原生子代理控制面: interrupt 走 user 权限; send 只有原生面有 sender(外部 MCP 明确拒绝)
+  const subInt = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 97,
+    method: 'tools/call',
+    params: { name: 'subagent_interrupt', arguments: { sessionId: 'sess-child' } },
+  })
+  checks['subagent_interrupt: 与界面 Stop 同源(user 权限)'] =
+    innerOf(subInt).interrupted === true && subagentInterrupts.some((x: any) => x.targetId === 'sess-child' && x.authority === 'user')
+  const subSendMcp = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 98,
+    method: 'tools/call',
+    params: { name: 'subagent_send', arguments: { sessionId: 'sess-child', message: 'focus on tests' } },
+  })
+  checks['subagent_send: 外部 MCP 无 sender 明确拒绝'] = String(innerOf(subSendMcp).error ?? '').includes('native rice_')
+  const nativeSubSendDef = ctx.tools.get('rice_subagent_send')
+  await nativeSubSendDef.execute({ sessionId: 'sess-child', message: 'focus on tests' }, { signal: new AbortController().signal, agent: liveAgent } as any)
+  checks['subagent_send: 原生面走服务并带上 sender'] = subagentSends.some(
+    (x: any) => x.sender === 'sess-live' && x.targetId === 'sess-child' && x.content?.[0]?.text === 'focus on tests',
+  )
 
   // 协议版本协商: 旧版(2025-03-26 主流程已验) + 新版均可接入
   for (const [pv, pid] of [

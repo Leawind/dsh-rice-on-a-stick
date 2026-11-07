@@ -214,6 +214,10 @@ export const slowLiveAgent3 = makeSlowAgent('sess-slow3', FAKE_CWD, { provider: 
 // 第四个慢 agent: 完成通知用例专用, 不与 wait=turn 的 whenIdle 槽位共享
 export const slowLiveAgent4 = makeSlowAgent('sess-slow4', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 
+/** 原生子代理 send/interrupt 桩的调用记录 */
+export const subagentSends = []
+export const subagentInterrupts = []
+
 // 审批测试用 live 会话: 事件数组公开, 便于测试先追加 approval/asked 再触发
 // approval/request waterfall(真实宿主也是先写 asked、再 dispatch)。
 const approvalEvents = []
@@ -773,6 +777,13 @@ export function makeCtx(
   }
   // 原生子代理发现桩: sess-live 有一个 continuable 子级; 递归时带 parentId/depth
   const fakeSubagents = {
+    sendMessage: async (sender, targetId, content) => {
+      subagentSends.push({ sender: sender?.session?.header?.id ?? sender?.id, targetId, content })
+      return 'msg-fake'
+    },
+    interrupt: (targetId, authority) => {
+      subagentInterrupts.push({ targetId, authority: authority?.kind })
+    },
     listChildren: async (parentId) =>
       parentId === 'sess-live'
         ? [{ id: 'sess-child', createdAt: 5, mode: 'continuable', label: 'child', kind: 'child', activity: 'running', hasChildren: true }]

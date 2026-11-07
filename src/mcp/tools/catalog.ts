@@ -200,4 +200,68 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
       }
     },
   )
+  // 原生子代理续聊/中断: 不绕过 subagent 服务的授权与树规则。
+  // send 需要"树内 sender", 只有原生 rice_ 面有(外部 MCP 调用没有会话身份, 明确报错);
+  // interrupt 与界面 Stop 同源(user 是可信宿主操作)。
+  mcp.registerTool(
+    'subagent_send',
+    {
+      title: 'Send to native subagent',
+      description:
+        'Send a message to a native subagent in the same tree (native rice_ face only: the calling dsh session is the sender). A running target receives it at the next step; an idle target starts a turn. External MCP callers have no sender session and get an explicit error.',
+      inputSchema: {
+        sessionId: z.string().describe('Target subagent session id (from session_subagents).'),
+        message: z.string().min(1).describe('Text to deliver.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, message }, extra) => {
+      const svc = subagentsOf(ctx)
+      if (typeof svc?.sendMessage !== 'function') {
+        return outError(JSON.stringify({ error: 'the host subagent service does not expose sendMessage' }))
+      }
+      const sender = (extra as { agent?: unknown }).agent
+      if (sender === undefined) {
+        return outError(
+          JSON.stringify({
+            error:
+              'subagent_send requires the native rice_ face: the calling dsh session is the sender. External MCP calls have no subagent tree position; use session_send for an ordinary session.',
+          }),
+        )
+      }
+      try {
+        await svc.sendMessage(sender, asSessionId(sessionId), [{ type: 'text', text: message }], {
+          signal: extra.signal ?? new AbortController().signal,
+        })
+        return out(JSON.stringify({ ok: true, sessionId }))
+      } catch (e) {
+        return outError(JSON.stringify({ error: `subagent_send failed: ${(e as Error)?.message ?? String(e)}` }))
+      }
+    },
+  )
+
+  mcp.registerTool(
+    'subagent_interrupt',
+    {
+      title: 'Stop native subagent turn',
+      description:
+        "Stop a native subagent's current turn (the UI's Stop for a child; native rice_ face and external MCP both allowed). Pending inbox work and descendants are preserved.",
+      inputSchema: {
+        sessionId: z.string().describe('Target subagent session id (from session_subagents).'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId }) => {
+      const svc = subagentsOf(ctx)
+      if (typeof svc?.interrupt !== 'function') {
+        return outError(JSON.stringify({ error: 'the host subagent service does not expose interrupt' }))
+      }
+      try {
+        svc.interrupt(asSessionId(sessionId), { kind: 'user' })
+        return out(JSON.stringify({ interrupted: true, sessionId }))
+      } catch (e) {
+        return outError(JSON.stringify({ error: `subagent_interrupt failed: ${(e as Error)?.message ?? String(e)}` }))
+      }
+    },
+  )
 }
