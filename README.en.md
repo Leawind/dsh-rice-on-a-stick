@@ -85,6 +85,14 @@ Handle permission approvals (`approval_list` / `approval_answer`) and answer the
 
 Discover (`endpoint_describe`) and call (`endpoint_call`) dsh's remote access endpoints; for the mechanism, see [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md).
 
+### Delegation lineage and completion notices
+
+`session_create` accepts `parentSessionId` / `label` to record the new session in the plugin's own delegation tree (never the host session header); `session_list({ parentSessionId })` lists direct children. A delegation's permission preset and approval policy are fixed at creation — the tools refuse to widen them mid-flight. `notify: true` on `session_create` / `session_send` posts one short completion notice to the caller once the request settles.
+
+### Driving native subagents
+
+`subagent_send` (native face; the calling session is the sender) and `subagent_interrupt` (the UI's Stop) let rice drive the host's native subagents too; `session_subagents` remains the read-only catalog.
+
 ## Acknowledgements
 
 The initial source code was copied from [`chushixixin/dsh-harness-mcp-server`](https://github.com/chushixixin/dsh-harness-mcp-server) (MIT, thanks to @chushixixin).

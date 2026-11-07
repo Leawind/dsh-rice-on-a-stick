@@ -85,6 +85,14 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 发现（`endpoint_describe`）并调用（`endpoint_call`）dsh 的远程访问端点，机制见 [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md)。
 
+### 委派谱系与完成通知
+
+`session_create` 可用 `parentSessionId` / `label` 把新会话登记到插件自己的委派树（不写宿主 header），`session_list({ parentSessionId })` 按树列出直接子级。委派会话的权限与审批策略在创建时固定，工具面不能中途改宽。`session_create` / `session_send` 的 `notify: true` 在收敛后向调用方投一条短通知。
+
+### 控制原生子代理
+
+`subagent_send`（原生面，调用方即 sender）与 `subagent_interrupt`（与界面 Stop 同源）让 rice 也能驱动宿主原生子代理；`session_subagents` 只读目录。
+
 ## 感谢
 
 初始源码复制自 [`chushixixin/dsh-harness-mcp-server`](https://github.com/chushixixin/dsh-harness-mcp-server)（MIT，感谢 @chushixixin）。
