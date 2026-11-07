@@ -211,6 +211,8 @@ export const slowLiveAgent = makeSlowAgent('sess-slow', FAKE_CWD, { provider: 'l
 // 不与既有 session_send 取消用例、也不与彼此互相污染
 export const slowLiveAgent2 = makeSlowAgent('sess-slow2', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 export const slowLiveAgent3 = makeSlowAgent('sess-slow3', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+// 第四个慢 agent: 完成通知用例专用, 不与 wait=turn 的 whenIdle 槽位共享
+export const slowLiveAgent4 = makeSlowAgent('sess-slow4', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 
 // 审批测试用 live 会话: 事件数组公开, 便于测试先追加 approval/asked 再触发
 // approval/request waterfall(真实宿主也是先写 asked、再 dispatch)。
@@ -823,13 +825,15 @@ export function makeCtx(
                 ? slowLiveAgent2
                 : id === 'sess-slow3'
                   ? slowLiveAgent3
-                  : id === 'sess-approval'
-                    ? approvalAgent
-                    : id === 'sess-busy'
-                      ? busyAgent
-                      : id === 'sess-mode-idle'
-                        ? modeIdleAgent
-                        : undefined) ??
+                  : id === 'sess-slow4'
+                    ? slowLiveAgent4
+                    : id === 'sess-approval'
+                      ? approvalAgent
+                      : id === 'sess-busy'
+                        ? busyAgent
+                        : id === 'sess-mode-idle'
+                          ? modeIdleAgent
+                          : undefined) ??
         liveCreatedAgents.get(id) ??
         extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {

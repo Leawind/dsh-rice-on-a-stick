@@ -117,23 +117,25 @@ const ctx = makeCtx({
     { id: 'sess-blank', cwd: FAKE_CWD },
     // 委派树过滤夹具: 只有插件簿记把它登记为 sess-live 的子级(宿主 header 不带任何谱系字段)
     { id: 'sess-ledger-child', cwd: FAKE_CWD },
+    // 完成通知的调用方夹具: 通知会往调用方日志写一条消息, 用独立会话避免污染 sess-live 的 recent 断言
+    { id: 'sess-notify-caller', cwd: FAKE_CWD },
   ],
 })
 
 /**
  * 工具面体积预算(Phase A 的 tools/list / initialize 断言用)。
  * 依据: 这部分是每个会话常驻的系统提示成本, 宿主按 4 字符/token 估算;
- * 当前实测 ~30.1 KB / 描述合计 ~7.1 KB / instructions 1.2 KB。描述与参数说明已与 guide.md 收敛
+ * 当前实测 35 个工具 / 31.9 KB / 描述合计 ~7.3 KB / instructions 1.3 KB。描述与参数说明已与 guide.md 收敛
  * (教学/因果解释归 guide, 工具面只留"做什么 + 何时用 + 取值指针"); session_create 复用 session_send 的
  * 6 个投递参数, 同一组 schema 在 tools/list 里出现两次, 属结构性成本暂不移除。
  * 要加工具就同步上调, 让增长被显式评审。
  */
-const SURFACE_BUDGET = 31_500
+const SURFACE_BUDGET = 32_500
 const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 /**
  * 原生面体积预算: rice_ 工具的 描述+parameters 每请求都随工具面发给模型。
- * TS 签名投影(ts-signature.ts)后实测 19,429 B——parameters 是空壳, 增长基本只来自
+ * TS 签名投影(ts-signature.ts)后实测 19,937 B——parameters 是空壳, 增长基本只来自
  * 描述与参数文档; JSON Schema 时代的基线是 22,308 B。要加工具就同步上调, 让增长被显式评审。
  */
 const NATIVE_SURFACE_BUDGET = 20_000
@@ -798,6 +800,22 @@ try {
   })
   checks['投递模式: 空闲省略 → 补 queue 并在回执回报'] =
     innerOf(idleOmit).accepted === true && innerOf(idleOmit).mode === 'queue' && followups.some((f) => f.id === 'sess-mode-idle')
+
+  // ── 可选完成通知(独立慢 agent, 避免与等待链路共用 whenIdle 槽位) ──
+  const nativeSendDef = ctx.tools.get('rice_session_send')
+  const notifyCaller = ctx.agents.get('sess-notify-caller')
+  await nativeSendDef.execute({ sessionId: 'sess-slow4', task: 'notify probe', mode: 'queue', notify: true }, {
+    signal: new AbortController().signal,
+    agent: notifyCaller,
+  } as any)
+  await waitFor(() => followups.some((f) => f.id === 'sess-slow4'), 5000)
+  await cancelSession(ctx, 'sess-slow4')
+  await waitFor(() => followups.some((f) => f.id === 'sess-notify-caller' && String(f.message?.content?.[0]?.text ?? '').startsWith('[rice]')), 5000)
+  const notifyText = String(
+    followups.find((f) => f.id === 'sess-notify-caller' && String(f.message?.content?.[0]?.text ?? '').startsWith('[rice]'))?.message?.content?.[0]?.text ?? '',
+  )
+  checks['完成通知: notify=true 收敛后向调用方投递短消息'] = notifyText.startsWith('[rice]') && notifyText.includes('cancelled')
+  checks['完成通知: 只回结果指针, 不灌 transcript'] = notifyText.length < 1200 && notifyText.includes('session_result({sessionId: "sess-slow4"')
 
   // ── session_cancel / session_queue(慢 agent: whenIdle 挂起, 仅 cancel 收敛) ──
   const slowPrompt = rpc(init.sid, {

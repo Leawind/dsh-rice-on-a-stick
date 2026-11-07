@@ -20,6 +20,7 @@ import {
   submitSession,
 } from '../../session/engine.js'
 import { requestOf } from '../../session/requests.js'
+import { watchCompletion } from '../../session/notify.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_HINT, projectModel, renderResult, renderUriResult } from '../../session/projection.js'
 import { assertPermissionAvailable, currentPermissionOf, permissionPresetsOf, setPermissionPreset } from '../../session/permissions.js'
@@ -27,7 +28,7 @@ import { archivedSessionIdsOf, asSessionId, commandsOf, eventsOf, inspectSession
 import { attachmentsOf, findImageRefInEvents } from '../../host/attachments.js'
 import { resUri, sessionRowOf, type SessionControllerView } from '../../host/data.js'
 import { latestTitleOf, turnStepStatsOf } from '../../session/insight.js'
-import { errorJson, currentSessionIdOf, OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, SOFT_ARCHIVE } from './shared.js'
+import { errorJson, currentSessionIdOf, OPTIONAL_SESSION_ID, out, outError, resolveSessionTarget, SOFT_ARCHIVE, type ToolCallContext } from './shared.js'
 
 /** workspaceController 视图(归档/恢复; 可选依赖) */
 interface WorkspaceControllerView {
@@ -121,6 +122,17 @@ const WAIT_ARG = z
 /** 结果详略参数(session_send / session_create 首条消息共用; 只对 wait=input/turn 有意义) */
 const DETAIL_ARG = z.enum(['uri', 'summary', 'normal', 'full']).optional().describe(`Result detail (wait=input/turn only): ${DETAIL_HINT}`)
 
+/**
+ * 可选完成通知(默认关): 投递后等 turn 收敛, 向调用方发一条短消息; 外部 MCP 调用没有
+ * 调用方会话时只发资源更新。opt-in 的理由: 每条通知都会占调用方上下文。
+ */
+const NOTIFY_ARG = z
+  .boolean()
+  .optional()
+  .describe(
+    'Opt-in completion notice (default false): after this submission settles, post a short status message into the calling session (native rice_ face) and emit a history/activity resource update (MCP face). Ignored for wait=input/turn.',
+  )
+
 /** 投递执行的统一返回: payload 是回执对象, failed 决定 isError 包装(session_create 还要并入创建字段) */
 interface DeliveryOutcome {
   failed: boolean
@@ -143,12 +155,17 @@ async function deliverMessage(
     wait?: 'input' | 'turn' | 'none'
     requestId?: string
     detail?: 'uri' | 'summary' | 'normal' | 'full'
+    notify?: boolean
   },
-  extra: { signal?: AbortSignal },
+  extra: ToolCallContext,
 ): Promise<DeliveryOutcome> {
   const wait = args.wait ?? 'none'
   if (wait === 'none') {
     const r = await submitSession({ ctx, sessionId, task: args.task, mode: args.mode, attachments: args.attachments, requestId: args.requestId })
+    if (args.notify === true) {
+      const caller = currentSessionIdOf(extra)
+      watchCompletion(ctx, { sessionId, requestId: r.requestId, ...(caller !== undefined ? { callerSessionId: caller } : {}) })
+    }
     // 后续动作的指路语义在 session_poll/session_result 的描述里, 回执不重发
     return { failed: false, payload: { ...r, resource: resUri.sessionHistory(sessionId) } }
   }
@@ -214,11 +231,29 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         wait: WAIT_ARG,
         requestId: REQUEST_ID_ARG,
         detail: DETAIL_ARG,
+        notify: NOTIFY_ARG,
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async (
-      { workspacePath, provider, model, reasoningEffort, preset, title, permission, parentSessionId, label, task, attachments, mode, wait, requestId, detail },
+      {
+        workspacePath,
+        provider,
+        model,
+        reasoningEffort,
+        preset,
+        title,
+        permission,
+        parentSessionId,
+        label,
+        task,
+        attachments,
+        mode,
+        wait,
+        requestId,
+        detail,
+        notify,
+      },
       extra,
     ) => {
       try {
@@ -253,7 +288,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           origin: callerSessionId !== undefined ? 'native' : 'mcp',
         })
         try {
-          const delivery = await deliverMessage(ctx, r.sessionId, { task, attachments, mode, wait, requestId, detail }, extra)
+          const delivery = await deliverMessage(ctx, r.sessionId, { task, attachments, mode, wait, requestId, detail, notify }, extra)
           const payload = {
             sessionId: r.sessionId,
             delegationId: r.delegationId,
@@ -341,12 +376,13 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         wait: WAIT_ARG,
         requestId: REQUEST_ID_ARG,
         detail: DETAIL_ARG,
+        notify: NOTIFY_ARG,
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ sessionId, task, attachments, mode, wait, requestId, detail }, extra) => {
+    async ({ sessionId, task, attachments, mode, wait, requestId, detail, notify }, extra) => {
       try {
-        const delivery = await deliverMessage(ctx, sessionId, { task, attachments, mode, wait, requestId, detail }, extra)
+        const delivery = await deliverMessage(ctx, sessionId, { task, attachments, mode, wait, requestId, detail, notify }, extra)
         const text = JSON.stringify(delivery.payload)
         return delivery.failed ? outError(text) : out(text)
       } catch (e) {
