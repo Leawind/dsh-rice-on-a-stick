@@ -170,6 +170,32 @@ export function commandsOf(ctx: Context): CommandServiceView | undefined {
   return serviceOf<CommandServiceView>(ctx, 'commands')
 }
 
+// ── 压缩接缝(ctx.compaction) ──
+
+/** 一次成功压缩的结果(宿主 CompactionResult 的公共字段; summary 正文留在日志里, 不回传) */
+export interface CompactionResultView {
+  compactionId?: unknown
+  startSeq?: unknown
+  summarySeq?: unknown
+  endSeq?: unknown
+  shadowedSeqs?: readonly unknown[]
+  shadowedTokenCount?: number
+}
+
+/**
+ * 宿主的压缩服务: compactNow 是"显式压缩"的公共入口(与 /compact 同源)。
+ * 它只接受空闲 agent——内部先 runMaintenance 认领空闲相位, 让之后的唤醒输入排队等压缩结束;
+ * 因此 turn 进行中调用必抛 ManualCompactionError('busy'), 这正是插件要做推迟的原因。
+ */
+export interface CompactionServiceView {
+  compactNow?: (agent: unknown, signal: AbortSignal, sourceCommandId?: unknown) => Promise<CompactionResultView | null>
+}
+
+/** 取压缩服务(可选依赖; 缺席 = 部署没装压缩后端, 显式压缩不可用) */
+export function compactionOf(ctx: Context): CompactionServiceView | undefined {
+  return serviceOf<CompactionServiceView>(ctx, 'compaction')
+}
+
 /**
  * sessionController 的会话读/恢复入口(可选依赖, web profile 提供):
  *   inspect      非激活读取一个 live 或 persisted 会话的完整事件日志

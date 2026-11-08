@@ -7,7 +7,7 @@
  * 本插件持有的 sessionRecords 只起"记住创建参数"的作用, 生命周期归宿主 registry。
  */
 import { DEFAULTS, type RuntimeConfig } from './config.js'
-import type { AnswerRuntime, DelegationRecord, SessionRecord, SessionRequestRecord } from './types.js'
+import type { AnswerRuntime, DelegationRecord, PendingCompaction, SessionRecord, SessionRequestRecord } from './types.js'
 
 /**
  * apply 绑定的通知钩子(缺省 no-op, 使数据层/引擎在无 MCP 面的部署形态下零通知开销)。
@@ -32,6 +32,8 @@ interface RuntimeState {
   delegations: Map<string, DelegationRecord>
   /** 委派簿记: delegationId → 记录 */
   delegationById: Map<string, DelegationRecord>
+  /** 待执行的显式压缩请求: sessionId → 请求(每个会话至多一条; 空闲后执行) */
+  compactions: Map<string, PendingCompaction>
   /**
    * 异步请求索引(requestId → 记录): 只做当前进程的加速定位, TTL/上限淘汰。
    * requestId 本身写进 user 消息的 source.rpcId, 所以日志才是持久事实。
@@ -68,6 +70,7 @@ export const state: RuntimeState = {
   sessionRecords: new Map(),
   delegations: new Map(),
   delegationById: new Map(),
+  compactions: new Map(),
   sessionRequests: new Map(),
   latestRequestBySession: new Map(),
   coldTitles: new Map(),

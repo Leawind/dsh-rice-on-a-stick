@@ -67,6 +67,14 @@ export interface ToolCallContext {
   agent?: unknown
 }
 
+/**
+ * 只在本实例原生面提供、不经 MCP 暴露的工具(用 MCP 原名, 不带 rice_ 前缀)。
+ * MCP 面注册时直接跳过它们: 外部客户端既看不到也调不到; 原生面照常注册(self-tools 负责加前缀)。
+ * 用于"只在 dsh 内部成立"的能力——例如 session_compact: 它把请求挂到当前会话的空闲边界上,
+ * 属于会话内部动作, 不是通用远程控制面的一部分。
+ */
+export const NATIVE_ONLY_TOOLS: ReadonlySet<string> = new Set(['session_compact'])
+
 /** 从调用上下文读"当前会话": 原生工具面由 exec.agent 直接推出, MCP 面没有这个概念 */
 export function currentSessionIdOf(extra: ToolCallContext | undefined): string | undefined {
   const agent = extra?.agent as { id?: unknown; session?: { id?: unknown; header?: { id?: unknown } } } | undefined

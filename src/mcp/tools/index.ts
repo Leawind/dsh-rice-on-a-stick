@@ -33,6 +33,7 @@ import { registerCatalogTools } from './catalog.js'
 import { registerQuestionTools } from './question.js'
 import { registerSessionActionTools } from './session-actions.js'
 import { registerSessionReadTools } from './session-read.js'
+import { NATIVE_ONLY_TOOLS } from './shared.js'
 
 /** 每个 McpServer 上注册的工具(名字 + 句柄)清单: SDK 的 RegisteredTool 不带 name, 配对登记 */
 interface GatedTool {
@@ -44,14 +45,19 @@ const registeredTools = new WeakMap<object, GatedTool[]>()
 /**
  * 在给定 McpServer 上注册全部工具(白名单套用由调用方在注册后调 applyToolGate 完成;
  * 原生自用面的记录式 tap 不需要门控, 收集结果不会被消费)。
+ * face 决定是否包含 NATIVE_ONLY_TOOLS: MCP 面(默认)跳过它们——只在 dsh 内部成立的能力
+ * 不上远程工具面, 外部客户端连名字都看不到; 原生面传 'native' 时照常注册。
  */
-export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps): void {
+export function registerTools(mcp: McpServer, ctx: Context, deps?: ToolDeps, face: 'mcp' | 'native' = 'mcp'): void {
   const registered: GatedTool[] = []
   // 转发式 tap: 域文件照常按 McpServer.registerTool 的签名调用, 这里顺手收集工具名与句柄
   const tap = {
     registerTool(...args: unknown[]) {
+      const name = String(args[0] ?? '')
+      // 原生面专属工具在 MCP 面不注册: 返回一个无 enable/disable 的假句柄即可(域文件不用返回值)
+      if (face === 'mcp' && NATIVE_ONLY_TOOLS.has(name)) return { name } as unknown as RegisteredTool
       const tool = (mcp.registerTool as unknown as (...a: unknown[]) => RegisteredTool)(...args)
-      registered.push({ name: String(args[0] ?? ''), tool })
+      registered.push({ name, tool })
       return tool
     },
   } as unknown as McpServer

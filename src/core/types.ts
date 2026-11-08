@@ -48,6 +48,19 @@ export interface DelegationRecord {
 }
 
 /**
+ * 一条待执行的压缩请求(会话在跑 turn 时登记; 该会话空闲后由插件执行)。
+ * 进程内记录, 至多每个会话一条: 插件卸载即放弃, 不在会话日志里留下"已登记"的假事实。
+ */
+export interface PendingCompaction {
+  sessionId: string
+  /** 请求方会话(原生面调用方; 外部 MCP 调用没有) */
+  requestedBy?: string
+  requestedAt: number
+  /** 已尝试次数(busy = 空闲相位被别的相位抢先, 会重新挂到下一次空闲) */
+  attempts: number
+}
+
+/**
  * 消息投递模式(与宿主 agent-loop 的两个 inbox 目标同构):
  *   queue = 本轮结束后的新 turn(没有进行中的 turn 时等价于立刻开始);
  *   steer = 本轮的下一个 step 边界, 消息被消费后本轮继续(即"延长本轮", 不打断正在跑的 step)。

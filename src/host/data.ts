@@ -33,6 +33,7 @@ import {
 import { latestTitleOf, sessionEventSourceOf, sessionInsightPayload } from '../session/insight.js'
 import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
 import { currentPermissionOf } from '../session/permissions.js'
+import { pendingCompactionView } from '../session/compaction.js'
 import { resolve } from 'node:path'
 
 // ── 规范 URI 构造器(资源面注册 / 订阅 / 通知 / 工具结果的 HATEOAS 引用同一来源) ──
@@ -631,6 +632,9 @@ export async function sessionInspectPayload(
     result.state = insight.state
     // "是否在进行中" = 打开中的 turn(running / waiting-approval / waiting-question); inactive 会话残留的未闭合 turn 不算
     result.inProgress = insight.state === 'running' || insight.state === 'waiting-approval' || insight.state === 'waiting-question'
+    // 待执行的显式压缩是插件侧状态: 会话在跑 turn 时登记, 空闲后执行。不显示就成了隐形动作
+    const pending = state.compactions.get(sessionId)
+    if (pending !== undefined) result.pendingCompaction = { ...pendingCompactionView(pending), note: 'runs when the session falls idle' }
   }
   if (want('recent')) result.recent = recentOverviewOf(source.events ?? [], limit)
   return result

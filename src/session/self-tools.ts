@@ -101,7 +101,7 @@ function captureMcpTools(ctx: Context, deps?: ToolDeps): CapturedRegistration[] 
       return { name }
     },
   } as unknown as McpServer
-  registerTools(tap, ctx, deps)
+  registerTools(tap, ctx, deps, 'native')
   return captured
 }
 

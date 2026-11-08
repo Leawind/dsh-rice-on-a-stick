@@ -20,6 +20,7 @@ import {
   submitSession,
 } from '../../session/engine.js'
 import { requestOf } from '../../session/requests.js'
+import { requestCompaction } from '../../session/compaction.js'
 import { watchCompletion } from '../../session/notify.js'
 import { POLL_MAX_WAIT_MS, pollSessions, sessionResult } from '../../session/control.js'
 import { DETAIL_HINT, projectModel, renderResult, renderUriResult } from '../../session/projection.js'
@@ -759,6 +760,44 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
         )
       } catch (e) {
         return outError(JSON.stringify({ error: `session_command_run failed: ${(e as Error)?.message ?? String(e)}` }))
+      }
+    },
+  )
+
+  // 显式压缩(写面, 原生面专属): 宿主的 /compact 能力面, 但把"只有空闲才能压"变成可等待的请求——
+  // turn 进行中调用会被登记, 该会话空闲后由插件执行。插件只解决"何时能压"这个机制问题,
+  // 不根据上下文占用替调用方决定"要不要压"。不替代 /compact: 命令、session_command_run 与
+  // 宿主的自动压力压缩都不变, 这是会话内部的一条额外通路, 因此不进 MCP 面(NATIVE_ONLY_TOOLS)。
+  mcp.registerTool(
+    'session_compact',
+    {
+      title: 'Compact session history',
+      description:
+        "Compact a live session's older history into one summary (dsh `/compact`, below the automatic pressure threshold). Runs now if the session is idle; while it is mid-turn the request is held (one per session) and runs at the session's next idle moment — the host only compacts an idle agent.",
+      inputSchema: {
+        sessionId: z.string().optional().describe(`Session id (must be live: compaction needs a live agent). ${OPTIONAL_SESSION_ID}`),
+        when: z
+          .enum(['idle', 'now'])
+          .optional()
+          .describe(
+            'idle (default) = compact now if idle, otherwise hold the request until the session is idle; now = fail with code "busy" unless the session is idle at this moment.',
+          ),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ sessionId, when }, extra) => {
+      const target = resolveSessionTarget(sessionId, extra)
+      if ('error' in target) return outError(JSON.stringify({ error: target.error }))
+      const caller = currentSessionIdOf(extra)
+      try {
+        const receipt = await requestCompaction(ctx, {
+          sessionId: target.sessionId,
+          ...(when !== undefined ? { when } : {}),
+          ...(caller !== undefined ? { callerSessionId: caller } : {}),
+        })
+        return out(JSON.stringify(receipt))
+      } catch (e) {
+        return outError(errorJson(e))
       }
     },
   )

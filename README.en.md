@@ -93,6 +93,10 @@ Discover (`endpoint_describe`) and call (`endpoint_call`) dsh's remote access en
 
 `subagent_send` (native face; the calling session is the sender) and `subagent_interrupt` (the UI's Stop) let rice drive the host's native subagents too; `session_subagents` remains the read-only catalog.
 
+### Compacting session history
+
+`session_compact` runs one explicit compaction from inside a dsh session. It does **not** replace `/compact` (the command, `session_command_run` and the host's automatic pressure compaction are unchanged — this is an extra path for a session itself), and it is **native face only: it is not part of the MCP tool surface**, so external clients can neither see nor call it. It uses the same host seam as `/compact` but runs no turn and returns a structured result (`items` / `tokens` / `summarySeq`). The host only compacts an idle agent: while the session is mid-turn the request is held and runs at that session's next idle moment, which is what lets an agent compact its own session. At most one request is held per session (repeats report `already: true`), and the outcome goes back to the caller only — a session that asks for itself gets no notice, since that would start a fresh turn for it.
+
 ## Acknowledgements
 
 The initial source code was copied from [`chushixixin/dsh-harness-mcp-server`](https://github.com/chushixixin/dsh-harness-mcp-server) (MIT, thanks to @chushixixin).

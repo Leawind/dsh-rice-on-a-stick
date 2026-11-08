@@ -32,6 +32,7 @@ import { createNotifyHub } from './mcp/notify.js'
 import { registerWebRoutes } from './mcp/web.js'
 import { createUnavailableAnswerRuntime, installRemoteAnswerClient } from './session/answers.js'
 import { disposeNotifications, resetNotifications } from './session/notify.js'
+import { disposeCompactions, resetCompactions } from './session/compaction.js'
 import { installSelfTools } from './session/self-tools.js'
 
 /** Cordis 插件名 */
@@ -58,6 +59,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const parsed = parseConfig(config)
   state.config = bindRuntimeConfig(parsed)
   resetNotifications()
+  resetCompactions()
 
   // 本实例自用工具控制器: 在 statusSnapshot 定义后安装(工具里的 plugin_status 要读同一份快照)
 
@@ -277,6 +279,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       state.latestRequestBySession.clear()
       state.coldTitles.clear()
       disposeNotifications()
+      disposeCompactions()
       answerClient.dispose()
       state.answers = createUnavailableAnswerRuntime()
       httpServer?.dispose()

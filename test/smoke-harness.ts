@@ -213,6 +213,10 @@ export const slowLiveAgent2 = makeSlowAgent('sess-slow2', FAKE_CWD, { provider: 
 export const slowLiveAgent3 = makeSlowAgent('sess-slow3', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 // 第四个慢 agent: 完成通知用例专用, 不与 wait=turn 的 whenIdle 槽位共享
 export const slowLiveAgent4 = makeSlowAgent('sess-slow4', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+// 第五个慢 agent: 显式压缩的空闲推迟用例专用(同一时刻只持有一个 whenIdle 槽位)
+export const slowLiveAgent5 = makeSlowAgent('sess-compact-busy', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
+// 第六个慢 agent: 跨会话压缩的调用方通知用例专用
+export const slowLiveAgent6 = makeSlowAgent('sess-compact-notice', FAKE_CWD, { provider: 'live-p', model: 'live-m' })
 
 /** 原生子代理 send/interrupt 桩的调用记录 */
 export const subagentSends = []
@@ -475,6 +479,28 @@ export const fakeTokenMeter = {
   },
 }
 
+// 压缩服务桩(ctx.compaction): compactNow 只在空闲 agent 上成功——忙时抛 busy, 与宿主契约一致。
+// sess-mode-idle 没有历史: 宿主对此返回 null(无事可压), 用来覆盖 status:"none" 回执。
+export const compactionCalls = []
+export const fakeCompaction = {
+  compactNow: async (agent, signal) => {
+    const id = String(agent?.session?.id ?? agent?.id ?? '')
+    compactionCalls.push({ agent: id, aborted: signal?.aborted === true })
+    if (agent?.status !== 'idle') throw Object.assign(new Error('manual compaction requires an idle agent with no waking queued work'), { code: 'busy' })
+    if (id === 'sess-mode-idle') return null
+    return {
+      compactionId: 'cmp-1',
+      startSeq: 100,
+      summarySeq: 101,
+      endSeq: 102,
+      summary: [],
+      shadowedRange: { start: 1, end: 3 },
+      shadowedSeqs: [1, 2, 3],
+      shadowedTokenCount: 1200,
+    }
+  },
+}
+
 // 人面向命令注册表桩(ctx.commands): 与界面斜杠输入同源; execute 记录 line/attachments/signal
 export const commandCalls = []
 export const fakeCommands = {
@@ -655,6 +681,8 @@ export function makeCtx(
     configEditor?: any
     tokenMeter?: any
     commands?: any
+    /** 压缩服务桩; 传 null 表示该部署没有 ctx.compaction(显式压缩不可用的降级路径) */
+    compaction?: any
     /** 权限预设服务; 传 null 表示该部署没有权限预设(headless 降级路径) */
     permissionPresets?: any
     extraSessions?: { id: string; cwd?: string }[]
@@ -672,6 +700,7 @@ export function makeCtx(
     configEditor,
     tokenMeter = fakeTokenMeter,
     commands = fakeCommands,
+    compaction = fakeCompaction,
     permissionPresets = fakePermissionPresets,
     extraSessions = [],
     extraPersisted = [],
@@ -698,11 +727,15 @@ export function makeCtx(
                   ? slowLiveAgent3.session
                   : id === 'sess-approval'
                     ? approvalAgent.session
-                    : id === 'sess-busy'
-                      ? busyAgent.session
-                      : id === 'sess-mode-idle'
-                        ? modeIdleAgent.session
-                        : undefined) ??
+                    : id === 'sess-compact-busy'
+                      ? slowLiveAgent5.session
+                      : id === 'sess-compact-notice'
+                        ? slowLiveAgent6.session
+                        : id === 'sess-busy'
+                          ? busyAgent.session
+                          : id === 'sess-mode-idle'
+                            ? modeIdleAgent.session
+                            : undefined) ??
       extraAgents.get(id)?.session,
     list: () => [
       liveSession2,
@@ -820,6 +853,7 @@ export function makeCtx(
     llm,
     tokenMeter,
     commands,
+    ...(compaction !== null ? { compaction } : {}),
     sessionController,
     configEditor,
     // GUI 配置写入需要 fiber.entry; 只有提供 configEditor 的测试才模拟出条目
@@ -838,13 +872,17 @@ export function makeCtx(
                   ? slowLiveAgent3
                   : id === 'sess-slow4'
                     ? slowLiveAgent4
-                    : id === 'sess-approval'
-                      ? approvalAgent
-                      : id === 'sess-busy'
-                        ? busyAgent
-                        : id === 'sess-mode-idle'
-                          ? modeIdleAgent
-                          : undefined) ??
+                    : id === 'sess-compact-busy'
+                      ? slowLiveAgent5
+                      : id === 'sess-compact-notice'
+                        ? slowLiveAgent6
+                        : id === 'sess-approval'
+                          ? approvalAgent
+                          : id === 'sess-busy'
+                            ? busyAgent
+                            : id === 'sess-mode-idle'
+                              ? modeIdleAgent
+                              : undefined) ??
         liveCreatedAgents.get(id) ??
         extraAgents.get(id),
       create: async ({ sessionId, meta, agentOptions, setup }) => {

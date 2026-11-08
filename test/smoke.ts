@@ -26,6 +26,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { apply } from '../lib/index.js'
 import { cancelSession, promptSession } from '../lib/session/engine.js'
+import { requestCompaction } from '../lib/session/compaction.js'
 import { serviceOf } from '../lib/host/bridge.js'
 import { collectSessions, sessionInspectPayload } from '../lib/host/data.js'
 import { ageParkedCallsForTest, answerParkedCall, invokeEndpoint, listParkedCalls } from '../lib/host/endpoint-passthrough.js'
@@ -66,6 +67,7 @@ import {
   endpointInvokes,
   checks,
   commandCalls,
+  compactionCalls,
   chunkedRequest,
   created,
   disposers,
@@ -100,6 +102,8 @@ import {
   slowAgents,
   slowLiveAgent,
   slowLiveAgent2,
+  slowLiveAgent5,
+  slowLiveAgent6,
   steered,
   subagentInterrupts,
   subagentSends,
@@ -137,10 +141,10 @@ const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 /**
  * 原生面体积预算: rice_ 工具的 描述+parameters 每请求都随工具面发给模型。
- * TS 签名投影(ts-signature.ts)后实测 20,816 B——parameters 是空壳, 增长基本只来自
+ * TS 签名投影(ts-signature.ts)后实测 21,470 B——parameters 是空壳, 增长基本只来自
  * 描述与参数文档; JSON Schema 时代的基线是 22,308 B。要加工具就同步上调, 让增长被显式评审。
  */
-const NATIVE_SURFACE_BUDGET = 21_500
+const NATIVE_SURFACE_BUDGET = 22_000
 
 try {
   // ── Phase A(主流程): 无认证、无白名单, 端口 8099 ──
@@ -171,6 +175,8 @@ try {
       'rice_session_inspect',
       'rice_session_attachment',
       'rice_session_subagents',
+      // 原生面专属工具(MCP 面不注册): 压缩只在 dsh 内部成立
+      'rice_session_compact',
     ].every((n) => nativeSchemas.some((s: any) => s.name === n))
   checks['原生自用工具: 描述里的工具引用已改写成前缀名'] = (() => {
     const description = ctx.tools.get('rice_session_send')?.description ?? ''
@@ -1036,6 +1042,82 @@ try {
   const cmdNoId = await rpc(init.sid, { jsonrpc: '2.0', id: 492, method: 'tools/call', params: { name: 'session_command_list', arguments: {} } })
   checks['session_command_list: MCP 面省略 sessionId 明确报错'] = String(innerOf(cmdNoId).error ?? '').includes('sessionId is required')
   checks['session_search 传取消信号(0.2.x Remote 契约)'] = searchSignals.length > 0 && searchSignals.every(Boolean)
+
+  // ── session_compact: 显式压缩(宿主 ctx.compaction), 忙时推迟到空闲 ──
+  // 原生面专属: 不上 MCP 工具面(只有 dsh 内部会话才有"当前会话空闲边界"这个概念)
+  const nativeCompactDef = ctx.tools.get('rice_session_compact')
+  checks['session_compact: 不进 MCP 工具面(仅 dsh 内部可用)'] = !toolsArr.some((t: any) => t.name === 'session_compact') && nativeCompactDef !== undefined
+  // 空闲会话当场压: 回执给结构化压缩量(宿主的 /compact 只有人面向文本)
+  const compactLive = await nativeCompactDef.execute({ sessionId: 'sess-live' }, { signal: new AbortController().signal, agent: liveAgent })
+  const compactLiveInner = JSON.parse(nativeCompactDef.output.render({}, compactLive)[0]?.text ?? '{}')
+  checks['session_compact: 空闲会话当场压缩并回报压缩量'] =
+    compactLiveInner.status === 'compacted' &&
+    compactLiveInner.items === 3 &&
+    compactLiveInner.tokens === 1200 &&
+    compactLiveInner.summarySeq === 101 &&
+    compactionCalls.at(-1)?.agent === 'sess-live'
+  const compactNone = await nativeCompactDef.execute({ sessionId: 'sess-mode-idle' }, { signal: new AbortController().signal, agent: liveAgent })
+  checks['session_compact: 无历史可压时报告 none(不是错误)'] = JSON.parse(nativeCompactDef.output.render({}, compactNone)[0]?.text ?? '{}').status === 'none'
+  const compactColdError = await nativeCompactDef
+    .execute({ sessionId: 'sess-persisted' }, { signal: new AbortController().signal, agent: liveAgent })
+    .then(() => '')
+    .catch((e: any) => String(e?.message ?? e))
+  checks['session_compact: 非 live 会话明确拒绝(不为压缩去冷恢复)'] = compactColdError.includes('not live')
+
+  // agent 压缩自己: 自己的 turn 正在跑, 宿主只接受空闲 agent ⇒ 工具面只能登记, 空闲后执行
+  const selfBusyNowError = await nativeCompactDef
+    .execute({ when: 'now' }, { signal: new AbortController().signal, agent: slowLiveAgent5 })
+    .then(() => '')
+    .catch((e: any) => String(e?.message ?? e))
+  checks['session_compact: when="now" 在自己的 turn 里明确报 busy'] = selfBusyNowError.includes('not idle') && selfBusyNowError.includes('when="now"')
+  const selfScheduled = await nativeCompactDef.execute({}, { signal: new AbortController().signal, agent: slowLiveAgent5 })
+  const selfScheduledJson = JSON.parse(nativeCompactDef.output.render({}, selfScheduled)[0]?.text ?? '{}')
+  checks['session_compact: turn 中的请求被登记而不是失败'] =
+    selfScheduledJson.status === 'scheduled' && selfScheduledJson.pending?.requestedBy === 'sess-compact-busy' && selfScheduledJson.pending?.attempts === 0
+  const selfAgain = await nativeCompactDef.execute({}, { signal: new AbortController().signal, agent: slowLiveAgent5 })
+  checks['session_compact: 重复请求合并到同一条'] = JSON.parse(nativeCompactDef.output.render({}, selfAgain)[0]?.text ?? '{}').already === true
+  const pendingInspect = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 496,
+    method: 'tools/call',
+    params: { name: 'session_inspect', arguments: { sessionId: 'sess-compact-busy', fields: ['state'] } },
+  })
+  checks['session_inspect: 待执行压缩可见(不是隐形动作)'] =
+    innerOf(pendingInspect).pendingCompaction?.requestedBy === 'sess-compact-busy' && typeof innerOf(pendingInspect).pendingCompaction?.requestedAt === 'number'
+  slowLiveAgent5.cancel({ kind: 'user' })
+  await waitFor(() => compactionCalls.some((c) => c.agent === 'sess-compact-busy'), 3000)
+  await waitFor(() => state.compactions.size === 0, 3000)
+  checks['session_compact: 会话空闲后自动执行且只压一次'] = compactionCalls.filter((c) => c.agent === 'sess-compact-busy').length === 1
+  checks['session_compact: 自己请求不给目标会话发通知(那会凭空开新 turn)'] = !followups.some((f: any) => f.id === 'sess-compact-busy')
+
+  // 跨会话: 调用方拿到一行结果(不是 transcript), 且只发一条
+  const compactCaller = ctx.agents.get('sess-notify-caller')
+  const crossScheduled = await nativeCompactDef.execute({ sessionId: 'sess-compact-notice' }, { signal: new AbortController().signal, agent: compactCaller })
+  checks['session_compact: 跨会话请求登记并承诺通知调用方'] =
+    JSON.parse(nativeCompactDef.output.render({}, crossScheduled)[0]?.text ?? '{}').pending?.requestedBy === 'sess-notify-caller'
+  slowLiveAgent6.cancel({ kind: 'user' })
+  const noticePredicate = () =>
+    followups.some(
+      (f: any) => f.id === 'sess-notify-caller' && String(f.message?.content?.[0]?.text ?? '').startsWith('[rice] compaction of sess-compact-notice'),
+    )
+  await waitFor(noticePredicate, 5000)
+  const compactNotice = String(
+    followups.find(
+      (f: any) => f.id === 'sess-notify-caller' && String(f.message?.content?.[0]?.text ?? '').startsWith('[rice] compaction of sess-compact-notice'),
+    )?.message?.content?.[0]?.text ?? '',
+  )
+  checks['session_compact: 推迟执行完成后向调用方投递一行结果'] = compactNotice.includes('finished: 3 items (~1200 tokens)')
+  checks['session_compact: 通知只有一行(不灌 transcript)'] = !compactNotice.includes('\n') && compactNotice.length < 400
+
+  // 没有压缩后端的部署: 明确报不可用, 而不是静默什么都不做
+  const bareCtx = makeCtx({ compaction: null })
+  let noServiceError = ''
+  try {
+    await requestCompaction(bareCtx, { sessionId: 'sess-live' })
+  } catch (e) {
+    noServiceError = String((e as Error)?.message ?? e)
+  }
+  checks['session_compact: 部署没有压缩服务时明确报不可用'] = noServiceError.includes('no compaction service')
 
   const fork = await rpc(init.sid, {
     jsonrpc: '2.0',
