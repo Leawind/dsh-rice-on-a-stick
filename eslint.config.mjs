@@ -1,6 +1,6 @@
 // @ts-check
 // ESLint 平面配置: 只补 tsc 不查的悬空模式(未用变量、误用 await、正则陷阱等), 风格全归 prettier。
-// 取 recommended 非 type-checked 档: 类型保障由 `npm run typecheck` 的三段矩阵承担, 不重复做
+// 取 recommended 非 type-checked 档: 类型保障由 `pnpm run typecheck` 的三段矩阵承担, 不重复做
 // type-aware lint(test 以 .ts 直跑、client 是 strict:false 的宽松面, projectService 只会拖慢)。
 import eslint from '@eslint/js'
 import globals from 'globals'

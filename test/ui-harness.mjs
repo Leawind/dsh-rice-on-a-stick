@@ -1,7 +1,7 @@
 // Dev-only UI smoke harness: 最小宿主桩, 把构建产物 client/client.js 注入的侧栏页真实渲染到浏览器。
 // 不依赖 dsh 宿主——stub __ModuleLoader__/slots(main + sidebar.panellist 同真机契约), 假侧栏行渲染插件
 // 注册的图标组件(含待审批角标); mock GUI 路由(status/models/endpoint-allowlist/endpoint-approvals/config-update),
-// 返回的状态是任意 fixture 数据(形状让 UI 能渲染即可, 不逐字段对齐实现)。先 `npm run build` 生成 client/client.js。用法:
+// 返回的状态是任意 fixture 数据(形状让 UI 能渲染即可, 不逐字段对齐实现)。先 `pnpm run build` 生成 client/client.js。用法:
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
 //   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误 + 侧栏行认领报告
@@ -15,7 +15,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const PKG_VERSION = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version
 const CLIENT_JS = resolve(ROOT, 'client/client.js')
 if (!existsSync(CLIENT_JS)) {
-  console.error('[ui-harness] client/client.js is missing; run `npm run build` first')
+  console.error('[ui-harness] client/client.js is missing; run `pnpm run build` first')
   process.exit(1)
 }
 const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : 0) // 默认 0 = OS 分配空闲端口, 避免与机器上其他程序撞车

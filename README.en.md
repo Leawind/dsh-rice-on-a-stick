@@ -29,6 +29,7 @@ A plugin that exposes control over dsh ([DeepSeek Harness](https://github.com/de
 
 - dsh `0.2.2-rc.1` or later. The graphical interface (the "Rice on a Stick" page in the sidebar) and full session functionality require the web or desktop version of dsh
 - MCP clients must support Streamable HTTP; clients that only support stdio need to bridge it themselves
+- Building from source requires pnpm (version pinned by the `packageManager` field)
 
 ## Installation
 
@@ -43,12 +44,12 @@ Install from source:
 ```sh
 git clone https://github.com/Leawind/dsh-rice-on-a-stick
 cd dsh-rice-on-a-stick
-npm install
-npm run build
+pnpm install
+pnpm run build
 dsh plugin --profile web add link:.
 
 # Watch source changes and build in real time
-npm run dev
+pnpm run dev
 ```
 
 Uninstall:

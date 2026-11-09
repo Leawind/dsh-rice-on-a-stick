@@ -40,7 +40,7 @@ dsh 的插件页与详情页只从两处读展示文本（`dsh-app-boot` 的 `re
 - 英文描述故意只写在 `package.json`（npm 列表与插件页共用同一句），`locale/en.json` 只给标题；中文描述在 `locale/zh.json`。同一句话因此只存在一处。
 - 图标只声明 `package.json.icon` 一处，不再导出 `./icon`：dsh 优先读 manifest 字段，两条路径指向同一份图形只会分叉。
 
-`test/package-meta.ts`（`npm run test:meta`）按宿主的解析与兜底规则把这条链路钉住。
+`test/package-meta.ts`（`pnpm run test:meta`）按宿主的解析与兜底规则把这条链路钉住。
 
 ## 设计约束
 
@@ -61,8 +61,8 @@ dsh 的插件页与详情页只从两处读展示文本（`dsh-app-boot` 的 `re
 
 ## 测试
 
-- `npm test`：`test:meta`（`test/package-meta.ts` 展示元信息契约）+ build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
+- `pnpm test`：`test:meta`（`test/package-meta.ts` 展示元信息契约）+ build + smoke（`test/smoke.ts` 行为断言；假宿主桩必须对齐真机契约，不自造一套自洽但假的 API）。
 - `test/e2e.ts`：真机 E2E，缺省跑零 token 相，`E2E_WITH_AGENT=1` 加一次真实 turn。
-- `npm run smoke:ui`：先 build 再跑侧栏页浏览器冒烟（`test/ui-harness.mjs`）。
+- `pnpm run smoke:ui`：先 build 再跑侧栏页浏览器冒烟（`test/ui-harness.mjs`）。
 
-验收线：`npm run build && npm run typecheck && npm test` 全绿；行为变化同步 smoke 断言与 README（中英）。
+验收线：`pnpm run build && pnpm run typecheck && pnpm test` 全绿；行为变化同步 smoke 断言与 README（中英）。

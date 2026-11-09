@@ -29,6 +29,7 @@
 
 - dsh `0.2.2-rc.1` 及以上。图形界面（侧栏“白饭钓竿”页）和完整的会话功能需要 web 或 desktop 版 dsh
 - MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接
+- 从源码构建需要 pnpm（版本由 `packageManager` 字段锁定）
 
 ## 安装
 
@@ -43,12 +44,12 @@ dsh plugin --profile web add dsh-rice-on-a-stick
 ```sh
 git clone https://github.com/Leawind/dsh-rice-on-a-stick
 cd dsh-rice-on-a-stick
-npm install
-npm run build
+pnpm install
+pnpm run build
 dsh plugin --profile web add link:.
 
 # 监听源码变动并实时构建
-npm run dev
+pnpm run dev
 ```
 
 卸载：
