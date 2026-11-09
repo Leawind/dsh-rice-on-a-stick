@@ -190,9 +190,30 @@ export interface CompactionServiceView {
   compactNow?: (agent: unknown, signal: AbortSignal, sourceCommandId?: unknown) => Promise<CompactionResultView | null>
 }
 
-/** 取压缩服务(可选依赖; 缺席 = 部署没装压缩后端, 显式压缩不可用) */
-export function compactionOf(ctx: Context): CompactionServiceView | undefined {
-  return serviceOf<CompactionServiceView>(ctx, 'compaction')
+/** agentPresets 的"读取 agent preset 作用域内服务"入口(0.2.2 起): 压缩后端在 preset 的 isolate group 里 */
+export interface AgentPresetsServiceView {
+  serviceFor?: (agent: { ctx?: Context }, name: string) => unknown
+}
+
+/**
+ * 取压缩服务(可选依赖; 缺席 = 部署没装压缩后端, 显式压缩不可用)。
+ * 先看宿主根上下文: 无 preset 的部署(如 headless)把压缩后端挂在这里。
+ * 再看目标 agent 自己的 preset 作用域: 0.2.2 的 Web 组合把压缩下沉进 agent preset 的
+ * isolate group(`isolate: { compaction: true }`), 根上下文看不到那个实例。
+ */
+export function compactionOf(ctx: Context, agent?: unknown): CompactionServiceView | undefined {
+  const root = serviceOf<CompactionServiceView>(ctx, 'compaction')
+  if (typeof root?.compactNow === 'function') return root
+  const agentCtx = (agent as { ctx?: Context } | undefined)?.ctx
+  if (agentCtx === undefined) return root
+  const presets = serviceOf<AgentPresetsServiceView>(ctx, 'agentPresets')
+  if (typeof presets?.serviceFor !== 'function') return root
+  try {
+    return (presets.serviceFor({ ctx: agentCtx }, 'compaction') as CompactionServiceView | undefined) ?? root
+  } catch {
+    // 未绑定 preset / 作用域不合法: 与"这个作用域没有压缩后端"同义, 回退到根
+    return root
+  }
 }
 
 /**

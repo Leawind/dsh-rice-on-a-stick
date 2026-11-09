@@ -1,5 +1,9 @@
 /**
- * 显式压缩(宿主 ctx.compaction 的能力面)与空闲推迟。
+ * 显式压缩(宿主的压缩服务)与空闲推迟。
+ *
+ * 服务位置: 无 preset 的部署(如 headless)把压缩后端挂在宿主根上下文; 0.2.2 的 Web 组合
+ * 则把它下沉进 agent preset 的 isolate group, 根上下文看不到——所以取服务要带上目标 agent
+ * (见 bridge.ts 的 compactionOf)。
  *
  * 宿主契约: compactNow 只接受空闲 agent——它先经 runMaintenance 认领空闲相位(之后的唤醒输入
  * 留在 inbox 里等压缩结束), 所以 turn 进行中调用必然 busy; 而 agent 想压缩自己的时候, 它自己
@@ -20,6 +24,9 @@ import type { PendingCompaction } from '../core/types.js'
 const MAX_ATTEMPTS = 3
 /** 通知正文上限: 一行状态, 不带 transcript */
 const NOTICE_MAX = 400
+/** 根上下文与 agent preset 作用域都没有压缩后端时的统一措辞(直接回执与推迟回执共用) */
+const NO_SERVICE =
+  'the host composes no compaction service for this session (neither ctx.compaction nor the agent preset scope provides one); on-demand compaction is unavailable in this deployment'
 
 let disposed = false
 /** 在途压缩的取消信号: 卸载插件时中止, 不留悬挂的宿主事务 */
@@ -61,9 +68,9 @@ function codeOf(e: unknown): string | undefined {
 
 /** 试一次压缩: ok(压缩了/没得压) / busy(相位被占) / failed(宿主事务失败) */
 async function attempt(ctx: Context, agent: unknown, plan: PendingCompaction): Promise<Attempt> {
-  const compaction = compactionOf(ctx)
+  const compaction = compactionOf(ctx, agent)
   if (typeof compaction?.compactNow !== 'function') {
-    return { kind: 'failed', payload: { sessionId: plan.sessionId, status: 'failed', error: 'the host composes no compaction service (ctx.compaction)' } }
+    return { kind: 'failed', payload: { sessionId: plan.sessionId, status: 'failed', error: NO_SERVICE } }
   }
   const controller = new AbortController()
   inFlight.add(controller)
@@ -225,8 +232,8 @@ export async function requestCompaction(ctx: Context, request: CompactionRequest
       `session "${sessionId}" is not live; on-demand compaction needs a live agent (send once with session_send to activate it, or open it in the dsh UI)`,
     )
   }
-  if (typeof compactionOf(ctx)?.compactNow !== 'function') {
-    throw new Error('the host composes no compaction service (ctx.compaction); on-demand compaction is unavailable in this deployment')
+  if (typeof compactionOf(ctx, agent)?.compactNow !== 'function') {
+    throw new Error(NO_SERVICE)
   }
 
   const existing = state.compactions.get(sessionId)

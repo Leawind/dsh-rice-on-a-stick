@@ -95,7 +95,7 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 ### 压缩会话历史
 
-`session_compact` 在 dsh 会话内部触发一次显式压缩，**不替代 `/compact`**（命令、`session_command_run` 与宿主的自动压力压缩都不变，这是会话内的一条额外通路），且**只在原生面提供、不进 MCP 工具面**——外部客户端看不到也调不到。它与 `/compact` 用同一个宿主接缝，但不产生 turn，并返回结构化结果 `items` / `tokens` / `summarySeq`。宿主的压缩只接受空闲 agent：会话正在跑 turn 时，请求会被登记、在该会话下一次空闲后执行——agent 因此可以压缩自己的会话。每个会话至多一条待执行请求，重复调用合并；结果只回调用方（目标会话自己请求时不发通知，那会凭空给它开一个新 turn）。
+`session_compact` 在 dsh 会话内部触发一次显式压缩，**不替代 `/compact`**（命令、`session_command_run` 与宿主的自动压力压缩都不变，这是会话内的一条额外通路），且**只在原生面提供、不进 MCP 工具面**——外部客户端看不到也调不到。它与 `/compact` 用同一个压缩后端（dsh 0.2.2 的 Web 组合把后端下沉到 agent preset 的 isolate group，因此按目标 agent 的 preset 作用域取；无 preset 的部署仍从宿主根取），但不产生 turn，并返回结构化结果 `items` / `tokens` / `summarySeq`。宿主的压缩只接受空闲 agent：会话正在跑 turn 时，请求会被登记、在该会话下一次空闲后执行——agent 因此可以压缩自己的会话。每个会话至多一条待执行请求，重复调用合并；结果只回调用方（目标会话自己请求时不发通知，那会凭空给它开一个新 turn）。
 
 ## 感谢
 

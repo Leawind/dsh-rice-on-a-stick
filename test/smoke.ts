@@ -68,6 +68,7 @@ import {
   checks,
   commandCalls,
   compactionCalls,
+  fakeCompaction,
   chunkedRequest,
   created,
   disposers,
@@ -1047,7 +1048,8 @@ try {
   checks['session_command_list: MCP 面省略 sessionId 明确报错'] = String(innerOf(cmdNoId).error ?? '').includes('sessionId is required')
   checks['session_search 传取消信号(0.2.x Remote 契约)'] = searchSignals.length > 0 && searchSignals.every(Boolean)
 
-  // ── session_compact: 显式压缩(宿主 ctx.compaction), 忙时推迟到空闲 ──
+  // ── session_compact: 显式压缩(宿主压缩服务), 忙时推迟到空闲 ──
+  // 服务位置: 无 preset 的部署在根 ctx, 0.2.2 Web 组合在 agent preset 的 isolate group
   // 原生面专属: 不上 MCP 工具面(只有 dsh 内部会话才有"当前会话空闲边界"这个概念)
   const nativeCompactDef = ctx.tools.get('rice_session_compact')
   checks['session_compact: 不进 MCP 工具面(仅 dsh 内部可用)'] = !toolsArr.some((t: any) => t.name === 'session_compact') && nativeCompactDef !== undefined
@@ -1112,6 +1114,12 @@ try {
   )
   checks['session_compact: 推迟执行完成后向调用方投递一行结果'] = compactNotice.includes('finished: 3 items (~1200 tokens)')
   checks['session_compact: 通知只有一行(不灌 transcript)'] = !compactNotice.includes('\n') && compactNotice.length < 400
+
+  // 0.2.2 Web 组合: 根上下文没有 compaction(后端在 agent preset 的 isolate group), 必须按 agent 取
+  const scopedCtx = makeCtx({ compaction: null, scopedCompaction: fakeCompaction })
+  const scopedCompact = await requestCompaction(scopedCtx, { sessionId: 'sess-live' })
+  checks['session_compact: 0.2.2 preset 作用域的压缩服务被采用'] =
+    scopedCompact.status === 'compacted' && scopedCompact.items === 3 && compactionCalls.at(-1)?.agent === 'sess-live'
 
   // 没有压缩后端的部署: 明确报不可用, 而不是静默什么都不做
   const bareCtx = makeCtx({ compaction: null })

@@ -81,6 +81,8 @@ function makeAgent(id, cwd, options) {
   return {
     options,
     inbox,
+    /** agent 作用域上下文的占位: 0.2.2 起 agentPresets.serviceFor 按它取 preset 作用域服务 */
+    ctx: {},
     /** 测试用: 直接往日志里追加事件(如 session/title), 模拟宿主自己写的日志 */
     __events: events,
     // 状态桩: 普通 agent 的 turn 立即收敛, 观测窗口里恒为 idle
@@ -683,6 +685,8 @@ export function makeCtx(
     commands?: any
     /** 压缩服务桩; 传 null 表示该部署没有 ctx.compaction(显式压缩不可用的降级路径) */
     compaction?: any
+    /** preset 作用域的压缩服务桩: 0.2.2 Web 组合根上没有 compaction, 只有 agent preset 的 isolate group 里有 */
+    scopedCompaction?: any
     /** 权限预设服务; 传 null 表示该部署没有权限预设(headless 降级路径) */
     permissionPresets?: any
     extraSessions?: { id: string; cwd?: string }[]
@@ -702,6 +706,7 @@ export function makeCtx(
     tokenMeter = fakeTokenMeter,
     commands = fakeCommands,
     compaction = fakeCompaction,
+    scopedCompaction,
     permissionPresets = fakePermissionPresets,
     extraSessions = [],
     extraPersisted = [],
@@ -915,6 +920,8 @@ export function makeCtx(
         mounted.push(id)
         return { id }
       },
+      // 0.2.2 Web 组合: 压缩后端在 agent preset 的 isolate group, 只能按 agent 取
+      serviceFor: (_agent, name) => (name === 'compaction' ? scopedCompaction : undefined),
       // roster(校验 per-call preset 存在性 + dsh://presets 资源投影): standard 带 name/description, reviewer 只有 id
       list: async () => [{ id: 'standard', name: 'Standard', description: 'default persona' }, { id: 'reviewer' }],
     },
