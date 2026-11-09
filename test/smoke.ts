@@ -142,10 +142,11 @@ const DESCRIPTION_BUDGET = 400
 const INSTRUCTIONS_BUDGET = 1_600
 /**
  * 原生面体积预算: rice_ 工具的 描述+parameters 每请求都随工具面发给模型。
- * TS 签名投影(ts-signature.ts)后实测 21,470 B——parameters 是空壳, 增长基本只来自
- * 描述与参数文档; JSON Schema 时代的基线是 22,308 B。要加工具就同步上调, 让增长被显式评审。
+ * parameters 是完整 JSON Schema(模型按 properties/required 生成入参, 见设计约束第 12 条),
+ * 实测 25,775 B; 别为了省字节把它收缩成空壳——依赖 schema 的模型会一律发空对象。
+ * 要加工具就同步上调, 让增长被显式评审。
  */
-const NATIVE_SURFACE_BUDGET = 22_000
+const NATIVE_SURFACE_BUDGET = 26_500
 
 try {
   // ── Phase A(主流程): 无认证、无白名单, 端口 8099 ──
@@ -183,22 +184,30 @@ try {
     const description = ctx.tools.get('rice_session_send')?.description ?? ''
     return description.includes('rice_session_poll') && !/(?<!rice_)session_poll/.test(description)
   })()
-  // ── 原生面 TS 签名投影(ts-signature.ts): harness 不校验原生入参, parameters 收缩为空壳, 契约进描述 ──
-  checks['原生自用工具: parameters 空壳(契约走 TS 签名)'] =
-    nativeSchemas.length > 0 && nativeSchemas.every((s: any) => JSON.stringify(s.parameters) === '{"type":"object"}')
-  checks['原生自用工具: TS 签名带类型/枚举/参数文档/约束'] = (() => {
-    const description = ctx.tools.get('rice_session_send')?.description ?? ''
+  // ── 原生面参数契约: parameters 是发给模型的 JSON Schema——模型按 properties/required 生成入参。
+  // 曾把它收缩成空壳 {"type":"object"}, 依赖 schema 的模型(GLM 系列)一律发空对象, 带参调用全部 invalid_type。
+  checks['原生自用工具: parameters 是声明了入参与必填的 JSON Schema'] = nativeSchemas.every((s: any) => {
+    const parameters = s.parameters ?? {}
+    const declared = Object.keys(parameters.properties ?? {})
+    return parameters.type === 'object' && (parameters.required ?? []).every((name: string) => declared.includes(name))
+  })
+  checks['原生自用工具: 带必填入参的工具把字段与必填透出给模型'] = (() => {
+    const parameters = (ctx.tools.get('rice_session_send') as any)?.parameters ?? {}
+    const properties = parameters.properties ?? {}
+    const required: string[] = parameters.required ?? []
     return (
-      description.includes('sessionId: string') &&
-      description.includes('task: string, // The message to deliver') &&
-      description.includes("detail?: 'uri'|'summary'|'normal'|'full'") &&
-      description.includes('0..8 items') &&
-      description.includes('1..200 chars')
+      properties.sessionId?.type === 'string' &&
+      typeof properties.sessionId?.description === 'string' &&
+      properties.task?.type === 'string' &&
+      properties.attachments?.type === 'array' &&
+      properties.detail?.enum?.includes('full') &&
+      required.includes('sessionId') &&
+      required.includes('task')
     )
   })()
   const nativeBytes = nativeSchemas.reduce((sum: number, s: any) => sum + String(s.description ?? '').length + JSON.stringify(s.parameters ?? {}).length, 0)
-  console.log(`  原生面: ${nativeSchemas.length} 个工具 / ${nativeBytes} bytes(描述+parameters, TS 签名投影)`)
-  checks['原生自用工具: 体积在预算内(TS 签名投影)'] = nativeBytes <= NATIVE_SURFACE_BUDGET
+  console.log(`  原生面: ${nativeSchemas.length} 个工具 / ${nativeBytes} bytes(描述+parameters, 完整 JSON Schema)`)
+  checks['原生自用工具: 体积在预算内(完整 JSON Schema)'] = nativeBytes <= NATIVE_SURFACE_BUDGET
   const nativeListDef = ctx.tools.get('rice_session_list')
   const nativeListValue = await nativeListDef.execute({}, { signal: new AbortController().signal } as any)
   const nativeListText = nativeListDef.output.render({}, nativeListValue)[0]?.text ?? ''
