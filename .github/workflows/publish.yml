@@ -13,17 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 依赖用 pnpm 安装；发布动作仍走 npm CLI（trusted publishing/OIDC 与 provenance 不变）
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
           registry-url: https://registry.npmjs.org
       # 推 tag 发布时，tag 必须与 package.json 版本一致，防止发错版本
       - name: Verify tag matches package version
         run: |
           node -e "const v=require('./package.json').version; const t=process.env.GITHUB_REF_NAME.slice(1); if(v!==t){console.error('tag v'+t+' != package.json '+v);process.exit(1)}; console.log('publishing', v)"
-      - run: npm ci
-      - run: npm test
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
       # npm 对预发布版本强制显式 --tag：registry 尚无正式版时预发布暂占 latest（裸名安装拿最新），
       # 出现首个正式版后退到 rc 频道。认证走 OIDC trusted publishing（npmjs.com 包设置里需先登记
       # 本仓库 + 本 workflow 文件名），不再使用 NPM_TOKEN。
