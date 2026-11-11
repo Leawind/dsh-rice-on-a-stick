@@ -2,7 +2,7 @@
  * 行为冒烟(会话中心契约): 各 Phase 组织断言, 覆盖——
  *   0. 纯函数: parseSummary / isWithin / Config schema(装载期默认与拒绝) / pendingApprovalsOf
  *   A. 协议: initialize(instructions)/echo/tools_list(工具齐备)/版本协商
- *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺 preset/未知 preset 拒绝
+ *   B. session_create: 正面(create 参数/挂 preset/工作区归组/title)/缺模型/缺思考等级/缺 preset/未知 preset 拒绝
  *   C. session_send: live 接管(沿用原模型)/mode 省略规则(空闲可省、运行中必填)/turn 失败透出/冷恢复(宿主 resolveAgent)/宿主拒绝透出
  *   D. 异步控制面: session_send(wait:none, 幂等)/session_poll(批量/超时/long-poll)/session_result(完成/未收敛/取消/
  *      索引丢失后从 rpcId 重建)/客户端取消只停等待
@@ -253,7 +253,7 @@ try {
   // 委派谱系: 原生面省略 parentSessionId 时记录调用方为父(记录"谁创建了它"这一事实, 不替调用方选模型/权限)
   const nativeCreateDef = ctx.tools.get('rice_session_create')
   const nativeCreateValue = await nativeCreateDef.execute(
-    { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'native delegated child' },
+    { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', reasoningEffort: 'high', preset: 'standard', task: 'native delegated child' },
     { signal: new AbortController().signal, agent: liveAgent } as any,
   )
   const nativeCreateJson = JSON.parse(nativeCreateDef.output.render({}, nativeCreateValue)[0]?.text ?? '{}')
@@ -318,6 +318,11 @@ try {
   const attachmentsSchema: any = (toolsArr.find((t) => t.name === 'session_send')?.inputSchema as any)?.properties?.attachments
   checks[`图片入站: attachments 入参 schema 声明 maxItems=${MAX_ATTACHMENTS}`] =
     attachmentsSchema?.type === 'array' && attachmentsSchema?.maxItems === MAX_ATTACHMENTS
+  // 模型与思考等级显式契约: session_create 的必填集合发布在 schema 里(漂移即测试失败)
+  const createRequired: string[] = (toolsArr.find((t) => t.name === 'session_create')?.inputSchema as any)?.required ?? []
+  checks['session_create: provider/model/reasoningEffort/preset/task 都在 required'] = ['provider', 'model', 'reasoningEffort', 'preset', 'task'].every((n) =>
+    createRequired.includes(n),
+  )
   const guideTool = parsePayload(toolsList.text).result?.tools?.find((t) => t.name === 'dsh_guide')
   // 2025-06-18 协议扩展字段的发布面: 字段在(意外删除即失败), 具体文案不钉死
   checks['工具带 title + annotations(2025-06-18 协议字段)'] =
@@ -412,6 +417,7 @@ try {
         workspacePath: FAKE_CWD,
         provider: 'p1',
         model: 'm1',
+        reasoningEffort: 'high',
         preset: 'standard',
         task: 'smoke 首条任务',
         title: 'smoke 会话',
@@ -453,6 +459,7 @@ try {
         workspacePath: FAKE_CWD,
         provider: 'p1',
         model: 'm1',
+        reasoningEffort: 'high',
         preset: 'standard',
         task: 'delegated child probe',
         parentSessionId: 'sess-live',
@@ -487,7 +494,10 @@ try {
     jsonrpc: '2.0',
     id: 115,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'default perm probe' } },
+    params: {
+      name: 'session_create',
+      arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', reasoningEffort: 'high', preset: 'standard', task: 'default perm probe' },
+    },
   })
   const mkDefaultPermInner = mkDefaultPerm.status === 200 ? innerOf(mkDefaultPerm) : { error: 'bad' }
   checks['session_create 省略 permission 继承宿主默认并回显'] =
@@ -507,6 +517,7 @@ try {
         workspacePath: FAKE_CWD,
         provider: 'p1',
         model: 'm1',
+        reasoningEffort: 'high',
         preset: 'standard',
         task: 'dup probe',
         requestId: mkDefaultPermInner.requestId,
@@ -526,7 +537,15 @@ try {
     method: 'tools/call',
     params: {
       name: 'session_create',
-      arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'bad perm probe', permission: 'nope' },
+      arguments: {
+        workspacePath: FAKE_CWD,
+        provider: 'p1',
+        model: 'm1',
+        reasoningEffort: 'high',
+        preset: 'standard',
+        task: 'bad perm probe',
+        permission: 'nope',
+      },
     },
   })
   checks['session_create 未知权限预设被拒且不建会话'] =
@@ -543,7 +562,7 @@ try {
     jsonrpc: '2.0',
     id: 11,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', reasoningEffort: 'high' } },
   })
   checks['session_create 缺 model 被明确拒绝'] =
     String(innerOf(mkNoModel).error ?? '').includes('session_create') && String(innerOf(mkNoModel).error ?? '').includes('model')
@@ -554,7 +573,7 @@ try {
     jsonrpc: '2.0',
     id: 111,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', reasoningEffort: 'high', preset: 'standard' } },
   })
   // SDK 的参数校验失败以 isError 结果表达(-32602 文本点名缺失参数), 不是协议级 error
   checks['session_create 缺 task 被参数校验拒绝(不建会话)'] =
@@ -568,18 +587,34 @@ try {
     jsonrpc: '2.0',
     id: 113,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1' } },
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', reasoningEffort: 'high' } },
   })
   checks['session_create 缺 preset 被明确拒绝'] = String(innerOf(mkNoPreset).error ?? '')
     .toLowerCase()
     .includes('preset')
+
+  // 参数校验: 思考等级同为必填(取值来自 model_list 的 efforts, 不做适配器默认回填)
+  const createdBeforeNoEffort = created.length
+  const mkNoEffort = await rpc(init.sid, {
+    jsonrpc: '2.0',
+    id: 118,
+    method: 'tools/call',
+    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'no effort probe' } },
+  })
+  checks['session_create 缺 reasoningEffort 被参数校验拒绝(不建会话)'] =
+    parsePayload(mkNoEffort.text).result?.isError === true &&
+    String(innerOf(mkNoEffort).error ?? '').includes('reasoningEffort') &&
+    created.length === createdBeforeNoEffort
 
   // 未知 preset 被拒(roster 校验)
   const mkBadPreset = await rpc(init.sid, {
     jsonrpc: '2.0',
     id: 12,
     method: 'tools/call',
-    params: { name: 'session_create', arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'nope', task: 'bad preset probe' } },
+    params: {
+      name: 'session_create',
+      arguments: { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', reasoningEffort: 'high', preset: 'nope', task: 'bad preset probe' },
+    },
   })
   checks['session_create 未知 preset 被拒'] = String(mkBadPreset.status === 200 ? (innerOf(mkBadPreset).error ?? '') : '').includes('unknown preset')
 
@@ -1852,9 +1887,23 @@ try {
   // ── Phase B: allowedModels 允许清单(独立端口独立 ctx; 缺省开关按"清单非空即启用"推导) ──
   {
     const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
-    const mkOut = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard', task: 'allowlist probe' })
+    const mkOut = await phase.call('session_create', {
+      workspacePath: FAKE_CWD,
+      provider: 'p2',
+      model: 'm9',
+      reasoningEffort: 'high',
+      preset: 'standard',
+      task: 'allowlist probe',
+    })
     checks['allowedModels: 清单外模型建会话被拒'] = String(mkOut.status === 200 ? (innerOf(mkOut).error ?? '') : '').includes('not in allowedModels')
-    const mkIn = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'allowlist ok probe' })
+    const mkIn = await phase.call('session_create', {
+      workspacePath: FAKE_CWD,
+      provider: 'p1',
+      model: 'm1',
+      reasoningEffort: 'high',
+      preset: 'standard',
+      task: 'allowlist ok probe',
+    })
     checks['allowedModels: 清单内模型正常创建'] = typeof innerOf(mkIn).sessionId === 'string'
     const selOut = await phase.call('session_select_model', { sessionId: 'sess-live', provider: 'p2', model: 'm9' })
     checks['allowedModels: select_model 清单外被拒'] = String(innerOf(selOut).error ?? '').includes('not in allowedModels')
@@ -1862,7 +1911,14 @@ try {
     const live = ConfigSchema({ allowedModels: ['p1/m1', 'p1/m2'], allowedModelsEnabled: true }) as any
     updateVolatile(phase.config.allowedModels, live.allowedModels)
     updateVolatile(phase.config.allowedModelsEnabled, live.allowedModelsEnabled)
-    const mkLive = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm2', preset: 'standard', task: 'live update probe' })
+    const mkLive = await phase.call('session_create', {
+      workspacePath: FAKE_CWD,
+      provider: 'p1',
+      model: 'm2',
+      reasoningEffort: 'high',
+      preset: 'standard',
+      task: 'live update probe',
+    })
     checks['volatile: 白名单就地更新后立即生效(不重载)'] = typeof innerOf(mkLive).sessionId === 'string'
     await phase.dispose()
   }
@@ -1873,7 +1929,14 @@ try {
       allowedModels: ['p1/m1'],
       allowedModelsEnabled: false,
     })
-    const mkOff = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p2', model: 'm9', preset: 'standard', task: 'off probe' })
+    const mkOff = await phase.call('session_create', {
+      workspacePath: FAKE_CWD,
+      provider: 'p2',
+      model: 'm9',
+      reasoningEffort: 'high',
+      preset: 'standard',
+      task: 'off probe',
+    })
     checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
     const stOff = await phase.call('plugin_status', {})
     checks['allowedModels: 关闭态 status 透出 enabled=false'] = innerOf(stOff).config?.allowedModelsEnabled === false
@@ -1904,13 +1967,21 @@ try {
       workspacePath: FAKE_CWD,
       provider: 'p1',
       model: 'm1',
+      reasoningEffort: 'high',
       preset: 'standard',
       task: 'no perm svc probe',
       permission: 'danger-full-access',
     })
     checks['权限预设缺席: 指定 permission 被拒且不建会话'] =
       String(innerOf(mkNoPermSvc).error ?? '').includes('permission-presets service is unavailable') && created.length === before
-    const mkPlain = await phase.call('session_create', { workspacePath: FAKE_CWD, provider: 'p1', model: 'm1', preset: 'standard', task: 'plain probe' })
+    const mkPlain = await phase.call('session_create', {
+      workspacePath: FAKE_CWD,
+      provider: 'p1',
+      model: 'm1',
+      reasoningEffort: 'high',
+      preset: 'standard',
+      task: 'plain probe',
+    })
     const mkPlainInner = innerOf(mkPlain)
     checks['权限预设缺席: 不指定 permission 仍可建会话(不回显权限)'] = typeof mkPlainInner.sessionId === 'string' && mkPlainInner.permission === undefined
     const meta = await phase.call('session_inspect', { sessionId: 'sess-live' })

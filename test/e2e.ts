@@ -342,8 +342,18 @@ try {
       const provider = process.env.E2E_PROVIDER ?? modelList.inner?.default?.provider
       const model = process.env.E2E_MODEL ?? modelList.inner?.default?.model
       const preset = process.env.E2E_PRESET ?? (modelList.inner?.presets ?? [])[0]
-      report('agent 相参数齐(provider/model/preset)', Boolean(provider && model && preset), `${provider}/${model} preset=${preset} cwd=${CWD}`)
-      if (!provider || !model || !preset) {
+      // reasoningEffort 同为 session_create 必填: 取该模型目录行的默认档, 缺省回退 effort 表首项
+      const row = (modelList.inner?.models ?? []).find((m) => m.provider === provider && m.id === model)
+      const efforts = String(row?.efforts ?? '')
+        .split('|')
+        .filter(Boolean)
+      const reasoningEffort = process.env.E2E_REASONING_EFFORT ?? row?.defaultEffort ?? efforts[0] ?? modelList.inner?.default?.reasoningEffort ?? ''
+      report(
+        'agent 相参数齐(provider/model/reasoningEffort/preset)',
+        Boolean(provider && model && reasoningEffort && preset),
+        `${provider}/${model} effort=${reasoningEffort || '(目录无 effort)'} preset=${preset} cwd=${CWD}`,
+      )
+      if (!provider || !model || !reasoningEffort || !preset) {
         finish()
         process.exit(1)
       }
@@ -355,6 +365,7 @@ try {
           workspacePath: CWD,
           provider,
           model,
+          reasoningEffort,
           preset,
           task: 'ping — reply with exactly: pong',
           ...(PERMISSION_PRESET ? { permission: PERMISSION_PRESET } : {}),

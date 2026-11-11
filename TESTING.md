@@ -21,7 +21,7 @@
 e2e 分相：
 
 - **零 token 相**（默认）：MCP 握手与 instructions、工具面齐全性、只读工具（guide / status / workspace / model / session_list）、异步控制面的不存在会话路径、冷会话历史（宿主 `sessionQuery.observeSession`）、资源面、附件与端点直通只读面。不花任何模型调用。
-- **agent 相**（`E2E_WITH_AGENT=1`）：`session_create` 建会话并同调用投递首条消息，`session_send`（`wait: 'turn'`）跑一次真实 turn，随后断言结果回报、纪要读取、搜索、分叉等。参数 `E2E_PROVIDER` / `E2E_MODEL` / `E2E_PRESET`（缺省 `deepseek-account` / `deepseek-flash` / `standard`）。
+- **agent 相**（`E2E_WITH_AGENT=1`）：`session_create` 建会话并同调用投递首条消息，`session_send`（`wait: 'turn'`）跑一次真实 turn，随后断言结果回报、纪要读取、搜索、分叉等。参数 `E2E_PROVIDER` / `E2E_MODEL` / `E2E_PRESET`（缺省 `deepseek-account` / `deepseek-flash` / `standard`）；`E2E_REASONING_EFFORT` 覆盖思考等级（缺省取该模型目录行的默认档，回退 effort 表首项——`session_create` 必填）。
 - **冷恢复相**：把上一轮输出的 `SESSION_ID=...` 以 `E2E_SESSION_ID` 传入并在宿主重启后跑，覆盖 `resolveAgent` 冷恢复路径。
 - 可选开关：`E2E_PERMISSION=<预设>`（权限预设 + 审批策略面）、`E2E_ARCHIVE=1`（归档 / 恢复）、`E2E_AGENT_TIMEOUT_MS`、`E2E_CWD`、`E2E_TOKEN`（直连开启了认证的宿主时）。
 - **断言口径**：一次性宿主跑在全新的 web 模板 profile 上，断言不能假设开发 profile 的状态——全局工具注册表里可能有别的插件的工具（对比 `dsh://tools` 的同一份注册表，而不是本插件的原生工具数）；端点默认档为审批且清单为空（叠加层只放行 e2e 探针用的只读 `session/modelCatalog`，其余端点会停泊等人工审批）；宿主可能没有远程回答接缝（`approval_answer` 走 `answers.ts` 的明确降级拒绝）。单次调用超时降级为该项 FAIL，不中断整个 run。

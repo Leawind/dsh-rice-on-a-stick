@@ -206,7 +206,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Create session',
       description:
-        'Create a session in `workspacePath` and deliver the first message in the same call: message params mirror `session_send`, `task` required. Resolve a user-named workspace with `workspace_list`; provider/model/preset come from `model_list`. Returns `sessionId`, the resolved `workspace` and the delivery receipt.',
+        'Create a session in `workspacePath` and deliver the first message in the same call: message params mirror `session_send`, `task` required. Resolve a user-named workspace with `workspace_list`; provider/model/reasoningEffort/preset come from `model_list`. Returns `sessionId`, the resolved `workspace` and the delivery receipt.',
       inputSchema: {
         workspacePath: z
           .string()
@@ -215,7 +215,7 @@ export function registerSessionActionTools(mcp: McpServer, ctx: Context): void {
           ),
         provider: z.string().describe('Provider route from `model_list`; must be paired with `model`.'),
         model: z.string().describe('Model id from `model_list`; must be paired with `provider`.'),
-        reasoningEffort: z.string().optional().describe('Effort id from `model_list` `efforts` (default: adapter default).'),
+        reasoningEffort: z.string().describe('Effort id from `model_list` `efforts` (required; pick one for the chosen model).'),
         preset: z.string().describe('Preset id from `model_list` `presets` (required).'),
         title: z.string().optional().describe('Session title (default: host-generated after the first turn).'),
         permission: z.string().optional().describe('Permission preset id from `permission_list`; omit = the host default.'),

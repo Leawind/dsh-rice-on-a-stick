@@ -75,7 +75,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List models',
       description:
-        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/preset. Output is TOON tabular text.",
+        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/reasoningEffort/preset. Output is TOON tabular text.",
       inputSchema: {
         provider: z.string().optional().describe('Only list this provider (default: all).'),
       },
