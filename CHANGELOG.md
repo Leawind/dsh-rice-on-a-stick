@@ -2,6 +2,25 @@
 
 开发期间的改动记录在 conventional commits 的提交信息里，发布时整理为版本条目。
 
+## 0.2.3-rc.1 (2026-11-13)
+
+这一版跟随 dsh 0.2.2 的语义，补齐委派、通知与压缩三块能力，策略配置改成“默认档 + 例外清单”。破坏性变更两处：`session_create` 必填推理档，工具与端点策略字段重做。
+
+-   宿主跟进：跟踪 dsh `0.2.2-rc.1`，`engines.dsh` 抬到 `>=0.2.2-rc.1`；冷会话读取改走 `sessionQuery.observeSession`（0.2.2 移除了旧的 `sessionController.inspect` 通道），`session_history` / `session_result` / `session_inspect` / `approval_list` / `question_list` / `session_events` 与附件引用定位恢复可读；子代理目录补 `name` 与递归后代的 `path`；切换模型改读宿主待生效的 `model/selection`，`session_result` 仍以实际答过这一轮的 header 为准。
+-   原生面参数契约：`parameters` 恢复为同一份 zod shape 的完整 JSON Schema。此前收缩成空壳 `{"type":"object"}`、把契约写进描述，依赖 schema 生成入参的模型（如 GLM 系列）只会发 `{}`，带参调用全部失败；原生面体积预算按完整 schema 实测上调。
+-   破坏性变更：`session_create` 的 `reasoningEffort` 改为必填，取值来自 `model_list` 的 `efforts`。
+-   破坏性变更：端点与工具策略改为“默认档 + 例外清单”——`endpointDefault` / `endpointAllowlist` / `endpointApprovalList` / `toolDefault` / `toolAllowlist` / `toolBlocklist`，`toolAllowlistEnabled` 移除。面板每次写入按成员数自动收敛（最大的集合不列出）、空清单不落盘、schema 之外的旧键一并剔除；同一目标落入多份清单时按 拒绝 > 审批 > 允许 失败关闭。
+-   设置面板：端点策略改为三档循环控点（放行 / 需审批 / 拒绝），行点任意处即循环；顶栏按范围（全部 / 只读 / 可写）批量设档，点已亮按钮不写配置；危险端点只在危险清单逐条调整；说明性文本全部移除，档位与状态由控件和徽标体现。
+-   新增 `session_compact`（仅在原生面）：在指定会话中触发一次显式压缩，与 `/compact` 共用压缩后端（dsh 0.2.2 的 Web 组合把它下沉到 agent preset 作用域，因此按目标 agent 解析），不产生 turn，返回 `items` / `tokens` / `summarySeq`。会话在跑 turn 时登记一条待执行请求，在该会话下一次空闲后压缩；每会话至多一条，重复调用合并。它不替代 `/compact`，MCP 工具面看不到这个名字。
+-   `session_poll`：每行新增 `settled`（无 turn、无排队），`until=settled` 在任一被观察会话收敛时返回；`include=results` 为已收敛会话附最近一次请求的摘要结果。
+-   委派簿记：`session_create` 的 `parentSessionId` / `label` 把新会话登记到插件自己的委派树（不写宿主的 parentSession / origin），回执回显 `delegationId`；`session_list` 支持按父会话过滤并投影谱系，宿主原生子代理谱系不混入。
+-   完成通知：`session_create` / `session_send` 的 `notify`（默认关）在请求收敛后向调用方投一条短消息并推送资源更新，只带状态、摘要与结果指针，同一 `requestId` 去重。
+-   原生子代理：新增 `subagent_send`（原生面把调用方当 sender，外部 MCP 无 sender 时明确拒绝）与 `subagent_interrupt`（与界面 Stop 同源）；`session_subagents` 仍是只读目录。
+-   安全：委派子会话的权限预设与审批策略在创建时固定，`session_set_permission` / `approval_policy_set` 拒绝中途改宽；`endpoint_call` 的停泊审批卡带上发起会话（仅归属，不参与鉴权）。
+-   工具链：依赖改用 pnpm 管理（`pnpm-lock.yaml`、`nodeLinker: hoisted`，CI 与发布改走 pnpm，OIDC trusted publishing 与 provenance 不变），文档里的命令示例统一为 pnpm。
+-   测试：删除与实现重复的计数与镜像式断言，协议字段改为按存在性钉住；真机 e2e 支持用 `DSH_E2E_DSH` 指向 npm 安装的 dsh CLI 起临时宿主。
+-   文档：中英 README 重写场景与工具要点，入门指南、架构约束（委派簿记归属、压缩后端位置、`parameters` 即模型契约）同步。
+
 ## 0.2.2-rc.1 (2026-11-05)
 
 -   工具输出瘦身（破坏性变更：下列工具输出不再可 `JSON.parse`）：列表与目录类工具（`session_list` / `workspace_list` / `model_list` / `permission_list` / `session_subagents`）改用 TOON 表格式文本（表头 + 逗号分隔行，同构数据比紧凑 JSON 省 ~40% token；可用任意 TOON 解码器解析）；其余工具仍为紧凑 JSON，错误统一 `{error}` JSON 不变。
