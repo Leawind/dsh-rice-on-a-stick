@@ -5,13 +5,25 @@
 
 [中文](README.md) | English
 
-[![DSH](https://img.shields.io/badge/DSH-≥0.2.2--rc.1-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness) [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
+[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-≥0.2.2--rc.1-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
 
-[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases) [![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
+[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=Plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
+[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
 
-A plugin that exposes control over dsh ([DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)) as MCP and built-in tools.
+A plugin that lets dsh control dsh
+
+<sup>Other agents can also connect over MCP</sup>
 
 </div>
+
+## Particularly useful scenarios
+
+- Keep one session watching the other sessions, handling permission approvals, context compaction and similar work the way a human user would. No more nerve-wracking danger-full-access;
+- Have the main session assign several worker sessions, and let each worker tell the main session how it went with a steered message once the work is done;
+- Have one session analyse how other sessions executed and distil what to learn from it. A common case while developing dsh plugins;
+
+## Main features
 
 - **Control sessions**: create, send, queue, fork, archive and restore, switch models, etc.
   - Can be configured so that callers may only use specific models; descriptions for model providers and models can also be written and provided to callers
@@ -25,13 +37,13 @@ A plugin that exposes control over dsh ([DeepSeek Harness](https://github.com/de
 > - When authentication is disabled, any local process that can access the corresponding port can drive dsh
 > - This plugin exposes local code execution capability to callers and listens only on `127.0.0.1` by default
 
-## Requirements
-
-- dsh `0.2.2-rc.1` or later. The graphical interface (the "Rice on a Stick" page in the sidebar) and full session functionality require the web or desktop version of dsh
-- MCP clients must support Streamable HTTP; clients that only support stdio need to bridge it themselves
-- Building from source requires pnpm (version pinned by the `packageManager` field)
-
 ## Installation
+
+Requirements:
+
+- DeepSeek Harness `0.2.2-rc.1` or later (recommended)
+- The graphical interface (the "Rice on a Stick" page in the sidebar) and full session functionality require the web or desktop version of dsh
+- MCP clients must support Streamable HTTP; clients that only support stdio need to bridge it themselves
 
 Install via npm:
 
@@ -68,35 +80,14 @@ All configuration can be changed on the "Rice on a Stick" page in the dsh sideba
 
 Endpoint and tool permissions never list the largest set: `endpointDefault` / `toolDefault` names the default mode and the config stores only the other buckets. The panel converges on every write and drops empty lists, so "allow everything" costs a single line instead of a snapshot of the host's endpoint directory.
 
-## Main tools
+## What the main tools do
 
-### Sending messages
-
-`session_send` sends a message to a session. If the target session is running, the delivery mode must be chosen explicitly: queue (wait until the current turn ends) or steer (inject at a step boundary and extend this turn). When the session is idle, the two are equivalent; omitting the mode while the session is running fails directly.
-
-### Observing session state
-
-`session_poll` observes multiple sessions at once: state, queue length, pending answers and the last message.
-
-### Handling permission approvals and questions
-
-Handle permission approvals (`approval_list` / `approval_answer`) and answer the model's questions (`question_list` / `question_answer`) just like a web user.
-
-### Calling dsh's remote access endpoints
-
-Discover (`endpoint_describe`) and call (`endpoint_call`) dsh's remote access endpoints; for the mechanism, see [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md).
-
-### Delegation lineage and completion notices
-
-`session_create` accepts `parentSessionId` / `label` to record the new session in the plugin's own delegation tree (never the host session header); `session_list({ parentSessionId })` lists direct children. A delegation's permission preset and approval policy are fixed at creation — the tools refuse to widen them mid-flight. `notify: true` on `session_create` / `session_send` posts one short completion notice to the caller once the request settles.
-
-### Driving native subagents
-
-`subagent_send` (native face; the calling session is the sender) and `subagent_interrupt` (the UI's Stop) let rice drive the host's native subagents too; `session_subagents` remains the read-only catalog.
-
-### Compacting session history
-
-`session_compact` runs one explicit compaction from inside a dsh session. It does **not** replace `/compact` (the command, `session_command_run` and the host's automatic pressure compaction are unchanged — this is an extra path for a session itself), and it is **native face only: it is not part of the MCP tool surface**, so external clients can neither see nor call it. It uses the same compaction backend as `/compact` (dsh 0.2.2's Web composition moves that backend into an agent-preset isolate group, so it is resolved through the target agent's preset scope; preset-free deployments still resolve it at the host root) but runs no turn and returns a structured result (`items` / `tokens` / `summarySeq`). The host only compacts an idle agent: while the session is mid-turn the request is held and runs at that session's next idle moment, which is what lets an agent compact its own session. At most one request is held per session (repeats report `already: true`), and the outcome goes back to the caller only — a session that asks for itself gets no notice, since that would start a fresh turn for it.
+- `session_send`: sends a message to a session. If the target session is running, the delivery mode must be chosen explicitly: queue (wait until the current turn ends) or steer (inject at a step boundary and extend this turn); when the session is idle the two are equivalent, and omitting the mode while it is busy fails directly.
+- `session_poll` observes several sessions at once, and can wait, for a bounded time, until any of them changes or stops running.
+- `<approval|question>_<list|answer>`: handle permission approvals like a human user
+- `endpoint_<describe|call>`: discover and call dsh's remote access endpoints
+- `session_create` creates a session and records it in the plugin's own delegation tree (never the host header), and lists direct children by tree. A delegation's permission preset and approval policy are fixed at creation — the tools cannot widen them mid-flight.
+- `session_compact` runs one context compaction in a specific session. While that session is mid-turn the request is held and compresses at its next idle moment.
 
 ## Acknowledgements
 

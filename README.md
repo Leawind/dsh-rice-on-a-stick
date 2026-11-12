@@ -5,13 +5,25 @@
 
 中文 | [English](README.en.md)
 
-[![DSH](https://img.shields.io/badge/DSH-≥0.2.2--rc.1-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness) [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
+[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-≥0.2.2--rc.1-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
 
-[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases) [![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
+[![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=Plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
+[![last commit](https://img.shields.io/github/last-commit/Leawind/dsh-rice-on-a-stick/main)](https://github.com/Leawind/dsh-rice-on-a-stick/commits/main)
 
-一个将控制 dsh ([DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)) 的能力暴露为 MCP 和内置工具的插件。
+一个让 dsh 能控制 dsh 的插件
+
+<sup>其他 Agent 亦可通过 MCP 接入</sup>
 
 </div>
+
+## 尤其有用的场景
+
+- 派一个会话专门巡视其他会话，像人类用户一样处理权限审批、上下文压缩等操作。不再需要令人胆战心惊的 danger-full-access；
+- 让主会话安排多个工人会话去工作，完成后工人会话向主会话以steer模式发送消息告知任务执行结果；
+- 让一个会话分析其他会话的执行过程，从而总结经验。这在开发 dsh 插件时尤其常用；
+
+## 主要功能
 
 - **控制会话**：新建、发送、排队、分叉、归档与恢复、切换模型等
   - 可配置为只允许调用方使用特定模型，也可为模型提供商和模型编写描述提供给调用方
@@ -25,13 +37,13 @@
 > - 未启用认证时，任何能访问对应端口的本机进程都可以驱动 dsh
 > - 这个插件会对调用者暴露本机代码执行能力，默认只监听 `127.0.0.1`
 
-## 环境要求
-
-- dsh `0.2.2-rc.1` 及以上。图形界面（侧栏“白饭钓竿”页）和完整的会话功能需要 web 或 desktop 版 dsh
-- MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接
-- 从源码构建需要 pnpm（版本由 `packageManager` 字段锁定）
-
 ## 安装
+
+环境要求：
+
+- 推荐 DeepSeek Harness `0.2.2-rc.1` 及以上
+- 图形界面（侧栏“白饭钓竿”页）和完整的会话功能需要 web 或 desktop 版 dsh
+- MCP 客户端需支持 Streamable HTTP，只支持 stdio 的客户端需要自行桥接
 
 通过 npm 安装：
 
@@ -68,35 +80,14 @@ MCP server 默认监听 `http://127.0.0.1:5642/mcp`，传输方式为 Streamable
 
 端点与工具许可按 **"最大的集合不列出"** 存储：`endpointDefault` / `toolDefault` 记录默认档，配置里只写另外两档的例外清单。面板每次写入自动按成员数收敛，空清单不落盘——"允许全部"因此只占一行，不会把宿主的端点目录抄进配置文件。
 
-## 主要工具
+## 主要工具的功能细节
 
-### 发送消息
-
-`session_send` 向会话发消息。目标会话正在运行时须显式选择投递方式：排队（等当前回合结束）或插话（在步边界注入并延长本轮）；空闲时二者等价，运行中不指定会直接失败。
-
-### 观察会话状态
-
-`session_poll` 批量观察会话状态：状态、排队数、待回答项与最后一条消息。
-
-### 处理权限审批与提问
-
-像网页用户一样处理权限审批（`approval_list` / `approval_answer`）与回答模型的提问（`question_list` / `question_answer`）。
-
-### 调用 dsh 的远程访问端点
-
-发现（`endpoint_describe`）并调用（`endpoint_call`）dsh 的远程访问端点，机制见 [docs/endpoint-passthrough.zh.md](docs/endpoint-passthrough.zh.md)。
-
-### 委派谱系与完成通知
-
-`session_create` 可用 `parentSessionId` / `label` 把新会话登记到插件自己的委派树（不写宿主 header），`session_list({ parentSessionId })` 按树列出直接子级。委派会话的权限与审批策略在创建时固定，工具面不能中途改宽。`session_create` / `session_send` 的 `notify: true` 在收敛后向调用方投一条短通知。
-
-### 控制原生子代理
-
-`subagent_send`（原生面，调用方即 sender）与 `subagent_interrupt`（与界面 Stop 同源）让 rice 也能驱动宿主原生子代理；`session_subagents` 只读目录。
-
-### 压缩会话历史
-
-`session_compact` 在 dsh 会话内部触发一次显式压缩，**不替代 `/compact`**（命令、`session_command_run` 与宿主的自动压力压缩都不变，这是会话内的一条额外通路），且**只在原生面提供、不进 MCP 工具面**——外部客户端看不到也调不到。它与 `/compact` 用同一个压缩后端（dsh 0.2.2 的 Web 组合把后端下沉到 agent preset 的 isolate group，因此按目标 agent 的 preset 作用域取；无 preset 的部署仍从宿主根取），但不产生 turn，并返回结构化结果 `items` / `tokens` / `summarySeq`。宿主的压缩只接受空闲 agent：会话正在跑 turn 时，请求会被登记、在该会话下一次空闲后执行——agent 因此可以压缩自己的会话。每个会话至多一条待执行请求，重复调用合并；结果只回调用方（目标会话自己请求时不发通知，那会凭空给它开一个新 turn）。
+- `session_send`：向会话发消息。目标会话正在运行时须显式选择投递方式：排队（等当前回合结束）或插话（在步边界注入并延长本轮）；空闲时二者等价，繁忙时未指定会直接失败。
+- `session_poll` 可以批量观察若干会话的运行状态，并可有界地等待到其中任一会话发生变化或不再运行。
+- `<approval|question>_<list|answer>`：像人类用户一样处理权限审批
+- `endpoint_<describe|call>`：发现并调用 dsh 的远程访问端点
+- `session_create` 可创建新会话并将其登记到插件自己的委派树（不写宿主 header），可按树列出直接子级。委派会话的权限与审批策略在创建时固定，工具面不能中途改宽。
+- `session_compact` 在特定会话中触发一次上下文压缩。会话正在跑 turn 时，请求会被登记，压缩将在下一次空闲后执行。
 
 ## 感谢
 
