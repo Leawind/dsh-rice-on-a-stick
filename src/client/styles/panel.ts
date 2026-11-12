@@ -123,10 +123,11 @@ export const PANEL_CSS = [
   '.dcs-tokenrow{display:flex;align-items:center;gap:8px;padding-top:10px;flex-wrap:wrap;}',
   '.dcs-tokenwarn{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629);}',
   '.dcs-tokeninput{flex:1;min-width:80px;height:28px;padding:0 8px;font-family:var(--ds-font-family-code,ui-monospace,Consolas,monospace);font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-layer-1,#fff);border:.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-sm,8px);outline:none;}',
-  // 端点白名单清单: 过滤+全选行在上, 组头(组复选+namespace+计数)与端点行(复选+端点+说明+锁定徽标)在下
+  // 端点白名单清单: 过滤+批量设档行在上, 组头(组控点+namespace+计数)与端点行(三档控点+端点+说明+徽标)在下
   '.dcs-eps{display:flex;flex-direction:column;gap:8px;width:100%;}',
-  '.dcs-epbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
-  '.dcs-epbar .dcs-input{flex:1 1 200px;width:auto;min-width:160px;height:28px;font-size:12px;}',
+  '.dcs-epbar{display:flex;flex-direction:column;align-items:stretch;gap:6px;}',
+  '.dcs-epbar-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+  '.dcs-epbar .dcs-input{flex:none;width:100%;height:28px;font-size:12px;}',
   '.dcs-epall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);white-space:nowrap;cursor:pointer;}',
   // 清单独立滚动: overscroll-behavior:contain 阻断滚动链接——滚到顶/底后继续滚不会带动外层页面,
   // 面板不会因"外层接着滚"而整体位移(鼠标在清单内时滚动始终由清单自己消费)。
@@ -144,7 +145,7 @@ export const PANEL_CSS = [
   '.dcs-epns{font-size:12.5px;font-weight:600;}',
   '.dcs-epnsdesc{flex:1;min-width:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
   '.dcs-epcount{flex:none;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#81858c);font-variant-numeric:tabular-nums;white-space:nowrap;}',
-  // 端点行左缩进 46px = 组头里 namespace 文本的起点(16 箭头 + 8 间距 + 14 组复选 + 8 间距), 端点复选框与 namespace 对齐成树状
+  // 端点行左缩进 46px = 组头里 namespace 文本的起点(16 箭头 + 8 间距 + 14 组控点 + 8 间距), 端点控点与 namespace 对齐成树状
   '.dcs-epr{display:flex;align-items:center;gap:8px;padding:4px 0 4px 46px;border-bottom:.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.10));}',
   // 无分组的清单(工具白名单)取消树状缩进: 行首没有组箭头/组复选, 复选框直接顶格
   '.dcs-epr-nogroup{padding-left:0;}',
@@ -162,10 +163,22 @@ export const PANEL_CSS = [
   '.dcs-epbadge-write{color:var(--dsw-alias-state-business-primary,#4176e6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 12%,transparent);}',
   '.dcs-epbadge-stream{color:var(--dsw-alias-label-tertiary,#81858c);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));}',
   '.dcs-epbadge-danger{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
-  // 拒绝徽标/计数与拒绝档勾选框: 与危险同用错误色, ✕ 标记直观区分"勾选 = 允许"的第三档
+  // 拒绝徽标: 与危险同用错误色, ✕ 标记直观区分"勾选 = 允许"的第三档
   '.dcs-epbadge-deny{color:var(--dsw-alias-state-error-primary,#ec1313);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 10%,transparent);}',
-  '.dcs-epcount-deny{color:var(--dsw-alias-state-error-primary,#ec1313);}',
-  '.dcs-epchk-deny{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 55%,transparent);border-radius:3px;color:var(--dsw-alias-state-error-primary,#ec1313);font-size:10px;line-height:1;cursor:pointer;user-select:none;}',
+  // 端点三档控点(行/组循环按钮 + 顶栏批量设档组): 绿 ✓ = 放行, 黄 ? = 需审批, 红 ✕ = 禁止;
+  // 尺寸对齐 dcs-epchk 勾选框; 亮起档 = 实底白字, 未亮档悬停时以当前色 14% 铺底作反馈
+  '.dcs-modebtn{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;padding:0;border-radius:3px;font-size:10px;line-height:1;cursor:pointer;user-select:none;background:transparent;}',
+  '.dcs-modebtn:disabled{opacity:.35;cursor:default;}',
+  '.dcs-modebtn:hover:enabled:not(.dcs-modebtn-on){background:color-mix(in srgb,currentColor 14%,transparent);}',
+  '.dcs-modebtn-allow{border:1px solid color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 55%,transparent);color:var(--dsw-alias-state-success-primary,#22c55e);}',
+  '.dcs-modebtn-approval{border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 55%,transparent);color:var(--dsw-alias-state-warn-label,#dd8629);}',
+  '.dcs-modebtn-deny{border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#ec1313) 55%,transparent);color:var(--dsw-alias-state-error-primary,#ec1313);}',
+  '.dcs-modebtn-on.dcs-modebtn-allow{background:var(--dsw-alias-state-success-primary,#22c55e);border-color:var(--dsw-alias-state-success-primary,#22c55e);color:#fff;}',
+  '.dcs-modebtn-on.dcs-modebtn-approval{background:var(--dsw-alias-state-warn-primary,#f59e0b);border-color:var(--dsw-alias-state-warn-primary,#f59e0b);color:#fff;}',
+  '.dcs-modebtn-on.dcs-modebtn-deny{background:var(--dsw-alias-state-error-primary,#ec1313);border-color:var(--dsw-alias-state-error-primary,#ec1313);color:#fff;}',
+  // 顶栏批量: 范围标签 + ModeTrio 设档按钮组
+  '.dcs-modetrio{display:inline-flex;align-items:center;gap:2px;}',
+  '.dcs-epscope{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary,#61666b);white-space:nowrap;}',
   '.dcs-epbadge-stale{color:var(--dsw-alias-state-warn-label,#dd8629);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f59e0b) 12%,transparent);}',
   // 危险端点独立清单的段头: 错误色标题 + 危险徽标 + 一句话提醒
   '.dcs-epdangerhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:2px 2px 0;}',

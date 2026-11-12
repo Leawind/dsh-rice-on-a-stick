@@ -9,9 +9,12 @@
 // 端点行显示 method 部分(namespace 在组头), 悬停行经自绘 tooltip 给出徽标 + 描述(靠右弹出,
 // 不含端点名, 不盖住左侧名称列)。描述按界面语言取端点元数据的中/英文, 缺失时回退 descriptor
 // 自带描述。每行按端点性质给徽标: 只读/写/流式之一, 危险行另加危险徽标, 徽标恒靠右。
-// 三档策略(点行或组头循环切换): 未勾 = 默认档; 勾 = 允许; ✕ = 拒绝。默认档由面板写入时按
-// "成员最多的档"自动收敛(见 ../policy), 界面上用顶栏的"未列出的端点"标注出来。
-// 顶栏快捷框: 全选/只读/可写 = 允许档的批量(不动已拒绝的行), 拒绝框 = 拒绝档的批量。
+// 三档策略(点行或组头循环切换): 行与组头都是同一个三档循环按钮(ModeButton)——绿 ✓ = 放行,
+// 黄 ? = 需审批(含"组内档位不一"的中间态), 红 ✕ = 禁止; 点行任意处同样循环。默认档由面板
+// 写入时按"成员最多的档"自动收敛(见 ../policy)。
+// 顶栏批量在过滤输入框上方靠左: 三个范围(全部/只读/可写)各一组三档设档按钮(ModeTrio),
+// 点哪档就把该范围整体设到哪档, 点已亮按钮是空操作。设档没有例外规则, 任何批量操作都能被
+// 再一次点击原路恢复。
 // 无通配符: 每个条目都是精确端点。
 // props.data: null = 加载中, false = 目录不可用, 否则 {endpoints, namespaces, defaultMode}。
 // props.allowed/approval/denied/defaultMode: 当前生效的收敛后策略(草稿)。
@@ -20,6 +23,7 @@ import React from 'react';
 import { t, LOCALE } from '../i18n';
 import { showTip, hideTip } from './ui';
 import { CollapseBody } from './collapse';
+import { ModeButton, ModeTrio } from './modeButton';
 import { canonicalEndpointPolicy, type EndpointMode } from '../../core/policy';
 
 /** 单个端点的档位循环: 默认审批 → 允许 → 拒绝 → 默认审批 */
@@ -106,21 +110,22 @@ export function EndpointAllowlist(props) {
   // 组控点/计数的作用域: 组内全部非流式行
   const togglableOf = function (items) { return items.filter(function (e) { return e.kind !== 'stream'; }); };
   const mutatingOf = function (items) { return togglableOf(items).filter(function (e) { return !isReadOnly(e); }); };
-  // 顶栏快捷框的作用域: 危险端点不进任何快捷框(含全选/只读/可写与拒绝批量), 只能在危险清单里按组/逐条切。
-  const allTogglable = togglableOf(endpoints);
+  // 顶栏批量范围: 全部 = 普通(非危险)非流式端点; 只读/可写是它的子集。危险端点不进任何范围,
+  // 只能在危险清单里按组/逐条切。
   const readEps = togglableOf(normalEndpoints).filter(isReadOnly);
   const normalTogglable = togglableOf(normalEndpoints);
   const normalMutating = mutatingOf(normalEndpoints);
+  const scopeAll = normalTogglable.map(function (e) { return e.endpoint; });
+  const scopeRead = readEps.map(function (e) { return e.endpoint; });
+  const scopeWrite = normalMutating.map(function (e) { return e.endpoint; });
   function modeOfName(name: string): EndpointMode | undefined { return liveModes.get(name); }
-  const readOn = readEps.length > 0 && readEps.every(function (e) { return modeOf(e) === 'allow'; });
-  const readSome = !readOn && readEps.some(function (e) { return modeOf(e) === 'allow'; });
-  const writeOn = normalMutating.length > 0 && normalMutating.every(function (e) { return modeOf(e) === 'allow'; });
-  const writeSome = !writeOn && normalMutating.some(function (e) { return modeOf(e) === 'allow'; });
-  const denyAllOn = allTogglable.length > 0 && allTogglable.every(function (e) { return modeOf(e) === 'deny'; });
-  const denyAllSome = !denyAllOn && allTogglable.some(function (e) { return modeOf(e) === 'deny'; });
-  // 全选 = 普通(非危险)非流式端点全部允许(已拒绝的行不动, 得先逐行/拒绝框退掉拒绝档)
-  const allSelected = normalTogglable.length > 0 && normalTogglable.every(function (e) { return modeOf(e) === 'allow'; });
-  const someSelected = !allSelected && normalTogglable.some(function (e) { return modeOf(e) === 'allow'; });
+  // 范围聚合成亮起的档: 整范围同档 = 该档亮; 档位不一 = '?'亮(与组头的中间态同表达)
+  function scopeValue(names: string[]): EndpointMode {
+    if (names.length === 0) return 'approval';
+    const first = modeOfName(names[0]) ?? 'approval';
+    const uniform = names.every(function (x) { return modeOfName(x) === first; });
+    return uniform ? first : 'approval';
+  }
   const matches = function (e) {
     return !q || e.endpoint.toLowerCase().includes(q) || String(descOf(e) || '').toLowerCase().includes(q);
   };
@@ -164,22 +169,16 @@ export function EndpointAllowlist(props) {
     else mode = 'allow';
     setModes(names, mode);
   }
-  function toggleAll() {
-    // 全选 = 普通非流式端点全部允许; 取消全选 = 这些端点全部回到审批档。
-    // 危险端点不进全选, 已拒绝的普通行也不批量改成允许(避免一键误放危险配置)
-    const names = normalTogglable.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
-    setModes(names, allSelected ? 'approval' : 'allow');
-  }
-  function toggleRead() {
-    const names = readEps.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
-    setModes(names, readOn ? 'approval' : 'allow');
-  }
-  function toggleWritable() {
-    const names = normalMutating.filter(function (e) { return modeOf(e) !== 'deny'; }).map(function (e) { return e.endpoint; });
-    setModes(names, writeOn ? 'approval' : 'allow');
-  }
-  function toggleDenyAll() {
-    setModes(allTogglable.map(function (e) { return e.endpoint; }), denyAllOn ? 'approval' : 'deny');
+  // 顶栏批量设档控件: 把整个范围设到点中的那一档(含已拒绝的行——设档没有例外, 任何批量
+  // 都能被再一次点击原路恢复); 点已亮按钮是空操作, 不产生多余的配置写入。
+  function scopeTrio(names: string[], scopeLabel: string) {
+    const titleOf = function (mode: EndpointMode) { return t('endpoint.batchTitle', { scope: scopeLabel, mode: modeLabel(mode) }); };
+    return React.createElement(ModeTrio, {
+      value: scopeValue(names),
+      disabled: names.length === 0,
+      titles: { allow: titleOf('allow'), approval: titleOf('approval'), deny: titleOf('deny') },
+      onSet: function (mode: EndpointMode) { setModes(names, mode); },
+    });
   }
   // 两份清单的全部键(首次点击接管时作底集: 过滤时全部展开)
   function allGroupKeys() {
@@ -200,9 +199,6 @@ export function EndpointAllowlist(props) {
     if (next.has(key)) next.delete(key); else next.add(key);
     setOpen(next);
   }
-  function checkRef(indeterminate) {
-    return function (el) { if (el) el.indeterminate = indeterminate; };
-  }
   React.useEffect(function () { return hideTip; }, []);
   // 行的徽标(文字 + 胶囊样式类; 行尾渲染与悬停 tooltip 共用同一份)
   function badgesOf(e) {
@@ -220,19 +216,10 @@ export function EndpointAllowlist(props) {
     s.textContent = b.label;
     return s;
   }
-  // 行尾的三档控点: 允许 = 勾选框, 审批/默认 = 空勾选框, 拒绝 = 红叉标记(与顶栏快捷框同一套视觉)
+  // 行尾/组头的三档控点: 同一个循环按钮表达三档(绿 ✓ 放行 / 黄 ? 需审批 / 红 ✕ 禁止),
+  // 点击经 onCycle 切到下一档; 档位名作为按钮的悬停提示与无障碍标签。
   function modeControl(mode: EndpointMode, onCycle: () => void, disabled?: boolean) {
-    if (mode === 'deny') {
-      return React.createElement('span', {
-        className: 'dcs-epchk dcs-epchk-deny', role: 'checkbox', 'aria-checked': 'false',
-        title: t('endpoint.modeDeny'), onClick: function (ev) { ev.stopPropagation(); if (!disabled) onCycle(); },
-      }, '✕');
-    }
-    return React.createElement('input', {
-      className: 'dcs-epchk', type: 'checkbox', disabled: disabled === true, checked: mode === 'allow',
-      onClick: function (ev) { ev.stopPropagation(); },
-      onChange: function () { if (!disabled) onCycle(); },
-    });
+    return React.createElement(ModeButton, { mode: mode, onCycle: onCycle, disabled: disabled === true, title: modeLabel(mode) });
   }
   function row(e) {
     const stream = e.kind === 'stream';
@@ -274,7 +261,6 @@ export function EndpointAllowlist(props) {
       const deniedN = tog.filter(function (e) { return modeOf(e) === 'deny'; }).length;
       const gAll = tog.length > 0 && picked === tog.length;
       const gDeny = tog.length > 0 && deniedN === tog.length;
-      const gSome = !gAll && !gDeny && (picked > 0 || deniedN > 0);
       const nsDesc = nsDescOf(g.ns);
       const visible = g.items.filter(matches);
       return React.createElement('div', { key: g.ns },
@@ -287,18 +273,12 @@ export function EndpointAllowlist(props) {
           React.createElement('span', { className: 'dcs-epchev' }, isOpen ? '▾' : '▸'),
           tog.length === 0
             ? React.createElement('input', { className: 'dcs-epchk', type: 'checkbox', disabled: true, checked: false })
-            : gDeny
-              ? modeControl('deny', function () { cycleGroup(g, 'approval'); })
-              : React.createElement('input', {
-                  className: 'dcs-epchk', type: 'checkbox',
-                  checked: gAll, ref: checkRef(gSome),
-                  onClick: function (ev) { ev.stopPropagation(); },
-                  onChange: function () { cycleGroup(g, 'next'); },
-                }),
+            // 组三档控点与行同款: 全允许 = 绿 ✓, 全拒绝 = 红 ✕, 档位不一 = 黄 ?(点击循环到统一档)
+            : modeControl(gDeny ? 'deny' : gAll ? 'allow' : 'approval', function () { cycleGroup(g, 'next'); }),
           React.createElement('span', { className: 'dcs-epns' }, g.ns),
           nsDesc ? React.createElement('span', { className: 'dcs-epnsdesc' }, nsDesc) : null,
           React.createElement('span', { className: 'dcs-epcount' },
-            tog.length > 0 ? picked + '/' + tog.length + (deniedN > 0 ? ' · ' + t('endpoint.deniedCount', { n: deniedN }) : '') : ''),
+            tog.length > 0 ? picked + '/' + tog.length : ''),
         ),
         // 折叠/展开容器(共用组件): grid-rows 0fr→1fr 过渡 200ms; 收起时 inert 防止焦点进入不可见行
         React.createElement(CollapseBody, { open: isOpen },
@@ -347,7 +327,6 @@ export function EndpointAllowlist(props) {
       showDanger ? React.createElement('div', { className: 'dcs-epdangerhead' },
         React.createElement('span', { className: 'dcs-sectitle' }, t('endpoint.dangerousTitle')),
         React.createElement('span', { className: 'dcs-epbadge dcs-epbadge-danger' }, t('endpoint.dangerous')),
-        React.createElement('span', { className: 'dcs-sub' }, t('endpoint.dangerousHint')),
       ) : null,
       showDanger
         ? React.createElement('div', { className: 'dcs-eplist dcs-eplist-flat' },
@@ -360,57 +339,27 @@ export function EndpointAllowlist(props) {
     );
   }
 
-  const deniedCount = allTogglable.filter(function (e) { return modeOf(e) === 'deny'; }).length;
   return React.createElement('div', { className: 'dcs-eps' },
     React.createElement('div', { className: 'dcs-epbar' },
+      React.createElement('div', { className: 'dcs-epbar-row' },
+        React.createElement('span', { className: 'dcs-epscope' },
+          React.createElement('span', null, t('endpoint.scopeAll')),
+          scopeTrio(scopeAll, t('endpoint.scopeAll')),
+        ),
+        React.createElement('span', { className: 'dcs-epscope' },
+          React.createElement('span', null, t('endpoint.readonly')),
+          scopeTrio(scopeRead, t('endpoint.readonly')),
+        ),
+        React.createElement('span', { className: 'dcs-epscope' },
+          React.createElement('span', null, t('endpoint.writable')),
+          scopeTrio(scopeWrite, t('endpoint.writable')),
+        ),
+      ),
       React.createElement('input', {
         className: 'dcs-input', type: 'text', value: filter,
         placeholder: t('endpoint.filter'), spellCheck: false,
         onChange: function (ev) { setFilter(ev.target.value); },
       }),
-      React.createElement('label', { className: 'dcs-epall' },
-        React.createElement('input', {
-          className: 'dcs-epchk', type: 'checkbox',
-          checked: allSelected, ref: checkRef(someSelected),
-          onChange: toggleAll,
-        }),
-        t('endpoint.selectAll'),
-      ),
-      React.createElement('label', { className: 'dcs-epall' },
-        React.createElement('input', {
-          className: 'dcs-epchk', type: 'checkbox',
-          checked: readOn, ref: checkRef(readSome),
-          onChange: toggleRead,
-        }),
-        t('endpoint.readonly'),
-      ),
-      React.createElement('label', { className: 'dcs-epall' },
-        React.createElement('input', {
-          className: 'dcs-epchk', type: 'checkbox',
-          checked: writeOn, ref: checkRef(writeSome),
-          onChange: toggleWritable,
-        }),
-        t('endpoint.writable'),
-      ),
-      React.createElement('label', { className: 'dcs-epall' },
-        denyAllOn
-          ? React.createElement('span', {
-              className: 'dcs-epchk dcs-epchk-deny', role: 'checkbox', 'aria-checked': 'true',
-              title: t('endpoint.modeDeny'), onClick: toggleDenyAll,
-            }, '✕')
-          : React.createElement('input', {
-              className: 'dcs-epchk', type: 'checkbox',
-              checked: false, ref: checkRef(denyAllSome),
-              onChange: toggleDenyAll,
-            }),
-        t('endpoint.denyAll'),
-      ),
-      React.createElement('span', { className: 'dcs-epcount' }, t('endpoint.selected', {
-        n: allTogglable.filter(function (e) { return modeOf(e) === 'allow'; }).length,
-        m: allTogglable.length,
-      })),
-      deniedCount > 0 ? React.createElement('span', { className: 'dcs-epcount dcs-epcount-deny' }, t('endpoint.deniedCount', { n: deniedCount })) : null,
-      React.createElement('span', { className: 'dcs-epcount', title: t('endpoint.defaultHint') }, t('endpoint.default', { mode: modeLabel(defaultMode) })),
     ),
     body,
   );

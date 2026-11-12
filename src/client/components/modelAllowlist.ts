@@ -188,20 +188,22 @@ export function ModelAllowlistTree(props) {
 
   return React.createElement('div', { className: 'dcs-eps' },
     React.createElement('div', { className: 'dcs-epbar' },
+      React.createElement('div', { className: 'dcs-epbar-row' },
+        React.createElement('label', { className: 'dcs-epall' },
+          React.createElement('input', {
+            className: 'dcs-epchk', type: 'checkbox',
+            checked: allSelected, ref: checkRef(someSelected),
+            onChange: toggleAll,
+          }),
+          t('whitelist.selectAll'),
+        ),
+        React.createElement('span', { className: 'dcs-epcount' }, t('whitelist.selected', { n: allowed.length, m: allPairs.length })),
+      ),
       React.createElement('input', {
         className: 'dcs-input', type: 'text', value: filter,
         placeholder: t('whitelist.filter'), spellCheck: false,
         onChange: function (ev) { setFilter(ev.target.value); },
       }),
-      React.createElement('label', { className: 'dcs-epall' },
-        React.createElement('input', {
-          className: 'dcs-epchk', type: 'checkbox',
-          checked: allSelected, ref: checkRef(someSelected),
-          onChange: toggleAll,
-        }),
-        t('whitelist.selectAll'),
-      ),
-      React.createElement('span', { className: 'dcs-epcount' }, t('whitelist.selected', { n: allowed.length, m: allPairs.length })),
     ),
     body,
   );

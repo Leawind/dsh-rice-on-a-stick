@@ -681,7 +681,7 @@ export function PanelPage() {
       }),
       ),
       // ── 工具白名单(勾选 = 工具可用; 默认档按最大集合自动收敛, 全选时配置里不落清单) ──
-      groupHead(t('tool.title'), { hint: t('tool.hint') }),
+      groupHead(t('tool.title')),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-listwrap' },
         React.createElement(ToolAllowlist, {
@@ -694,7 +694,7 @@ export function PanelPage() {
       ),
       ),
       // ── dsh 端点三档清单(清单长, 沉底; 勾选清单组件内部自管展开/过滤, 危险端点单列) ──
-      groupHead(t('endpoint.title'), { hint: t('endpoint.hint') }),
+      groupHead(t('endpoint.title')),
       React.createElement('div', { className: 'dcs-form' },
       React.createElement('div', { className: 'dcs-listwrap' },
         React.createElement(EndpointAllowlist, {
