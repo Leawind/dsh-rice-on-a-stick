@@ -2932,6 +2932,29 @@ try {
       moved.config.port === nextPort && String(moved.endpoint).includes(`:${nextPort}/mcp`) && oldPortFree && onNewPort.status === 200
     await svcPhase.dispose()
   }
+  {
+    // H5b: 热改到被占端口 → 监听失败如实上报(listening=false + listenError 在案), 插件与 GUI 面板
+    // 照常存活(启动期与热改期同语义, 失败不自毁插件); 改回可用端口即自愈(listening=true, 错误清除)。
+    const svcCtx = makeCtx({ llm: fakeLlm })
+    const basePort = await firstBindablePort([8133, 8134])
+    const portBlocker = createServer()
+    const blockedPort = await new Promise<number>((resolve) => {
+      portBlocker.listen(0, '127.0.0.1', () => resolve((portBlocker.address() as AddressInfo).port))
+    })
+    const svcPhase = await startPhase(basePort, svcCtx, {})
+    pushVolatile(svcPhase, svcCtx, { port: blockedPort })
+    await new Promise((r) => setTimeout(r, 500))
+    const failed = JSON.parse((await svcPhase.gui('status')).body)
+    const baseFree = await portBindable(basePort)
+    checks['热改 port: 改到被占端口监听失败如实上报(listening=false, listenError 在案, 插件存活)'] =
+      failed.listening === false && typeof failed.listenError === 'string' && failed.listenError !== '' && baseFree && failed.httpEnabled === true
+    pushVolatile(svcPhase, svcCtx, { port: basePort })
+    await new Promise((r) => setTimeout(r, 500))
+    const healed = JSON.parse((await svcPhase.gui('status')).body)
+    checks['热改 port: 改回可用端口监听恢复且 listenError 清除'] = healed.listening === true && !healed.listenError
+    portBlocker.close()
+    await svcPhase.dispose()
+  }
 
   // ── Phase F0: 归档护栏在没有非激活读取通道的部署里 fail-open(读不到 ≠ 没用过) ──
   {

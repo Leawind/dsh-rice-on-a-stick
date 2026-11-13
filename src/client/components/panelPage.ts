@@ -476,6 +476,9 @@ export function PanelPage() {
             React.createElement('button', { className: 'dcs-btn', onClick: copyEndpoint }, copied ? t('copied') : t('copy')),
           ),
           errOf('listen') ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', errOf('listen')) : null,
+          // 监听启动/重建失败(如端口被占): 服务端持久错误, 就地显示在端点卡; 插件照常装载,
+          // 改好监听地址/端口提交后监听恢复, 本行随之消失
+          state.listenError ? React.createElement('div', { className: 'dcs-err' }, '⚠ ', t('server.listenError', { msg: state.listenError })) : null,
           // 自用工具开关: 与 MCP 服务开关同卡(服务面两项相邻), 位于端点行之下
           d ? React.createElement('div', { className: 'dcs-selfrow' },
             React.createElement('div', { className: 'dcs-selflabels' },

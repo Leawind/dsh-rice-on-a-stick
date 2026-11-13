@@ -5,7 +5,7 @@
 //   node test/ui-harness.mjs [--port 8096]   # 打开 http://127.0.0.1:<port>/
 // 测试控制面(供自动化驱动, 也可 curl 手动翻转):
 //   GET  /__test/state   → mock 状态 + RPC 调用计数 + 面板启动错误 + 侧栏行认领报告
-//   POST /__test/mode    → body JSON: { statusError?, listening?, connections?, pendingApprovals? }
+//   POST /__test/mode    → body JSON: { statusError?, listening?, listenError?, connections?, pendingApprovals? }
 import { createServer } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -48,6 +48,7 @@ const state = {
   name: 'dsh-rice-on-a-stick',
   version: PKG_VERSION,
   listening: true,
+  listenError: undefined,
   httpEnabled: true,
   endpoint: `http://127.0.0.1:5642/mcp`,
   startedAt,
@@ -607,9 +608,10 @@ const server = createServer(async (req, res) => {
             if (!payload.values.http) state.connections = []
           }
           // 与后端同语义: 只有监听级字段(http/host/port)重建监听器(前端等待重连后刷新),
-          // 其余字段全部就地提交
+          // 其余字段全部就地提交; 桩环境监听总成功, 重建即清除失败记录
           const SERVICE = new Set(['http', 'host', 'port'])
           const reloading = Object.keys(payload.values).some((k) => SERVICE.has(k))
+          if (reloading) state.listenError = undefined
           if (reloading) return json(res, 200, { updated: true, reloading: true })
         } else {
           return json(res, 400, { error: 'values 必须是对象' })
@@ -638,6 +640,7 @@ const server = createServer(async (req, res) => {
         answeredApprovals.clear()
       }
       if (typeof body.listening === 'boolean') state.listening = body.listening
+      if (typeof body.listenError === 'string' || body.listenError === null) state.listenError = body.listenError ?? undefined
       if (typeof body.httpEnabled === 'boolean') state.httpEnabled = body.httpEnabled
       if (Array.isArray(body.connections)) state.connections = body.connections
       if (body.locale === 'zh' || body.locale === 'en') mode.locale = body.locale

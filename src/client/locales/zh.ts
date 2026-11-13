@@ -15,6 +15,7 @@ export const zh = {
   'state.stopped': '已停止',
   'state.listeningOff': '监听关闭',
   'server.title': 'MCP 服务',
+  'server.listenError': '监听启动失败：{msg}',
   'self.title': '将工具注册到本 dsh 实例',
   'self.hint': '开启后无需启动MCP服务即可在当前dsh实例中使用相关工具',
   'approvalTimeout.title': 'dsh 端点审批等待时长',

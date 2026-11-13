@@ -49,6 +49,11 @@ interface RuntimeState {
   /** 远程回答运行时(apply 装配; 宿主无 gateway answer-client seam 时 available=false) */
   answers: AnswerRuntime
   hooks: StateHooks
+  /**
+   * 最近一次监听启动/重建失败的原因(启动期与热改期同语义): 插件照常装载, GUI 面板与自用工具
+   * 保持可用, 失败原因经 statusSnapshot.listenError 就地展示; 监听成功或显式关闭时清除。
+   */
+  listenError?: string
 }
 
 /** 未安装远程 answer client 时的只读运行时(回答明确失败, 查询为空) */
@@ -75,6 +80,7 @@ export const state: RuntimeState = {
   latestRequestBySession: new Map(),
   coldTitles: new Map(),
   answers: UNAVAILABLE_ANSWERS,
+  listenError: undefined,
   hooks: {
     notifySessionActivity: () => {},
     notifySessionHistory: () => {},

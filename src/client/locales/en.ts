@@ -15,6 +15,7 @@ export const en: Record<MessageKey, string> = {
   'state.stopped': 'Stopped',
   'state.listeningOff': 'Listener off',
   'server.title': 'MCP server',
+  'server.listenError': 'Listener failed to start: {msg}',
   'self.title': 'Register tools into this dsh instance',
   'self.hint': 'No need to start the MCP service; the tools are available inside this dsh instance.',
   'approvalTimeout.title': 'dsh endpoint approval wait',

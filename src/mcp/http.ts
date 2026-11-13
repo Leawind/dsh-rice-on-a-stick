@@ -46,7 +46,7 @@ export interface McpHttpServer {
   readonly listening: boolean
   /** 当前连接, 最新连接在前(面板与 status/connections 资源同序) */
   connections(): McpConnection[]
-  /** 初次监听: 失败抛错, 让插件启动失败可见 */
+  /** 初次监听: 失败抛错(端口被占等), 由调用方记录到 state.listenError 并在面板展示 */
   listen(): Promise<void>
   /** 配置热改: 传输会话 TTL 变化后按当前值重排回收定时器(0 = 停止回收) */
   syncSessionTtl(): void
@@ -187,7 +187,7 @@ export function createMcpHttpServer(options: McpHttpServerOptions): McpHttpServe
   let disposed = false
   let sweeper: ReturnType<typeof setTimeout> | undefined
 
-  /** 初次监听: 端口被占/EADDRNOTAVAIL 时抛错, 让插件启动失败可见 */
+  /** 初次监听: 端口被占/EADDRNOTAVAIL 时抛错, 由调用方记录到 state.listenError 并在面板展示 */
   const listenOnce = () =>
     new Promise<void>((resolveListen, rejectListen) => {
       const s = server

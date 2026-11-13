@@ -58,6 +58,7 @@ export { Config } from './core/config.js'
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const parsed = parseConfig(config)
   state.config = bindRuntimeConfig(parsed)
+  state.listenError = undefined
   resetNotifications()
   resetCompactions()
 
@@ -129,7 +130,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   const startedAt = Date.now()
 
-  /** 状态快照: 版本/监听/配置摘要/订阅观测/活跃连接(GUI 面板与 status RPC 同一数据源) */
+  /** 状态快照: 版本/监听(含失败原因)/配置摘要/订阅观测/活跃连接(GUI 面板与 status RPC 同一数据源) */
   const statusSnapshot = () => {
     const host = state.config.host
     const port = state.config.port
@@ -137,6 +138,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       name,
       version: PLUGIN_VERSION,
       listening: httpServer?.listening ?? false,
+      listenError: state.listenError,
       httpEnabled: state.config.http,
       endpoint: endpointOf(host, port),
       startedAt,
@@ -191,7 +193,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     try {
       await next.listen()
     } catch (e) {
-      // 启动失败(端口占用/地址不可用): 先释放本次构建, 再把错误交给调用方决定展示方式
+      // 监听失败(端口占用/地址不可用): 先释放本次构建, 错误交调用方记录展示
       next.dispose()
       throw e
     }
@@ -202,16 +204,19 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const syncListener = async (): Promise<void> => {
     if (!state.config.http) {
       stopListener()
+      state.listenError = undefined
       return
     }
     if (httpServer?.listening === true && activeHost === state.config.host && activePort === state.config.port) return
     stopListener()
     try {
       await startListener()
+      state.listenError = undefined
     } catch (e) {
-      // 启动期失败会抛给 apply(装载失败可见); 运行期(热改到不可监听的地址)只记日志,
-      // 面板据此看到 listening=false(已停止), 插件其余能力不受影响。
-      console.error(`[${PLUGIN_NAME}] MCP listener restart failed on ${state.config.host}:${state.config.port}:`, (e as Error)?.message ?? e)
+      // 启动期与热改期同语义: 失败原因记录在案并记日志, 插件照常装载、其余能力不受影响——
+      // GUI 面板保持可用, 原因在端点卡就地可见, 改好监听地址/端口再提交即自愈(不再自毁插件)。
+      state.listenError = (e as Error)?.message ?? String(e)
+      console.error(`[${PLUGIN_NAME}] MCP listener start failed on ${state.config.host}:${state.config.port}:`, (e as Error)?.message ?? e)
     }
   }
   let listenerSync: Promise<void> = Promise.resolve()
@@ -296,6 +301,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return
   }
 
-  // 等待 listen 完成: 端口被占/EADDRNOTAVAIL 时 apply 直接抛错, 插件启动失败可见(不再静默成功)
-  await startListener()
+  // 等待首次监听同步完成: 端口被占/EADDRNOTAVAIL 时 apply 照常 resolve(插件装载成功),
+  // 失败原因经 statusSnapshot.listenError 就地展示, 面板保持可用——监听修复就在面板改地址/端口提交。
+  await requestListenerSync()
 }
