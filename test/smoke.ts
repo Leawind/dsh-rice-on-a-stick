@@ -2117,17 +2117,17 @@ try {
     checks['端点搜索: namespace 参数把搜索收窄到单域'] =
       (innerOf(scoped) as any).total === 1 && ((innerOf(scoped) as any).endpoints ?? [])[0]?.endpoint === 'session/list'
     // descriptor 不带描述的插件端点: 摘要/契约/搜索都回退到端点元数据的英文
-    const mcpNs = await phase.call('endpoint_describe', { namespace: 'mcpManager' })
-    const mcpList = ((innerOf(mcpNs) as any).endpoints ?? []).find((m: any) => m.endpoint === 'mcpManager/list')
+    const mcpNs = await phase.call('endpoint_describe', { namespace: 'skillMcpPanel' })
+    const mcpList = ((innerOf(mcpNs) as any).endpoints ?? []).find((m: any) => m.endpoint === 'skillMcpPanel/list')
     checks['端点清单: descriptor 无描述时摘要回退元数据英文'] =
       typeof mcpList?.summary === 'string' && mcpList.summary.startsWith('Read managed and external MCP server rows')
-    const mcpContract = await phase.call('endpoint_describe', { endpoint: 'mcpManager/list' })
+    const mcpContract = await phase.call('endpoint_describe', { endpoint: 'skillMcpPanel/list' })
     checks['端点契约: descriptor 无描述时 description 回退元数据英文'] = String((innerOf(mcpContract) as any).description ?? '').startsWith(
       'Read managed and external MCP server rows',
     )
     const metaHit = await phase.call('endpoint_describe', { query: 'loader state' })
     checks['端点搜索: 元数据英文参与无描述端点的关键词匹配'] =
-      (innerOf(metaHit) as any).total === 1 && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'mcpManager/list'
+      (innerOf(metaHit) as any).total === 1 && ((innerOf(metaHit) as any).endpoints ?? [])[0]?.endpoint === 'skillMcpPanel/list'
     const zero = await phase.call('endpoint_describe', { query: 'zzz-nothing' })
     const zeroPayload = innerOf(zero) as any
     checks['端点搜索: 零命中回空结果并附 namespace 名单供换词续搜'] =
@@ -2233,7 +2233,7 @@ try {
   {
     endpointInvokes.length = 0
     const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
-      endpointAllowlist: ['schedule/update'],
+      endpointAllowlist: ['schedule/edit'],
       approvalTimeoutMs: 5000,
     })
     const dir = await phase.call('endpoint_describe', {})
@@ -2252,7 +2252,7 @@ try {
       (credNs.endpoints ?? [])[0]?.approvalRequired === true
 
     const invBeforeDirect = endpointInvokes.length
-    const directCall = await phase.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 's1' } } })
+    const directCall = await phase.call('endpoint_call', { endpoint: 'schedule/edit', args: { request: { id: 's1' } } })
     checks['写端点: 白名单端点直接执行(无审批)'] =
       directCall.status === 200 &&
       (innerOf(directCall) as any).updated === true &&
@@ -2290,15 +2290,15 @@ try {
       epsMap['credentials/set']?.dangerous === true &&
       epsMap['session/prompt']?.kind === 'selectable' &&
       epsMap['session/prompt']?.mode === 'approval' &&
-      epsMap['schedule/update']?.kind === 'selectable' &&
-      epsMap['schedule/update']?.mode === 'allow' &&
+      epsMap['schedule/edit']?.kind === 'selectable' &&
+      epsMap['schedule/edit']?.mode === 'allow' &&
       Array.isArray(epsBody.stale) &&
       epsBody.stale.length === 0 &&
       typeof epsMap['session/modelCatalog']?.description === 'string' &&
       // 元数据中文始终透出; 英文只在 descriptor 没有描述(插件端点)时附上, 核心端点不重复
       typeof epsMap['session/modelCatalog']?.descriptionZh === 'string' &&
       epsMap['session/modelCatalog']?.descriptionEn === undefined &&
-      typeof epsMap['mcpManager/list']?.descriptionEn === 'string' &&
+      typeof epsMap['skillMcpPanel/list']?.descriptionEn === 'string' &&
       // 命名空间一句话描述透出(面板组头显示)
       typeof epsBody.namespaces?.session?.zh === 'string' &&
       typeof epsBody.namespaces?.session?.en === 'string'
@@ -2400,9 +2400,9 @@ try {
       JSON.stringify(epsStaleBody.stale) === JSON.stringify([{ endpoint: 'ghost/gone', mode: 'allow' }]) &&
       (epsStaleBody.endpoints ?? []).every((e: any) => e.endpoint !== 'ghost/gone')
     const invBeforeTimeout = endpointInvokes.length
-    const timeoutCall = phaseT.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 't1' } } })
+    const timeoutCall = phaseT.call('endpoint_call', { endpoint: 'schedule/edit', args: { request: { id: 't1' } } })
     await waitFor(() => {
-      held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedCalls().find((p) => p.endpoint === 'schedule/edit')
       return held !== undefined
     })
     ageParkedCallsForTest(1001)
@@ -2415,9 +2415,9 @@ try {
     const phaseU = await startPhase(await freePort(), ctxU, { approvalTimeoutMs: 0 })
     const guRead = await phaseU.gui('endpoint-approvals', { httpMethod: 'GET' })
     checks['GUI endpoint-approvals: 0 = 不限时标记'] = guRead.status === 200 && JSON.parse(guRead.body).unlimitedWait === true
-    const unlimitedCall = phaseU.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'u1' } } })
+    const unlimitedCall = phaseU.call('endpoint_call', { endpoint: 'schedule/edit', args: { request: { id: 'u1' } } })
     await waitFor(() => {
-      held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedCalls().find((p) => p.endpoint === 'schedule/edit')
       return held !== undefined
     })
     checks['调用停泊: 0 = 不限时(无过期时刻)'] = held?.expiresAt === undefined
@@ -2431,9 +2431,9 @@ try {
     // 断连取消: 直接经 invokeEndpoint 带 AbortSignal(真机由 MCP 请求中止触发)
     const invBeforeCancel = endpointInvokes.length
     const ctrl = new AbortController()
-    const cancelCall = invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c1' } }, { signal: ctrl.signal })
+    const cancelCall = invokeEndpoint(ctxU, 'schedule/edit', { request: { id: 'c1' } }, { signal: ctrl.signal })
     await waitFor(() => {
-      held = listParkedCalls().find((p) => p.endpoint === 'schedule/update')
+      held = listParkedCalls().find((p) => p.endpoint === 'schedule/edit')
       return held !== undefined
     })
     ctrl.abort()
@@ -2444,7 +2444,7 @@ try {
     // 已中止的信号: 不停泊直接取消
     const ctrl2 = new AbortController()
     ctrl2.abort()
-    const preAborted = await invokeEndpoint(ctxU, 'schedule/update', { request: { id: 'c2' } }, { signal: ctrl2.signal })
+    const preAborted = await invokeEndpoint(ctxU, 'schedule/edit', { request: { id: 'c2' } }, { signal: ctrl2.signal })
     checks['调用停泊: 已中止信号直接取消(不停泊)'] =
       preAborted.ok === false && String(preAborted.error).includes('disconnected') && listParkedCalls().length === 0
 
@@ -2478,7 +2478,7 @@ try {
     const phaseD = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       // session/prompt 同时出现在两份清单: 拒绝优先
       endpointAllowlist: ['session/prompt'],
-      endpointDenylist: ['session/prompt', 'schedule/update'],
+      endpointDenylist: ['session/prompt', 'schedule/edit'],
     })
     const deniedContract = innerOf(await phaseD.call('endpoint_describe', { endpoint: 'session/prompt' })) as any
     checks['拒绝清单: 同时在两份清单时按拒绝处理'] =
@@ -2489,7 +2489,7 @@ try {
     const deniedCall = await phaseD.call('endpoint_call', { endpoint: 'session/prompt', args: { request: { q: 'x' } } })
     checks['拒绝清单: 调用直接失败, 不停泊不执行'] =
       String(innerOf(deniedCall).error ?? '').includes('denied by configuration') && listParkedCalls().length === 0 && endpointInvokes.length === 0
-    const deniedCall2 = await phaseD.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'd1' } } })
+    const deniedCall2 = await phaseD.call('endpoint_call', { endpoint: 'schedule/edit', args: { request: { id: 'd1' } } })
     checks['拒绝清单: 未入白名单的拒绝端点同样直接拒绝'] =
       String(innerOf(deniedCall2).error ?? '').includes('denied by configuration') && listParkedCalls().length === 0 && endpointInvokes.length === 0
     const epsDeny = await phaseD.gui('endpoint-allowlist', { httpMethod: 'GET' })
@@ -2497,18 +2497,18 @@ try {
     const epsDenyMap = Object.fromEntries((epsDenyBody.endpoints ?? []).map((e: any) => [e.endpoint, e]))
     checks['GUI endpoint-allowlist: 拒绝档位标记, 失效条目带原档位'] =
       epsDenyMap['session/prompt']?.mode === 'deny' &&
-      epsDenyMap['schedule/update']?.mode === 'deny' &&
+      epsDenyMap['schedule/edit']?.mode === 'deny' &&
       epsDenyMap['session/list']?.mode === 'approval' &&
       epsDenyBody.defaultMode === 'approval'
     await phaseD.dispose()
     // 默认档 = 允许 + 审批例外: 不在清单里的端点直行, 审批清单里的仍停泊
     const phaseDef = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), {
       endpointDefault: 'allow',
-      endpointApprovalList: ['schedule/update'],
+      endpointApprovalList: ['schedule/edit'],
     })
-    const defParked = phaseDef.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'd2' } } })
+    const defParked = phaseDef.call('endpoint_call', { endpoint: 'schedule/edit', args: { request: { id: 'd2' } } })
     checks['默认档: 默认允许时审批清单内端点仍停泊'] =
-      (await waitFor(() => listParkedCalls().some((p) => p.endpoint === 'schedule/update'))) && endpointInvokes.length === 0
+      (await waitFor(() => listParkedCalls().some((p) => p.endpoint === 'schedule/edit'))) && endpointInvokes.length === 0
     answerParkedCall(listParkedCalls()[0].approvalId, 'reject')
     checks['默认档: 停泊调用被拒后不执行'] = String(innerOf(await defParked).error ?? '').includes('declined')
     const defDirect = await phaseDef.call('endpoint_call', { endpoint: 'session/list', args: {} })
@@ -2519,7 +2519,7 @@ try {
       endpointDefault: 'deny',
       endpointAllowlist: ['session/list'],
     })
-    const denyByDefault = await phaseDeny.call('endpoint_call', { endpoint: 'schedule/update', args: { request: { id: 'd3' } } })
+    const denyByDefault = await phaseDeny.call('endpoint_call', { endpoint: 'schedule/edit', args: { request: { id: 'd3' } } })
     checks['默认档: 默认拒绝时未列出端点直接拒绝'] = String(innerOf(denyByDefault).error ?? '').includes('denied by configuration')
     await phaseDeny.dispose()
   }
@@ -3148,7 +3148,7 @@ try {
       sessionTtlMs: 0,
       approvalTimeoutMs: 120000,
       endpointDefault: 'allow',
-      endpointAllowlist: ['schedule/update'],
+      endpointAllowlist: ['schedule/edit'],
       endpointApprovalList: ['session/prompt'],
       endpointDenylist: ['ghost/gone'],
       toolDefault: 'allow',

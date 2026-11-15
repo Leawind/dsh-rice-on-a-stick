@@ -616,8 +616,8 @@ const endpointDescriptors = [
     id: 'd7',
     service: 'schedule',
     namespace: 'schedule',
-    method: 'update',
-    description: 'Update a schedule.',
+    method: 'edit',
+    description: 'Edit a schedule.',
     parameters: [{ name: 'request', wire: 'request', source: 'json' }],
     result: { spec: {} },
   },
@@ -631,7 +631,7 @@ const endpointDescriptors = [
     result: { spec: {} },
   },
   // d9 故意不带 description: 插件端点只有元数据描述, 验证摘要/契约/搜索回退到 endpoint-meta 的英文
-  { id: 'd9', service: 'mcpManager', namespace: 'mcpManager', method: 'list', parameters: [], result: { spec: {} } },
+  { id: 'd9', service: 'skillMcpPanel', namespace: 'skillMcpPanel', method: 'list', parameters: [], result: { spec: {} } },
 ]
 export const fakeTypert = {
   local: {
@@ -648,11 +648,11 @@ export const fakeGateway = {
       interactions: request.peer?.interactions,
     })
     if (`${request.namespace}/${request.method}` === 'session/modelCatalog') return { ok: true, models: ['m1'] }
-    if (`${request.namespace}/${request.method}` === 'schedule/update') return { updated: true }
+    if (`${request.namespace}/${request.method}` === 'schedule/edit') return { updated: true }
     if (`${request.namespace}/${request.method}` === 'goals/get') return { agentArg: request.args.agent ?? null }
     if (`${request.namespace}/${request.method}` === 'session/prompt') return { prompted: true }
     if (`${request.namespace}/${request.method}` === 'credentials/set') return { set: true }
-    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/update, goals/get, session/prompt and credentials/set')
+    throw new Error('gateway/arguments-invalid: stub only admits session/modelCatalog, schedule/edit, goals/get, session/prompt and credentials/set')
   },
 }
 let callerPeerSeq = 0

@@ -28,7 +28,7 @@ dsh 自身就有一套"通用服务调用"体系（Typert），全部经 cordis 
 ## 暴露面策略（已与用户确认）
 
 1. **默认审批 + 三档策略**：每个非流式端点落 allow（直行）/ approval（停泊等人审批）/ deny（直接拒绝）三档之一。`endpointDefault` 给出没有单独列出的端点的默认档，缺省 `approval`（停泊，允许一次执行一次）；三份互斥清单给出另外两档的例外，显式清单优先于默认档，手改配置误把同一端点放进多份清单时按 拒绝 > 审批 > 允许 失败关闭。开发期端点元数据（`src/host/endpoint-meta.ts`）里的 `readOnly: true` 只是语义徽标，不免审批。元数据只保留中文译文（英文由 descriptor 提供）；descriptor 没有描述的插件端点才在元数据里补英文，端点工具的摘要与契约也回退到它。
-2. **危险端点单列，不再永久拒绝**：凭据写入（`credentials/set|unset`、`mcpManager/oauthPoll|oauthDisconnect`）、插件安装/启停（`pluginManager` 变更类）、账号登出/登录（`account/signOut|startSignIn`）、运维动作（`opsSettings/execute`）在端点元数据里标 `dangerous: true`。它们与普通端点走完全相同的三档策略，没有"配了也拒绝"的硬闸；区别在设置面板把它们单列成独立的危险清单并醒目标注，让部署方在勾选时明确知道自己在放行什么（机制见 CONTRIBUTING.md）。
+2. **危险端点单列，不再永久拒绝**：凭据写入（`credentials/set|unset`、`skillMcpPanel/oauthPoll|oauthDisconnect`）、插件安装/启停（`pluginManager` 变更类）、账号登出/登录（`account/signOut|startSignIn`）、运维动作（`opsSettings/execute`）在端点元数据里标 `dangerous: true`。它们与普通端点走完全相同的三档策略，没有"配了也拒绝"的硬闸；区别在设置面板把它们单列成独立的危险清单并醒目标注，让部署方在勾选时明确知道自己在放行什么（机制见 CONTRIBUTING.md）。
 3. **dsh 审批面进不去，审批停在插件自己的台账**：dsh 审批/用户提问瀑布锚定会话，端点调用没有会话上下文（dsh 也没有"发起审批"的 RPC），所以停泊请求挂在插件进程内的台账里，由本插件侧栏页"审批"标签的审批卡（GUI 同源路由 `endpoint-approvals` / `endpoint-approval-answer`）人工应答；侧栏图标带待审批计数角标（与审批卡同一份常驻轮询数据），停泊请求不再要求人恰好开着页面。应答面只认 GUI 面板：MCP 侧不设应答工具，防发起调用的 agent 自己给自己放行。
 4. **失败关闭贯穿全部出口**：拒绝 / 超时（`approvalTimeoutMs`，0 = 不限时）/ 调用方断开（MCP 请求中止信号）/ 插件卸载，在途调用审批一律取消，什么都不执行。无头部署没人点面板 → 审批档的调用全挂，部署方应把高频端点列进允许档，或把默认档设为 `allow` 并只列审批例外。
 5. **流式方法**（`mode:'stream'`）不进直通面（MCP 工具一次请求一次响应；后续可映射为 poll 模式）。

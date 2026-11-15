@@ -390,7 +390,7 @@ const server = createServer(async (req, res) => {
       }
       if (method === 'endpoint-allowlist') {
         // 端点目录(与 src/mcp/web.ts endpoint-allowlist 同形): 流式锁定行 + 只读语义标注 + 危险端点标注 + 失效条目 + 超长描述
-        // + 命名空间一句话描述(namespaces)+ 无描述行(mcpManager/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
+        // + 命名空间一句话描述(namespaces)+ 无描述行(skillMcpPanel/getToolFilter, 目检徽标恒靠右与 tooltip 徽标行)。
         // 供三档清单目检(普通/危险两份清单、默认折叠/缩进/只读行同样可切、悬停 tooltip)。mode 跟随 config 的三档策略计算。
         const allow = new Set(state.config.endpointAllowlist)
         const approval = new Set(state.config.endpointApprovalList)
@@ -476,7 +476,7 @@ const server = createServer(async (req, res) => {
             descriptionEn: 'Stream terminal output frames as they are produced.',
             kind: 'stream',
           },
-          { endpoint: 'mcpManager/getToolFilter', kind: 'selectable' },
+          { endpoint: 'skillMcpPanel/getToolFilter', kind: 'selectable' },
           {
             endpoint: 'pluginManager/installBundle',
             description: 'Install a plugin bundle from a registry.',
@@ -515,7 +515,7 @@ const server = createServer(async (req, res) => {
             workspaceFiles: { zh: '工作区文件', en: 'Workspace files' },
             terminal: { zh: '终端', en: 'Terminals' },
             schedule: { zh: '定时任务', en: 'Scheduled tasks' },
-            mcpManager: { zh: 'MCP 服务器管理', en: 'MCP server management' },
+            skillMcpPanel: { zh: 'MCP 服务器管理', en: 'MCP server management' },
             pluginManager: { zh: '插件管理', en: 'Plugin management' },
             credentials: { zh: '提供商凭据', en: 'Provider credentials' },
           },

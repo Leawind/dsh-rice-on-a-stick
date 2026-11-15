@@ -12,11 +12,11 @@
  *
  * 另有 NAMESPACE_META: 每个命名空间的中英文一句话描述(面板组头显示, 亦是纯界面数据)。
  *
- * 表以 dsh 0.2.1-rc.2 实机目录(web profile 全量 167 端点)为基准逐条核对过; 0.2.2-rc.1 的
- * web profile 目录已增至 179 个端点, 新增端点(如 session/events、session/state、session/wait、
- * toolResults/watch)尚未逐条核对, 表外端点按"变更类"处理(停泊审批)。
- * 不要求列全, 表外端点按"变更类"处理(停泊审批)。其中 136 个 dsh 核心端点只保留中文译文, 英文由 descriptor
- * 提供; 31 个插件端点(mcpManager / skillsViewer / opsSettings)的 descriptor 不带描述, 按对应
+ * 表以 dsh 0.2.2-rc.3 实机目录(web profile 全量 195 端点)为基准重新核对过 dsh 核心命名空间;
+ * 第三方插件的命名空间(skillsViewer / skillMcpPanel / workspaceRegistry / opsSettings / speech)
+ * 随各自插件版本变化, 只保留 descriptor 缺描述的插件端点, 其余表外端点按"变更类"处理(停泊审批)。
+ * 不要求列全, 表外端点按"变更类"处理(停泊审批)。其中 152 个 dsh 核心端点只保留中文译文, 英文由 descriptor
+ * 提供; 37 个插件端点(skillsViewer / skillMcpPanel / opsSettings / speech)的 descriptor 不带描述, 按对应
  * 插件源码补齐中英文。策展错误的最坏结局是让一个只读端点多等一次审批, 或让一个危险端点少一个
  * 醒目标注——都不会绕过任何闸门; 反向(把变更端点标成只读)必须避免。
  */
@@ -40,6 +40,7 @@ export interface EndpointMeta {
 export const NAMESPACE_META: Readonly<Record<string, EndpointDescription>> = {
   account: { zh: '平台账号', en: 'Platform account' },
   agentPresets: { zh: 'Agent 预设', en: 'Agent presets' },
+  agentTeams: { zh: 'Agent 团队协作', en: 'Agent team coordination' },
   commands: { zh: '斜杠命令', en: 'Slash commands' },
   credentials: { zh: '提供商凭据', en: 'Provider credentials' },
   directoryPicker: { zh: '目录选择器', en: 'Directory picker' },
@@ -51,7 +52,7 @@ export const NAMESPACE_META: Readonly<Record<string, EndpointDescription>> = {
   llm: { zh: '模型提供商', en: 'Model providers' },
   mcpManager: { zh: 'MCP 服务器管理', en: 'MCP server management' },
   messageFeedback: { zh: '消息反馈', en: 'Message feedback' },
-  officeToPdf: { zh: 'Office 转 PDF', en: 'Office-to-PDF conversion' },
+  officeKit: { zh: 'Office 文档渲染与转换', en: 'Office rendering and conversion' },
   opsSettings: { zh: '运维操作面板', en: 'Ops actions panel' },
   permissionPresets: { zh: '权限预设', en: 'Permission presets' },
   pluginInventory: { zh: '已安装插件清单', en: 'Installed plugin inventory' },
@@ -63,27 +64,35 @@ export const NAMESPACE_META: Readonly<Record<string, EndpointDescription>> = {
   sessionFeedback: { zh: '会话备注', en: 'Session remarks' },
   sessionReferenceResolver: { zh: '会话引用解析', en: 'Session reference resolution' },
   settings: { zh: '设置', en: 'Settings' },
+  skillMcpPanel: { zh: 'MCP 服务器配置', en: 'MCP server configuration' },
   skills: { zh: '技能', en: 'Skills' },
   skillsViewer: { zh: '技能浏览与管理', en: 'Skill browsing and management' },
   speech: { zh: '语音识别与转写', en: 'Speech recognition and transcription' },
   subagents: { zh: '子代理', en: 'Subagents' },
   terminal: { zh: '终端', en: 'Terminals' },
+  toolResults: { zh: '工具结果', en: 'Tool results' },
   userQuestions: { zh: '用户提问', en: 'User questions' },
+  web: { zh: 'Web 搜索与抓取', en: 'Web search and fetch' },
   workspace: { zh: '工作区', en: 'Workspaces' },
   workspaceFiles: { zh: '工作区文件', en: 'Workspace files' },
 }
 
 export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── account(平台账号) ──
-  'account/ackBonusNotified': {
-    description: { zh: '记录某条已展示的充值奖励为已提示。' },
-  },
   'account/cancelSignIn': {
     description: { zh: '取消指定的本地登录尝试。' },
   },
   'account/getBalance': {
     readOnly: true,
     description: { zh: '查询平台充值钱包余额。' },
+  },
+  'account/getNotificationContent': {
+    readOnly: true,
+    description: { zh: '按通知 ID 读取本地化正文（已消费的通知同样可读，不改变消费状态）。' },
+  },
+  'account/getNotifications': {
+    readOnly: true,
+    description: { zh: '按服务端顺序查询未消费的账号通知（不读账号资料）。' },
   },
   'account/getProfile': {
     readOnly: true,
@@ -93,13 +102,12 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     readOnly: true,
     description: { zh: '读取平台账号的安全投影。' },
   },
-  'account/getUnnotifiedBonuses': {
-    readOnly: true,
-    description: { zh: '查询平台已发放但尚未记录为已展示的奖励。' },
-  },
   'account/hasRunningAccountTasks': {
     readOnly: true,
     description: { zh: '检查运行中任务最近用过的账号类提供商（含工具与重试）。' },
+  },
+  'account/reportNotificationEvent': {
+    description: { zh: '上报一次通知交互（展示 / 点击 / 关闭），由后台决定是否消费该通知。' },
   },
   'account/signOut': {
     dangerous: true,
@@ -127,6 +135,11 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'agentPresets/select': {
     description: { zh: '在会话首个轮次前选择 agent 预设。' },
+  },
+
+  // ── agentTeams(Agent 团队协作) ──
+  'agentTeams/setEnabled': {
+    description: { zh: '保存根会话的团队选择（不停子代理，也不删任务）。' },
   },
 
   // ── commands(斜杠命令) ──
@@ -263,92 +276,15 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     description: { zh: '列出已配置的模型提供商。' },
   },
 
-  // ── mcpManager(MCP 服务器管理, 变更类多为信任与供应链操作) ──
-  'mcpManager/list': {
-    readOnly: true,
-    description: {
-      zh: '读取 cordis.patch.yml 中的受管与外部 MCP 服务器行，附带加载器状态与工具数。',
-      en: 'Read managed and external MCP server rows from cordis.patch.yml with loader state and tool counts.',
-    },
+  // ── mcpManager(MCP 服务器运行时) ──
+  'mcpManager/probe': {
+    description: { zh: '探测一个 MCP 服务器的管理面。' },
   },
-  'mcpManager/save': {
-    dangerous: true,
-    description: {
-      zh: '在受管块中新增或改写一个 MCP 服务器行，并等待加载器就位。',
-      en: 'Add or rewrite one MCP server row in the managed block and wait for its loader entry.',
-    },
+  'mcpManager/restart': {
+    description: { zh: '按当前配置重建一个 MCP 服务器实例（先释放已挂载实例）。' },
   },
-  'mcpManager/removeServer': {
-    dangerous: true,
-    description: {
-      zh: '删除受管块中的一个 MCP 服务器行（外部行需手动改文件）。',
-      en: 'Remove one managed MCP server row; external rows must be edited in the file by hand.',
-    },
-  },
-  'mcpManager/setEnabled': {
-    dangerous: true,
-    description: {
-      zh: '启用或停用受管块中的一个 MCP 服务器行，并等待加载器就位。',
-      en: 'Enable or disable one managed MCP server row and wait for its loader entry.',
-    },
-  },
-  'mcpManager/test': {
-    description: {
-      zh: '探测一个 MCP 服务器配置（或按名称指定已有服务器）并返回连接结果。',
-      en: 'Probe one MCP server configuration, or an existing server by name, and return the connection result.',
-    },
-  },
-  'mcpManager/reload': {
-    readOnly: true,
-    description: {
-      zh: '重新读取受管块与外部 MCP 行（只重列，不重启连接）。',
-      en: 'Re-read managed and external MCP rows (a fresh list, not a connection restart).',
-    },
-  },
-  'mcpManager/listTools': {
-    readOnly: true,
-    description: {
-      zh: '列出服务器已注册的 MCP 工具（不启动服务器；未连接时为空）。',
-      en: 'List the tools one server has registered without starting it; empty while disconnected.',
-    },
-  },
-  'mcpManager/getToolFilter': {
-    readOnly: true,
-    description: { zh: '读取 MCP 工具禁用列表及其已生效的 agent 数。', en: 'Read the MCP tool deny list and the number of agents it is applied to.' },
-  },
-  'mcpManager/setToolFilter': {
-    description: { zh: '持久化 MCP 工具禁用列表并立即重施到所有 agent。', en: 'Persist the MCP tool deny list and reapply it to every agent immediately.' },
-  },
-  'mcpManager/evacuateForeign': {
-    description: {
-      zh: '把受管块内的外来顶层 MCP 行原样搬到块外（不删除）。',
-      en: 'Move foreign top-level MCP rows out of the managed block unchanged, without deleting them.',
-    },
-  },
-  'mcpManager/oauthStart': {
-    dangerous: true,
-    description: {
-      zh: '为一个 streamable-http 服务器发起 OAuth 登录，返回授权地址与流程 id。',
-      en: 'Begin OAuth sign-in for one streamable-http server and return its authorization URL and flow id.',
-    },
-  },
-  'mcpManager/oauthPoll': {
-    dangerous: true,
-    description: {
-      zh: '轮询一次 OAuth 流程；拿到授权码后换取令牌、写入请求头并落盘。',
-      en: 'Poll one OAuth flow; once authorized, exchange the code for tokens, write the request header and store them.',
-    },
-  },
-  'mcpManager/oauthStatus': {
-    readOnly: true,
-    description: { zh: '读取一个服务器的 OAuth 连接、请求头与过期状态。', en: "Read one server's OAuth connection, header and expiry state." },
-  },
-  'mcpManager/oauthDisconnect': {
-    dangerous: true,
-    description: {
-      zh: '断开 OAuth：删除请求头中的授权与本地令牌记录。',
-      en: 'Disconnect OAuth by removing the authorization header and the stored token record.',
-    },
+  'mcpManager/watch': {
+    description: { zh: '流式订阅 MCP 服务器的管理面视图（订阅时先给当前清单，随后推增量）。' },
   },
 
   // ── messageFeedback(消息反馈) ──
@@ -363,12 +299,12 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     description: { zh: '校验当前版本后创建或替换反馈（相同内容不追加事件）。' },
   },
 
-  // ── officeToPdf(Office 转 PDF) ──
-  'officeToPdf/generation': {
+  // ── officeKit(Office 文档渲染与转换) ──
+  'officeKit/generation': {
     readOnly: true,
     description: { zh: '在复用 Client PDF 前读取当前渲染代际。' },
   },
-  'officeToPdf/render': {
+  'officeKit/render': {
     description: { zh: '经会话的常规文件系统授权读取并转换一个 Office 文件。' },
   },
 
@@ -438,6 +374,14 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     readOnly: true,
     description: { zh: '读取本配置保存的插件版本豁免。' },
   },
+  'pluginManager/listVersions': {
+    readOnly: true,
+    description: { zh: '读取一个 registry 安装包比已装版本更新的已发布版本（经宿主 fetch 代理查询注册源）。' },
+  },
+  'pluginManager/readBundleDetail': {
+    readOnly: true,
+    description: { zh: '读取一个组合包的长描述（其 locale meta 指向的 Markdown 文件）。' },
+  },
   'pluginManager/registries': {
     readOnly: true,
     description: { zh: '读取插件管理器询问的注册源（首选、回退与 pnpm 配置）。' },
@@ -458,6 +402,10 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     dangerous: true,
     description: { zh: '设置版本豁免规则（放宽版本约束）。' },
   },
+  'pluginManager/updateBundle': {
+    dangerous: true,
+    description: { zh: '把一个已安装的组合包替换为更新的版本（经 dsh plugin 的 pnpm 通路）。' },
+  },
   'pluginManager/waitForInstall': {
     readOnly: true,
     description: { zh: '取回进行中安装的结果（不取消安装）。' },
@@ -477,10 +425,20 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   // ── schedule(定时任务) ──
   'schedule/catalog': {
     readOnly: true,
-    description: { zh: '读取全部定时提醒（含未激活项）及其原始会话绑定，不激活会话。' },
+    description: { zh: '读取全部宿主任务（不分页）及其原始会话绑定，不激活会话。' },
   },
-  'schedule/delete': {
-    description: { zh: '删除所选会话的一个定时任务（排队消息保留，任务行移除）。' },
+  'schedule/create': {
+    description: { zh: '为远端网页调用方创建一个宿主任务（身份由宿主生成）。' },
+  },
+  'schedule/deleteInactive': {
+    description: { zh: '删除所有已结束的宿主任务，活动任务保持不动。' },
+  },
+  'schedule/deliveryLimits': {
+    readOnly: true,
+    description: { zh: '读取生效的投递限制，不加载也不激活任务。' },
+  },
+  'schedule/edit': {
+    description: { zh: '更新或删除一个任务；无效的补丁会被拒绝。' },
   },
   'schedule/history': {
     readOnly: true,
@@ -488,10 +446,14 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'schedule/list': {
     readOnly: true,
-    description: { zh: '列出已配置的定时任务。' },
+    description: { zh: '列出宿主范围内已配置的定时任务。' },
   },
-  'schedule/update': {
-    description: { zh: '更新一个活动任务的名称、指令与时间，不改变会话绑定或已存投递。' },
+  'schedule/run': {
+    description: { zh: '立即投递一次任务，不消耗也不移动其计划时间点（已归档的目标会话会被跳过）。' },
+  },
+  'schedule/view': {
+    readOnly: true,
+    description: { zh: '读取单个任务，不激活其目标会话。' },
   },
 
   // ── session(会话与轮次) ──
@@ -513,6 +475,10 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   'session/create': {
     description: { zh: '创建一个普通会话（可复用指定的空白会话）。' },
   },
+  'session/events': {
+    readOnly: true,
+    description: { zh: '读取一段冷会话安全的、按消息对齐的会话历史页。' },
+  },
   'session/follow': {
     description: { zh: '从打开或恢复游标起流式跟随会话日志。' },
   },
@@ -529,6 +495,15 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   'session/modelCatalog': {
     readOnly: true,
     description: { zh: '描述当前全部可路由模型（供宿主侧选择器使用）。' },
+  },
+  'session/observeEvent': {
+    description: { zh: '订阅会话事件流（不给快照）。' },
+  },
+  'session/observeProjections': {
+    description: { zh: '订阅会话投影的变化。' },
+  },
+  'session/observeState': {
+    description: { zh: '订阅会话状态的整份替换。' },
   },
   'session/openWorkspacePath': {
     description: { zh: '经组合文件系统校验一个路径并在宿主桌面打开。' },
@@ -554,8 +529,15 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   'session/selectModel': {
     description: { zh: '显式恢复会话后选择该会话本地模型（后台保存默认值）。' },
   },
+  'session/state': {
+    readOnly: true,
+    description: { zh: '读取被动的会话状态（不激活 agent）。' },
+  },
   'session/updateQueue': {
     description: { zh: '修改一个仍在排队的事项（先唤醒冷 Agent）。' },
+  },
+  'session/wait': {
+    description: { zh: '等待会话静默或出现待处理输入，返回有界的助手输出。' },
   },
   'session/workspacePathApplications': {
     readOnly: true,
@@ -588,6 +570,94 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'settings/update': {
     description: { zh: '把补丁合并进一个命名空间的用户设置段。' },
+  },
+
+  // ── skillMcpPanel(MCP 服务器配置; 由 skill-mcp-panel 插件提供, 变更类多为信任与供应链操作) ──
+  'skillMcpPanel/list': {
+    readOnly: true,
+    description: {
+      zh: '读取 cordis.patch.yml 中的受管与外部 MCP 服务器行，附带加载器状态与工具数。',
+      en: 'Read managed and external MCP server rows from cordis.patch.yml with loader state and tool counts.',
+    },
+  },
+  'skillMcpPanel/save': {
+    dangerous: true,
+    description: {
+      zh: '在受管块中新增或改写一个 MCP 服务器行，并等待加载器就位。',
+      en: 'Add or rewrite one MCP server row in the managed block and wait for its loader entry.',
+    },
+  },
+  'skillMcpPanel/removeServer': {
+    dangerous: true,
+    description: {
+      zh: '删除受管块中的一个 MCP 服务器行（外部行需手动改文件）。',
+      en: 'Remove one managed MCP server row; external rows must be edited in the file by hand.',
+    },
+  },
+  'skillMcpPanel/setEnabled': {
+    dangerous: true,
+    description: {
+      zh: '启用或停用受管块中的一个 MCP 服务器行，并等待加载器就位。',
+      en: 'Enable or disable one managed MCP server row and wait for its loader entry.',
+    },
+  },
+  'skillMcpPanel/test': {
+    description: {
+      zh: '探测一个 MCP 服务器配置（或按名称指定已有服务器）并返回连接结果。',
+      en: 'Probe one MCP server configuration, or an existing server by name, and return the connection result.',
+    },
+  },
+  'skillMcpPanel/reload': {
+    readOnly: true,
+    description: {
+      zh: '重新读取受管块与外部 MCP 行（只重列，不重启连接）。',
+      en: 'Re-read managed and external MCP rows (a fresh list, not a connection restart).',
+    },
+  },
+  'skillMcpPanel/listTools': {
+    readOnly: true,
+    description: {
+      zh: '列出服务器已注册的 MCP 工具（不启动服务器；未连接时为空）。',
+      en: 'List the tools one server has registered without starting it; empty while disconnected.',
+    },
+  },
+  'skillMcpPanel/getToolFilter': {
+    readOnly: true,
+    description: { zh: '读取 MCP 工具禁用列表及其已生效的 agent 数。', en: 'Read the MCP tool deny list and the number of agents it is applied to.' },
+  },
+  'skillMcpPanel/setToolFilter': {
+    description: { zh: '持久化 MCP 工具禁用列表并立即重施到所有 agent。', en: 'Persist the MCP tool deny list and reapply it to every agent immediately.' },
+  },
+  'skillMcpPanel/evacuateForeign': {
+    description: {
+      zh: '把受管块内的外来顶层 MCP 行原样搬到块外（不删除）。',
+      en: 'Move foreign top-level MCP rows out of the managed block unchanged, without deleting them.',
+    },
+  },
+  'skillMcpPanel/oauthStart': {
+    dangerous: true,
+    description: {
+      zh: '为一个 streamable-http 服务器发起 OAuth 登录，返回授权地址与流程 id。',
+      en: 'Begin OAuth sign-in for one streamable-http server and return its authorization URL and flow id.',
+    },
+  },
+  'skillMcpPanel/oauthPoll': {
+    dangerous: true,
+    description: {
+      zh: '轮询一次 OAuth 流程；拿到授权码后换取令牌、写入请求头并落盘。',
+      en: 'Poll one OAuth flow; once authorized, exchange the code for tokens, write the request header and store them.',
+    },
+  },
+  'skillMcpPanel/oauthStatus': {
+    readOnly: true,
+    description: { zh: '读取一个服务器的 OAuth 连接、请求头与过期状态。', en: "Read one server's OAuth connection, header and expiry state." },
+  },
+  'skillMcpPanel/oauthDisconnect': {
+    dangerous: true,
+    description: {
+      zh: '断开 OAuth：删除请求头中的授权与本地令牌记录。',
+      en: 'Disconnect OAuth by removing the authorization header and the stored token record.',
+    },
   },
 
   // ── skills(技能) ──
@@ -679,8 +749,8 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
 
   // ── subagents(子代理) ──
-  'subagents/interruptByParent': {
-    description: { zh: '经持久的父地址中断一个子代理（缺席/空闲/已完成都是无操作）。' },
+  'subagents/interruptByUser': {
+    description: { zh: '经 Gateway 按目标会话授权中断一个子代理（缺席/空闲/已完成都是无操作）。' },
   },
   'subagents/prompt': {
     description: { zh: '把一条界面撰写的消息投递给可续接的子代理。' },
@@ -714,6 +784,14 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
     readOnly: true,
     description: { zh: '探测会话执行环境里已安装的 shell。' },
   },
+  'terminal/watch': {
+    description: { zh: '流式订阅会话保留的终端（整份集合更新，不解析或激活 Agent）。' },
+  },
+
+  // ── toolResults(工具结果) ──
+  'toolResults/watch': {
+    description: { zh: '流式观察一条已提交的工具结果（不加载会话，也不读历史）。' },
+  },
 
   // ── userQuestions(用户提问) ──
   'userQuestions/answer': {
@@ -721,6 +799,12 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   },
   'userQuestions/attachWait': {
     description: { zh: '让一个应答界面持有一次限时等待（关闭流即释放）。' },
+  },
+
+  // ── web(Web 搜索与抓取) ──
+  'web/listProviders': {
+    readOnly: true,
+    description: { zh: '列出已注册的搜索与抓取提供商（供提供商选择器使用）。' },
   },
 
   // ── workspace(工作区) ──
@@ -773,6 +857,10 @@ export const ENDPOINT_META: Readonly<Record<string, EndpointMeta>> = {
   'workspaceFiles/readBytes': {
     readOnly: true,
     description: { zh: '读取完整常规文件或单个字节区间（不做文本解码）。' },
+  },
+  'workspaceFiles/search': {
+    readOnly: true,
+    description: { zh: '用打包的 ripgrep 搜索文件及其推断出的上级目录。' },
   },
   'workspaceFiles/stat': {
     readOnly: true,

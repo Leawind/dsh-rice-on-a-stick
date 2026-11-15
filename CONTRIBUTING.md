@@ -30,7 +30,7 @@ dsh Typert descriptor 只给端点名与自带描述，不标注读写性。插�
 - `dangerous: true` —— 信任与供应链类操作（凭据写入、插件安装/启停、连接信任、市场索引）。危险端点**不会被永久拒绝**：它和普通端点走相同的三档策略（允许 / 审批 / 拒绝），但面板会把它单列成独立清单并醒目标注。
 - `description: { zh, en? }` —— 中文描述供面板显示；英文只在 descriptor 没有描述时填写（例如插件提供的端点），此时端点工具的摘要与契约也用它。descriptor 自带英文的端点不要在表里复述英文，面板会回退 descriptor。
 
-另有 `NAMESPACE_META`：每个命名空间的中英文一句话描述（纯界面数据，面板组头显示）。表的基准是 dsh 0.2.1-rc.2 web profile 的实机端点目录（可用 `endpoint_describe` 无参调用枚举当前进程的 namespace 索引逐域核对）；0.2.2-rc.1 的目录增至 179 个端点，新增端点尚未逐条核对，表外端点按变更类处理（停泊审批）。
+另有 `NAMESPACE_META`：每个命名空间的中英文一句话描述（纯界面数据，面板组头显示）。表的基准是 dsh 0.2.2-rc.3 web profile 的实机端点目录（195 个端点，可用 `endpoint_describe` 无参调用枚举当前进程的 namespace 索引逐域核对）：dsh 核心命名空间已按该版本逐条核对，第三方插件的命名空间（`skillsViewer` / `skillMcpPanel` / `workspaceRegistry` / `opsSettings` / `speech`）随各自插件版本变化，表外端点按变更类处理（停泊审批）。
 
 约定：
 

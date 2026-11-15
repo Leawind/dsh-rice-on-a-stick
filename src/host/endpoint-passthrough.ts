@@ -187,7 +187,7 @@ export function classifyInvocation(inv: InvocationView): EndpointClassification 
   }
 }
 
-/** 端点描述: descriptor 自带描述优先; 插件端点(如 mcpManager)没有描述时取元数据英文, 调用方仍能看到作用 */
+/** 端点描述: descriptor 自带描述优先; 插件端点(如 skillMcpPanel)没有描述时取元数据英文, 调用方仍能看到作用 */
 function descriptionOf(inv: InvocationView): string | undefined {
   return inv.description ?? endpointMetaOf(`${inv.namespace}/${inv.method}`)?.description?.en
 }
