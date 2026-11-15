@@ -241,12 +241,12 @@ try {
     eventId: 'e2e-nonexistent-event',
     decision: 'allow',
   })
-  // 两种明确拒绝都算过: 回答客户端在位时是"no held approval"; 宿主没有远程回答接缝(如全新 web profile)时
+  // 两种明确拒绝都算过: 回答客户端在位时是"no pending approval"; 宿主没有远程回答接缝(如全新 web profile)时
   // 插件按 answers.ts 的降级路径明确说明自己不是 Web 回答客户端——都不会静默成功或挂住
   const approvalAnswerError = String(approvalAnswerMissing.inner.error ?? '')
   report(
     'approval_answer 未知审批明确报错',
-    approvalAnswerError.includes('no held approval') || approvalAnswerError.includes('not acting as a Web answer client'),
+    approvalAnswerError.includes('no pending approval') || approvalAnswerError.includes('not acting as a Web answer client'),
     approvalAnswerError.slice(0, 160),
   )
 
