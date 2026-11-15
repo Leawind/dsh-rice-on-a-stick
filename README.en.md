@@ -5,7 +5,7 @@
 
 [中文](README.md) | English
 
-[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-≥0.2.2--rc.1-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-≥0.2.2--rc.3-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![NPM Downloads](https://img.shields.io/npm/dw/dsh-rice-on-a-stick)](https://www.npmjs.com/package/dsh-rice-on-a-stick)
 
 [![Plugin](https://img.shields.io/github/v/tag/Leawind/dsh-rice-on-a-stick?filter=v*&label=Plugin)](https://github.com/Leawind/dsh-rice-on-a-stick/releases)
@@ -41,7 +41,7 @@ A plugin that lets dsh control dsh
 
 Requirements:
 
-- DeepSeek Harness `0.2.2-rc.1` or later (recommended)
+- DeepSeek Harness `0.2.2-rc.3` or later (recommended)
 - The graphical interface (the "Rice on a Stick" page in the sidebar) and full session functionality require the web or desktop version of dsh
 - MCP clients must support Streamable HTTP; clients that only support stdio need to bridge it themselves
 
