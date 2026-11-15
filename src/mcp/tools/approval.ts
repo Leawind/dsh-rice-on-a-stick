@@ -19,7 +19,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List pending approvals',
       description:
-        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` = this plugin holds it and `approval_answer` can answer; false = the UI or another client owns it.',
+        'List pending approvals for one or more sessions: `eventId`, `approvalId`, `toolName`, `callId`, `reason`, `requestedAt`, `answerable`, `policy`. `answerable=true` = this plugin holds it and `approval_answer` can answer (any session, including ones opened in the dsh UI); `false` = already answered elsewhere or never forwarded (no answer-client seam).',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -39,7 +39,7 @@ export function registerApprovalTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer an approval',
       description:
-        'Answer an approval this plugin holds (`answerable=true` in `approval_list`) by `eventId` (preferred) or `callId`; allow = one-time grant, reject = deny.',
+        'Answer an approval this plugin holds (`answerable=true` in `approval_list`) by `eventId` (preferred) or `callId`; allow = one-time grant, reject = deny. Works for any live session, including ones opened in the dsh UI (the native card stays visible; first answer wins).',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the approval.'),
         eventId: z.string().optional().describe('eventId from approval_list (preferred).'),

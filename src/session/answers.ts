@@ -1,7 +1,7 @@
 /**
  * 远程回答客户端: 本插件在宿主里冒充一个普通 Web 客户端。
  *
- * 机制(0.2.1-rc.2 实测可行):
+ * 机制(0.2.1-rc.2 起实测可行, 0.2.2-rc.3 复核):
  *   - `connection.createPeer({ principal: { kind: 'owner' }, interactions: 'answer' })`
  *     创建一个与浏览器同级的 owner Peer;
  *   - `typertGateway.openRemoteEvents({ args: {} }, signal, peer)` 打开 forwarded
@@ -16,7 +16,11 @@
  *
  * 边界: `openRemoteEvents` / `dispatchRpc` 不是公开服务契约, 必须 feature-detect;
  * 宿主升级后若缺席, runtime 降级为 available=false(工具只读, 原生 UI 照常工作)。
- * 只记录 `state.sessionRecords` 里的会话, 不劫持用户在界面上手开的会话。
+ *
+ * 范围: 宿主把同一条 waterfall 投递给所有 answer client, 本插件照单全收——不按"插件创建/
+ * 驱动过的会话"过滤, 界面手开的会话同样持有(先答者赢, 原生卡片照常保留)。插件从不自动应答,
+ * 只有显式工具调用(`approval_answer` / `question_answer`)才会提交结果, 所以"持有"不等于
+ * "替用户决定"。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { serviceOf } from '../host/bridge.js'
@@ -62,8 +66,6 @@ interface GatewayView {
 export type AnswerSender = (eventId: string, value: unknown) => Promise<{ ok: boolean; error?: string }>
 
 export interface AnswerRuntimeOptions {
-  /** 只记录这些会话(缺省 = state.sessionRecords) */
-  managed?: (sessionId: string) => boolean
   /** 把 answer 送到 gateway; 缺省 = 不可回答(只读) */
   send?: AnswerSender
   /** 变更通知(缺省 state.hooks.notifySessionActivity) */
@@ -169,9 +171,10 @@ function asQuestions(value: unknown): QuestionView[] | undefined {
 /**
  * 创建回答运行时。`send` 缺席时 available=false——仍可记录帧(只读展示),
  * 但回答会明确报不可用。真实安装见 {@link installRemoteAnswerClient}。
+ *
+ * 收到的帧一律按 `agentId` 归到会话, 不过滤会话来源(界面手开的会话也持有)。
  */
 export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerRuntimeInternals {
-  const managed = options.managed ?? ((sessionId: string) => state.sessionRecords.has(sessionId))
   const notify = options.notify ?? ((sessionId: string) => state.hooks.notifySessionActivity(sessionId))
   const now = options.now ?? Date.now
   const approvals = new Map<string, PendingApproval>()
@@ -265,7 +268,7 @@ export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerR
           ok: false,
           error:
             `no pending approval for session "${input.sessionId}" (${input.eventId !== undefined ? `eventId=${input.eventId}` : `callId=${input.callId ?? ''}`}); ` +
-            'it may already be answered by the UI or another client, or this host has no answer-client seam',
+            'it may already be answered by the UI or another client, or the host never forwarded it to this plugin (no answer-client seam)',
         }
       }
       if (options.send === undefined) return { ok: false, error: ANSWER_UNAVAILABLE }
@@ -282,7 +285,7 @@ export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerR
           ok: false,
           error:
             `no pending question for session "${input.sessionId}" (${input.eventId !== undefined ? `eventId=${input.eventId}` : `callId=${input.callId ?? ''}`}); ` +
-            'it may already be answered by the UI or another client, or this host has no answer-client seam',
+            'it may already be answered by the UI or another client, or the host never forwarded it to this plugin (no answer-client seam)',
         }
       }
       const invalid = validateAnswers(entry.questions, input.answers)
@@ -300,7 +303,6 @@ export function createAnswerRuntime(options: AnswerRuntimeOptions = {}): AnswerR
       }
       if (frame.type !== 'waterfall' || frame.eventId === undefined || frame.agentId === undefined) return
       const sessionId = String(frame.agentId)
-      if (!managed(sessionId)) return
       const request = asRecord(frame.request)
       if (request === undefined) return
       if (frame.event === 'approval/request') {

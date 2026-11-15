@@ -2527,13 +2527,6 @@ try {
   // ── Phase G2: 远程回答面(审批/问题都是 forwarded answer client; 原生 UI 保留) ──
   {
     const approvalCtx = makeCtx({ sessionController: fakeSessionController, llm: fakeLlm })
-    // 插件只记录 state.sessionRecords 里的会话; 测试里显式登记(真实路径: session_create / 首次 prompt)
-    state.sessionRecords.set('sess-approval', {
-      sessionId: 'sess-approval' as any,
-      cwd: FAKE_CWD,
-      selection: { provider: 'p1', model: 'm1' },
-      preset: 'standard',
-    })
     const phase = await startPhase(await freePort(), approvalCtx, { approvalTimeoutMs: 5000 })
     approvalAgent.__events.length = 0
 
@@ -2545,10 +2538,13 @@ try {
         sends.push({ eventId, value })
         return { ok: true }
       },
-      managed: () => true,
       now: () => 1_700_000_000_000,
     })
     state.answers = runtime
+
+    // 会话不在 state.sessionRecords 里(界面手开的会话就是这样): 审批面照样可答
+    state.sessionRecords.delete('sess-approval')
+    checks['Phase G2: 目标会话未被插件纳管'] = state.sessionRecords.has('sess-approval') === false
 
     const empty = await phase.call('approval_list', { sessionIds: ['sess-approval'] })
     checks['approval_list: 初始无审批'] = innerOf(empty).sessions?.[0]?.approvals?.length === 0
@@ -3468,7 +3464,6 @@ try {
 
   const sends: { eventId: string; value: unknown }[] = []
   const runtime = createAnswerRuntime({
-    managed: (sessionId) => sessionId === 's1',
     send: async (eventId, value) => {
       sends.push({ eventId, value })
       return { ok: true }
@@ -3485,16 +3480,15 @@ try {
   })
   checks['answers: 审批帧进入 store 且可按 callId 找到'] =
     runtime.listApprovals('s1').length === 1 && runtime.findApproval('s1', undefined, 'c1')?.eventId === 'ev-1'
-  checks['answers: 未管理的会话帧被忽略'] = (() => {
-    runtime.applyFrame({
-      type: 'waterfall',
-      event: 'approval/request',
-      eventId: 'ev-other',
-      agentId: 's2',
-      request: { toolName: 'pwsh', callId: 'c2' },
-    })
-    return runtime.listApprovals('s2').length === 0
-  })()
+  // 会话是否被插件创建/驱动过不再影响持有: 界面手开的会话同样可答
+  runtime.applyFrame({
+    type: 'waterfall',
+    event: 'approval/request',
+    eventId: 'ev-other',
+    agentId: 's2',
+    request: { toolName: 'pwsh', callId: 'c2' },
+  })
+  checks['answers: 任意会话(非插件纳管)的帧同样持有'] = runtime.listApprovals('s2').length === 1 && runtime.findApproval('s2', 'ev-other')?.answerable === true
 
   const wait = runtime.waitForInput('s1')
   const allow = await runtime.answerApproval({ sessionId: 's1', callId: 'c1', decision: 'allow' })

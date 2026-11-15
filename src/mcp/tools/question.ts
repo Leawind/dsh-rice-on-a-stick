@@ -35,7 +35,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'List pending questions',
       description:
-        'List pending `ask_user_question` batches for one or more sessions: `eventId`, `callId`, `state` (open/continued), `requestedAt`, `answerable`, and the question batch (id, question, header, options, multiSelect). `answerable=true` = this plugin holds it.',
+        'List pending `ask_user_question` batches for one or more sessions: `eventId`, `callId`, `state` (open/continued), `requestedAt`, `answerable`, and the question batch (id, question, header, options, multiSelect). `answerable=true` = this plugin holds it (any session, including ones opened in the dsh UI).',
       inputSchema: {
         sessionIds: z.array(z.string()).min(1).max(20).describe('Session ids to inspect (1-20).'),
       },
@@ -55,7 +55,7 @@ export function registerQuestionTools(mcp: McpServer, ctx: Context): void {
     {
       title: 'Answer a pending question',
       description:
-        'Answer an `ask_user_question` batch this plugin holds (`answerable=true`): one item per question id, every id exactly once. For a timed question already `continued`, pass `callId` to use the host late-answer path.',
+        'Answer an `ask_user_question` batch this plugin holds (`answerable=true`): one item per question id, every id exactly once. Works for any live session, including ones opened in the dsh UI. For a timed question already `continued`, pass `callId` to use the host late-answer path.',
       inputSchema: {
         sessionId: z.string().describe('Session id that owns the question.'),
         eventId: z.string().optional().describe('eventId from question_list (preferred).'),
