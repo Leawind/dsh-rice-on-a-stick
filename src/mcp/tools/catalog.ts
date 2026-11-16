@@ -51,7 +51,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List workspaces',
       description:
-        'List registered workspaces (id, path, sessionCount) — use it to resolve a user-named workspace to the `path` that `session_create.workspacePath` takes. Headless deployments have none; the result says so. Output is TOON tabular text.',
+        'List registered workspaces (id, path, sessionCount) — use it to resolve a user-named workspace to the `path` that `session_create.workspacePath` takes. Headless deployments have none; the result says so.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -76,7 +76,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List models',
       description:
-        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/reasoningEffort/preset. Models outside the deployment's allowedModels are left out; pass `includeDisallowed` to see the full host catalog. Output is TOON tabular text.",
+        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/reasoningEffort/preset. Models outside the deployment's allowedModels are left out; pass `includeDisallowed` to see the full host catalog.",
       inputSchema: {
         provider: z.string().optional().describe('Only list this provider (default: all).'),
         includeDisallowed: z
@@ -139,7 +139,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List permission presets',
       description:
-        "List the host's permission presets (sandbox + approval bundles) — the values `session_create.permission` / `session_set_permission` take; `defaultPreset` is what new sessions inherit. Output is TOON tabular text.",
+        "List the host's permission presets (sandbox + approval bundles) — the values `session_create.permission` / `session_set_permission` take; `defaultPreset` is what new sessions inherit.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -163,7 +163,7 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
     {
       title: 'List native subagents',
       description:
-        "Read a session's native subagent catalog; `recursive=true` adds descendants with `parentId`/`depth`/`path`. Directory only — it does not load or resume the child; drive one with the session tools. Output is TOON tabular text.",
+        "Read a session's native subagent catalog; `recursive=true` adds descendants with `parentId`/`depth`/`path`. Directory only — it does not load or resume the child; drive one with the session tools.",
       inputSchema: {
         parentSessionId: z.string().describe('Parent session id.'),
         recursive: z.boolean().optional().describe('true = list all reachable descendants; default = direct children only.'),

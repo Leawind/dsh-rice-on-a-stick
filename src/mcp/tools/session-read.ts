@@ -41,8 +41,7 @@ export function registerSessionReadTools(mcp: McpServer, ctx: Context): void {
     'session_list',
     {
       title: 'List sessions',
-      description:
-        'List session metadata rows, live first, newest first. Archived sessions are hidden unless `scope` asks for them. Output is TOON: a `sessions[N]{columns}:` header then one comma-separated row per session (an empty cell = field absent).',
+      description: 'List session metadata rows, live first, newest first. Archived sessions are hidden unless `scope` asks for them.',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of rows (default 20).'),
         workspacePath: z
