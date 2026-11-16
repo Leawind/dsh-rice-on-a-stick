@@ -172,9 +172,9 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     }
   const readModels: ReadFn = (uri) => collectModelCatalog(ctx).then((v) => json(uri, v))
   const readModelProvider: ReadFn = (uri, vars) =>
-    collectModelCatalog(ctx, decodeVar(vars.provider)).then((v) => {
+    collectModelCatalog(ctx, { provider: decodeVar(vars.provider) }).then((v) => {
       const providers = (v as { providers?: unknown[] }).providers ?? []
-      if (providers.length === 0) throw new Error(`provider not routable: ${vars.provider}`)
+      if (providers.length === 0) throw new Error(`provider not routable: ${vars.provider} (unknown, failed to load, or outside allowedModels)`)
       return json(uri, providers[0])
     })
   const readPresets: ReadFn = (uri) => presetsPayload(ctx).then((v) => json(uri, v))
@@ -292,7 +292,8 @@ export function registerResources(mcp: McpServer, ctx: Context, deps?: ResourceD
     resUri.models,
     {
       title: 'Model catalog',
-      description: 'Routable model catalog (provider/model/reasoning efforts/default selection/load failures; same data as model_list)',
+      description:
+        'Routable model catalog trimmed to the deployment allowedModels (provider/model/reasoning efforts/default selection/load failures; same data as model_list — pass model_list `includeDisallowed` for the full host catalog)',
       mimeType: 'application/json',
       annotations: ann.data,
     },

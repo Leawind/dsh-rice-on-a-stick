@@ -30,7 +30,7 @@ import {
   type ProjectionBlockView,
 } from './bridge.js'
 import { latestTitleOf, sessionEventSourceOf, sessionInsightPayload } from '../session/insight.js'
-import { hostDefaultSelection, knownSelectionOf } from '../session/engine.js'
+import { hostDefaultSelection, isModelAllowed, knownSelectionOf } from '../session/engine.js'
 import { currentPermissionOf } from '../session/permissions.js'
 import { pendingCompactionView } from '../session/compaction.js'
 import { resolve } from 'node:path'
@@ -125,16 +125,27 @@ function projectCatalogModel(m: {
   return o
 }
 
+/** 模型目录的查询条件 */
+export interface ModelCatalogQuery {
+  /** 只列该 provider */
+  provider?: string
+  /** 一并列出 allowedModels 之外的模型(默认按白名单裁剪: 只列调用方真正能选的) */
+  includeDisallowed?: boolean
+}
+
 /**
  * 收集当前可路由的模型目录。两个来源:
  *   1. sessionController.modelCatalog() —— 官方口径(含 default / routableProviders / 各 provider 的加载失败),
  *      与 Web UI 模型选择器同一数据源;
  *   2. 回退: llm.listProviders() + 逐个 listModels() —— 只服务会话控制器缺席的部署(如 headless),
  *      逐个 provider 隔离失败, 且不含推理档元数据(那需要 resolveModelInfo, 这里不逐模型发请求)。
+ * 默认按 allowedModels 裁剪(白名单开关开启且非空时): 只列调用方真能选的模型, 整组无可用模型的
+ * provider 连行一起消失, 白名单外的缺省选择也不透出——清单外的模型只服务两处: 设置面板编辑白名单
+ * (要看得见全量), 以及显式传 includeDisallowed 的调用方。开关关闭或清单为空时不裁剪。
  * 同时回报插件自身的模型配置与 allowedModels, 让调用方知道"能用哪些模型";
  * 部署方在侧栏页写的模型/提供商简介(description)并入对应目录行。
  */
-export async function collectModelCatalog(ctx: Context, only?: string): Promise<Record<string, unknown>> {
+export async function collectModelCatalog(ctx: Context, query: ModelCatalogQuery = {}): Promise<Record<string, unknown>> {
   const failures: { id: string; name?: string; message: string }[] = []
   let source = 'none'
   let groups: { id: string; name: string; models: Record<string, unknown>[] }[] = []
@@ -181,7 +192,7 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
 
   // 缺省选择: 官方目录优先, 其次宿主默认选择(agentDefaultModel)
   if (def === undefined) def = hostDefaultSelection(ctx)
-  const q = only?.trim()
+  const q = query.provider?.trim()
   const filtered = q ? groups.filter((g) => g.id === q) : groups
   // 部署方写的简介(侧栏页编辑)并入目录行: provider 行与 model 行各带可选 description,
   // 让调用方在选模型时看到"这个模型/提供商是干什么的"
@@ -195,11 +206,19 @@ export async function collectModelCatalog(ctx: Context, only?: string): Promise<
       return d !== undefined ? { ...m, description: d } : m
     }),
   }))
+  const untrimmed = query.includeDisallowed === true
+  const visible = untrimmed
+    ? described
+    : described.map((g) => ({ ...g, models: g.models.filter((m) => isModelAllowed(g.id, String(m.id))) })).filter((g) => g.models.length > 0)
+  const visibleProviders = new Set(visible.map((g) => g.id))
+  const routableVisible = (untrimmed ? routable : routable.filter((p) => visibleProviders.has(p))).filter((p) => q === undefined || p === q)
+  // 默认选择同样按白名单收敛: 白名单外的默认模型不可选, 透出它只会诱导调用方照抄后被拒
+  const defaultUsable = def !== undefined && (untrimmed || isModelAllowed(def.provider ?? '', def.model ?? ''))
   return {
     source,
-    default: projectModel(def),
-    routableProviders: q ? routable.filter((p) => p === q) : routable,
-    providers: described,
+    default: defaultUsable ? projectModel(def) : {},
+    routableProviders: routableVisible,
+    providers: visible,
     ...(failures.length ? { failures } : {}),
     config: {
       allowedModels: state.config.allowedModels,

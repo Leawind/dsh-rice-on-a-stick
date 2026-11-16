@@ -94,16 +94,22 @@ function agentOptionsOf(selection: ModelSelection): AgentOptions {
   return opts
 }
 
-/** allowedModels 允许清单校验(开关关闭或清单为空 = 不限制); 越界抛带清单内容的明确错误 */
-function assertModelAllowed(selection: ModelSelection): void {
+/** 模型是否可用(在 allowedModels 内; 开关关闭或清单为空 = 不限制)。
+ * 写入口(新建/换模型)与目录面(model_list / dsh://models 的裁剪)共用这一份判定。 */
+export function isModelAllowed(provider: string, model: string): boolean {
   const allowed = state.config.allowedModels
-  if (!state.config.allowedModelsEnabled || allowed.length === 0) return
-  if (!allowed.includes(`${selection.provider}/${selection.model}`)) {
-    throw new Error(
-      `model "${selection.provider}/${selection.model}" is not in allowedModels [${allowed.join(', ')}]; ` +
-        "choose a model from the allowlist (see model_list), or have the deployment adjust/disable the plugin's allowedModels config",
-    )
-  }
+  if (!state.config.allowedModelsEnabled || allowed.length === 0) return true
+  return allowed.includes(`${provider}/${model}`)
+}
+
+/** allowedModels 允许清单校验; 越界抛带清单内容的明确错误 */
+function assertModelAllowed(selection: ModelSelection): void {
+  if (isModelAllowed(selection.provider, selection.model)) return
+  const allowed = state.config.allowedModels
+  throw new Error(
+    `model "${selection.provider}/${selection.model}" is not in allowedModels [${allowed.join(', ')}]; ` +
+      "choose a model from the allowlist (see model_list), or have the deployment adjust/disable the plugin's allowedModels config",
+  )
 }
 
 /** 把 MCP 工具的可选参数收敛成完整选择(MCP 客户端可能把空串当"未提供", 一并当没有);

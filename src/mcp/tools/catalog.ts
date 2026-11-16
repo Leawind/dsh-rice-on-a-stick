@@ -68,21 +68,26 @@ export function registerCatalogTools(mcp: McpServer, ctx: Context, deps: ToolDep
   )
 
   // 模型目录: 选模型前先查这里(provider route / 模型 id / 推理档 / 宿主当前缺省)。
-  // TOON 投影把目录拍平成两张表: providers 行(部署方写的简介在列) + models 行(provider 列引用其 id,
-  // efforts 是推理档 id 的 `|` 连接——调用方只需要 id, 不需要与 id 语义重复的档位名)。
+  // 默认按部署方的 allowedModels 裁剪: 清单外的模型不列出(它们选不了), 整组无可用模型的 provider 也不出现;
+  // includeDisallowed 才透出全量目录。TOON 投影把目录拍平成两张表: providers 行(部署方写的简介在列)
+  // + models 行(provider 列引用其 id, efforts 是推理档 id 的 `|` 连接——调用方只需要 id, 不需要与 id 语义重复的档位名)。
   mcp.registerTool(
     'model_list',
     {
       title: 'List models',
       description:
-        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/reasoningEffort/preset. Output is TOON tabular text.",
+        "List routable providers, model ids, reasoning-effort ids, the preset roster (`presets`) and the host's current default — the value source for `session_create`'s provider/model/reasoningEffort/preset. Models outside the deployment's allowedModels are left out; pass `includeDisallowed` to see the full host catalog. Output is TOON tabular text.",
       inputSchema: {
         provider: z.string().optional().describe('Only list this provider (default: all).'),
+        includeDisallowed: z
+          .boolean()
+          .optional()
+          .describe("Also list models outside the deployment's allowedModels (default false: only models you may actually select)."),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ provider }) => {
-      const catalog = (await collectModelCatalog(ctx, provider)) as {
+    async ({ provider, includeDisallowed }) => {
+      const catalog = (await collectModelCatalog(ctx, { provider, includeDisallowed })) as {
         source: string
         default: Record<string, unknown>
         routableProviders: string[]

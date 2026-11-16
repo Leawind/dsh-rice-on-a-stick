@@ -261,7 +261,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // ── GUI 控制面: webServer 路由 /_dsh/dsh-rice-on-a-stick/<method>(设置页面板的数据/操作后端) ──
   registerWebRoutes(ctx, {
     statusSnapshot,
-    models: () => collectModelCatalog(ctx),
+    // 设置面板的模型选择器/白名单编辑器要全量目录(勾选清单外的模型才谈得上允许);
+    // 对 MCP 调用方(model_list / dsh://models)默认按白名单裁剪
+    models: () => collectModelCatalog(ctx, { includeDisallowed: true }),
     // 配置写入落盘后立即同步(事件监听也覆盖手改配置的路径; 显式再调一次让面板点击没有轮询延迟)
     onConfigCommitted: (values) => {
       // 自用工具的开关与白名单共用一个 sync: 差量比较, 无变化时是 no-op

@@ -1886,7 +1886,32 @@ try {
 
   // ── Phase B: allowedModels 允许清单(独立端口独立 ctx; 缺省开关按"清单非空即启用"推导) ──
   {
-    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
+    const port = await freePort()
+    const phase = await startPhase(port, makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p1/m1'] })
+    const pairOf = (rows: any[]) => (rows ?? []).map((r: any) => `${r.provider}/${r.id}`)
+    // 目录面默认按白名单裁剪: 清单外的模型不列出(选不了), 整组无可用模型的 provider 也整行消失
+    const mlTrimmed = innerOf(await phase.call('model_list', {})) as any
+    checks['model_list: 默认只列白名单内模型'] = JSON.stringify(pairOf(mlTrimmed.models)) === JSON.stringify(['p1/m1'])
+    checks['model_list: 整组无可用模型的 provider 不列出'] =
+      JSON.stringify((mlTrimmed.providers ?? []).map((p: any) => p.id)) === JSON.stringify(['p1']) &&
+      JSON.stringify(mlTrimmed.routableProviders) === JSON.stringify(['p1'])
+    // 全量目录只能显式索取
+    const mlAll = innerOf(await phase.call('model_list', { includeDisallowed: true })) as any
+    checks['model_list: includeDisallowed 才列出全量目录'] = pairOf(mlAll.models).length === 3 && (mlAll.providers ?? []).length === 2
+    // 资源面与工具同源: dsh://models 默认同样裁剪
+    const resInit = await phase.initialize()
+    const readModels = await rpc(
+      resInit.sid,
+      { jsonrpc: '2.0', id: 51, method: 'resources/read', params: { uri: 'dsh://models' } },
+      {},
+      `http://127.0.0.1:${port}/mcp`,
+    )
+    const modelsDoc = JSON.parse(parsePayload(readModels.text).result.contents[0].text)
+    checks['dsh://models: 与 model_list 同源裁剪'] =
+      JSON.stringify((modelsDoc.providers ?? []).flatMap((p: any) => (p.models ?? []).map((m: any) => `${p.id}/${m.id}`))) === JSON.stringify(['p1/m1'])
+    // 设置面板要全量目录(勾选清单外的模型才谈得上允许)
+    const guiModels = await phase.gui('models')
+    checks['GUI models 路由: 面板仍拿全量目录'] = guiModels.status === 200 && guiModels.body.includes('Model Nine')
     const mkOut = await phase.call('session_create', {
       workspacePath: FAKE_CWD,
       provider: 'p2',
@@ -1940,6 +1965,18 @@ try {
     checks['allowedModels: 开关关闭时清单外放行'] = typeof innerOf(mkOff).sessionId === 'string'
     const stOff = await phase.call('plugin_status', {})
     checks['allowedModels: 关闭态 status 透出 enabled=false'] = innerOf(stOff).config?.allowedModelsEnabled === false
+    // 开关关闭 = 不裁剪: 清单原样保留但不生效
+    const mlOff = innerOf(await phase.call('model_list', {})) as any
+    checks['model_list: 开关关闭时不裁剪'] = (mlOff.models ?? []).length === 3 && (mlOff.providers ?? []).length === 2
+    await phase.dispose()
+  }
+
+  // ── Phase B2b: 白名单外的缺省选择不透出(不诱导调用方照抄会被拒的默认模型) ──
+  {
+    const phase = await startPhase(await freePort(), makeCtx({ sessionController: fakeSessionController, llm: fakeLlm }), { allowedModels: ['p2/m9'] })
+    const ml = innerOf(await phase.call('model_list', {})) as any
+    checks['model_list: 白名单外的缺省选择透出为空'] = JSON.stringify(ml.default ?? {}) === '{}'
+    checks['model_list: 白名单外的 provider 不进 routableProviders'] = JSON.stringify(ml.routableProviders) === JSON.stringify(['p2'])
     await phase.dispose()
   }
 
