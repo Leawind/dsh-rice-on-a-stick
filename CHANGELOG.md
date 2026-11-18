@@ -2,6 +2,18 @@
 
 开发期间的改动记录在 conventional commits 的提交信息里，发布时整理为版本条目。
 
+## 0.2.3-rc.2 (2026-11-18)
+
+这一版跟进 dsh 0.2.2-rc.3 的端点目录与依赖，并修掉两处可用性缺口：监听启动失败不再拖死整个插件（破坏性变更），审批与提问的转发请求覆盖到界面手开的会话。
+
+-   破坏性变更：启动期监听失败（端口被占、EADDRNOTAVAIL）不再让 `apply` 抛出、插件自毁——GUI 路由与自用工具照常装配，面板保持可用（面板正是改监听配置的入口）；失败原因记到 `state.listenError` 并由 `statusSnapshot` 暴露，监听成功或显式关闭 http 时清除。启动期与热改期统一同语义，冒烟改为断言“`apply` resolve + `listenError` 在案”。
+-   设置面板：端点卡就地显示“监听启动失败”横幅（中英文案，复用错误样式），改好监听地址或端口再提交即自愈。
+-   `model_list` / `dsh://models` 默认按 `allowedModels` 裁剪：清单外模型不列出，provider 整组无可用模型时连行消失，白名单外的缺省选择也不透出；新增 `model_list` 的 `includeDisallowed` 显式索取全量宿主目录。目录面与写入口共用 `isModelAllowed`，设置面板仍拿全量目录以编辑白名单。
+-   审批与提问：宿主转发给所有 answer client 的 approval/request 与 user-questions/request 一律持有，界面手开的会话同样可答（此前监督其它会话的调用方只能看着界面批不了）；持有不等于自动应答，仍只有显式 `approval_answer` / `question_answer` 经 `$events/result` 提交，原生卡片保留、人机先答者赢；失败文案区分“已被别处回答”与“宿主未转发（无 answer seam）”。
+-   宿主跟进：五个 `@deepseek-ai/dsh-*` devDependencies 与 `engines.dsh` 升到 0.2.2-rc.3；端点表按该版本实机目录（195 端点）重新对齐——account 通知面改名、`officeToPdf` → `officeKit`、schedule 的 `delete` / `update` → `deleteInactive` / `edit`、subagents 的 `interruptByParent` → `interruptByUser`，补 `session/events|state|wait|observe*`、`pluginManager` 新方法、`schedule/create|run|view|deliveryLimits`、`agentTeams/setEnabled`、`mcpManager/probe|restart|watch`、`toolResults/watch`、`terminal/watch`、`web/listProviders`、`workspaceFiles/search`；只读标注补到新的核心只读端点，`skill-mcp-panel` 的命名空间从 `mcpManager` 迁到 `skillMcpPanel`。
+-   工具面：`workspace_list` / `model_list` / `permission_list` / `session_subagents` / `session_list` 描述里的 TOON 格式说明删掉，格式细节统一由 `dsh_guide` 的 `results` 一节承载。
+-   测试：e2e 的 `approval_answer` 未知审批文案与冒烟对齐（“no pending approval”），一次性宿主上不再必红。
+
 ## 0.2.3-rc.1 (2026-11-13)
 
 这一版跟随 dsh 0.2.2 的语义，补齐委派、通知与压缩三块能力，策略配置改成“默认档 + 例外清单”。破坏性变更两处：`session_create` 必填推理档，工具与端点策略字段重做。
